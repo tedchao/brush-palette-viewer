@@ -6,7 +6,16 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-burn = { path = "../burn/crates/burn", features = ['wgpu', 'autodiff'] }
+burn = { path = "../burn/crates/burn", features = [
+    'wgpu',
+    'ndarray',
+    'autodiff',
+] }
 bytemuck = "1.14.3"
 derive-new = "0.6.0"
+ndarray = "0.15.6"
 rerun = "0.13.0"
+
+[profile.dev]
+opt-level = 1
+incremental = true

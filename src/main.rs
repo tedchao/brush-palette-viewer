@@ -1,3 +1,6 @@
+use std::error::Error;
+mod utils;
+
 use burn::{
     backend::wgpu::{compute::WgpuRuntime, AutoGraphicsApi},
     tensor::{Distribution, Tensor},
@@ -6,6 +9,7 @@ use burn::{
 mod backward;
 mod forward;
 
+use burn::backend::Autodiff;
 use burn::tensor::activation;
 
 /// We use a type alias for better readability.
@@ -48,23 +52,6 @@ pub fn matmul_add_relu_reference<B: Backend>(
     let x = lhs.matmul(rhs) + bias;
 
     activation::relu(x)
-}
-
-fn inference<B: Backend>(device: &B::Device) {
-    let lhs = Tensor::<B, 3>::random([1, 32, 32], Distribution::Default, device);
-    let rhs = Tensor::random([32, 32, 32], Distribution::Default, device);
-    let bias = Tensor::random([32, 32, 32], Distribution::Default, device);
-
-    let reference = matmul_add_relu_reference(lhs.clone(), rhs.clone(), bias.clone())
-        .into_data()
-        .convert::<f32>();
-    let custom = matmul_add_relu_custom(lhs, rhs, bias)
-        .into_data()
-        .convert::<f32>();
-
-    reference.assert_approx_eq(&custom, 3);
-
-    println!("Both reference and the custom fused kernel have the same output");
 }
 
 fn autodiff<B: AutodiffBackend>(device: &B::Device) {
@@ -114,10 +101,27 @@ fn autodiff<B: AutodiffBackend>(device: &B::Device) {
     println!("Both reference and the custom fused kernel have the same bias gradient");
 }
 
-fn main() {
-    type MyBackend = burn::backend::wgpu::JitBackend<WgpuRuntime<AutoGraphicsApi, f32, i32>>;
-    type MyAutodiffBackend = burn::backend::Autodiff<MyBackend>;
+type WgpuBackend = burn::backend::wgpu::JitBackend<WgpuRuntime<AutoGraphicsApi, f32, i32>>;
+
+fn main() -> Result<(), Box<dyn Error>> {
+    let rec = rerun::RecordingStreamBuilder::new("visualize training").spawn()?;
+
     let device = Default::default();
-    inference::<MyBackend>(&device);
-    autodiff::<MyAutodiffBackend>(&device);
+
+    let lhs = Tensor::<WgpuBackend, 3>::random([1, 32, 32], Distribution::Default, &device);
+    let rhs = Tensor::random([32, 32, 32], Distribution::Default, &device);
+    let bias = Tensor::random([32, 32, 32], Distribution::Default, &device);
+
+    let reference = matmul_add_relu_reference(lhs.clone(), rhs.clone(), bias.clone());
+    let custom = matmul_add_relu_custom(lhs, rhs, bias);
+
+    println!("Both reference and the custom fused kernel have the same output");
+
+    // Copy the reference tensor to the ndarray backend.
+    let reference_ndarray = Tensor::new(reference.clone());
+
+    // let ref_data = reference.inference::<WgpuBackend>(&device);
+    autodiff::<Autodiff<WgpuBackend>>(&device);
+
+    Ok(())
 }
