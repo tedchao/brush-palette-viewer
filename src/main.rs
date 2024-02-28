@@ -2,126 +2,164 @@ use std::error::Error;
 mod utils;
 
 use burn::{
-    backend::wgpu::{compute::WgpuRuntime, AutoGraphicsApi},
-    tensor::{Distribution, Tensor},
+    backend::{
+        wgpu::{compute::WgpuRuntime, AutoGraphicsApi},
+        Autodiff,
+    },
+    config::Config,
+    module::Module,
+    nn::{Linear, LinearConfig},
+    optim::{AdamWConfig, GradientsParams, Optimizer},
+    tensor::{
+        activation::{relu, sigmoid},
+        backend::{AutodiffBackend, Backend},
+        Data, Tensor,
+    },
 };
 
-mod backward;
-mod forward;
+use burn::tensor::ElementConversion;
 
-use burn::backend::Autodiff;
-use burn::tensor::activation;
+use image::io::Reader as ImageReader;
 
-/// We use a type alias for better readability.
-pub type FloatTensor<B, const D: usize> =
-    <B as burn::tensor::backend::Backend>::FloatTensorPrimitive<D>;
-
-/// We create our own Backend trait that extends the Burn backend trait.
-pub trait Backend: burn::tensor::backend::Backend {
-    fn fused_matmul_add_relu<const D: usize>(
-        lhs: FloatTensor<Self, D>,
-        rhs: FloatTensor<Self, D>,
-        bias: FloatTensor<Self, D>,
-    ) -> FloatTensor<Self, D>;
+#[derive(Module, Debug)]
+struct SmallNerf<B: Backend> {
+    project_up: Linear<B>,
+    lin_0: Linear<B>,
+    lin_1: Linear<B>,
+    lin_2: Linear<B>,
+    project_down: Linear<B>,
 }
 
-/// We create our own AutodiffBackend trait that extends the Burn autodiff backend trait.
-pub trait AutodiffBackend: Backend + burn::tensor::backend::AutodiffBackend {}
-
-/// We define our custom implementation using the added function on our custom backend.
-pub fn matmul_add_relu_custom<B: Backend>(
-    lhs: Tensor<B, 3>,
-    rhs: Tensor<B, 3>,
-    bias: Tensor<B, 3>,
-) -> Tensor<B, 3> {
-    let output = B::fused_matmul_add_relu(
-        lhs.into_primitive(),
-        rhs.into_primitive(),
-        bias.into_primitive(),
-    );
-
-    Tensor::from_primitive(output)
+#[derive(Config, Debug)]
+pub struct SmallNerfConfig {
+    hidden_width: usize,
 }
 
-/// We define a reference implementation using basic tensor operations.
-pub fn matmul_add_relu_reference<B: Backend>(
-    lhs: Tensor<B, 3>,
-    rhs: Tensor<B, 3>,
-    bias: Tensor<B, 3>,
-) -> Tensor<B, 3> {
-    let x = lhs.matmul(rhs) + bias;
-
-    activation::relu(x)
+impl SmallNerfConfig {
+    /// Returns the initialized model.
+    fn init<B: Backend>(&self, device: &B::Device) -> SmallNerf<B> {
+        SmallNerf {
+            project_up: LinearConfig::new(12, self.hidden_width).init(device),
+            lin_0: LinearConfig::new(self.hidden_width, self.hidden_width).init(device),
+            lin_1: LinearConfig::new(self.hidden_width, self.hidden_width).init(device),
+            lin_2: LinearConfig::new(self.hidden_width, self.hidden_width).init(device),
+            project_down: LinearConfig::new(self.hidden_width, 3).init(device),
+        }
+    }
 }
 
-fn autodiff<B: AutodiffBackend>(device: &B::Device) {
-    let lhs = Tensor::<B, 3>::random([1, 32, 32], Distribution::Default, device).require_grad();
-    let rhs = Tensor::random([32, 32, 32], Distribution::Default, device).require_grad();
-    let bias = Tensor::random([32, 32, 32], Distribution::Default, device).require_grad();
+impl<B: Backend> SmallNerf<B> {
+    fn forward(&self, coords: Tensor<B, 3>) -> Tensor<B, 3> {
+        // coords: [H, W, c]
+        let x = coords * std::f32::consts::PI;
 
-    let reference = matmul_add_relu_reference(lhs.clone(), rhs.clone(), bias.clone());
+        let x = Tensor::cat(
+            vec![
+                (x.clone() * 2).sin(),
+                (x.clone() * 2).cos(),
+                (x.clone() * 8).sin(),
+                (x.clone() * 8).cos(),
+                (x.clone() * 16).sin(),
+                (x.clone() * 16).cos(),
+            ],
+            2,
+        );
 
-    let mut gradients = reference.backward();
-
-    let lhs_grad_ref = lhs.grad_remove(&mut gradients).unwrap();
-    let rhs_grad_ref = rhs.grad_remove(&mut gradients).unwrap();
-    let bias_grad_ref = bias.grad_remove(&mut gradients).unwrap();
-
-    let lhs = lhs.detach();
-    let rhs = rhs.detach();
-    let bias = bias.detach();
-
-    let custom = matmul_add_relu_custom(lhs.clone(), rhs.clone(), bias.clone());
-
-    let mut gradients = custom.backward();
-
-    let lhs_grad_custom = lhs.grad_remove(&mut gradients).unwrap();
-    let rhs_grad_custom = rhs.grad_remove(&mut gradients).unwrap();
-    let bias_grad_custom = bias.grad_remove(&mut gradients).unwrap();
-
-    lhs_grad_ref
-        .into_data()
-        .convert::<f32>()
-        .assert_approx_eq(&lhs_grad_custom.into_data().convert(), 3);
-
-    println!("Both reference and the custom fused kernel have the same lhs gradient");
-
-    rhs_grad_ref
-        .into_data()
-        .convert::<f32>()
-        .assert_approx_eq(&rhs_grad_custom.into_data().convert(), 3);
-
-    println!("Both reference and the custom fused kernel have the same rhs gradient");
-
-    bias_grad_ref
-        .into_data()
-        .convert::<f32>()
-        .assert_approx_eq(&bias_grad_custom.into_data().convert(), 3);
-
-    println!("Both reference and the custom fused kernel have the same bias gradient");
+        let x = relu(self.project_up.forward(x));
+        let x = relu(self.lin_0.forward(x));
+        let x = relu(self.lin_1.forward(x));
+        let x = relu(self.lin_2.forward(x));
+        // [H, W, 3].
+        let x = sigmoid(self.project_down.forward(x));
+        x
+    }
 }
 
-type WgpuBackend = burn::backend::wgpu::JitBackend<WgpuRuntime<AutoGraphicsApi, f32, i32>>;
+#[derive(Config)]
+pub struct ExpConfig {
+    #[config(default = 1e-2)]
+    pub lr: f64,
 
-fn main() -> Result<(), Box<dyn Error>> {
+    #[config(default = 42)]
+    pub seed: u64,
+}
+
+fn meshgrid2<B: Backend>(h: usize, w: usize, device: &B::Device) -> Tensor<B, 3> {
+    let coords_h = Tensor::arange(0..h as i64, device).float() / (h as f64) - 0.5;
+    let coords_w = Tensor::arange(0..w as i64, device).float() / (w as f64) - 0.5;
+
+    let coords_h = Tensor::repeat(coords_h.reshape([h as i32, 1]), 1, w);
+    let coords_w = Tensor::repeat(coords_w.reshape([1, w as i32]), 0, h);
+
+    Tensor::cat(
+        vec![coords_h.reshape([h, w, 1]), coords_w.reshape([h, w, 1])],
+        2,
+    )
+}
+
+fn run<B: AutodiffBackend>(device: &B::Device) -> Result<(), Box<dyn Error>> {
     let rec = rerun::RecordingStreamBuilder::new("visualize training").spawn()?;
 
-    let device = Default::default();
+    // Config
+    let mut optimizer = AdamWConfig::new().init();
+    let mut model: SmallNerf<B> = SmallNerfConfig::new(64).init(device);
 
-    let lhs = Tensor::<WgpuBackend, 3>::random([1, 32, 32], Distribution::Default, &device);
-    let rhs = Tensor::random([32, 32, 32], Distribution::Default, &device);
-    let bias = Tensor::random([32, 32, 32], Distribution::Default, &device);
+    let config = ExpConfig::new();
 
-    let reference = matmul_add_relu_reference(lhs.clone(), rhs.clone(), bias.clone());
-    let custom = matmul_add_relu_custom(lhs, rhs, bias);
+    B::seed(config.seed);
 
-    println!("Both reference and the custom fused kernel have the same output");
+    let target = ImageReader::open("./crab.webp")?.decode()?;
+    let target = target.resize(300, 200, image::imageops::FilterType::Lanczos3);
+    let target = Tensor::<B, 1>::from_data(Data::from(target.as_bytes()).convert(), device)
+        .reshape([target.height() as usize, target.width() as usize, 3])
+        / 255.0;
 
-    // Copy the reference tensor to the ndarray backend.
-    let reference_ndarray = Tensor::new(reference.clone());
+    let [h, w, _] = target.dims();
 
-    // let ref_data = reference.inference::<WgpuBackend>(&device);
-    autodiff::<Autodiff<WgpuBackend>>(&device);
+    rec.log(
+        "Target.",
+        &rerun::Image::new(utils::to_rerun_tensor(target.clone())),
+    )?;
+
+    let coords = meshgrid2(h, w, device);
+
+    let start = std::time::Instant::now();
+    println!("Start time: {:?}", start);
+
+    for _i in 0..250 {
+        let output = model.forward(coords.clone());
+
+        let loss = (output.clone() - target.clone()).powf_scalar(2.0).mean();
+
+        if _i % 2 == 0 {
+            rec.log(
+                "Cur img.",
+                &rerun::Image::new(utils::to_rerun_tensor(output.clone())),
+            )?;
+            rec.log(
+                "Error.",
+                &rerun::Image::new(utils::to_rerun_tensor(
+                    (output.clone() - target.clone()).abs(),
+                )),
+            )?;
+            rec.log(
+                "loss.",
+                &rerun::Scalar::new(loss.clone().into_scalar().elem::<f64>()),
+            )?;
+        }
+
+        let grads = loss.backward();
+        let grads = GradientsParams::from_grads(grads, &model);
+        model = optimizer.step(config.lr, model, grads);
+    }
+
+    println!("Duration: {:?}", std::time::Instant::now() - start);
 
     Ok(())
+}
+
+fn main() -> Result<(), Box<dyn Error>> {
+    let device = Default::default();
+    type BackGPU = burn::backend::wgpu::JitBackend<WgpuRuntime<AutoGraphicsApi, f32, i32>>;
+    run::<Autodiff<BackGPU>>(&device)
 }

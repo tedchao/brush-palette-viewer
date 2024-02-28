@@ -1,25 +1,25 @@
 // Utilities to go from ndarray -> image and the other way around.
+#[allow(dead_code)]
+use burn::tensor::{backend::Backend, Tensor};
 
-use burn::tensor::{backend::Backend, Data, Device, Element, Shape, Tensor};
-use ndarray::Array;
-
-fn to_tensor<B: Backend, T: Element>(
-    data: Vec<T>,
-    shape: [usize; 3],
-    device: &Device<B>,
-) -> Tensor<B, 3> {
-    Tensor::<B, 3>::from_data(Data::new(data, Shape::new(shape)).convert(), device) / 255.0
-        // permute(2, 0, 1)
-        .swap_dims(2, 1) // [H, C, W]
-        .swap_dims(1, 0) // [C, H, W]
-        / 255 // normalize between [0, 1]
+pub fn to_rerun_tensor<B: Backend, const D: usize>(t: Tensor<B, D>) -> rerun::TensorData {
+    rerun::TensorData::new(
+        t.dims()
+            .map(|x| rerun::TensorDimension::unnamed(x as u64))
+            .to_vec(),
+        rerun::TensorBuffer::F32(t.into_data().convert().value.into()),
+    )
 }
 
-fn to_rerurn_tensor<B, const D: usize>(tensor: Tensor<B, D>)
-where
-    B: Backend,
-{
-    rerun::Tensor::try_from()
+// Assume 0-1, unlike rerun which always normalizes the image.
+pub fn to_rerun_image<B: Backend>(t: Tensor<B, 3>) -> rerun::Image {
+    let t_quant = (t * 255.0).int().clamp(0, 255);
 
-    rerun::te
+    rerun::Image::new(rerun::TensorData::new(
+        t_quant
+            .dims()
+            .map(|x| rerun::TensorDimension::unnamed(x as u64))
+            .to_vec(),
+        rerun::TensorBuffer::I8(t_quant.into_data().convert().value.into()),
+    ))
 }

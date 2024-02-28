@@ -14,7 +14,11 @@ burn = { path = "../burn/crates/burn", features = [
 bytemuck = "1.14.3"
 derive-new = "0.6.0"
 ndarray = "0.15.6"
-rerun = "0.13.0"
+rerun = { version = "0.13.0" }
+image = { version = "0.24", default-features = false, features = [
+    'png',
+    'webp',
+] }
 
 [profile.dev]
 opt-level = 1
