@@ -1,4 +1,5 @@
 use std::error::Error;
+mod camera;
 mod utils;
 
 use burn::{
@@ -24,9 +25,7 @@ use image::io::Reader as ImageReader;
 #[derive(Module, Debug)]
 struct SmallNerf<B: Backend> {
     project_up: Linear<B>,
-    lin_0: Linear<B>,
-    lin_1: Linear<B>,
-    lin_2: Linear<B>,
+    lins: Vec<Linear<B>>,
     project_down: Linear<B>,
 }
 
@@ -39,10 +38,12 @@ impl SmallNerfConfig {
     /// Returns the initialized model.
     fn init<B: Backend>(&self, device: &B::Device) -> SmallNerf<B> {
         SmallNerf {
-            project_up: LinearConfig::new(12, self.hidden_width).init(device),
-            lin_0: LinearConfig::new(self.hidden_width, self.hidden_width).init(device),
-            lin_1: LinearConfig::new(self.hidden_width, self.hidden_width).init(device),
-            lin_2: LinearConfig::new(self.hidden_width, self.hidden_width).init(device),
+            project_up: LinearConfig::new(16, self.hidden_width).init(device),
+            lins: std::iter::repeat_with(|| {
+                LinearConfig::new(self.hidden_width, self.hidden_width).init(device)
+            })
+            .take(4)
+            .collect(),
             project_down: LinearConfig::new(self.hidden_width, 3).init(device),
         }
     }
@@ -55,29 +56,30 @@ impl<B: Backend> SmallNerf<B> {
 
         let x = Tensor::cat(
             vec![
-                (x.clone() * 2).sin(),
-                (x.clone() * 2).cos(),
+                (x.clone()).sin(),
+                (x.clone()).cos(),
                 (x.clone() * 8).sin(),
                 (x.clone() * 8).cos(),
-                (x.clone() * 16).sin(),
-                (x.clone() * 16).cos(),
+                (x.clone() * 32).sin(),
+                (x.clone() * 32).cos(),
+                (x.clone() * 64).sin(),
+                (x.clone() * 64).cos(),
             ],
             2,
         );
 
-        let x = relu(self.project_up.forward(x));
-        let x = relu(self.lin_0.forward(x));
-        let x = relu(self.lin_1.forward(x));
-        let x = relu(self.lin_2.forward(x));
-        // [H, W, 3].
-        let x = sigmoid(self.project_down.forward(x));
-        x
+        let mut x = x;
+        x = relu(self.project_up.forward(x));
+        for lin in &self.lins {
+            x = relu(lin.forward(x));
+        }
+        sigmoid(self.project_down.forward(x))
     }
 }
 
 #[derive(Config)]
 pub struct ExpConfig {
-    #[config(default = 1e-2)]
+    #[config(default = 4e-3)]
     pub lr: f64,
 
     #[config(default = 42)]
@@ -98,21 +100,23 @@ fn meshgrid2<B: Backend>(h: usize, w: usize, device: &B::Device) -> Tensor<B, 3>
 }
 
 fn run<B: AutodiffBackend>(device: &B::Device) -> Result<(), Box<dyn Error>> {
-    let rec = rerun::RecordingStreamBuilder::new("visualize training").spawn()?;
-
-    // Config
-    let mut optimizer = AdamWConfig::new().init();
-    let mut model: SmallNerf<B> = SmallNerfConfig::new(64).init(device);
-
-    let config = ExpConfig::new();
-
-    B::seed(config.seed);
+    let camera = camera::Camera::new();
 
     let target = ImageReader::open("./crab.webp")?.decode()?;
     let target = target.resize(300, 200, image::imageops::FilterType::Lanczos3);
     let target = Tensor::<B, 1>::from_data(Data::from(target.as_bytes()).convert(), device)
         .reshape([target.height() as usize, target.width() as usize, 3])
         / 255.0;
+
+    let rec = rerun::RecordingStreamBuilder::new("visualize training").spawn()?;
+
+    // Config
+    let mut optimizer = AdamWConfig::new().init();
+    let mut model: SmallNerf<B> = SmallNerfConfig::new(128).init(device);
+
+    let config = ExpConfig::new();
+
+    B::seed(config.seed);
 
     let [h, w, _] = target.dims();
 
@@ -123,15 +127,12 @@ fn run<B: AutodiffBackend>(device: &B::Device) -> Result<(), Box<dyn Error>> {
 
     let coords = meshgrid2(h, w, device);
 
-    let start = std::time::Instant::now();
-    println!("Start time: {:?}", start);
-
-    for _i in 0..250 {
+    for _i in 0.. {
         let output = model.forward(coords.clone());
 
         let loss = (output.clone() - target.clone()).powf_scalar(2.0).mean();
 
-        if _i % 2 == 0 {
+        if _i % 25 == 0 {
             rec.log(
                 "Cur img.",
                 &rerun::Image::new(utils::to_rerun_tensor(output.clone())),
@@ -142,18 +143,15 @@ fn run<B: AutodiffBackend>(device: &B::Device) -> Result<(), Box<dyn Error>> {
                     (output.clone() - target.clone()).abs(),
                 )),
             )?;
-            rec.log(
-                "loss.",
-                &rerun::Scalar::new(loss.clone().into_scalar().elem::<f64>()),
-            )?;
         }
-
+        rec.log(
+            "loss.",
+            &rerun::Scalar::new(loss.clone().into_scalar().elem::<f64>()),
+        )?;
         let grads = loss.backward();
         let grads = GradientsParams::from_grads(grads, &model);
         model = optimizer.step(config.lr, model, grads);
     }
-
-    println!("Duration: {:?}", std::time::Instant::now() - start);
 
     Ok(())
 }

@@ -1,5 +1,4 @@
 // Utilities to go from ndarray -> image and the other way around.
-#[allow(dead_code)]
 use burn::tensor::{backend::Backend, Tensor};
 
 pub fn to_rerun_tensor<B: Backend, const D: usize>(t: Tensor<B, D>) -> rerun::TensorData {
@@ -11,6 +10,7 @@ pub fn to_rerun_tensor<B: Backend, const D: usize>(t: Tensor<B, D>) -> rerun::Te
     )
 }
 
+#[allow(dead_code)]
 // Assume 0-1, unlike rerun which always normalizes the image.
 pub fn to_rerun_image<B: Backend>(t: Tensor<B, 3>) -> rerun::Image {
     let t_quant = (t * 255.0).int().clamp(0, 255);
