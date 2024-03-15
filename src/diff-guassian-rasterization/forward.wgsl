@@ -7,7 +7,7 @@
  * under the terms of the LICENSE.md file.
  *
  * For inquiries contact  george.drettakis@inria.fr
- */
+
 
 #include "forward.h"
 #include "auxiliary.h"
@@ -452,4 +452,4 @@ void FORWARD::preprocess(int P, int D, int M,
 		tiles_touched,
 		prefiltered
 		);
-}
+} */

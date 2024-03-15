@@ -7,7 +7,6 @@
  * under the terms of the LICENSE.md file.
  *
  * For inquiries contact  george.drettakis@inria.fr
- */
 
 #include "rasterizer_impl.h"
 
@@ -420,4 +419,4 @@ void CudaRasterizer::Rasterizer::backward(
 		dL_dsh,
 		(glm::vec3*)dL_dscale,
 		(glm::vec4*)dL_drot), debug)
-}
+} */

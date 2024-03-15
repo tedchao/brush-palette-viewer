@@ -7,7 +7,7 @@
  * under the terms of the LICENSE.md file.
  *
  * For inquiries contact  george.drettakis@inria.fr
- */
+
 
 // Backward pass for conversion of spherical harmonics to RGB for
 // each Gaussian.
@@ -669,4 +669,4 @@ void BACKWARD::render(
 		dL_dopacity,
 		dL_dcolors
 		);
-}
+} */
