@@ -1,31 +1,29 @@
+#![allow(dead_code)]
+#![allow(clippy::too_many_arguments)]
+
 use std::error::Error;
 mod camera;
 mod dataset_readers;
 mod gaussian_splats;
+mod loss_utils;
 mod renderer;
 mod scene;
 mod spherical_harmonics;
 mod train;
 mod utils;
 
-use burn::{
-    backend::{
-        wgpu::{compute::WgpuRuntime, AutoGraphicsApi},
-        Autodiff,
-    },
-    config::Config,
-    module::Module,
-    nn::{Linear, LinearConfig},
-    optim::{AdamWConfig, GradientsParams, Optimizer},
-    tensor::{
-        activation::{relu, sigmoid},
-        backend::{AutodiffBackend, Backend},
-        Data, Tensor,
-    },
+use burn::backend::{
+    wgpu::{AutoGraphicsApi, Wgpu},
+    Autodiff,
 };
 
-use burn::tensor::ElementConversion;
+use train::TrainConfig;
 
-use image::io::Reader as ImageReader;
-
-fn main() {}
+fn main() -> Result<(), Box<dyn Error>> {
+    let device = Default::default();
+    type BackGPU = Wgpu<AutoGraphicsApi, f32, i32>;
+    type DiffBack = Autodiff<BackGPU>;
+    let config = TrainConfig::new("../nerf_synthetic/lego/".to_owned());
+    train::train::<DiffBack>(&config, &device)?;
+    Ok(())
+}

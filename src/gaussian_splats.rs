@@ -1,41 +1,66 @@
 use burn::{
+    config::Config,
     module::{Module, Param},
     tensor::{backend::Backend, Device},
 };
+use ndarray::Axis;
+use rerun::{RecordingStream, Rgba32};
 
 use crate::spherical_harmonics;
 use crate::{camera::Camera, utils};
+use burn::tensor::Distribution;
 use burn::tensor::Tensor;
 
-use burn::tensor::activation::sigmoid;
-
+use crate::renderer;
 use crate::renderer::RenderPackage;
+
+use anyhow::Result;
+use rerun::external::glam;
+
+#[derive(Config)]
+pub(crate) struct SplatsConfig {
+    num_points: usize,
+    aabb_scale: f32,
+    max_sh_degree: u32,
+    position_lr_scale: f32,
+}
+
+impl SplatsConfig {
+    pub(crate) fn build<B: Backend>(&self, device: &Device<B>) -> Splats<B> {
+        Splats::new(
+            self.num_points,
+            self.aabb_scale,
+            self.max_sh_degree,
+            0,
+            device,
+        )
+    }
+}
 
 // A Gaussian splat model.
 // This implementation wraps CUDA kernels from (Kerbel and Kopanas et al, 2023).
 #[derive(Module, Debug)]
-pub(crate) struct GaussianSplats<B: Backend> {
+pub(crate) struct Splats<B: Backend> {
     // Current and maximum spherical harmonic degree. This is increased over
     // training.
-    active_sh_degree: i32,
-    max_sh_degree: i32,
+    active_sh_degree: u32,
 
-    // f32[n,3]. Position.
+    // Currently maximum active sh degree.
+    max_sh_degree: u32,
+
+    // f32[n, 3]. Position.
     xyz: Param<Tensor<B, 2>>,
 
-    // f32[n,1,3]. SH coefficients for diffuse color.
-    sh_dc: Param<Tensor<B, 3>>,
+    // f32[n, sh, 3]. SH coefficients for diffuse color.
+    shs: Param<Tensor<B, 3>>,
 
-    // f32[n,sh-1,3]. Remaining SH coefficients.
-    sh_rest: Param<Tensor<B, 3>>,
-
-    // f32[n,4]. Rotation as quaternion matrices.
+    // f32[n, 4]. Rotation as quaternion matrices.
     rotation: Param<Tensor<B, 2>>,
 
     // f32[n]. Opacity parameters.
     opacity: Param<Tensor<B, 1>>,
 
-    // f32[n,3]. Scale matrix coefficients.
+    // f32[n, 3]. Scale matrix coefficients.
     scale: Param<Tensor<B, 2>>,
 
     // Non trainable params.
@@ -55,87 +80,51 @@ pub(crate) struct GaussianSplats<B: Backend> {
     denom: Tensor<B, 1>,
 }
 
-struct Config {
-    position_lr_scale: f32,
-}
-
-impl<B: Backend> GaussianSplats<B> {
+impl<B: Backend> Splats<B> {
     pub(crate) fn new(
-        xyz: Tensor<B, 2>,
-        rgb: Tensor<B, 2>,
-        scale: Option<Tensor<B, 2>>,
-        rotation: Option<Tensor<B, 2>>,
-        opacity: Option<Tensor<B, 1>>,
-        max_sh_degree: i32,
-        active_sh_degree: i32,
+        num_points: usize,
+        aabb_scale: f32,
+        max_sh_degree: u32,
+        active_sh_degree: u32,
         device: &Device<B>,
-    ) -> GaussianSplats<B> {
-        // Activation function for scale. Since scale values must be >0, use an
-        // activation function to go between (-inf, inf) to (0, inf).
-        let inverse_scale_activation = "log";
-        let scale_activation = "exp";
+    ) -> Splats<B> {
+        let xyz = Tensor::random([num_points, 3], Distribution::Uniform(0.0, 1.0), device)
+            * aabb_scale
+            - aabb_scale / 2.0;
 
-        // Activation function for opacity. Opacity values must be in (0, 1).
-        let inverse_opacity_activation = "inverse_sigmoid";
-        let opacity_activation = "sigmoid";
-
-        let num_points = xyz.dims()[0];
+        // TODO: Is starting all grey better than starting with random rgbs?
+        let rgb = Tensor::from_floats([0.5, 0.5, 0.5], device)
+            .unsqueeze()
+            .repeat(0, num_points);
 
         // f32[n, 1, 3]. Diffuse color, aka the first spherical harmonic coefficient
         // for each color channel.
-        let sh_dc = spherical_harmonics::rgb_to_sh_dc(rgb);
-        let sh_dc = sh_dc.unsqueeze_dim(1);
 
-        // f32[n,sh-1,3]. All other spherical harmonic coefficients.
-        let sh_rest = Tensor::zeros(
-            [
-                num_points as usize,
-                ((max_sh_degree + 1).pow(2) - 1) as usize,
-                3,
-            ],
+        // TODO: Support shs.
+        let shs = spherical_harmonics::rgb_to_sh_dc(rgb);
+        let shs = shs.unsqueeze_dim(1);
+
+        let init_rotation = Tensor::from_floats([1.0, 0.0, 0.0, 0.0], device)
+            .unsqueeze::<2>()
+            .repeat(0, num_points);
+
+        let init_opacity =
+            utils::inverse_sigmoid(Tensor::from_floats([0.1], device)).repeat(0, num_points);
+
+        // TODO: Fancy KNN init.
+        let dist = Tensor::random(
+            [num_points, 3],
+            burn::tensor::Distribution::Normal(0.0, 1.0),
             device,
         );
-
-        let init_rotation = if let Some(rotation) = rotation {
-            rotation
-        } else {
-            Tensor::from_floats([1.0, 0.0, 0.0, 0.0], device)
-                .unsqueeze::<2>()
-                .repeat(0, num_points)
-        };
-
-        let init_opacity = if let Some(opacity) = opacity {
-            utils::inverse_sigmoid(opacity)
-        } else {
-            utils::inverse_sigmoid(Tensor::from_floats([0.1], device)).repeat(0, num_points)
-        };
-
-        let init_scale = if let Some(scale) = scale {
-            Tensor::log(scale)
-        } else {
-            // If scale is not given, initialize each point's scale to the average
-            // squared distance between each the point and its k=4 nearest neighbors.
-            // Initial scale will be equal in all directions.
-            //   let dist = Tensor::sqrt(
-            //       Tensor::max(gs_utils.average_sqd_knn(xyz), 0.0000001)
-            //   );
-
-            // TODO: Fancy KNN init.
-            let dist = Tensor::random(
-                [num_points, 3],
-                burn::tensor::Distribution::Normal(0.0, 1.0),
-                device,
-            );
-            Tensor::log(dist)
-        };
+        let init_scale = Tensor::log(dist);
 
         // Model parameters.
-        GaussianSplats {
-            active_sh_degree: active_sh_degree,
-            max_sh_degree: max_sh_degree,
+        Splats {
+            active_sh_degree,
+            max_sh_degree,
             xyz: xyz.into(),
-            sh_dc: sh_dc.into(),
-            sh_rest: sh_rest.into(),
+            shs: shs.into(),
             rotation: init_rotation.into(),
             opacity: init_opacity.into(),
             scale: init_scale.into(),
@@ -145,64 +134,10 @@ impl<B: Backend> GaussianSplats<B> {
         }
     }
 
-    // Sets up this class for the training loop.
-
     // Args:
     //   cfg: ...
     //   position_lr_scale: Multiplier for learning rate for positions.  Larger
     //     values mean higher learning rates.
-
-    pub(crate) fn training_setup(&mut self, cfg: Config, position_lr_scale: f32) {
-        // Initialize accumulators to empty.
-        self.xyz_gradient_accum = Tensor::zeros_like(&self.xyz_gradient_accum);
-        self.denom = Tensor::zeros_like(&self.xyz_gradient_accum);
-
-        // TODO: All this custom ADAM bullshit.
-        //     // Setup different optimizer arguments for different parameters.
-        //   param_dict = [
-        //       {
-        //           'params': [self.xyz],
-        //           'lr': cfg.position_lr_init * position_lr_scale,
-        //           'name': 'xyz',
-        //       },
-        //       {'params': [self.sh_dc], 'lr': cfg.feature_lr, 'name': 'sh_dc'},
-        //       {
-        //           'params': [self.sh_rest],
-        //           # Low learning rate for SH coefficients.
-        //           'lr': cfg.feature_lr / 20.0,
-        //           'name': 'sh_rest',
-        //       },
-        //       {'params': [self.opacity], 'lr': cfg.opacity_lr, 'name': 'opacity'},
-        //       {'params': [self.scale], 'lr': cfg.scale_lr, 'name': 'scale'},
-        //       {'params': [self.rotation], 'lr': cfg.rotation_lr, 'name': 'rotation'},
-        //   ]
-
-        //   self.optimizer = torch.optim.Adam(param_dict, eps=1e-15)
-        //   self.xyz_lr_function = gs_utils.ExponentialDecayLr(
-        //       lr_init=cfg.position_lr_init * position_lr_scale,
-        //       lr_final=cfg.position_lr_final * position_lr_scale,
-        //       lr_delay_mult=cfg.position_lr_delay_mult,
-        //       max_steps=cfg.position_lr_max_steps,
-        //   )
-    }
-
-    // Learning rate scheduling per step."""
-    pub(crate) fn update_learning_rate(&mut self, iteration: i32) {
-        // TODO: More custom LR bullshit :/
-        // Merge with setting up a custom adam?
-        // for param_group in self.optimizer.param_groups {
-        //     if param_group['name'] == 'xyz' {
-        //     lr = self.xyz_lr_function(iteration)
-        //     param_group['lr'] = lr
-        //     }
-        // }
-    }
-
-    // Returns SH coefficients.
-    pub(crate) fn get_total_sh(self) -> Tensor<B, 3> {
-        Tensor::cat(vec![*self.sh_dc, *self.sh_rest], 1)
-        // torch.cat((self.sh_dc, self.sh_rest), dim=1)
-    }
 
     // One-up sh degree.
     pub(crate) fn oneup_sh_degree(&mut self) {
@@ -214,15 +149,19 @@ impl<B: Backend> GaussianSplats<B> {
     // Updates rolling statistics that we capture during rendering.
     pub(crate) fn update_rolling_statistics(&mut self, render_pkg: RenderPackage<B>) {
         let radii = render_pkg.radii;
-        let screenspace_points = render_pkg.screenspace_points;
 
-        let visible_mask = render_pkg.radii.greater_elem(0.0);
+        let visible_mask = radii.clone().greater_elem(0.0);
 
         // TODO: This is not as efficient as could be...
         // Want these operations to be sparse.
-        self.max_radii_2d = radii.mask_where(
-            visible_mask,
-            Tensor::cat(vec![radii.unsqueeze(), self.max_radii_2d.unsqueeze()], 0).max_dim(0),
+        // TODO: Use max_pair.
+        self.max_radii_2d = radii.clone().mask_where(
+            visible_mask.clone(),
+            Tensor::cat(
+                vec![radii.unsqueeze(), self.max_radii_2d.clone().unsqueeze()],
+                0,
+            )
+            .max_dim(0),
         );
 
         // TODO: How do we get grads here? Would need to be sure B: AutoDiffBackend.
@@ -231,26 +170,25 @@ impl<B: Backend> GaussianSplats<B> {
         //     screenspace_points.grad[visibility_filter, :2], dim=-1, keepdim=True
         // );
 
-        self.denom = self.denom + visible_mask.float();
+        self.denom = self.denom.clone() + visible_mask.float();
     }
 
     /// Resets all the opacities to 0.01.
-    pub(crate) fn reset_opacity(self) {
-        let opacities_new = utils::inverse_sigmoid(sigmoid(self.opacity.val()).clamp_max(0.01));
+    pub(crate) fn reset_opacity(&mut self) {
+        self.opacity =
+            utils::inverse_sigmoid(Tensor::zeros_like(&self.opacity.val()) + 0.01).into();
 
         // TODO: Wtf.
         // Update optimizer with the new tensor
         //   optimizable_tensors = gs_adam_helpers.replace_tensor_to_optimizer(
         //       self.optimizer, opacities_new, 'opacity'
         //   );
-
         //   // Make sure that the tensor we are storing is the same tensor the
         //   // optimizer is optimizing
         //   self.opacity = optimizable_tensors['opacity'];
     }
 
     // // Densifies and prunes the Gaussians.
-
     // // Args:
     // //   max_grad: See densify_by_clone() and densify_by_split().
     // //   min_opacity_threshold: Gaussians with an opacity lower than this will be
@@ -500,33 +438,53 @@ impl<B: Backend> GaussianSplats<B> {
     //   * visibility_filter: a boolean tensor that indicates which gaussians
     //     participated in the rendering.
     //   * radii: the maximum screenspace radius of each gaussian
-    pub(crate) fn render_engine(
-        self,
-        camera: Camera,
-        bg_color: Tensor<B, 1>,
+    pub(crate) fn render(
+        &self,
+        camera: &Camera,
+        bg_color: glam::Vec3,
         device: &Device<B>,
     ) -> RenderPackage<B> {
-        let shs = self.get_total_sh();
-        let opacity = burn::tensor::activation::sigmoid(*self.opacity);
-        let scale = (*self.scale).exp();
-        let rotation = *self.rotation; // TODO: torch.nn.functional.normalize?
+        let opacity = burn::tensor::activation::sigmoid(self.opacity.val());
+        let scale = self.scale.val().exp();
+        let rotation = self.rotation.val(); // TODO: torch.nn.functional.normalize?
 
-        let (rendered_image, screenspace_points, radii) = crate::renderer::render(
+        renderer::render(
             camera,
-            *self.xyz,
-            shs,
+            self.xyz.val(),
+            self.shs.val(),
             self.active_sh_degree,
             opacity,
             scale,
             rotation,
             bg_color,
             device,
-        );
+        )
+    }
 
-        RenderPackage {
-            image: rendered_image,
-            screenspace_points: screenspace_points,
-            radii: radii,
-        }
+    pub(crate) fn visualize(&self, rec: &RecordingStream) -> Result<()> {
+        let points_data = utils::burn_to_ndarray(self.xyz.val());
+
+        let glam_data = points_data
+            .axis_iter(Axis(0))
+            .map(|c| glam::vec3(c[0], c[1], c[2]))
+            .collect::<Vec<_>>();
+
+        let colors_data = utils::burn_to_ndarray(self.shs.val());
+        let colors = colors_data.axis_iter(Axis(0)).map(|c| {
+            Rgba32::from([
+                (c[[0, 0]] * 255.0) as u8,
+                (c[[0, 1]] * 255.0) as u8,
+                (c[[0, 2]] * 255.0) as u8,
+            ])
+        });
+        rec.log(
+            "world/splat/points",
+            &rerun::Points3D::new(glam_data).with_colors(colors),
+        )?;
+        Ok(())
+    }
+
+    pub(crate) fn cur_num_points(&self) -> usize {
+        self.xyz.dims()[0]
     }
 }

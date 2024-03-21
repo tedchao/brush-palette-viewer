@@ -1,33 +1,33 @@
-use ndarray::{s, Array1, Array2};
+use ndarray::Array3;
+use rerun::external::glam;
 
 #[derive(Debug, Default, Clone)]
 pub(crate) struct Camera {
-    pub znear: f32,
-    pub zfar: f32,
     pub width: u32,
     pub height: u32,
 
     pub fovx: f32,
     pub fovy: f32,
-    pub proj_mat: ndarray::Array2<f32>,
-    pub transform: ndarray::Array2<f32>,
+
+    pub proj_mat: glam::Mat4,
+    pub transform: glam::Mat4,
 }
 
 #[derive(Debug, Default)]
 pub(crate) struct InputView {
-    img_path: String,
-    image: Array2<u8>,
-    image_mask: Array2<u8>,
+    pub(crate) image: Array3<f32>, // RGBA image.
 }
 
 #[derive(Debug, Default)]
 pub(crate) struct InputData {
-    camera: Camera,
-    view: InputView,
+    pub(crate) camera: Camera,
+    pub(crate) view: InputView,
 }
 
 impl Camera {
     pub(crate) fn new(
+        translation: glam::Vec3,
+        rotation: glam::Quat,
         fovx: f32,
         fovy: f32,
         width: u32,
@@ -36,55 +36,60 @@ impl Camera {
         zfar: f32,
     ) -> Self {
         Camera {
-            znear,
-            zfar,
             width,
             height,
             fovx,
             fovy,
             proj_mat: create_projection_matrix(znear, zfar, fovx, fovy),
-            transform: ndarray::Array::eye(4),
+            transform: glam::Mat4::from_rotation_translation(rotation, translation),
         }
+    }
+
+    pub(crate) fn position(&self) -> glam::Vec3 {
+        let (_, _, trans) = self.transform.to_scale_rotation_translation();
+        trans
+    }
+
+    pub(crate) fn rotation(&self) -> glam::Quat {
+        let (_, rot, _) = self.transform.to_scale_rotation_translation();
+        rot
+    }
+
+    pub(crate) fn focal(&self) -> glam::Vec2 {
+        glam::vec2(
+            fov_to_focal(self.fovx, self.width),
+            fov_to_focal(self.fovy, self.width),
+        )
     }
 }
 
 // Constructs a projection matrix from znear, zfar, fovx, fovy.
-fn create_projection_matrix(znear: f32, zfar: f32, fovx: f32, fovy: f32) -> Array2<f32> {
+fn create_projection_matrix(znear: f32, zfar: f32, fovx: f32, fovy: f32) -> glam::Mat4 {
     let top = (fovy / 2.0).tan() * znear;
     let bottom = -top;
     let right = (fovx / 2.0).tan() * znear;
     let left = -right;
     let z_sign = 1.0;
 
-    let mut proj_mat = Array2::zeros([4, 4]);
-    proj_mat[[0, 0]] = 2.0 * znear / (right - left);
-    proj_mat[[1, 1]] = 2.0 * znear / (top - bottom);
-    proj_mat[[0, 2]] = (right + left) / (right - left);
-    proj_mat[[1, 2]] = (top + bottom) / (top - bottom);
-    proj_mat[[3, 2]] = z_sign;
-    proj_mat[[2, 2]] = z_sign * zfar / (zfar - znear);
-    proj_mat[[2, 3]] = -(zfar * znear) / (zfar - znear);
-    proj_mat
-}
-
-// Constructs a world to view matrix from rotation and translation.
-// TODO: Is this even world2view? This just looks like view to world?
-fn world2view_from_rotation_translation(
-    rotation: Array2<f32>,
-    translation: Array1<f32>,
-) -> Array2<f32> {
-    let mut rt = Array2::eye(4);
-    rt.slice_mut(s![..3, ..3]).assign(&rotation);
-    rt.slice_mut(s![..3, 3]).assign(&translation);
-    rt
+    glam::Mat4::from_cols_array_2d(&[
+        [2.0 * znear / (right - left), 0.0, 0.0, 0.0],
+        [0.0, 2.0 * znear / (top - bottom), 0.0, 0.0],
+        [
+            (right + left) / (right - left),
+            (top + bottom) / (top - bottom),
+            z_sign * zfar / (zfar - znear),
+            z_sign,
+        ],
+        [0.0, 0.0, -(zfar * znear) / (zfar - znear), 0.0],
+    ])
 }
 
 // Converts field of view to focal length
-fn fov_to_focal(fov: f32, pixels: i32) -> f32 {
+pub(crate) fn fov_to_focal(fov: f32, pixels: u32) -> f32 {
     (pixels as f32) / (2.0 * (fov / 2.0).tan())
 }
 
 // Converts focal length to field of view.
-fn focal_to_fov(focal: f32, pixels: i32) -> f32 {
+pub(crate) fn focal_to_fov(focal: f32, pixels: u32) -> f32 {
     2.0 * ((pixels as f32) / (2.0 * focal)).atan()
 }

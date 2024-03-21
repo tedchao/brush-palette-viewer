@@ -1,27 +1,49 @@
 // Utilities to go from ndarray -> image and the other way around.
-use burn::tensor::{backend::Backend, Tensor};
+use burn::tensor::{backend::Backend, BasicOps, Data, Element, Shape, Tensor};
+use ndarray::{Array, Array3, Dim, Dimension, StrideShape};
 
-pub fn to_rerun_tensor<B: Backend, const D: usize>(t: Tensor<B, D>) -> rerun::TensorData {
-    rerun::TensorData::new(
-        t.dims()
-            .map(|x| rerun::TensorDimension::unnamed(x as u64))
-            .to_vec(),
-        rerun::TensorBuffer::F32(t.into_data().convert().value.into()),
-    )
-}
+// pub fn to_rerun_tensor<B: Backend, const D: usize>(t: Tensor<B, D>) -> rerun::TensorData {
+//     rerun::TensorData::new(
+//         t.dims()
+//             .map(|x| rerun::TensorDimension::unnamed(x as u64))
+//             .to_vec(),
+//         rerun::TensorBuffer::F32(t.into_data().convert().value.into()),
+//     )
+// }
 
 #[allow(dead_code)]
 // Assume 0-1, unlike rerun which always normalizes the image.
-pub fn to_rerun_image<B: Backend>(t: Tensor<B, 3>) -> rerun::Image {
-    let t_quant = (t * 255.0).int().clamp(0, 255);
+pub fn ndarray_to_rerun_image(t: &Array3<f32>) -> rerun::Image {
+    let t_quant = (t * 255.0).map(|x| x.clamp(0.0, 255.0) as u8);
+    let data: rerun::TensorData = t_quant.try_into().unwrap();
+    rerun::Image::new(data)
+}
 
-    rerun::Image::new(rerun::TensorData::new(
-        t_quant
-            .dims()
-            .map(|x| rerun::TensorDimension::unnamed(x as u64))
-            .to_vec(),
-        rerun::TensorBuffer::I8(t_quant.into_data().convert().value.into()),
-    ))
+pub(crate) fn ndarray_to_burn<T: Element, B: Backend, const D: usize, K: BasicOps<B>>(
+    arr: Array<T, Dim<[usize; D]>>,
+    device: &B::Device,
+) -> Tensor<B, D, K>
+where
+    K::Elem: Element,
+    Dim<[usize; D]>: Dimension,
+{
+    let shape = Shape::new(arr.shape().try_into().unwrap());
+    Tensor::from_data(Data::new(arr.into_raw_vec(), shape).convert(), device)
+}
+
+pub(crate) fn burn_to_ndarray<B: Backend, const D: usize>(
+    tensor: Tensor<B, D>,
+) -> Array<f32, Dim<[usize; D]>>
+where
+    Dim<[usize; D]>: Dimension,
+    [usize; D]: Into<StrideShape<Dim<[usize; D]>>>,
+{
+    let burn_data = tensor.clone().into_data();
+    Array::from_shape_vec(tensor.dims().into(), burn_data.convert::<f32>().value).unwrap()
+}
+
+pub fn inverse_sigmoid<B: Backend, const D: usize>(x: Tensor<B, D>) -> Tensor<B, D> {
+    Tensor::log(x.clone() / (x.neg() + 1.0))
 }
 
 // fn lookat_to_rt(
@@ -47,10 +69,6 @@ pub fn to_rerun_image<B: Backend>(t: Tensor<B, 3>) -> rerun::Image {
 //   translation = torch.tensor([tx, ty, tz])
 
 //   return rotation, translation
-
-pub fn inverse_sigmoid<B: Backend, const D: usize>(x: Tensor<B, D>) -> Tensor<B, D> {
-    Tensor::log(x / (x.neg() + 1.0))
-}
 
 // // Converts a quaternion to a rotation matrix
 // fn qvec2rotmat<B>(r: Tensor<B>) -> Tensor<B> {
