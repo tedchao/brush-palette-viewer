@@ -1,18 +1,19 @@
 use burn::{
     config::Config,
     module::{Module, Param},
-    tensor::{backend::Backend, Device},
+    tensor::Device,
 };
 use ndarray::Axis;
 use rerun::{RecordingStream, Rgba32};
 
-use crate::spherical_harmonics;
-use crate::{camera::Camera, utils};
+use crate::{
+    camera::Camera,
+    splat_render::{self, Backend},
+    utils,
+};
+use crate::{spherical_harmonics, splat_render::RenderPackage};
 use burn::tensor::Distribution;
 use burn::tensor::Tensor;
-
-use crate::renderer;
-use crate::renderer::RenderPackage;
 
 use anyhow::Result;
 use rerun::external::glam;
@@ -448,7 +449,7 @@ impl<B: Backend> Splats<B> {
         let scale = self.scale.val().exp();
         let rotation = self.rotation.val(); // TODO: torch.nn.functional.normalize?
 
-        renderer::render(
+        splat_render::render(
             camera,
             self.xyz.val(),
             self.shs.val(),

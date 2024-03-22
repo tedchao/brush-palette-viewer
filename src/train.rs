@@ -3,16 +3,14 @@ use burn::lr_scheduler::LrScheduler;
 use burn::{
     config::Config,
     optim::{AdamConfig, GradientsParams, Optimizer},
-    tensor::{
-        backend::{AutodiffBackend, Backend},
-        Tensor,
-    },
+    tensor::Tensor,
 };
 use ndarray::{Array, Array1, Array3};
 use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 
 use rerun::external::glam;
 
+use crate::splat_render::{self, AutodiffBackend, Backend};
 use crate::{
     dataset_readers,
     gaussian_splats::{Splats, SplatsConfig},
@@ -138,7 +136,10 @@ fn train_step<B: AutodiffBackend>(
 }
 
 // Training loop.
-pub(crate) fn train<B: AutodiffBackend>(config: &TrainConfig, device: &B::Device) -> Result<()> {
+pub(crate) fn train<B: splat_render::AutodiffBackend>(
+    config: &TrainConfig,
+    device: &B::Device,
+) -> Result<()> {
     let rec = rerun::RecordingStreamBuilder::new("visualize training").spawn()?;
 
     let scene = dataset_readers::read_scene(&config.scene_path);

@@ -6,14 +6,14 @@ mod camera;
 mod dataset_readers;
 mod gaussian_splats;
 mod loss_utils;
-mod renderer;
 mod scene;
 mod spherical_harmonics;
+mod splat_render;
 mod train;
 mod utils;
 
 use burn::backend::{
-    wgpu::{AutoGraphicsApi, Wgpu},
+    wgpu::{AutoGraphicsApi, JitBackend, WgpuRuntime},
     Autodiff,
 };
 
@@ -21,8 +21,11 @@ use train::TrainConfig;
 
 fn main() -> Result<(), Box<dyn Error>> {
     let device = Default::default();
-    type BackGPU = Wgpu<AutoGraphicsApi, f32, i32>;
+
+    // type BackGPU = Wgpu<AutoGraphicsApi, f32, i32>;
+    type BackGPU = JitBackend<WgpuRuntime<AutoGraphicsApi, f32, i32>>;
     type DiffBack = Autodiff<BackGPU>;
+
     let config = TrainConfig::new("../nerf_synthetic/lego/".to_owned());
     train::train::<DiffBack>(&config, &device)?;
     Ok(())
