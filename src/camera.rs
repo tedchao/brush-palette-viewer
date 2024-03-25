@@ -1,5 +1,4 @@
 use ndarray::Array3;
-use rerun::external::glam;
 
 #[derive(Debug, Default, Clone)]
 pub(crate) struct Camera {
@@ -59,6 +58,16 @@ impl Camera {
         glam::vec2(
             fov_to_focal(self.fovx, self.width),
             fov_to_focal(self.fovy, self.width),
+        )
+    }
+
+    pub(crate) fn intrins(&self) -> glam::Vec4 {
+        // TODO: Does this need the tan business?
+        glam::vec4(
+            self.fovx,
+            self.fovy,
+            (self.width as f32) / 2.0,
+            (self.height as f32) / 2.0,
         )
     }
 }

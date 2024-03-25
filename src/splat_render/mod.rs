@@ -1,44 +1,50 @@
-mod project_gaussians;
-mod render;
-mod render_2d_gaussians;
-use burn::{
-    backend::wgpu::{FloatElement, GraphicsApi, IntElement, JitBackend, WgpuRuntime},
-    tensor::Tensor,
-};
+use burn::backend::autodiff::checkpoint::strategy::CheckpointStrategy;
+use burn::backend::Autodiff;
 
-/// We use a type alias for better readability.
+use crate::camera::Camera;
+
+mod project_gaussians;
+pub mod render;
+mod render_2d_gaussians;
+
+mod gen;
+
 pub type FloatTensor<B, const D: usize> =
     <B as burn::tensor::backend::Backend>::FloatTensorPrimitive<D>;
 
+struct ProjectionOutput<B: Backend> {
+    covs3d: FloatTensor<B, 2>,
+    xys: FloatTensor<B, 2>,
+    depths: FloatTensor<B, 2>,
+    radii: FloatTensor<B, 2>,
+    conics: FloatTensor<B, 2>,
+    compensation: FloatTensor<B, 2>,
+    num_tiles_hit: FloatTensor<B, 2>,
+}
+
 /// We create our own Backend trait that extends the Burn backend trait.
 pub trait Backend: burn::tensor::backend::Backend {
-    // Project 3D gaussians to screenspace in 2D.
-    fn project_gaussians();
-
     // Render splats
-    fn render_splats_2d(
-        resolution: (u32, u32),
-        means: FloatTensor<Self, 2>,
-        shs: FloatTensor<Self, 3>,
-        opacity: FloatTensor<Self, 1>,
-    ) -> FloatTensor<Self, 3>;
+    // Project splats processing step. This produces
+    // a whole bunch of gradients that we store.
+    // The return just happens to be the xy screenspace points
+    // which we use to 'carry' the gradients'.
+    fn project_splats(
+        cam: &Camera,
+        xys: FloatTensor<Self, 2>,
+        scales: FloatTensor<Self, 2>,
+        quats: FloatTensor<Self, 2>,
+    ) -> FloatTensor<Self, 2>;
 }
 
 // TODO: This kinda needs trait bounds to really work? Oh boy.
-pub trait AutodiffBackend: Backend + burn::tensor::backend::AutodiffBackend {}
+pub trait AutodiffBackend:
+    Backend + burn::tensor::backend::AutodiffBackend<InnerBackend: Backend>
+{
+}
+
+impl<B: Backend, C: CheckpointStrategy> AutodiffBackend for Autodiff<B, C> {}
 
 // /// Implement our custom backend trait for the existing backend `WgpuBackend`.
-impl<G: GraphicsApi, F: FloatElement, I: IntElement> Backend for JitBackend<WgpuRuntime<G, F, I>> {
-    fn project_gaussians() {
-        todo!();
-    }
 
-    fn render_splats_2d(
-        resolution: (u32, u32),
-        means: FloatTensor<Self, 2>,
-        shs: FloatTensor<Self, 3>,
-        opacity: FloatTensor<Self, 1>,
-    ) -> FloatTensor<Self, 3> {
-        render_2d_gaussians::forward(resolution, means, shs, opacity)
-    }
-}
+// TODO: backwards.

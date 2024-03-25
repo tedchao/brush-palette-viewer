@@ -6,6 +6,8 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+glam = "0.22"
+
 burn = { path = "../burn/crates/burn", features = [
     'wgpu',
     'ndarray',
@@ -23,6 +25,9 @@ serde = "1.0.197"
 serde_json = "1.0.114"
 rand = "0.8.5"
 anyhow = "1.0.81"
+wgpu = "0.19"
+[build-dependencies]
+wgsl_bindgen = "0.10.0"
 
 
 [profile.dev]

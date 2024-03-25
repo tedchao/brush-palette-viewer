@@ -1,7 +1,6 @@
 use crate::camera::InputData;
 use crate::utils;
 use anyhow::Result;
-use rerun::external::glam;
 
 // Encapsulates a multi-view scene including cameras and the splats.
 // Also provides methods for checkpointing the training process.

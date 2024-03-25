@@ -8,8 +8,6 @@ use burn::{
 use ndarray::{Array, Array1, Array3};
 use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 
-use rerun::external::glam;
-
 use crate::splat_render::{self, AutodiffBackend, Backend};
 use crate::{
     dataset_readers,
@@ -142,6 +140,8 @@ pub(crate) fn train<B: splat_render::AutodiffBackend>(
 ) -> Result<()> {
     let rec = rerun::RecordingStreamBuilder::new("visualize training").spawn()?;
 
+    println!("Reading dataset.");
+
     let scene = dataset_readers::read_scene(&config.scene_path);
     let config_optimizer = AdamConfig::new();
     let mut optim = config_optimizer.init::<B, Splats<B>>();
@@ -149,7 +149,11 @@ pub(crate) fn train<B: splat_render::AutodiffBackend>(
     B::seed(config.seed);
     let mut rng = StdRng::from_seed([10; 32]);
 
+    println!("Visualize scene.");
+
     scene.visualize(&rec)?;
+
+    println!("Create splats.");
 
     let mut splats: Splats<B> = SplatsConfig::new(200 * 200, 1.0, 0, 1.0).build(device);
 

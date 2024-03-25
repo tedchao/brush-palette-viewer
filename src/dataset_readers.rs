@@ -4,7 +4,6 @@ use crate::{camera, scene};
 use anyhow::Result;
 use ndarray::Array3;
 use rerun::external::anyhow::Context;
-use rerun::external::glam;
 use std::path::PathBuf;
 
 fn read_synthetic_nerf_data(
@@ -15,6 +14,7 @@ fn read_synthetic_nerf_data(
     let mut cameras = vec![];
 
     let path = PathBuf::from(base_path).join(transformsfile);
+    println!("Opening dataset at {path:?}");
     let file = std::fs::read_to_string(path).expect("Couldn't find transforms file.");
     let contents: serde_json::Value = serde_json::from_str(&file).unwrap();
     let fovx = contents

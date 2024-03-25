@@ -11,12 +11,11 @@ use crate::{
     splat_render::{self, Backend},
     utils,
 };
-use crate::{spherical_harmonics, splat_render::RenderPackage};
+use crate::{spherical_harmonics, splat_render::render::RenderPackage};
 use burn::tensor::Distribution;
 use burn::tensor::Tensor;
 
 use anyhow::Result;
-use rerun::external::glam;
 
 #[derive(Config)]
 pub(crate) struct SplatsConfig {
@@ -89,6 +88,7 @@ impl<B: Backend> Splats<B> {
         active_sh_degree: u32,
         device: &Device<B>,
     ) -> Splats<B> {
+        println!("Splats new random tensor.");
         let xyz = Tensor::random([num_points, 3], Distribution::Uniform(0.0, 1.0), device)
             * aabb_scale
             - aabb_scale / 2.0;
@@ -445,18 +445,19 @@ impl<B: Backend> Splats<B> {
         bg_color: glam::Vec3,
         device: &Device<B>,
     ) -> RenderPackage<B> {
+        println!("Render splats!!");
         let opacity = burn::tensor::activation::sigmoid(self.opacity.val());
         let scale = self.scale.val().exp();
         let rotation = self.rotation.val(); // TODO: torch.nn.functional.normalize?
 
-        splat_render::render(
+        splat_render::render::render(
             camera,
             self.xyz.val(),
+            scale,
+            rotation,
             self.shs.val(),
             self.active_sh_degree,
             opacity,
-            scale,
-            rotation,
             bg_color,
             device,
         )

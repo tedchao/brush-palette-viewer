@@ -68,8 +68,10 @@ fn eval_sh<B: Backend>(
         panic!("Invalid sh shape {sh_dims} for degree {deg}");
     }
 
+
     let c0 = sh_data.c0.unsqueeze_dim(1);
     c0 * sh.clone()
+    
 
     // let c1 = sh_data.c1.unsqueeze_dim(1);
     // let c2 = sh_data.c2.unsqueeze_dim(1);
