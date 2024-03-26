@@ -152,47 +152,6 @@ fn main(
 
 
 
-// // kernel to map sorted intersection IDs to tile bins
-// // expect that intersection IDs are sorted by increasing tile ID
-// // i.e. intersections of a tile are in contiguous chunks
-// fn get_tile_bin_edges(
-//     num_intersects: i32, 
-//     isect_ids_sorted: array<i64>, 
-//     ile_bins: array<vec2i>,
-//     @builtin(global_invocation_id) global_id: vec3u,
-//     @builtin(local_invocation_id) local_id: vec3u,
-//     @builtin(workgroup_id) workgroup_id: vec3u) {
-//     let idx = local_id.x;
-
-//     if idx >= num_intersects {
-//         return;
-//     }
-
-//     // save the indices where the tile_id changes
-//     let cur_tile_idx = i32(isect_ids_sorted[idx] >> 32);
-//     if idx == 0 || idx == num_intersects - 1 {
-//         if idx == 0 {
-//             tile_bins[cur_tile_idx].x = 0;
-//         }
-
-//         if idx == num_intersects - 1 {
-//             tile_bins[cur_tile_idx].y = num_intersects;
-//         }
-//     }
-
-//     if idx == 0 {
-//         return;
-//     }
-
-//     let prev_tile_idx = i32(isect_ids_sorted[idx - 1] >> 32);
-
-//     if prev_tile_idx != cur_tile_idx {
-//         tile_bins[prev_tile_idx].y = idx;
-//         tile_bins[cur_tile_idx].x = idx;
-//         return;
-//     }
-// }
-
 
 // given v_xy_pix, get v_xyz
 // fn project_pix_vjp(transform: mat4x4f, p: vec3f, img_size: vec3u, v_xy: vec2f) -> vec3f {

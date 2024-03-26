@@ -24,15 +24,6 @@ use super::{gen, Backend, FloatTensor};
 #[derive(new, Debug)]
 struct ProjectSplats {}
 
-#[derive(new, Debug)]
-struct MapGaussiansToIntersect {}
-
-#[derive(new, Debug)]
-struct GetTileBinEdges {}
-
-#[derive(new, Debug)]
-struct RasterizeForward {}
-
 impl DynamicKernelSource for ProjectSplats {
     fn source(&self) -> SourceTemplate {
         SourceTemplate::new(gen::project_forward::SHADER_STRING)
@@ -43,7 +34,36 @@ impl DynamicKernelSource for ProjectSplats {
     }
 }
 
+#[derive(new, Debug)]
+struct MapGaussiansToIntersect {}
+
 impl DynamicKernelSource for MapGaussiansToIntersect {
+    fn source(&self) -> SourceTemplate {
+        SourceTemplate::new(gen::map_gaussian_to_intersects::SHADER_STRING)
+    }
+
+    fn id(&self) -> String {
+        format!("{:?}", self)
+    }
+}
+
+#[derive(new, Debug)]
+struct GetTileBinEdges {}
+
+impl DynamicKernelSource for GetTileBinEdges {
+    fn source(&self) -> SourceTemplate {
+        SourceTemplate::new(gen::get_tile_bin_edges::SHADER_STRING)
+    }
+
+    fn id(&self) -> String {
+        format!("{:?}", self)
+    }
+}
+
+#[derive(new, Debug)]
+struct RasterizeForward {}
+
+impl DynamicKernelSource for RasterizeForward {
     fn source(&self) -> SourceTemplate {
         todo!();
     }
@@ -222,7 +242,7 @@ impl<G: GraphicsApi, F: FloatElement, I: IntElement> Backend for JitBackend<Wgpu
         let isect_ids = bytemuck::cast_vec::<u8, u32>(client.read(&isect_ids.handle).read());
         let gaussian_ids = bytemuck::cast_vec::<u8, u32>(client.read(&gaussian_ids.handle).read());
         let sorted_indices = argsort(&isect_ids);
-        let isect_ids = sorted_indices.iter().copied().map(|x| isect_ids[x]).collect();
+        let isect_ids_sorted = sorted_indices.iter().copied().map(|x| isect_ids[x]).collect();
         let gaussian_ids_sorted = sorted_indices.iter().copied().map(|x| gaussian_ids[x]).collect();
 
         // Map sorted intersection IDs to tile bins which give the range of unique gaussian IDs belonging to each tile.
@@ -239,13 +259,16 @@ impl<G: GraphicsApi, F: FloatElement, I: IntElement> Backend for JitBackend<Wgpu
         
         // TODO: Num intersects.
         let workgroup = get_workgroup(uvec3(num_points as u32, 1, 1), uvec3(16, 1, 1));
+        let isect_ids_sorted = client.create(bytemuck::cast_slice::<u32, u8>(&isect_ids_sorted));
+
+        let tile_bins = create_empty_i32([num_points, 2]);
+
         client.execute(
             Box::new(DynamicKernel::new(GetTileBinEdges::new(), workgroup)),
             &[
-                // Input tensors.
-                &isect_ids_sorted.handle,
-                // Aux data.
-                &aux_data
+                &isect_ids_sorted,
+                &tile_bins.handle,
+                &aux_data,
             ],
         );
 

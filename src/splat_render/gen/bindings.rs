@@ -2,13 +2,14 @@
 //
 // ^ wgsl_bindgen version 0.10.0
 // Changes made to this file will not be saved.
-// SourceHash: aeebf16fb3aa395291d59db76ccdc3b177d69ee04537033dcc1a280e69bddbd5
+// SourceHash: bc6b839bdf8424a6505b4770c28575ce81ab4ec6b254bb100f08265d6269a24b
 
 #![allow(unused, non_snake_case, non_camel_case_types, non_upper_case_globals)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ShaderEntry {
     ProjectForward,
     MapGaussianToIntersects,
+    GetTileBinEdges,
 }
 impl ShaderEntry {
     pub fn create_pipeline_layout(&self, device: &wgpu::Device) -> wgpu::PipelineLayout {
@@ -17,6 +18,7 @@ impl ShaderEntry {
             Self::MapGaussianToIntersects => {
                 map_gaussian_to_intersects::create_pipeline_layout(device)
             }
+            Self::GetTileBinEdges => get_tile_bin_edges::create_pipeline_layout(device),
         }
     }
     pub fn create_shader_module_embed_source(
@@ -29,6 +31,9 @@ impl ShaderEntry {
             }
             Self::MapGaussianToIntersects => {
                 map_gaussian_to_intersects::create_shader_module_embed_source(device)
+            }
+            Self::GetTileBinEdges => {
+                get_tile_bin_edges::create_shader_module_embed_source(device)
             }
         }
     }
@@ -936,6 +941,221 @@ fn map_gaussian_to_intersects(@builtin(global_invocation_id) global_id: vec3<u32
         }
     }
     return;
+}
+"#;
+}
+pub mod get_tile_bin_edges {
+    use super::{_root, _root::*};
+    pub mod bind_groups {
+        #[derive(Debug)]
+        pub struct WgpuBindGroupLayout0<'a> {
+            pub isect_ids_sorted: wgpu::BufferBinding<'a>,
+            pub tile_bins: wgpu::BufferBinding<'a>,
+            pub info_array: wgpu::BufferBinding<'a>,
+        }
+        impl<'a> WgpuBindGroupLayout0<'a> {
+            pub fn entries(self) -> [wgpu::BindGroupEntry<'a>; 3] {
+                [
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::Buffer(self.isect_ids_sorted),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Buffer(self.tile_bins),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: wgpu::BindingResource::Buffer(self.info_array),
+                    },
+                ]
+            }
+        }
+        #[derive(Debug)]
+        pub struct WgpuBindGroup0(wgpu::BindGroup);
+        impl WgpuBindGroup0 {
+            pub const LAYOUT_DESCRIPTOR: wgpu::BindGroupLayoutDescriptor<'static> = wgpu::BindGroupLayoutDescriptor {
+                label: Some("GetTileBinEdges::BindGroup0::LayoutDescriptor"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage {
+                                read_only: true,
+                            },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage {
+                                read_only: false,
+                            },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage {
+                                read_only: true,
+                            },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                ],
+            };
+            pub fn get_bind_group_layout(
+                device: &wgpu::Device,
+            ) -> wgpu::BindGroupLayout {
+                device.create_bind_group_layout(&Self::LAYOUT_DESCRIPTOR)
+            }
+            pub fn from_bindings(
+                device: &wgpu::Device,
+                bindings: WgpuBindGroupLayout0,
+            ) -> Self {
+                let bind_group_layout = Self::get_bind_group_layout(&device);
+                let entries = bindings.entries();
+                let bind_group = device
+                    .create_bind_group(
+                        &wgpu::BindGroupDescriptor {
+                            label: Some("GetTileBinEdges::BindGroup0"),
+                            layout: &bind_group_layout,
+                            entries: &entries,
+                        },
+                    );
+                Self(bind_group)
+            }
+            pub fn set<'a>(&'a self, render_pass: &mut wgpu::ComputePass<'a>) {
+                render_pass.set_bind_group(0, &self.0, &[]);
+            }
+        }
+        #[derive(Debug, Copy, Clone)]
+        pub struct WgpuBindGroups<'a> {
+            pub bind_group0: &'a WgpuBindGroup0,
+        }
+        impl<'a> WgpuBindGroups<'a> {
+            pub fn set(&self, pass: &mut wgpu::ComputePass<'a>) {
+                self.bind_group0.set(pass);
+            }
+        }
+    }
+    pub fn set_bind_groups<'a>(
+        pass: &mut wgpu::ComputePass<'a>,
+        bind_group0: &'a bind_groups::WgpuBindGroup0,
+    ) {
+        bind_group0.set(pass);
+    }
+    pub mod compute {
+        pub const GET_TILE_BIN_EDGES_WORKGROUP_SIZE: [u32; 3] = [16, 1, 1];
+        pub fn create_get_tile_bin_edges_pipeline_embed_source(
+            device: &wgpu::Device,
+        ) -> wgpu::ComputePipeline {
+            let module = super::create_shader_module_embed_source(device);
+            let layout = super::create_pipeline_layout(device);
+            device
+                .create_compute_pipeline(
+                    &wgpu::ComputePipelineDescriptor {
+                        label: Some("Compute Pipeline get_tile_bin_edges"),
+                        layout: Some(&layout),
+                        module: &module,
+                        entry_point: "get_tile_bin_edges",
+                    },
+                )
+        }
+    }
+    pub const ENTRY_GET_TILE_BIN_EDGES: &str = "get_tile_bin_edges";
+    #[derive(Debug)]
+    pub struct WgpuPipelineLayout;
+    impl WgpuPipelineLayout {
+        pub fn bind_group_layout_entries(
+            entries: [wgpu::BindGroupLayout; 1],
+        ) -> [wgpu::BindGroupLayout; 1] {
+            entries
+        }
+    }
+    pub fn create_pipeline_layout(device: &wgpu::Device) -> wgpu::PipelineLayout {
+        device
+            .create_pipeline_layout(
+                &wgpu::PipelineLayoutDescriptor {
+                    label: Some("GetTileBinEdges::PipelineLayout"),
+                    bind_group_layouts: &[
+                        &bind_groups::WgpuBindGroup0::get_bind_group_layout(device),
+                    ],
+                    push_constant_ranges: &[],
+                },
+            )
+    }
+    pub fn create_shader_module_embed_source(
+        device: &wgpu::Device,
+    ) -> wgpu::ShaderModule {
+        let source = std::borrow::Cow::Borrowed(SHADER_STRING);
+        device
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("get_tile_bin_edges.wgsl"),
+                source: wgpu::ShaderSource::Wgsl(source),
+            })
+    }
+    pub const SHADER_STRING: &'static str = r#"
+struct InfoBindingX_naga_oil_mod_XNBSWY4DFOJZQX {
+    viewmat: mat4x4<f32>,
+    projmat: mat4x4<f32>,
+    intrins: vec4<f32>,
+    img_size: vec2<u32>,
+    tile_bounds: vec2<u32>,
+    glob_scale: f32,
+    num_points: u32,
+    clip_thresh: f32,
+    block_width: u32,
+}
+
+@group(0) @binding(0) 
+var<storage> isect_ids_sorted: array<u32>;
+@group(0) @binding(1) 
+var<storage, read_write> tile_bins: array<vec2<u32>>;
+@group(0) @binding(2) 
+var<storage> info_array: array<InfoBindingX_naga_oil_mod_XNBSWY4DFOJZQX>;
+
+@compute @workgroup_size(16, 1, 1) 
+fn get_tile_bin_edges(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invocation_id) local_id: vec3<u32>, @builtin(workgroup_id) workgroup_id: vec3<u32>) {
+    let info = info_array[0];
+    let num_intersects = info.num_points;
+    let idx = local_id.x;
+    if (idx >= num_intersects) {
+        return;
+    }
+    let _e9 = isect_ids_sorted[idx];
+    let cur_tile_idx = i32((_e9 >> 32u));
+    if ((idx == 0u) || (idx == (num_intersects - 1u))) {
+        if (idx == 0u) {
+            tile_bins[cur_tile_idx].x = 0u;
+        }
+        if (idx == (num_intersects - 1u)) {
+            tile_bins[cur_tile_idx].y = num_intersects;
+        }
+    }
+    if (idx == 0u) {
+        return;
+    }
+    let _e37 = isect_ids_sorted[(idx - 1u)];
+    let prev_tile_idx = i32((_e37 >> 32u));
+    if (prev_tile_idx != cur_tile_idx) {
+        tile_bins[prev_tile_idx].y = idx;
+        tile_bins[cur_tile_idx].x = idx;
+        return;
+    } else {
+        return;
+    }
 }
 "#;
 }
