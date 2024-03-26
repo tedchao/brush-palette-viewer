@@ -27,7 +27,7 @@ rand = "0.8.5"
 anyhow = "1.0.81"
 wgpu = "0.19"
 [build-dependencies]
-wgsl_bindgen = "0.10.0"
+wgsl_bindgen = { path = "../wgsl-bindgen/wgsl_bindgen" }
 
 
 [profile.dev]

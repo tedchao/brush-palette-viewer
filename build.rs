@@ -1,3 +1,5 @@
+use std::process::exit;
+
 use wgsl_bindgen::{GlamWgslTypeMap, WgslBindgenOptionBuilder, WgslTypeSerializeStrategy};
 
 fn main() {
@@ -11,5 +13,11 @@ fn main() {
         .output("src/splat_render/gen/bindings.rs")
         .build()
         .unwrap();
-    bindgen.generate().unwrap();
+    match bindgen.generate() {
+        Ok(_) => println!("Sucesfully updated wgsl bindings."),
+        Err(e) => {
+            println!("cargo:error={e}");
+            exit(1);
+        }
+    }
 }

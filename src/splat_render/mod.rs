@@ -1,5 +1,7 @@
 use burn::backend::autodiff::checkpoint::strategy::CheckpointStrategy;
+use burn::backend::wgpu::{AutoGraphicsApi, JitBackend, WgpuRuntime};
 use burn::backend::Autodiff;
+use burn::tensor::ops::IntTensor;
 
 use crate::camera::Camera;
 
@@ -8,6 +10,8 @@ pub mod render;
 mod render_2d_gaussians;
 
 mod gen;
+
+type ImplBack = JitBackend<WgpuRuntime<AutoGraphicsApi, f32, i32>>;
 
 pub type FloatTensor<B, const D: usize> =
     <B as burn::tensor::backend::Backend>::FloatTensorPrimitive<D>;
@@ -29,21 +33,22 @@ pub trait Backend: burn::tensor::backend::Backend {
     // a whole bunch of gradients that we store.
     // The return just happens to be the xy screenspace points
     // which we use to 'carry' the gradients'.
-    fn project_splats(
+    fn render_gaussians(
         cam: &Camera,
         xys: FloatTensor<Self, 2>,
         scales: FloatTensor<Self, 2>,
         quats: FloatTensor<Self, 2>,
-    ) -> FloatTensor<Self, 2>;
+        colors: FloatTensor<Self, 2>,
+        opacity: FloatTensor<Self, 2>,
+    ) -> FloatTensor<Self, 3>;
 }
 
-// TODO: This kinda needs trait bounds to really work? Oh boy.
-pub trait AutodiffBackend:
-    Backend + burn::tensor::backend::AutodiffBackend<InnerBackend: Backend>
-{
-}
+// TODO: In rust 1.80 having a trait bound here on the inner backend would be great.
+// For now all code using it will need to specify this bound itself.
+pub trait AutodiffBackend: Backend + burn::tensor::backend::AutodiffBackend {}
 
-impl<B: Backend, C: CheckpointStrategy> AutodiffBackend for Autodiff<B, C> {}
+// Blanket impl for autodiffbackend.
+impl<C: CheckpointStrategy> AutodiffBackend for Autodiff<ImplBack, C> {}
 
 // /// Implement our custom backend trait for the existing backend `WgpuBackend`.
 

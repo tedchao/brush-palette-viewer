@@ -17,20 +17,24 @@ use burn::{
     tensor::Shape,
 };
 use derive_new::new;
-
+use glam::{uvec3, UVec3};
 use crate::camera::Camera;
-
 use super::{gen, Backend, FloatTensor};
 
-// Define our kernel type with workgroup information.
 #[derive(new, Debug)]
-struct RenderSplats2D {}
+struct ProjectSplats {}
 
-// Implement the dynamic kernel trait for our kernel type.
-impl DynamicKernelSource for RenderSplats2D {
+#[derive(new, Debug)]
+struct MapGaussiansToIntersect {}
+
+#[derive(new, Debug)]
+struct GetTileBinEdges {}
+
+#[derive(new, Debug)]
+struct RasterizeForward {}
+
+impl DynamicKernelSource for ProjectSplats {
     fn source(&self) -> SourceTemplate {
-        // Extend our raw kernel with workgroup size information using the
-        // `SourceTemplate` trait.
         SourceTemplate::new(gen::project_forward::SHADER_STRING)
     }
 
@@ -39,13 +43,30 @@ impl DynamicKernelSource for RenderSplats2D {
     }
 }
 
+impl DynamicKernelSource for MapGaussiansToIntersect {
+    fn source(&self) -> SourceTemplate {
+        todo!();
+    }
+
+    fn id(&self) -> String {
+        format!("{:?}", self)
+    }
+}
+
+fn get_workgroup(executions: UVec3, group_size: UVec3) -> WorkGroup {
+    let execs = (executions.as_vec3() / group_size.as_vec3()).ceil().as_uvec3();
+    WorkGroup::new(execs.x, execs.y, execs.z)
+}
+
 impl<G: GraphicsApi, F: FloatElement, I: IntElement> Backend for JitBackend<WgpuRuntime<G, F, I>> {
-    fn project_splats(
+    fn render_gaussians(
         camera: &Camera,
         means: FloatTensor<Self, 2>,
         scales: FloatTensor<Self, 2>,
         quats: FloatTensor<Self, 2>,
-    ) -> FloatTensor<Self, 2> {
+        colors: FloatTensor<Self, 2>,
+        opacity: FloatTensor<Self, 2>,
+    ) -> FloatTensor<Self, 3> {
         println!("Project gaussians!");
 
         // Prolly gonna crash so yeah just
@@ -62,28 +83,25 @@ impl<G: GraphicsApi, F: FloatElement, I: IntElement> Backend for JitBackend<Wgpu
         let num_points = means.shape.dims[0];
         assert!(means.shape.dims[0] == num_points && scales.shape.dims[0] == num_points);
 
-        let block_width = 16;
+        let block_size = 16;
         let tile_bounds = [
-            (camera.width + block_width - 1) / block_width,
-            (camera.height + block_width - 1) / block_width,
+            (camera.width + block_size - 1) / block_size,
+            (camera.height + block_size - 1) / block_size,
         ];
 
-        let info = gen::project_forward::InfoBinding {
-            viewmat: camera.transform,
-            projmat: camera.proj_mat,
-            intrins: camera.intrins(),
-            img_size: [camera.width, camera.height],
-            tile_bounds,
-            glob_scale: 1.0,
-            num_points: num_points as u32,
-            clip_thresh: 0.001,
-            block_width,
-        };
+        let intrins = 
+            // TODO: Does this need the tan business?
+            glam::vec4(
+                (camera.width as f32) / (2.0 * camera.fovx.tan()),
+                (camera.height as f32) / (2.0 * camera.fovy.tan()),
+                (camera.width as f32) / 2.0,
+                (camera.height as f32) / 2.0,
+            );
 
         let client = means.client.clone();
         let device = means.device.clone();
 
-        let create_empty = |dim| {
+        let create_empty_f32 = |dim| {
             let shape = Shape::new(dim);
             JitTensor::new(
                 client.clone(),
@@ -93,72 +111,154 @@ impl<G: GraphicsApi, F: FloatElement, I: IntElement> Backend for JitBackend<Wgpu
             )
         };
 
+        let create_empty_i32 = |dim| -> JitTensor<WgpuRuntime<G, F, I>, I, 2> {
+            let shape = Shape::new(dim);
+            JitTensor::new(
+                client.clone(),
+                device.clone(),
+                shape.clone(),
+                client.empty(shape.num_elements() * core::mem::size_of::<I>()),
+            )
+        };
+
+        let aux_data = client.create(bytemuck::bytes_of(&gen::project_forward::InfoBinding {
+            viewmat: camera.transform.inverse(),
+            projmat: camera.proj_mat,
+            intrins,
+            img_size: [camera.width, camera.height],
+            tile_bounds,
+            glob_scale: 1.0,
+            num_points: num_points as u32,
+            clip_thresh: 0.001,
+            block_width: block_size,
+        }));
+
         // Create the output tensor primitive.
-        let radii = create_empty([num_points, 1]);
-        let num_tiles_hit = create_empty([num_points, 1]);
-        let covs3d = create_empty([num_points, 6]);
-        let conics = create_empty([num_points, 3]);
-        let depths = create_empty([num_points, 1]);
-        let xys = create_empty([num_points, 2]);
-        let compensation = create_empty([num_points, 1]);
 
-        // Imagine ExampleStruct had a bunch of arguments.
-        let bytes = bytemuck::bytes_of(&info);
-        let info_data = means.client.create(bytes);
+        // TODO: We might only need the data on the client for this not the tensor wrapper?
+        let radii = create_empty_i32([num_points, 1]);
+        let num_tiles_hit = create_empty_i32([num_points, 1]);
+        let covs3d = create_empty_f32([num_points, 6]);
+        let conics = create_empty_f32([num_points, 3]);
+        let depths = create_empty_f32([num_points, 1]);
+        let xys = create_empty_f32([num_points, 2]);
+        let compensation = create_empty_f32([num_points, 1]);
 
-        // Create the kernel.
-        let kernel = RenderSplats2D::new();
-
-        // Declare the wgsl workgroup with the number of blocks in x, y and z.
-        let blocks_needed_in_x = f32::ceil(num_points as f32 / block_width as f32) as u32;
-        let workgroup = WorkGroup::new(blocks_needed_in_x, 1, 1);
-
-        // Execute lazily the kernel with the launch information and the given buffers.
-        println!("Execpute WGSL compute shader.");
-        means.client.execute(
-            Box::new(DynamicKernel::new(kernel, workgroup)),
+        let workgroup = get_workgroup(uvec3(num_points as u32, 1, 1), uvec3(16, 1, 1));
+        client.execute(
+            Box::new(DynamicKernel::new(ProjectSplats::new(), workgroup)),
             &[
                 // Input tensors.
                 &means.handle,  // 0
                 &scales.handle, // 1
                 &quats.handle,  // 2
                 // Output tensors.
-                &radii.handle,         // 3
-                &num_tiles_hit.handle, // 4
-                &covs3d.handle,        // 5
-                &conics.handle,        // 6
-                &depths.handle,        // 7
-                &xys.handle,           // 8
-                &compensation.handle,  // 9
+                &covs3d.handle,        // 3
+                &xys.handle,           // 4
+                &depths.handle,        // 5
+                &radii.handle,         // 6
+                &conics.handle,        // 7
+                &compensation.handle,  // 8
+                &num_tiles_hit.handle, // 9
                 // Aux data.
-                &info_data, // 10
+                &aux_data
             ],
         );
 
-        println!("Execputed WGSL compute shader.");
+        // let num_intersects = means.client.read(&cum_tiles_hit.handle).read();
+        // let num_intersects = cum_tiles_hit[-1].item(); // TODO: Is this a CPU readback?? Wtf?
 
-        // Return the output tensor.
-        // TODO: How to return the rest??
-        xys
-        // ProjectionOutput {
-        //     covs3d,
-        //     xys,
-        //     depths,
-        //     radii,
-        //     conics,
-        //     compensation,
-        //     num_tiles_hit,
-        // }
+
+        // compute_cumulative_intersects
+        let cum_tiles_hit = num_tiles_hit; // TODO: This should be cumulative sum?
+        let num_intersects = num_tiles_hit; // TODO: This should be the total sum.
+        
+        // Mapping gaussians to sorted unique intersection IDs and tile bins used for fast rasterization.
+        // We return both dsorted an unsorted versions of intersect IDs and gaussian IDs for testing purposes.
+
+        // Returns:
+        //     A tuple of {Tensor, Tensor, Tensor, Tensor, Tensor}:
+
+        //     - **isect_ids_unsorted** (Tensor): unique IDs for each gaussian in the form (tile | depth id).
+        //     - **gaussian_ids_unsorted** (Tensor): Tensor that maps isect_ids back to cum_tiles_hit. Useful for identifying gaussians.
+        //     - **isect_ids_sorted** (Tensor): sorted unique IDs for each gaussian in the form (tile | depth id).
+        //     - **gaussian_ids_sorted** (Tensor): sorted Tensor that maps isect_ids back to cum_tiles_hit. Useful for identifying gaussians.
+        //     - **tile_bins** (Tensor): range of gaussians hit per tile.
+        let workgroup = get_workgroup(uvec3(num_points as u32, 1, 1), uvec3(16, 1, 1));
+        client.execute(
+            Box::new(DynamicKernel::new(MapGaussiansToIntersect::new(), workgroup)),
+            &[
+                // Input tensors.
+                &num_intersects.handle,
+                &xys.handle,
+                &depths.handle,
+                &covs3d.handle,
+                &xys.handle,
+                &depths.handle,
+                &radii.handle,
+                &cum_tiles_hit.handle,
+                &compensation.handle,
+                &num_tiles_hit.handle,
+                &aux_data
+            ],
+        );
+
+        // TODO: WGSL Radix sort.
+        let (isect_ids_sorted, sorted_indices) = torch.sort(isect_ids);
+        let gaussian_ids_sorted = torch.gather(gaussian_ids, 0, sorted_indices);
+
+        // Map sorted intersection IDs to tile bins which give the range of unique gaussian IDs belonging to each tile.
+        // Expects that intersection IDs are sorted by increasing tile ID.
+        // Indexing into tile_bins[tile_idx] returns the range (lower,upper) of gaussian IDs that hit tile_idx.
+        // Note:
+        //     This function is not differentiable to any input.
+        // Args:
+        //     num_intersects (int): total number of gaussian intersects.
+        //     isect_ids_sorted (Tensor): sorted unique IDs for each gaussian in the form (tile | depth id).
+        //     tile_bounds (Tuple): tile dimensions as a len 3 tuple (tiles.x , tiles.y, 1).
+    
+        // Returns:
+        //     A Tensor:
+        //     - **tile_bins** (Tensor): range of gaussians IDs hit per tile.
+        
+        let workgroup = get_workgroup(uvec3(num_points as u32, 1, 1), uvec3(16, 1, 1));
+        client.execute(
+            Box::new(DynamicKernel::new(GetTileBinEdges::new(), workgroup)),
+            &[
+                // Input tensors.
+                &num_intersects.handle,
+                &isect_ids_sorted.handle,
+                // Aux data.
+                &aux_data
+            ],
+        );
+
+        client.execute(
+            Box::new(DynamicKernel::new(RasterizeForward::new(), workgroup)),
+            &[
+                // Input tensors.
+                &gaussian_ids_sorted.handle,
+                &tile_bins.handle,
+                &xys.handle,
+                &conics.handle,
+                &colors.handle,
+                &opacity.handle,
+                // Aux data.
+                &aux_data
+            ],
+        );
+
+        out_img
     }
 }
 
 // Create our zero-sized type that will implement the Backward trait.
 #[derive(Debug)]
-struct RenderSplatsBackward;
+struct ProjectSplatsBackward;
 
 // Implement the backward trait for the given backend B, the node gradient being of rank D
 // with three other gradients to calculate (means, colors, and opacity).
-impl<B: Backend> Backward<B, 2, 3> for RenderSplatsBackward {
+impl<B: Backend> Backward<B, 2, 3> for ProjectSplatsBackward {
     // Our state that we must build during the forward pass to compute the backward pass.
     //
     // Note that we could improve the performance further by only keeping the state of
@@ -206,7 +306,7 @@ impl<B: Backend> Backward<B, 2, 3> for RenderSplatsBackward {
 }
 
 impl<B: Backend, C: CheckpointStrategy> Backend for Autodiff<B, C> {
-    fn project_splats(
+    fn render_gaussians(
         camera: &Camera,
         means: FloatTensor<Self, 2>,
         scales: FloatTensor<Self, 2>,
@@ -215,7 +315,7 @@ impl<B: Backend, C: CheckpointStrategy> Backend for Autodiff<B, C> {
         // Prepare a stateful operation with each variable node and corresponding graph.
         //
         // Each node can be fetched with `ops.parents` in the same order as defined here.
-        match RenderSplatsBackward
+        match ProjectSplatsBackward
             .prepare::<C>(
                 [means.node.clone(), scales.node.clone(), quats.node.clone()],
                 [
@@ -241,7 +341,7 @@ impl<B: Backend, C: CheckpointStrategy> Backend for Autodiff<B, C> {
                 let scale_state = prep.checkpoint(&scales);
                 let quat_state = prep.checkpoint(&quats);
 
-                let output = B::project_splats(
+                let output = B::render_gaussians(
                     camera,
                     means.primitive.clone(),
                     scales.primitive.clone(),
@@ -255,7 +355,7 @@ impl<B: Backend, C: CheckpointStrategy> Backend for Autodiff<B, C> {
                 // When no node is tracked, we can just compute the original operation without
                 // keeping any state.
                 let output =
-                    B::project_splats(camera, means.primitive, scales.primitive, quats.primitive);
+                    B::render_gaussians(camera, means.primitive, scales.primitive, quats.primitive);
                 prep.finish(output)
             }
         }

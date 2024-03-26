@@ -31,7 +31,7 @@ pub fn render<B: Backend>(
     // let tanfovy = (camera.fovy * 0.5).tan();
     // let active_sh_degree = 1;
 
-    let screenspace_points = B::project_splats(
+    let screenspace_points = B::render_gaussians(
         camera,
         means.clone().into_primitive(),
         scales.clone().into_primitive(),
@@ -44,7 +44,7 @@ pub fn render<B: Backend>(
             .unsqueeze::<3>()
             .reshape([camera.height as usize, camera.width as usize, 3]);
 
-    let radii = Tensor::zeros_like(&means).unsqueeze();
+    let radii = Tensor::zeros_like(&_opacity);
     RenderPackage {
         image,
         radii,

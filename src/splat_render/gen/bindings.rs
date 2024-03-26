@@ -2,7 +2,7 @@
 //
 // ^ wgsl_bindgen version 0.10.0
 // Changes made to this file will not be saved.
-// SourceHash: 6e9c83c614769311772cdb97ab1326e61e155e347d6f0fc101a6beca1031b300
+// SourceHash: 34d164a0eccb03734e4acd5e0d282c6cb2c958a0cec86458f03b4ecf30d8dc36
 
 #![allow(unused, non_snake_case, non_camel_case_types, non_upper_case_globals)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -109,13 +109,13 @@ pub mod project_forward {
             pub means3d: wgpu::BufferBinding<'a>,
             pub scales: wgpu::BufferBinding<'a>,
             pub quats: wgpu::BufferBinding<'a>,
-            pub radii: wgpu::BufferBinding<'a>,
-            pub num_tiles_hit: wgpu::BufferBinding<'a>,
             pub covs3d: wgpu::BufferBinding<'a>,
-            pub conics: wgpu::BufferBinding<'a>,
-            pub depths: wgpu::BufferBinding<'a>,
             pub xys: wgpu::BufferBinding<'a>,
+            pub depths: wgpu::BufferBinding<'a>,
+            pub radii: wgpu::BufferBinding<'a>,
+            pub conics: wgpu::BufferBinding<'a>,
             pub compensation: wgpu::BufferBinding<'a>,
+            pub num_tiles_hit: wgpu::BufferBinding<'a>,
             pub info_array: wgpu::BufferBinding<'a>,
         }
         impl<'a> WgpuBindGroupLayout0<'a> {
@@ -135,31 +135,31 @@ pub mod project_forward {
                     },
                     wgpu::BindGroupEntry {
                         binding: 3,
-                        resource: wgpu::BindingResource::Buffer(self.radii),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 4,
-                        resource: wgpu::BindingResource::Buffer(self.num_tiles_hit),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 5,
                         resource: wgpu::BindingResource::Buffer(self.covs3d),
                     },
                     wgpu::BindGroupEntry {
-                        binding: 6,
-                        resource: wgpu::BindingResource::Buffer(self.conics),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 7,
-                        resource: wgpu::BindingResource::Buffer(self.depths),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 8,
+                        binding: 4,
                         resource: wgpu::BindingResource::Buffer(self.xys),
                     },
                     wgpu::BindGroupEntry {
-                        binding: 9,
+                        binding: 5,
+                        resource: wgpu::BindingResource::Buffer(self.depths),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 6,
+                        resource: wgpu::BindingResource::Buffer(self.radii),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 7,
+                        resource: wgpu::BindingResource::Buffer(self.conics),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 8,
                         resource: wgpu::BindingResource::Buffer(self.compensation),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 9,
+                        resource: wgpu::BindingResource::Buffer(self.num_tiles_hit),
                     },
                     wgpu::BindGroupEntry {
                         binding: 10,
@@ -400,6 +400,12 @@ pub mod project_forward {
             })
     }
     pub const SHADER_STRING: &'static str = r#"
+struct ComputeCov2DBoundsX_naga_oil_mod_XNBSWY4DFOJZQX {
+    conic: vec3<f32>,
+    radius: f32,
+    valid: bool,
+}
+
 struct InfoBinding {
     viewmat: mat4x4<f32>,
     projmat: mat4x4<f32>,
@@ -412,12 +418,6 @@ struct InfoBinding {
     block_width: u32,
 }
 
-struct ComputeCov2DBounds {
-    conic: vec3<f32>,
-    radius: f32,
-    valid: bool,
-}
-
 @group(0) @binding(0) 
 var<storage> means3d: array<vec3<f32>>;
 @group(0) @binding(1) 
@@ -425,64 +425,55 @@ var<storage> scales: array<vec3<f32>>;
 @group(0) @binding(2) 
 var<storage> quats: array<vec4<f32>>;
 @group(0) @binding(3) 
-var<storage, read_write> radii: array<f32>;
-@group(0) @binding(4) 
-var<storage, read_write> num_tiles_hit: array<f32>;
-@group(0) @binding(5) 
 var<storage, read_write> covs3d: array<f32>;
-@group(0) @binding(6) 
-var<storage, read_write> conics: array<vec3<f32>>;
-@group(0) @binding(7) 
-var<storage, read_write> depths: array<f32>;
-@group(0) @binding(8) 
+@group(0) @binding(4) 
 var<storage, read_write> xys: array<vec2<f32>>;
+@group(0) @binding(5) 
+var<storage, read_write> depths: array<f32>;
+@group(0) @binding(6) 
+var<storage, read_write> radii: array<i32>;
+@group(0) @binding(7) 
+var<storage, read_write> conics: array<vec3<f32>>;
+@group(0) @binding(8) 
+var<storage, read_write> compensation: array<f32>;
 @group(0) @binding(9) 
-var<storage, read_write> compensation_1: array<f32>;
+var<storage, read_write> num_tiles_hit: array<i32>;
 @group(0) @binding(10) 
 var<storage> info_array: array<InfoBinding>;
 
-fn quat_to_rotmat(quat: vec4<f32>) -> mat3x3<f32> {
-    let s = inverseSqrt(((((quat.w * quat.w) + (quat.x * quat.x)) + (quat.y * quat.y)) + (quat.z * quat.z)));
-    let w = (quat.x * s);
-    let x_1 = (quat.y * s);
-    let y = (quat.z * s);
-    let z = (quat.w * s);
+fn quat_to_rotmatX_naga_oil_mod_XNBSWY4DFOJZQX(quat: vec4<f32>) -> mat3x3<f32> {
+    let quat_norm = normalize(quat);
+    let x_1 = quat_norm.x;
+    let y = quat_norm.y;
+    let z = quat_norm.z;
+    let w = quat_norm.w;
     return mat3x3<f32>(vec3<f32>((1f - (2f * ((y * y) + (z * z)))), (2f * ((x_1 * y) + (w * z))), (2f * ((x_1 * z) - (w * y)))), vec3<f32>((2f * ((x_1 * y) - (w * z))), (1f - (2f * ((x_1 * x_1) + (z * z)))), (2f * ((y * z) + (w * x_1)))), vec3<f32>((2f * ((x_1 * z) + (w * y))), (2f * ((y * z) - (w * x_1))), (1f - (2f * ((x_1 * x_1) + (y * y))))));
 }
 
-fn scale_to_mat(scale: vec3<f32>, glob_scale: f32) -> mat3x3<f32> {
+fn scale_to_matX_naga_oil_mod_XNBSWY4DFOJZQX(scale: vec3<f32>, glob_scale: f32) -> mat3x3<f32> {
     return mat3x3<f32>(vec3<f32>((glob_scale * scale.x), 0f, 0f), vec3<f32>(0f, (glob_scale * scale.y), 0f), vec3<f32>(0f, 0f, (glob_scale * scale.z)));
 }
 
-fn compute_cov2d_bounds(cov2d: vec3<f32>) -> ComputeCov2DBounds {
-    let det = ((cov2d.x * cov2d.z) - (cov2d.y * cov2d.y));
-    if (det == 0f) {
-        return ComputeCov2DBounds(vec3(0f), 0f, false);
-    }
-    let inv_det = (1f / det);
-    let conic_2 = vec3<f32>((cov2d.z * inv_det), (-(cov2d.y) * inv_det), (cov2d.x * inv_det));
-    let b = (0.5f * (cov2d.x + cov2d.z));
-    let v1_ = (b + sqrt(max(0.1f, ((b * b) - det))));
-    let v2_ = (b - sqrt(max(0.1f, ((b * b) - det))));
-    let radius = ceil((3f * sqrt(max(v1_, v2_))));
-    return ComputeCov2DBounds(vec3(0f), 0f, true);
+fn scale_rot_to_cov3dX_naga_oil_mod_XNBSWY4DFOJZQX(scale_1: vec3<f32>, glob_scale_1: f32, quat_1: vec4<f32>) -> mat3x3<f32> {
+    let _e1 = quat_to_rotmatX_naga_oil_mod_XNBSWY4DFOJZQX(quat_1);
+    let _e4 = scale_to_matX_naga_oil_mod_XNBSWY4DFOJZQX(scale_1, glob_scale_1);
+    let M = (_e1 * _e4);
+    return (M * transpose(M));
 }
 
-fn ndc2pix(x: f32, W: f32, cx: f32) -> f32 {
-    return ((((0.5f * W) * x) + cx) - 0.5f);
+fn ndc2pixX_naga_oil_mod_XNBSWY4DFOJZQX(x: vec2<f32>, W: vec2<f32>, cx: vec2<f32>) -> vec2<f32> {
+    return ((((0.5f * W) * x) + cx) - vec2(0.5f));
 }
 
-fn project_pix(transform: mat4x4<f32>, p: vec3<f32>, img_size: vec2<u32>, pp: vec2<f32>) -> vec2<f32> {
+fn project_pixX_naga_oil_mod_XNBSWY4DFOJZQX(transform: mat4x4<f32>, p: vec3<f32>, img_size: vec2<u32>, pp: vec2<f32>) -> vec2<f32> {
     let p_hom = (transform * vec4<f32>(p, 1f));
     let rw = (1f / (p_hom.w + 0.000001f));
     let p_proj = (p_hom.xyz / vec3((p_hom.w + 0.000001f)));
-    let img_f = vec2<f32>(img_size);
-    let _e22 = ndc2pix(p_proj.x, img_f.x, pp.x);
-    let _e26 = ndc2pix(p_proj.y, img_f.y, pp.y);
-    return vec2<f32>(_e22, _e26);
+    let _e21 = ndc2pixX_naga_oil_mod_XNBSWY4DFOJZQX(p_proj.xy, vec2<f32>(img_size.xy), pp);
+    return _e21;
 }
 
-fn get_bbox(center: vec2<f32>, dims: vec2<f32>, img_size_1: vec2<u32>) -> vec4<i32> {
+fn get_bboxX_naga_oil_mod_XNBSWY4DFOJZQX(center: vec2<f32>, dims: vec2<f32>, img_size_1: vec2<u32>) -> vec4<i32> {
     let bb_min_x = min(max(0i, i32((center.x - dims.x))), i32(img_size_1.x));
     let bb_max_x = min(max(0i, i32(((center.x + dims.x) + 1f))), i32(img_size_1.x));
     let bb_min_y = min(max(0i, i32((center.y - dims.y))), i32(img_size_1.y));
@@ -490,60 +481,35 @@ fn get_bbox(center: vec2<f32>, dims: vec2<f32>, img_size_1: vec2<u32>) -> vec4<i
     return vec4<i32>(bb_min_x, bb_min_y, bb_max_y, bb_max_y);
 }
 
-fn get_tile_bbox(pix_center: vec2<f32>, pix_radius: f32, tile_bounds: vec2<u32>, block_size: u32) -> vec4<i32> {
+fn get_tile_bboxX_naga_oil_mod_XNBSWY4DFOJZQX(pix_center: vec2<f32>, pix_radius: f32, tile_bounds: vec2<u32>, block_size: u32) -> vec4<i32> {
     let tile_center = (pix_center / vec2(f32(block_size)));
     let tile_radius = (vec2<f32>(pix_radius, pix_radius) / vec2(f32(block_size)));
-    let _e11 = get_bbox(tile_center, tile_radius, tile_bounds);
+    let _e11 = get_bboxX_naga_oil_mod_XNBSWY4DFOJZQX(tile_center, tile_radius, tile_bounds);
     return _e11;
 }
 
-fn cov2d_to_conic_vjp(conic: vec3<f32>, v_conic: vec3<f32>) -> vec3<f32> {
-    let X = mat2x2<f32>(vec2<f32>(conic.x, conic.y), vec2<f32>(conic.y, conic.z));
-    let G = mat2x2<f32>(vec2<f32>(v_conic.x, (v_conic.y / 2f)), vec2<f32>((v_conic.y / 2f), v_conic.z));
-    let v_Sigma = ((-(X) * G) * X);
-    return vec3<f32>(v_Sigma[0].x, (v_Sigma[1].x + v_Sigma[0].y), v_Sigma[1].y);
-}
-
-fn cov2d_to_compensation_vjp(compensation: f32, conic_1: vec3<f32>, v_compensation: f32, v_cov2d: vec3<f32>) -> vec3<f32> {
-    var v_cov2d_ret: vec3<f32>;
-
-    let inv_det_1 = ((conic_1.x * conic_1.z) - (conic_1.y * conic_1.y));
-    let one_minus_sqr_comp = (1f - (compensation * compensation));
-    let v_sqr_comp = ((v_compensation * 0.5f) / (compensation + 0.000001f));
-    v_cov2d_ret = v_cov2d;
-    let _e27 = v_cov2d_ret.x;
-    v_cov2d_ret.x = (_e27 + (v_sqr_comp * ((one_minus_sqr_comp * conic_1.x) - (0.3f * inv_det_1))));
-    let _e35 = v_cov2d_ret.y;
-    v_cov2d_ret.y = (_e35 + ((2f * v_sqr_comp) * (one_minus_sqr_comp * conic_1.y)));
-    let _e44 = v_cov2d_ret.z;
-    v_cov2d_ret.z = (_e44 + (v_sqr_comp * ((one_minus_sqr_comp * conic_1.z) - (0.3f * inv_det_1))));
-    return v_cov2d;
-}
-
-fn quat_to_rotmat_vjp(quat_1: vec4<f32>, v_R: mat3x3<f32>) -> vec4<f32> {
-    var v_quat: vec4<f32> = vec4(0f);
-
-    let s_1 = inverseSqrt(((((quat_1.w * quat_1.w) + (quat_1.x * quat_1.x)) + (quat_1.y * quat_1.y)) + (quat_1.z * quat_1.z)));
-    let w_1 = (quat_1.x * s_1);
-    let x_2 = (quat_1.y * s_1);
-    let y_1 = (quat_1.z * s_1);
-    let z_1 = (quat_1.w * s_1);
-    v_quat.x = (2f * (((x_2 * (v_R[1].z - v_R[2].y)) + (y_1 * (v_R[2].x - v_R[0].z))) + (z_1 * (v_R[0].y - v_R[1].x))));
-    v_quat.y = (2f * (((((-2f * x_2) * (v_R[1].y + v_R[2].z)) + (y_1 * (v_R[0].y + v_R[1].x))) + (z_1 * (v_R[0].z + v_R[2].x))) + (w_1 * (v_R[1].z - v_R[2].y))));
-    v_quat.z = (2f * ((((x_2 * (v_R[0].y + v_R[1].x)) - ((2f * y_1) * (v_R[0].x + v_R[2].z))) + (z_1 * (v_R[1].z + v_R[2].y))) + (w_1 * (v_R[2].x - v_R[0].z))));
-    v_quat.w = (2f * ((((x_2 * (v_R[0].z + v_R[2].x)) + (y_1 * (v_R[1].z + v_R[2].y))) - ((2f * z_1) * (v_R[0].x + v_R[1].y))) + (w_1 * (v_R[0].y - v_R[1].x))));
-    let _e148 = v_quat;
-    return _e148;
+fn compute_cov2d_boundsX_naga_oil_mod_XNBSWY4DFOJZQX(cov2d: vec3<f32>) -> ComputeCov2DBoundsX_naga_oil_mod_XNBSWY4DFOJZQX {
+    let det = ((cov2d.x * cov2d.z) - (cov2d.y * cov2d.y));
+    if (det == 0f) {
+        return ComputeCov2DBoundsX_naga_oil_mod_XNBSWY4DFOJZQX(vec3(0f), 0f, false);
+    }
+    let conic = (vec3<f32>(cov2d.z, -(cov2d.y), cov2d.x) / vec3(det));
+    let b = (0.5f * (cov2d.x + cov2d.z));
+    let v1_ = (b + sqrt(max(0.1f, ((b * b) - det))));
+    let v2_ = (b - sqrt(max(0.1f, ((b * b) - det))));
+    let radius = ceil((3f * sqrt(max(v1_, v2_))));
+    return ComputeCov2DBoundsX_naga_oil_mod_XNBSWY4DFOJZQX(conic, radius, true);
 }
 
 @compute @workgroup_size(16, 1, 1) 
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invocation_id) local_id: vec3<u32>, @builtin(workgroup_id) workgroup_id: vec3<u32>) {
-    var t: vec4<f32>;
-
-    let idx = local_id.x;
     let info = info_array[0];
+    let idx = local_id.x;
     let num_points = info.num_points;
-    let glob_scale_1 = info.glob_scale;
+    if (idx >= num_points) {
+        return;
+    }
+    let glob_scale_2 = info.glob_scale;
     let viewmat = info.viewmat;
     let projmat = info.projmat;
     let intrins = info.intrins;
@@ -551,28 +517,22 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     let tile_bounds_1 = info.tile_bounds;
     let block_width = info.block_width;
     let clip_thresh = info.clip_thresh;
-    if (idx >= num_points) {
-        return;
-    }
-    radii[idx] = 0f;
-    num_tiles_hit[idx] = 0f;
+    radii[idx] = 0i;
+    num_tiles_hit[idx] = 0i;
     let p_world = means3d[idx];
     let p_view = (viewmat * vec4<f32>(p_world, 1f));
     if (p_view.z <= clip_thresh) {
         return;
     }
-    let scale_1 = scales[idx];
+    let scale_2 = scales[idx];
     let quat_2 = quats[idx];
-    let _e35 = quat_to_rotmat(quat_2);
-    let _e36 = scale_to_mat(scale_1, glob_scale_1);
-    let M = (_e35 * _e36);
-    let tmp = (M * transpose(M));
-    let covs0_ = tmp[0].x;
-    let covs1_ = tmp[0].y;
-    let covs2_ = tmp[0].z;
-    let covs3_ = tmp[1].y;
-    let covs4_ = tmp[1].z;
-    let covs5_ = tmp[2].z;
+    let _e35 = scale_rot_to_cov3dX_naga_oil_mod_XNBSWY4DFOJZQX(scale_2, glob_scale_2, quat_2);
+    let covs0_ = _e35[0].x;
+    let covs1_ = _e35[0].y;
+    let covs2_ = _e35[0].z;
+    let covs3_ = _e35[1].y;
+    let covs4_ = _e35[1].z;
+    let covs5_ = _e35[2].z;
     covs3d[((6u * idx) + 0u)] = covs0_;
     covs3d[((6u * idx) + 1u)] = covs1_;
     covs3d[((6u * idx) + 2u)] = covs2_;
@@ -585,24 +545,13 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     let cy = intrins.w;
     let tan_fovx = ((0.5f * f32(img_size_2.x)) / fx);
     let tan_fovy = ((0.5f * f32(img_size_2.y)) / fy);
-    t = (viewmat * vec4<f32>(p_world, 1f));
-    let lim_x = (1.3f * tan_fovx);
-    let lim_y = (1.3f * tan_fovy);
-    let _e112 = t.z;
-    let _e115 = t.x;
-    let _e117 = t.z;
-    t.x = (_e112 * min(lim_x, max(-(lim_x), (_e115 / _e117))));
-    let _e124 = t.z;
-    let _e127 = t.y;
-    let _e129 = t.z;
-    t.y = (_e124 * min(lim_y, max(-(lim_y), (_e127 / _e129))));
-    let _e136 = t.z;
-    let rz = (1f / _e136);
+    let W_1 = mat3x3<f32>(viewmat[0].xyz, viewmat[1].xyz, viewmat[2].xyz);
+    let lims = (1.3f * vec2<f32>(tan_fovx, tan_fovy));
+    let t = (p_world.z * clamp((p_world.xy / vec2(p_world.z)), -(lims), lims));
+    let rz = (1f / p_world.z);
     let rz2_ = (rz * rz);
-    let _e149 = t.x;
-    let _e154 = t.y;
-    let J = mat3x3<f32>(vec3<f32>((fx * rz), 0f, 0f), vec3<f32>(0f, (fy * rz), 0f), vec3<f32>(((-(fx) * _e149) * rz2_), ((-(fy) * _e154) * rz2_), 0f));
-    let T = (J * mat3x3<f32>(viewmat[0].xyz, viewmat[1].xyz, viewmat[2].xyz));
+    let J = mat3x3<f32>(vec3<f32>((fx * rz), 0f, 0f), vec3<f32>(0f, (fy * rz), 0f), vec3<f32>(((-(fx) * t.x) * rz2_), ((-(fy) * t.y) * rz2_), 0f));
+    let T = (J * W_1);
     let V = mat3x3<f32>(vec3<f32>(covs0_, covs1_, covs2_), vec3<f32>(covs1_, covs3_, covs4_), vec3<f32>(covs2_, covs4_, covs5_));
     let cov = ((T * V) * transpose(T));
     let c00_ = cov[0].x;
@@ -612,22 +561,24 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     let cov2d_1 = vec3<f32>((c00_ + 0.3f), c01_, (c11_ + 0.3f));
     let det_blur = ((cov2d_1.x * cov2d_1.z) - (cov2d_1.y * cov2d_1.y));
     let comp = sqrt(max(0f, (det_orig / det_blur)));
-    let _e200 = compute_cov2d_bounds(cov2d_1);
-    if !(_e200.valid) {
+    let _e172 = compute_cov2d_boundsX_naga_oil_mod_XNBSWY4DFOJZQX(cov2d_1);
+    if !(_e172.valid) {
         return;
     }
-    conics[idx] = _e200.conic;
-    let _e207 = project_pix(projmat, p_world, img_size_2, vec2<f32>(cx_1, cy));
-    let _e209 = get_tile_bbox(_e207, _e200.radius, tile_bounds_1, block_width);
-    let tile_area = ((_e209.z - _e209.x) * (_e209.w - _e209.y));
+    conics[idx] = _e172.conic;
+    let _e179 = project_pixX_naga_oil_mod_XNBSWY4DFOJZQX(projmat, p_world, img_size_2, vec2<f32>(cx_1, cy));
+    let _e181 = get_tile_bboxX_naga_oil_mod_XNBSWY4DFOJZQX(_e179, _e172.radius, tile_bounds_1, block_width);
+    let tile_min = _e181.xy;
+    let tile_max = _e181.zw;
+    let tile_area = ((tile_max.x - tile_min.x) * (tile_max.y - tile_min.y));
     if (tile_area <= 0i) {
         return;
     }
-    num_tiles_hit[idx] = f32(tile_area);
+    num_tiles_hit[idx] = i32(tile_area);
     depths[idx] = p_view.z;
-    radii[idx] = f32(_e200.radius);
-    xys[idx] = _e207;
-    compensation_1[idx] = comp;
+    radii[idx] = i32(_e172.radius);
+    xys[idx] = _e179;
+    compensation[idx] = comp;
     return;
 }
 "#;

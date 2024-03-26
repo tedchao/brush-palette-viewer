@@ -60,16 +60,6 @@ impl Camera {
             fov_to_focal(self.fovy, self.width),
         )
     }
-
-    pub(crate) fn intrins(&self) -> glam::Vec4 {
-        // TODO: Does this need the tan business?
-        glam::vec4(
-            self.fovx,
-            self.fovy,
-            (self.width as f32) / 2.0,
-            (self.height as f32) / 2.0,
-        )
-    }
 }
 
 // Constructs a projection matrix from znear, zfar, fovx, fovy.

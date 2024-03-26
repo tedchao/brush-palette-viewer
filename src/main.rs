@@ -13,7 +13,7 @@ mod train;
 mod utils;
 
 use burn::backend::{
-    wgpu::{Dx12, JitBackend, WgpuRuntime},
+    wgpu::{AutoGraphicsApi, JitBackend, WgpuRuntime},
     Autodiff,
 };
 
@@ -23,7 +23,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let device = Default::default();
 
     // type BackGPU = Wgpu<AutoGraphicsApi, f32, i32>;
-    type BackGPU = JitBackend<WgpuRuntime<Dx12, f32, i32>>;
+    type BackGPU = JitBackend<WgpuRuntime<AutoGraphicsApi, f32, i32>>;
     type DiffBack = Autodiff<BackGPU>;
 
     let config = TrainConfig::new("../nerf_synthetic/lego/".to_owned());

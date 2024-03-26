@@ -63,7 +63,10 @@ fn train_step<B: AutodiffBackend>(
     optim: &mut impl Optimizer<Splats<B>, B>,
     rng: &mut StdRng,
     device: &B::Device,
-) -> (Splats<B>, TrainStats) {
+) -> (Splats<B>, TrainStats)
+where
+    B::InnerBackend: Backend,
+{
     println!("Train step {iteration}");
 
     if iteration % 1000 == 0 {
@@ -137,7 +140,10 @@ fn train_step<B: AutodiffBackend>(
 pub(crate) fn train<B: splat_render::AutodiffBackend>(
     config: &TrainConfig,
     device: &B::Device,
-) -> Result<()> {
+) -> Result<()>
+where
+    B::InnerBackend: Backend,
+{
     let rec = rerun::RecordingStreamBuilder::new("visualize training").spawn()?;
 
     println!("Reading dataset.");
