@@ -165,40 +165,44 @@ impl<G: GraphicsApi, F: FloatElement, I: IntElement> Backend for JitBackend<Wgpu
             ],
         );
 
-        // let num_intersects = means.client.read(&cum_tiles_hit.handle).read();
-        // let num_intersects = cum_tiles_hit[-1].item(); // TODO: Is this a CPU readback?? Wtf?
+        // TODO: CPU emulation for now. Investigate if we can do without a cumulative sum?
+        let num_tiles_hit = bytemuck::cast_vec::<u8, u32>(client.read(&num_tiles_hit.handle).read());
 
+        let cum_tiles_hit: Vec<u32> = num_tiles_hit
+            .into_iter()
+            .scan(0, |acc, x| {
+                *acc += x;
+                Some(*acc)
+            })
+            .collect();
 
-        // compute_cumulative_intersects
-        let cum_tiles_hit = num_tiles_hit; // TODO: This should be cumulative sum?
-        let num_intersects = num_tiles_hit; // TODO: This should be the total sum.
-        
+        let num_intersects = cum_tiles_hit.last().unwrap();
+
         // Mapping gaussians to sorted unique intersection IDs and tile bins used for fast rasterization.
         // We return both dsorted an unsorted versions of intersect IDs and gaussian IDs for testing purposes.
 
         // Returns:
         //     A tuple of {Tensor, Tensor, Tensor, Tensor, Tensor}:
 
-        //     - **isect_ids_unsorted** (Tensor): unique IDs for each gaussian in the form (tile | depth id).
-        //     - **gaussian_ids_unsorted** (Tensor): Tensor that maps isect_ids back to cum_tiles_hit. Useful for identifying gaussians.
         //     - **isect_ids_sorted** (Tensor): sorted unique IDs for each gaussian in the form (tile | depth id).
         //     - **gaussian_ids_sorted** (Tensor): sorted Tensor that maps isect_ids back to cum_tiles_hit. Useful for identifying gaussians.
         //     - **tile_bins** (Tensor): range of gaussians hit per tile.
+
+        let cum_tiles_hit = client.create(bytemuck::cast_slice::<u32, u8>(&cum_tiles_hit));
+
         let workgroup = get_workgroup(uvec3(num_points as u32, 1, 1), uvec3(16, 1, 1));
         client.execute(
             Box::new(DynamicKernel::new(MapGaussiansToIntersect::new(), workgroup)),
             &[
                 // Input tensors.
-                &num_intersects.handle,
                 &xys.handle,
                 &depths.handle,
                 &covs3d.handle,
                 &xys.handle,
                 &depths.handle,
                 &radii.handle,
-                &cum_tiles_hit.handle,
+                &cum_tiles_hit,
                 &compensation.handle,
-                &num_tiles_hit.handle,
                 &aux_data
             ],
         );
