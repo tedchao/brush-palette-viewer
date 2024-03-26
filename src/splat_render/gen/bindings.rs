@@ -2,7 +2,7 @@
 //
 // ^ wgsl_bindgen version 0.10.0
 // Changes made to this file will not be saved.
-// SourceHash: 860bce4f7bce77ac4fd53aab66e4336a30e57ca3808c0fc4abd432892170d478
+// SourceHash: aeebf16fb3aa395291d59db76ccdc3b177d69ee04537033dcc1a280e69bddbd5
 
 #![allow(unused, non_snake_case, non_camel_case_types, non_upper_case_globals)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -609,12 +609,10 @@ pub mod map_gaussian_to_intersects {
             pub cum_tiles_hit: wgpu::BufferBinding<'a>,
             pub isect_ids: wgpu::BufferBinding<'a>,
             pub gaussian_ids: wgpu::BufferBinding<'a>,
-            pub conics: wgpu::BufferBinding<'a>,
-            pub compensation: wgpu::BufferBinding<'a>,
             pub info_array: wgpu::BufferBinding<'a>,
         }
         impl<'a> WgpuBindGroupLayout0<'a> {
-            pub fn entries(self) -> [wgpu::BindGroupEntry<'a>; 9] {
+            pub fn entries(self) -> [wgpu::BindGroupEntry<'a>; 7] {
                 [
                     wgpu::BindGroupEntry {
                         binding: 0,
@@ -642,14 +640,6 @@ pub mod map_gaussian_to_intersects {
                     },
                     wgpu::BindGroupEntry {
                         binding: 6,
-                        resource: wgpu::BindingResource::Buffer(self.conics),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 7,
-                        resource: wgpu::BindingResource::Buffer(self.compensation),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 8,
                         resource: wgpu::BindingResource::Buffer(self.info_array),
                     },
                 ]
@@ -735,30 +725,6 @@ pub mod map_gaussian_to_intersects {
                     },
                     wgpu::BindGroupLayoutEntry {
                         binding: 6,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage {
-                                read_only: false,
-                            },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 7,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage {
-                                read_only: false,
-                            },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 8,
                         visibility: wgpu::ShaderStages::COMPUTE,
                         ty: wgpu::BindingType::Buffer {
                             ty: wgpu::BufferBindingType::Storage {
@@ -888,10 +854,6 @@ var<storage, read_write> isect_ids: array<u32>;
 @group(0) @binding(5) 
 var<storage, read_write> gaussian_ids: array<u32>;
 @group(0) @binding(6) 
-var<storage, read_write> conics: array<vec3<f32>>;
-@group(0) @binding(7) 
-var<storage, read_write> compensation: array<f32>;
-@group(0) @binding(8) 
 var<storage> info_array: array<InfoBindingX_naga_oil_mod_XNBSWY4DFOJZQX>;
 
 fn get_bboxX_naga_oil_mod_XNBSWY4DFOJZQX(center: vec2<f32>, dims: vec2<f32>, img_size: vec2<u32>) -> vec4<i32> {

@@ -8,10 +8,7 @@
 @group(0) @binding(4) var<storage, read_write> isect_ids: array<u32>;
 @group(0) @binding(5) var<storage, read_write> gaussian_ids: array<u32>;
 
-@group(0) @binding(6) var<storage, read_write> conics: array<vec3f>;
-@group(0) @binding(7) var<storage, read_write> compensation: array<f32>;
-
-@group(0) @binding(8) var<storage, read> info_array: array<helpers::InfoBinding>;
+@group(0) @binding(6) var<storage, read> info_array: array<helpers::InfoBinding>;
 
 // kernel to map each intersection from tile ID and depth to a gaussian
 // writes output to isect_ids and gaussian_ids

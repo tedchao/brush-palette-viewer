@@ -58,6 +58,12 @@ fn get_workgroup(executions: UVec3, group_size: UVec3) -> WorkGroup {
     WorkGroup::new(execs.x, execs.y, execs.z)
 }
 
+pub fn argsort<T: Ord>(data: &[T]) -> Vec<usize> {
+    let mut indices = (0..data.len()).collect::<Vec<_>>();
+    indices.sort_by_key(|&i| &data[i]);
+    indices
+}
+
 impl<G: GraphicsApi, F: FloatElement, I: IntElement> Backend for JitBackend<WgpuRuntime<G, F, I>> {
     fn render_gaussians(
         camera: &Camera,
@@ -121,7 +127,7 @@ impl<G: GraphicsApi, F: FloatElement, I: IntElement> Backend for JitBackend<Wgpu
             )
         };
 
-        let aux_data = client.create(bytemuck::bytes_of(&gen::project_forward::InfoBinding {
+        let aux_data = client.create(bytemuck::bytes_of(&gen::helpers::InfoBinding {
             viewmat: camera.transform.inverse(),
             projmat: camera.proj_mat,
             intrins,
@@ -190,6 +196,11 @@ impl<G: GraphicsApi, F: FloatElement, I: IntElement> Backend for JitBackend<Wgpu
 
         let cum_tiles_hit = client.create(bytemuck::cast_slice::<u32, u8>(&cum_tiles_hit));
 
+        // TODO Num points -> num_total_intersects.
+
+        let isect_ids = create_empty_i32([num_points, 1]);
+        let gaussian_ids = create_empty_i32([num_points, 1]);
+
         let workgroup = get_workgroup(uvec3(num_points as u32, 1, 1), uvec3(16, 1, 1));
         client.execute(
             Box::new(DynamicKernel::new(MapGaussiansToIntersect::new(), workgroup)),
@@ -197,25 +208,26 @@ impl<G: GraphicsApi, F: FloatElement, I: IntElement> Backend for JitBackend<Wgpu
                 // Input tensors.
                 &xys.handle,
                 &depths.handle,
-                &covs3d.handle,
-                &xys.handle,
-                &depths.handle,
                 &radii.handle,
                 &cum_tiles_hit,
-                &compensation.handle,
+
+                &isect_ids.handle,
+                &gaussian_ids.handle,
+
                 &aux_data
             ],
         );
 
         // TODO: WGSL Radix sort.
-        let (isect_ids_sorted, sorted_indices) = torch.sort(isect_ids);
-        let gaussian_ids_sorted = torch.gather(gaussian_ids, 0, sorted_indices);
+        let isect_ids = bytemuck::cast_vec::<u8, u32>(client.read(&isect_ids.handle).read());
+        let gaussian_ids = bytemuck::cast_vec::<u8, u32>(client.read(&gaussian_ids.handle).read());
+        let sorted_indices = argsort(&isect_ids);
+        let isect_ids = sorted_indices.iter().copied().map(|x| isect_ids[x]).collect();
+        let gaussian_ids_sorted = sorted_indices.iter().copied().map(|x| gaussian_ids[x]).collect();
 
         // Map sorted intersection IDs to tile bins which give the range of unique gaussian IDs belonging to each tile.
         // Expects that intersection IDs are sorted by increasing tile ID.
         // Indexing into tile_bins[tile_idx] returns the range (lower,upper) of gaussian IDs that hit tile_idx.
-        // Note:
-        //     This function is not differentiable to any input.
         // Args:
         //     num_intersects (int): total number of gaussian intersects.
         //     isect_ids_sorted (Tensor): sorted unique IDs for each gaussian in the form (tile | depth id).
@@ -225,12 +237,12 @@ impl<G: GraphicsApi, F: FloatElement, I: IntElement> Backend for JitBackend<Wgpu
         //     A Tensor:
         //     - **tile_bins** (Tensor): range of gaussians IDs hit per tile.
         
+        // TODO: Num intersects.
         let workgroup = get_workgroup(uvec3(num_points as u32, 1, 1), uvec3(16, 1, 1));
         client.execute(
             Box::new(DynamicKernel::new(GetTileBinEdges::new(), workgroup)),
             &[
                 // Input tensors.
-                &num_intersects.handle,
                 &isect_ids_sorted.handle,
                 // Aux data.
                 &aux_data
