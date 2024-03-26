@@ -7,10 +7,10 @@
 @group(0) @binding(4) var<storage, read> colors: array<vec3f>;
 @group(0) @binding(5) var<storage, read> opacities: array<f32>;
 
-@group(0) @binding(6) var<storage, read_write> final_index: array<u32>;
-@group(0) @binding(7) var<storage, read_write> out_img: array<vec4f>;
+@group(0) @binding(6) var<storage, read_write> out_img: array<vec4f>;
+// @group(0) @binding(6) var<storage, read_write> final_index: array<u32>;
 
-@group(0) @binding(8) var<storage, read> info_array: array<helpers::InfoBinding>;
+@group(0) @binding(7) var<storage, read> info_array: array<helpers::InfoBinding>;
 
 const MAX_BLOCK_SIZE: u32 = 16u * 16u;
 const TILE_SIZE: u32 = 16u;
@@ -29,7 +29,7 @@ var<workgroup> count_done: atomic<u32>;
 // TODO: Is this workgroup the size of block_width and co?
 @compute
 @workgroup_size(GROUP_DIM, GROUP_DIM, 1)
-fn rasterize(
+fn main(
     @builtin(global_invocation_id) global_id: vec3u,
     @builtin(local_invocation_id) local_id: vec3u,
     @builtin(local_invocation_index) local_idx: u32,
@@ -136,7 +136,7 @@ fn rasterize(
 
     if inside {
         // add background
-        final_index[pix_id] = cur_idx; // index of in bin of last gaussian in this pixel
+        // final_index[pix_id] = cur_idx; // index of in bin of last gaussian in this pixel
         out_img[pix_id] = vec4f(pix_out, T) + vec4f(T * background, 0.0);
     }
 }

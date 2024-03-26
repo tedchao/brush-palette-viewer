@@ -2,7 +2,7 @@
 //
 // ^ wgsl_bindgen version 0.10.0
 // Changes made to this file will not be saved.
-// SourceHash: bf894e7f11c9c814b0d1844b29cf68c6d81233e92e34a933d5b028d6bb0a311d
+// SourceHash: 72ef7770691e15479e796596138c247c93a853d0cdd9d9087c9be25730ddbf2e
 
 #![allow(unused, non_snake_case, non_camel_case_types, non_upper_case_globals)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -793,8 +793,8 @@ pub mod map_gaussian_to_intersects {
         bind_group0.set(pass);
     }
     pub mod compute {
-        pub const MAP_GAUSSIAN_TO_INTERSECTS_WORKGROUP_SIZE: [u32; 3] = [16, 1, 1];
-        pub fn create_map_gaussian_to_intersects_pipeline_embed_source(
+        pub const MAIN_WORKGROUP_SIZE: [u32; 3] = [16, 1, 1];
+        pub fn create_main_pipeline_embed_source(
             device: &wgpu::Device,
         ) -> wgpu::ComputePipeline {
             let module = super::create_shader_module_embed_source(device);
@@ -802,15 +802,15 @@ pub mod map_gaussian_to_intersects {
             device
                 .create_compute_pipeline(
                     &wgpu::ComputePipelineDescriptor {
-                        label: Some("Compute Pipeline map_gaussian_to_intersects"),
+                        label: Some("Compute Pipeline main"),
                         layout: Some(&layout),
                         module: &module,
-                        entry_point: "map_gaussian_to_intersects",
+                        entry_point: "main",
                     },
                 )
         }
     }
-    pub const ENTRY_MAP_GAUSSIAN_TO_INTERSECTS: &str = "map_gaussian_to_intersects";
+    pub const ENTRY_MAIN: &str = "main";
     #[derive(Debug)]
     pub struct WgpuPipelineLayout;
     impl WgpuPipelineLayout {
@@ -887,7 +887,7 @@ fn get_tile_bboxX_naga_oil_mod_XNBSWY4DFOJZQX(pix_center: vec2<f32>, pix_radius:
 }
 
 @compute @workgroup_size(16, 1, 1) 
-fn map_gaussian_to_intersects(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invocation_id) local_id: vec3<u32>, @builtin(workgroup_id) workgroup_id: vec3<u32>) {
+fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invocation_id) local_id: vec3<u32>, @builtin(workgroup_id) workgroup_id: vec3<u32>) {
     var cur_idx: u32 = 0u;
     var i: i32;
     var j: i32;
@@ -913,41 +913,43 @@ fn map_gaussian_to_intersects(@builtin(global_invocation_id) global_id: vec3<u32
         let _e31 = cum_tiles_hit[(idx - 1u)];
         cur_idx = _e31;
     }
+    let _e35 = depths[idx];
+    let depth_id = bitcast<u32>(_e35);
     i = tile_min.y;
     loop {
-        let _e35 = i;
-        if (_e35 < tile_max.y) {
+        let _e39 = i;
+        if (_e39 < tile_max.y) {
         } else {
             break;
         }
         {
             j = tile_min.x;
             loop {
-                let _e40 = j;
-                if (_e40 < tile_max.x) {
+                let _e44 = j;
+                if (_e44 < tile_max.x) {
                 } else {
                     break;
                 }
                 {
-                    let _e43 = i;
-                    let _e47 = j;
-                    let tile_id = u32(((_e43 * i32(tile_bounds_1.x)) + _e47));
-                    let _e51 = cur_idx;
-                    isect_ids[_e51] = ((tile_id << 32u) | 0u);
-                    let _e58 = cur_idx;
-                    gaussian_ids[_e58] = idx;
+                    let _e47 = i;
+                    let _e51 = j;
+                    let tile_id = u32(((_e47 * i32(tile_bounds_1.x)) + _e51));
+                    let _e55 = cur_idx;
+                    isect_ids[_e55] = ((tile_id << 32u) | depth_id);
                     let _e61 = cur_idx;
-                    cur_idx = (_e61 + 1u);
+                    gaussian_ids[_e61] = idx;
+                    let _e64 = cur_idx;
+                    cur_idx = (_e64 + 1u);
                 }
                 continuing {
-                    let _e64 = j;
-                    j = (_e64 + 1i);
+                    let _e67 = j;
+                    j = (_e67 + 1i);
                 }
             }
         }
         continuing {
-            let _e67 = i;
-            i = (_e67 + 1i);
+            let _e70 = i;
+            i = (_e70 + 1i);
         }
     }
     return;
@@ -1067,8 +1069,8 @@ pub mod get_tile_bin_edges {
         bind_group0.set(pass);
     }
     pub mod compute {
-        pub const GET_TILE_BIN_EDGES_WORKGROUP_SIZE: [u32; 3] = [16, 1, 1];
-        pub fn create_get_tile_bin_edges_pipeline_embed_source(
+        pub const MAIN_WORKGROUP_SIZE: [u32; 3] = [16, 1, 1];
+        pub fn create_main_pipeline_embed_source(
             device: &wgpu::Device,
         ) -> wgpu::ComputePipeline {
             let module = super::create_shader_module_embed_source(device);
@@ -1076,15 +1078,15 @@ pub mod get_tile_bin_edges {
             device
                 .create_compute_pipeline(
                     &wgpu::ComputePipelineDescriptor {
-                        label: Some("Compute Pipeline get_tile_bin_edges"),
+                        label: Some("Compute Pipeline main"),
                         layout: Some(&layout),
                         module: &module,
-                        entry_point: "get_tile_bin_edges",
+                        entry_point: "main",
                     },
                 )
         }
     }
-    pub const ENTRY_GET_TILE_BIN_EDGES: &str = "get_tile_bin_edges";
+    pub const ENTRY_MAIN: &str = "main";
     #[derive(Debug)]
     pub struct WgpuPipelineLayout;
     impl WgpuPipelineLayout {
@@ -1138,7 +1140,7 @@ var<storage, read_write> tile_bins: array<vec2<u32>>;
 var<storage> info_array: array<InfoBindingX_naga_oil_mod_XNBSWY4DFOJZQX>;
 
 @compute @workgroup_size(16, 1, 1) 
-fn get_tile_bin_edges(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invocation_id) local_id: vec3<u32>, @builtin(workgroup_id) workgroup_id: vec3<u32>) {
+fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invocation_id) local_id: vec3<u32>, @builtin(workgroup_id) workgroup_id: vec3<u32>) {
     let info = info_array[0];
     let num_intersects = info.num_points;
     let idx = local_id.x;
@@ -1184,12 +1186,11 @@ pub mod rasterize {
             pub conics: wgpu::BufferBinding<'a>,
             pub colors: wgpu::BufferBinding<'a>,
             pub opacities: wgpu::BufferBinding<'a>,
-            pub final_index: wgpu::BufferBinding<'a>,
             pub out_img: wgpu::BufferBinding<'a>,
             pub info_array: wgpu::BufferBinding<'a>,
         }
         impl<'a> WgpuBindGroupLayout0<'a> {
-            pub fn entries(self) -> [wgpu::BindGroupEntry<'a>; 9] {
+            pub fn entries(self) -> [wgpu::BindGroupEntry<'a>; 8] {
                 [
                     wgpu::BindGroupEntry {
                         binding: 0,
@@ -1217,14 +1218,10 @@ pub mod rasterize {
                     },
                     wgpu::BindGroupEntry {
                         binding: 6,
-                        resource: wgpu::BindingResource::Buffer(self.final_index),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 7,
                         resource: wgpu::BindingResource::Buffer(self.out_img),
                     },
                     wgpu::BindGroupEntry {
-                        binding: 8,
+                        binding: 7,
                         resource: wgpu::BindingResource::Buffer(self.info_array),
                     },
                 ]
@@ -1325,18 +1322,6 @@ pub mod rasterize {
                         visibility: wgpu::ShaderStages::COMPUTE,
                         ty: wgpu::BindingType::Buffer {
                             ty: wgpu::BufferBindingType::Storage {
-                                read_only: false,
-                            },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 8,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage {
                                 read_only: true,
                             },
                             has_dynamic_offset: false,
@@ -1388,8 +1373,8 @@ pub mod rasterize {
         bind_group0.set(pass);
     }
     pub mod compute {
-        pub const RASTERIZE_WORKGROUP_SIZE: [u32; 3] = [16, 16, 1];
-        pub fn create_rasterize_pipeline_embed_source(
+        pub const MAIN_WORKGROUP_SIZE: [u32; 3] = [16, 16, 1];
+        pub fn create_main_pipeline_embed_source(
             device: &wgpu::Device,
         ) -> wgpu::ComputePipeline {
             let module = super::create_shader_module_embed_source(device);
@@ -1397,15 +1382,15 @@ pub mod rasterize {
             device
                 .create_compute_pipeline(
                     &wgpu::ComputePipelineDescriptor {
-                        label: Some("Compute Pipeline rasterize"),
+                        label: Some("Compute Pipeline main"),
                         layout: Some(&layout),
                         module: &module,
-                        entry_point: "rasterize",
+                        entry_point: "main",
                     },
                 )
         }
     }
-    pub const ENTRY_RASTERIZE: &str = "rasterize";
+    pub const ENTRY_MAIN: &str = "main";
     #[derive(Debug)]
     pub struct WgpuPipelineLayout;
     impl WgpuPipelineLayout {
@@ -1468,10 +1453,8 @@ var<storage> colors: array<vec3<f32>>;
 @group(0) @binding(5) 
 var<storage> opacities: array<f32>;
 @group(0) @binding(6) 
-var<storage, read_write> final_index: array<u32>;
-@group(0) @binding(7) 
 var<storage, read_write> out_img: array<vec4<f32>>;
-@group(0) @binding(8) 
+@group(0) @binding(7) 
 var<storage> info_array: array<InfoBindingX_naga_oil_mod_XNBSWY4DFOJZQX>;
 var<workgroup> id_batch: array<u32, 256>;
 var<workgroup> xy_opacity_batch: array<vec3<f32>, 256>;
@@ -1479,7 +1462,7 @@ var<workgroup> conic_batch: array<vec3<f32>, 256>;
 var<workgroup> count_done: atomic<u32>;
 
 @compute @workgroup_size(16, 16, 1) 
-fn rasterize(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invocation_id) local_id: vec3<u32>, @builtin(local_invocation_index) local_idx: u32, @builtin(workgroup_id) workgroup_id: vec3<u32>) {
+fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invocation_id) local_id: vec3<u32>, @builtin(local_invocation_index) local_idx: u32, @builtin(workgroup_id) workgroup_id: vec3<u32>) {
     var done: bool;
     var T: f32 = 1f;
     var cur_idx: u32 = 0u;
@@ -1577,12 +1560,10 @@ fn rasterize(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local
         }
     }
     if inside {
-        let _e172 = cur_idx;
-        final_index[pix_id] = _e172;
-        let _e175 = pix_out;
-        let _e176 = T;
-        let _e178 = T;
-        out_img[pix_id] = (vec4<f32>(_e175, _e176) + vec4<f32>((_e178 * background), 0f));
+        let _e172 = pix_out;
+        let _e173 = T;
+        let _e175 = T;
+        out_img[pix_id] = (vec4<f32>(_e172, _e173) + vec4<f32>((_e175 * background), 0f));
         return;
     } else {
         return;

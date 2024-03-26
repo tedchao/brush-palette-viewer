@@ -14,7 +14,7 @@
 // writes output to isect_ids and gaussian_ids
 @compute
 @workgroup_size(16, 1, 1)
-fn map_gaussian_to_intersects(
+fn main(
     @builtin(global_invocation_id) global_id: vec3u,
     @builtin(local_invocation_id) local_id: vec3u,
     @builtin(workgroup_id) workgroup_id: vec3u,
@@ -45,14 +45,14 @@ fn map_gaussian_to_intersects(
         cur_idx = cum_tiles_hit[idx - 1];
     }
     
-    // TODO: What in the ever loving god??
-    // let depth_id = (int64_t) * (int32_t * )&(depths[idx]);
-    let depth_id = 0u;
+    let depth_id = bitcast<u32>(depths[idx]);
 
     for (var i = tile_min.y; i < tile_max.y; i++) {
         for (var j = tile_min.x; j < tile_max.x; j++) {
             // isect_id is tile ID and depth as int32
             let tile_id = u32(i * i32(tile_bounds.x) + j); // tile within image
+
+            // TODO: Would need 64 bits to do this properly.
             isect_ids[cur_idx] = (tile_id << 32) | depth_id; // tile | depth id
             gaussian_ids[cur_idx] = idx;                     // 3D gaussian id
             cur_idx++; // handles gaussians that hit more than one tile

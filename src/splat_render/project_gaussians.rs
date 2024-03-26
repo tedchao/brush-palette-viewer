@@ -5,7 +5,7 @@ use burn::{
         autodiff::{
             checkpoint::{base::Checkpointer, strategy::CheckpointStrategy},
             grads::Gradients,
-            ops::{Backward, Ops},
+            ops::{Backward, Ops, OpsKind},
             NodeID,
         },
         wgpu::{
@@ -194,7 +194,14 @@ impl<G: GraphicsApi, F: FloatElement, I: IntElement> Backend for JitBackend<Wgpu
         );
 
         // TODO: CPU emulation for now. Investigate if we can do without a cumulative sum?
-        let num_tiles_hit = bytemuck::cast_vec::<u8, u32>(client.read(&num_tiles_hit.handle).read());
+        println!("Num tiles hit calc");
+
+        let to_vec = |tensor: JitTensor<WgpuRuntime<G, F, I>, I, 2>| -> Vec<_> {
+            let data = client.read(&tensor.handle).read();
+            data.into_iter().array_chunks::<4>().map(u32::from_le_bytes).collect()
+        };
+
+        let num_tiles_hit = to_vec(num_tiles_hit);
 
         let cum_tiles_hit: Vec<u32> = num_tiles_hit
             .into_iter()
@@ -203,6 +210,8 @@ impl<G: GraphicsApi, F: FloatElement, I: IntElement> Backend for JitBackend<Wgpu
                 Some(*acc)
             })
             .collect();
+
+        println!("Num tiles hit" );
 
         // TODO:
         // let num_intersects = cum_tiles_hit.last().unwrap();
@@ -242,8 +251,8 @@ impl<G: GraphicsApi, F: FloatElement, I: IntElement> Backend for JitBackend<Wgpu
         );
 
         // TODO: WGSL Radix sort.
-        let isect_ids = bytemuck::cast_vec::<u8, u32>(client.read(&isect_ids.handle).read());
-        let gaussian_ids = bytemuck::cast_vec::<u8, u32>(client.read(&gaussian_ids.handle).read());
+        let isect_ids = to_vec(isect_ids);
+        let gaussian_ids = to_vec(gaussian_ids);
         let sorted_indices = argsort(&isect_ids);
         let isect_ids_sorted: Vec<_> = sorted_indices.iter().copied().map(|x| isect_ids[x]).collect();
         let gaussian_ids_sorted: Vec<_> = sorted_indices.iter().copied().map(|x| gaussian_ids[x]).collect();
@@ -295,7 +304,10 @@ impl<G: GraphicsApi, F: FloatElement, I: IntElement> Backend for JitBackend<Wgpu
                 &conics.handle,
                 &colors.handle,
                 &opacity.handle,
+
+                // Output data
                 &out_img.handle,
+
                 // Aux data.
                 &aux_data
             ],
@@ -311,7 +323,7 @@ struct ProjectSplatsBackward;
 
 // Implement the backward trait for the given backend B, the node gradient being of rank D
 // with three other gradients to calculate (means, colors, and opacity).
-impl<B: Backend> Backward<B, 2, 3> for ProjectSplatsBackward {
+impl<B: Backend> Backward<B, 3, 3> for ProjectSplatsBackward {
     // Our state that we must build during the forward pass to compute the backward pass.
     //
     // Note that we could improve the performance further by only keeping the state of
@@ -327,94 +339,104 @@ impl<B: Backend> Backward<B, 2, 3> for ProjectSplatsBackward {
         grads: &mut Gradients,
         checkpointer: &mut Checkpointer,
     ) {
-        // Get the nodes of each variable.
-        let [node_means, node_colors, node_opacity] = ops.parents;
+        // // Get the nodes of each variable.
+        // let [node_means, node_colors, node_opacity] = ops.parents;
 
-        // Fetch the gradient for the current node.
-        // let grad = grads.consume::<B, 3>(&ops.node);
+        // // Fetch the gradient for the current node.
+        // // let grad = grads.consume::<B, 3>(&ops.node);
 
-        // Set our state.
-        let (means_state, colors_state, opacity_state) = ops.state;
-        let means = checkpointer.retrieve_node_output(means_state);
-        let colors = checkpointer.retrieve_node_output(colors_state);
-        let opacity = checkpointer.retrieve_node_output(opacity_state);
+        // // Set our state.
+        // let (means_state, colors_state, opacity_state) = ops.state;
+        // let means = checkpointer.retrieve_node_output(means_state);
+        // let colors = checkpointer.retrieve_node_output(colors_state);
+        // let opacity = checkpointer.retrieve_node_output(opacity_state);
 
-        // TODO: Some actual gradients ahh
-        let grad_colors = colors;
-        let grad_means = means;
-        let grad_opacity = opacity;
+        // // TODO: Some actual gradients ahh
+        // let grad_colors = colors;
+        // let grad_means = means;
+        // let grad_opacity = opacity;
 
-        // Register the gradient for each variable based on whether they are marked as
-        // `tracked`.
-        if let Some(node) = node_means {
-            grads.register::<B, 2>(node, grad_means);
-        }
-        if let Some(node) = node_colors {
-            grads.register::<B, 2>(node, grad_colors);
-        }
-        if let Some(node) = node_opacity {
-            grads.register::<B, 1>(node, grad_opacity);
-        }
+        // // Register the gradient for each variable based on whether they are marked as
+        // // `tracked`.
+        // if let Some(node) = node_means {
+        //     grads.register::<B, 2>(node, grad_means);
+        // }
+        // if let Some(node) = node_colors {
+        //     grads.register::<B, 2>(node, grad_colors);
+        // }
+        // if let Some(node) = node_opacity {
+        //     grads.register::<B, 1>(node, grad_opacity);
+        // }
     }
 }
 
 impl<B: Backend, C: CheckpointStrategy> Backend for Autodiff<B, C> {
     fn render_gaussians(
-        _cam: &Camera,
-        _xys: FloatTensor<Self, 2>,
-        _scales: FloatTensor<Self, 2>,
-        _quats: FloatTensor<Self, 2>,
-        _colors: FloatTensor<Self, 2>,
-        _opacity: FloatTensor<Self, 1>,
-        _background: glam::Vec3,
+        camera: &Camera,
+        means: FloatTensor<Self, 2>,
+        scales: FloatTensor<Self, 2>,
+        quats: FloatTensor<Self, 2>,
+        colors: FloatTensor<Self, 2>,
+        opacity: FloatTensor<Self, 1>,
+        background: glam::Vec3,
     ) -> FloatTensor<Self, 3> {
-        todo!();
-        // // Prepare a stateful operation with each variable node and corresponding graph.
-        // //
-        // // Each node can be fetched with `ops.parents` in the same order as defined here.
-        // match ProjectSplatsBackward
-        //     .prepare::<C>(
-        //         [means.node.clone(), scales.node.clone(), quats.node.clone()],
-        //         [
-        //             means.graph.clone(),
-        //             scales.graph.clone(),
-        //             quats.graph.clone(),
-        //         ],
-        //     )
-        //     // Marks the operation as compute bound, meaning it will save its
-        //     // state instead of recomputing itself during checkpointing
-        //     .compute_bound()
-        //     .stateful()
-        // {
-        //     OpsKind::Tracked(mut prep) => {
-        //         // When at least one node is tracked, we should register our backward step.
+        // Prepare a stateful operation with each variable node and corresponding graph.
+        //
+        // Each node can be fetched with `ops.parents` in the same order as defined here.
+        match ProjectSplatsBackward
+            .prepare::<C>(
+                [means.node.clone(), scales.node.clone(), quats.node.clone()],
+                [
+                    means.graph.clone(),
+                    scales.graph.clone(),
+                    quats.graph.clone(),
+                ],
+            )
+            // Marks the operation as compute bound, meaning it will save its
+            // state instead of recomputing itself during checkpointing
+            .compute_bound()
+            .stateful()
+        {
+            OpsKind::Tracked(mut prep) => {
+                // When at least one node is tracked, we should register our backward step.
 
-        //         // The state consists of what will be needed for this operation's backward pass.
-        //         // Since we need the parents' outputs, we must checkpoint their ids to retrieve their node
-        //         // output at the beginning of the backward. We can also save utilitary data such as the bias shape
-        //         // If we also need this operation's output, we can either save it in the state or recompute it
-        //         // during the backward pass. Here we choose to save it in the state because it's a compute bound operation.
-        //         let means_state = prep.checkpoint(&means);
-        //         let scale_state = prep.checkpoint(&scales);
-        //         let quat_state = prep.checkpoint(&quats);
+                // The state consists of what will be needed for this operation's backward pass.
+                // Since we need the parents' outputs, we must checkpoint their ids to retrieve their node
+                // output at the beginning of the backward. We can also save utilitary data such as the bias shape
+                // If we also need this operation's output, we can either save it in the state or recompute it
+                // during the backward pass. Here we choose to save it in the state because it's a compute bound operation.
+                let means_state = prep.checkpoint(&means);
+                let scale_state = prep.checkpoint(&scales);
+                let quat_state = prep.checkpoint(&quats);
 
-        //         let output = B::render_gaussians(
-        //             camera,
-        //             means.primitive.clone(),
-        //             scales.primitive.clone(),
-        //             quats.primitive,
-        //         );
+                let output = B::render_gaussians(
+                    camera,
+                    means.primitive,
+                    scales.primitive,
+                    quats.primitive,
+                    colors.primitive,
+                    opacity.primitive,
+                    background
+                );
 
-        //         let state = (means_state, scale_state, quat_state);
-        //         prep.finish(state, output)
-        //     }
-        //     OpsKind::UnTracked(prep) => {
-        //         // When no node is tracked, we can just compute the original operation without
-        //         // keeping any state.
-        //         let output =
-        //             B::render_gaussians(camera, means.primitive, scales.primitive, quats.primitive);
-        //         prep.finish(output)
-        //     }
-        // }
+                let state = (means_state, scale_state, quat_state);
+                prep.finish(state, output)
+            }
+            OpsKind::UnTracked(prep) => {
+                // When no node is tracked, we can just compute the original operation without
+                // keeping any state.
+                let output =
+                    B::render_gaussians(
+                        camera,
+                        means.primitive,
+                        scales.primitive,
+                        quats.primitive,
+                        colors.primitive,
+                        opacity.primitive,
+                        background
+                    );
+                prep.finish(output)
+            }
+        }
     }
 }

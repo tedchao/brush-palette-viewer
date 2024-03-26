@@ -2,15 +2,15 @@
 
 @group(0) @binding(0) var<storage, read> isect_ids_sorted: array<u32>;
 @group(0) @binding(1) var<storage, read_write> tile_bins: array<vec2u>;
-
 @group(0) @binding(2) var<storage, read> info_array: array<helpers::InfoBinding>;
+
 
 // kernel to map sorted intersection IDs to tile bins
 // expect that intersection IDs are sorted by increasing tile ID
 // i.e. intersections of a tile are in contiguous chunks
 @compute
 @workgroup_size(16, 1, 1)
-fn get_tile_bin_edges(
+fn main(
     @builtin(global_invocation_id) global_id: vec3u,
     @builtin(local_invocation_id) local_id: vec3u,
     @builtin(workgroup_id) workgroup_id: vec3u

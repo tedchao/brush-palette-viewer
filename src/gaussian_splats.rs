@@ -6,12 +6,12 @@ use burn::{
 use ndarray::Axis;
 use rerun::{RecordingStream, Rgba32};
 
+use crate::splat_render::render::RenderPackage;
 use crate::{
     camera::Camera,
     splat_render::{self, Backend},
     utils,
 };
-use crate::{spherical_harmonics, splat_render::render::RenderPackage};
 use burn::tensor::Distribution;
 use burn::tensor::Tensor;
 

@@ -88,10 +88,12 @@ where
     };
 
     let render = splats.render(&viewpoint.camera, background_color);
-    let render_img = render.clone();
+    let dims = render.dims();
+
+    let render_img = render.clone().slice([0..dims[0], 0..dims[1], 0..3]);
+
     let gt_image = utils::ndarray_to_burn(viewpoint.view.image.clone(), device);
     // TODO: Burn should be able to slice open ranges.
-    let dims = gt_image.dims();
     let rgb = gt_image.clone().slice([0..dims[0], 0..dims[1], 0..3]);
     let alpha = gt_image.clone().slice([0..dims[0], 0..dims[1], 3..4]);
     let gt_image = rgb * alpha.clone()

@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 #![allow(clippy::too_many_arguments)]
+#![feature(iter_array_chunks)]
 
 use std::error::Error;
 mod camera;
