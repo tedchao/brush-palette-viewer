@@ -2,7 +2,7 @@
 //
 // ^ wgsl_bindgen version 0.10.0
 // Changes made to this file will not be saved.
-// SourceHash: bc6b839bdf8424a6505b4770c28575ce81ab4ec6b254bb100f08265d6269a24b
+// SourceHash: bf894e7f11c9c814b0d1844b29cf68c6d81233e92e34a933d5b028d6bb0a311d
 
 #![allow(unused, non_snake_case, non_camel_case_types, non_upper_case_globals)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -10,6 +10,7 @@ pub enum ShaderEntry {
     ProjectForward,
     MapGaussianToIntersects,
     GetTileBinEdges,
+    Rasterize,
 }
 impl ShaderEntry {
     pub fn create_pipeline_layout(&self, device: &wgpu::Device) -> wgpu::PipelineLayout {
@@ -19,6 +20,7 @@ impl ShaderEntry {
                 map_gaussian_to_intersects::create_pipeline_layout(device)
             }
             Self::GetTileBinEdges => get_tile_bin_edges::create_pipeline_layout(device),
+            Self::Rasterize => rasterize::create_pipeline_layout(device),
         }
     }
     pub fn create_shader_module_embed_source(
@@ -35,6 +37,7 @@ impl ShaderEntry {
             Self::GetTileBinEdges => {
                 get_tile_bin_edges::create_shader_module_embed_source(device)
             }
+            Self::Rasterize => rasterize::create_shader_module_embed_source(device),
         }
     }
 }
@@ -63,7 +66,8 @@ pub mod layout_asserts {
         assert!(std::mem::offset_of!(helpers::InfoBinding, num_points) == 164);
         assert!(std::mem::offset_of!(helpers::InfoBinding, clip_thresh) == 168);
         assert!(std::mem::offset_of!(helpers::InfoBinding, block_width) == 172);
-        assert!(std::mem::size_of:: < helpers::InfoBinding > () == 176);
+        assert!(std::mem::offset_of!(helpers::InfoBinding, background) == 176);
+        assert!(std::mem::size_of:: < helpers::InfoBinding > () == 192);
     };
 }
 pub mod helpers {
@@ -89,6 +93,8 @@ pub mod helpers {
         pub clip_thresh: f32,
         /// size: 4, offset: 0xAC, type: `u32`
         pub block_width: u32,
+        /// size: 12, offset: 0xB0, type: `vec3<f32>`
+        pub background: glam::Vec3A,
     }
     impl InfoBinding {
         pub const fn new(
@@ -101,6 +107,7 @@ pub mod helpers {
             num_points: u32,
             clip_thresh: f32,
             block_width: u32,
+            background: glam::Vec3A,
         ) -> Self {
             Self {
                 viewmat,
@@ -112,6 +119,7 @@ pub mod helpers {
                 num_points,
                 clip_thresh,
                 block_width,
+                background,
             }
         }
     }
@@ -430,6 +438,7 @@ struct InfoBindingX_naga_oil_mod_XNBSWY4DFOJZQX {
     num_points: u32,
     clip_thresh: f32,
     block_width: u32,
+    background: vec3<f32>,
 }
 
 struct ComputeCov2DBoundsX_naga_oil_mod_XNBSWY4DFOJZQX {
@@ -844,6 +853,7 @@ struct InfoBindingX_naga_oil_mod_XNBSWY4DFOJZQX {
     num_points: u32,
     clip_thresh: f32,
     block_width: u32,
+    background: vec3<f32>,
 }
 
 @group(0) @binding(0) 
@@ -1117,6 +1127,7 @@ struct InfoBindingX_naga_oil_mod_XNBSWY4DFOJZQX {
     num_points: u32,
     clip_thresh: f32,
     block_width: u32,
+    background: vec3<f32>,
 }
 
 @group(0) @binding(0) 
@@ -1152,6 +1163,426 @@ fn get_tile_bin_edges(@builtin(global_invocation_id) global_id: vec3<u32>, @buil
     if (prev_tile_idx != cur_tile_idx) {
         tile_bins[prev_tile_idx].y = idx;
         tile_bins[cur_tile_idx].x = idx;
+        return;
+    } else {
+        return;
+    }
+}
+"#;
+}
+pub mod rasterize {
+    use super::{_root, _root::*};
+    pub const MAX_BLOCK_SIZE: u32 = 256u32;
+    pub const TILE_SIZE: u32 = 16u32;
+    pub const GROUP_DIM: u32 = 16u32;
+    pub mod bind_groups {
+        #[derive(Debug)]
+        pub struct WgpuBindGroupLayout0<'a> {
+            pub gaussian_ids_sorted: wgpu::BufferBinding<'a>,
+            pub tile_bins: wgpu::BufferBinding<'a>,
+            pub xys: wgpu::BufferBinding<'a>,
+            pub conics: wgpu::BufferBinding<'a>,
+            pub colors: wgpu::BufferBinding<'a>,
+            pub opacities: wgpu::BufferBinding<'a>,
+            pub final_index: wgpu::BufferBinding<'a>,
+            pub out_img: wgpu::BufferBinding<'a>,
+            pub info_array: wgpu::BufferBinding<'a>,
+        }
+        impl<'a> WgpuBindGroupLayout0<'a> {
+            pub fn entries(self) -> [wgpu::BindGroupEntry<'a>; 9] {
+                [
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::Buffer(self.gaussian_ids_sorted),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Buffer(self.tile_bins),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: wgpu::BindingResource::Buffer(self.xys),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: wgpu::BindingResource::Buffer(self.conics),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 4,
+                        resource: wgpu::BindingResource::Buffer(self.colors),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 5,
+                        resource: wgpu::BindingResource::Buffer(self.opacities),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 6,
+                        resource: wgpu::BindingResource::Buffer(self.final_index),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 7,
+                        resource: wgpu::BindingResource::Buffer(self.out_img),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 8,
+                        resource: wgpu::BindingResource::Buffer(self.info_array),
+                    },
+                ]
+            }
+        }
+        #[derive(Debug)]
+        pub struct WgpuBindGroup0(wgpu::BindGroup);
+        impl WgpuBindGroup0 {
+            pub const LAYOUT_DESCRIPTOR: wgpu::BindGroupLayoutDescriptor<'static> = wgpu::BindGroupLayoutDescriptor {
+                label: Some("Rasterize::BindGroup0::LayoutDescriptor"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage {
+                                read_only: true,
+                            },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage {
+                                read_only: true,
+                            },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage {
+                                read_only: true,
+                            },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 3,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage {
+                                read_only: true,
+                            },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 4,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage {
+                                read_only: true,
+                            },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 5,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage {
+                                read_only: true,
+                            },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 6,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage {
+                                read_only: false,
+                            },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 7,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage {
+                                read_only: false,
+                            },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 8,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage {
+                                read_only: true,
+                            },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                ],
+            };
+            pub fn get_bind_group_layout(
+                device: &wgpu::Device,
+            ) -> wgpu::BindGroupLayout {
+                device.create_bind_group_layout(&Self::LAYOUT_DESCRIPTOR)
+            }
+            pub fn from_bindings(
+                device: &wgpu::Device,
+                bindings: WgpuBindGroupLayout0,
+            ) -> Self {
+                let bind_group_layout = Self::get_bind_group_layout(&device);
+                let entries = bindings.entries();
+                let bind_group = device
+                    .create_bind_group(
+                        &wgpu::BindGroupDescriptor {
+                            label: Some("Rasterize::BindGroup0"),
+                            layout: &bind_group_layout,
+                            entries: &entries,
+                        },
+                    );
+                Self(bind_group)
+            }
+            pub fn set<'a>(&'a self, render_pass: &mut wgpu::ComputePass<'a>) {
+                render_pass.set_bind_group(0, &self.0, &[]);
+            }
+        }
+        #[derive(Debug, Copy, Clone)]
+        pub struct WgpuBindGroups<'a> {
+            pub bind_group0: &'a WgpuBindGroup0,
+        }
+        impl<'a> WgpuBindGroups<'a> {
+            pub fn set(&self, pass: &mut wgpu::ComputePass<'a>) {
+                self.bind_group0.set(pass);
+            }
+        }
+    }
+    pub fn set_bind_groups<'a>(
+        pass: &mut wgpu::ComputePass<'a>,
+        bind_group0: &'a bind_groups::WgpuBindGroup0,
+    ) {
+        bind_group0.set(pass);
+    }
+    pub mod compute {
+        pub const RASTERIZE_WORKGROUP_SIZE: [u32; 3] = [16, 16, 1];
+        pub fn create_rasterize_pipeline_embed_source(
+            device: &wgpu::Device,
+        ) -> wgpu::ComputePipeline {
+            let module = super::create_shader_module_embed_source(device);
+            let layout = super::create_pipeline_layout(device);
+            device
+                .create_compute_pipeline(
+                    &wgpu::ComputePipelineDescriptor {
+                        label: Some("Compute Pipeline rasterize"),
+                        layout: Some(&layout),
+                        module: &module,
+                        entry_point: "rasterize",
+                    },
+                )
+        }
+    }
+    pub const ENTRY_RASTERIZE: &str = "rasterize";
+    #[derive(Debug)]
+    pub struct WgpuPipelineLayout;
+    impl WgpuPipelineLayout {
+        pub fn bind_group_layout_entries(
+            entries: [wgpu::BindGroupLayout; 1],
+        ) -> [wgpu::BindGroupLayout; 1] {
+            entries
+        }
+    }
+    pub fn create_pipeline_layout(device: &wgpu::Device) -> wgpu::PipelineLayout {
+        device
+            .create_pipeline_layout(
+                &wgpu::PipelineLayoutDescriptor {
+                    label: Some("Rasterize::PipelineLayout"),
+                    bind_group_layouts: &[
+                        &bind_groups::WgpuBindGroup0::get_bind_group_layout(device),
+                    ],
+                    push_constant_ranges: &[],
+                },
+            )
+    }
+    pub fn create_shader_module_embed_source(
+        device: &wgpu::Device,
+    ) -> wgpu::ShaderModule {
+        let source = std::borrow::Cow::Borrowed(SHADER_STRING);
+        device
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("rasterize.wgsl"),
+                source: wgpu::ShaderSource::Wgsl(source),
+            })
+    }
+    pub const SHADER_STRING: &'static str = r#"
+struct InfoBindingX_naga_oil_mod_XNBSWY4DFOJZQX {
+    viewmat: mat4x4<f32>,
+    projmat: mat4x4<f32>,
+    intrins: vec4<f32>,
+    img_size: vec2<u32>,
+    tile_bounds: vec2<u32>,
+    glob_scale: f32,
+    num_points: u32,
+    clip_thresh: f32,
+    block_width: u32,
+    background: vec3<f32>,
+}
+
+const MAX_BLOCK_SIZE: u32 = 256u;
+const TILE_SIZE: u32 = 16u;
+const GROUP_DIM: u32 = 16u;
+
+@group(0) @binding(0) 
+var<storage> gaussian_ids_sorted: array<u32>;
+@group(0) @binding(1) 
+var<storage> tile_bins: array<vec2<u32>>;
+@group(0) @binding(2) 
+var<storage> xys: array<vec2<f32>>;
+@group(0) @binding(3) 
+var<storage> conics: array<vec3<f32>>;
+@group(0) @binding(4) 
+var<storage> colors: array<vec3<f32>>;
+@group(0) @binding(5) 
+var<storage> opacities: array<f32>;
+@group(0) @binding(6) 
+var<storage, read_write> final_index: array<u32>;
+@group(0) @binding(7) 
+var<storage, read_write> out_img: array<vec4<f32>>;
+@group(0) @binding(8) 
+var<storage> info_array: array<InfoBindingX_naga_oil_mod_XNBSWY4DFOJZQX>;
+var<workgroup> id_batch: array<u32, 256>;
+var<workgroup> xy_opacity_batch: array<vec3<f32>, 256>;
+var<workgroup> conic_batch: array<vec3<f32>, 256>;
+var<workgroup> count_done: atomic<u32>;
+
+@compute @workgroup_size(16, 16, 1) 
+fn rasterize(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invocation_id) local_id: vec3<u32>, @builtin(local_invocation_index) local_idx: u32, @builtin(workgroup_id) workgroup_id: vec3<u32>) {
+    var done: bool;
+    var T: f32 = 1f;
+    var cur_idx: u32 = 0u;
+    var pix_out: vec3<f32> = vec3(0f);
+    var b: u32 = 0u;
+    var t: u32;
+
+    let info = info_array[0];
+    let tile_size = vec2<u32>(16u, 16u);
+    let tile_bounds = info.tile_bounds;
+    let background = info.background;
+    let img_size = info.img_size;
+    let tile_id = ((workgroup_id.y * tile_bounds.x) + workgroup_id.x);
+    let i = ((workgroup_id.y * GROUP_DIM) + local_id.y);
+    let j = ((workgroup_id.x * GROUP_DIM) + local_id.x);
+    let px = f32(j);
+    let py = f32(i);
+    let pix_id = ((i * img_size.x) + j);
+    let inside = ((i < img_size.y) && (j < img_size.x));
+    done = !(inside);
+    let range = tile_bins[tile_id];
+    let num_batches = ((((range.y - range.x) + 256u) - 1u) / 256u);
+    loop {
+        let _e54 = b;
+        if (_e54 < num_batches) {
+        } else {
+            break;
+        }
+        {
+            let _e57 = atomicLoad((&count_done));
+            if (_e57 >= 256u) {
+                break;
+            }
+            let _e60 = b;
+            let batch_start = (range.x + (256u * _e60));
+            let idx = (batch_start + local_idx);
+            if (idx < range.y) {
+                let g_id = gaussian_ids_sorted[idx];
+                id_batch[local_idx] = g_id;
+                let _e76 = xys[g_id];
+                let _e79 = opacities[g_id];
+                xy_opacity_batch[local_idx] = vec3<f32>(_e76, _e79);
+                let _e85 = conics[g_id];
+                conic_batch[local_idx] = _e85;
+            }
+            workgroupBarrier();
+            let batch_size = min(256u, (range.y - batch_start));
+            t = 0u;
+            loop {
+                let _e91 = t;
+                let _e93 = done;
+                if ((_e91 < batch_size) && !(_e93)) {
+                } else {
+                    break;
+                }
+                {
+                    let _e97 = t;
+                    let conic = conic_batch[_e97];
+                    let _e101 = t;
+                    let xy_opac = xy_opacity_batch[_e101];
+                    let opac = xy_opac.z;
+                    let delta = (xy_opac.xy - vec2<f32>(px, py));
+                    let sigma = ((0.5f * (((conic.x * delta.x) * delta.x) + ((conic.z * delta.y) * delta.y))) + ((conic.y * delta.x) * delta.y));
+                    let alpha = min(0.999f, (opac * exp(-(sigma))));
+                    if ((sigma < 0f) || (alpha < 0.003921569f)) {
+                        continue;
+                    }
+                    let _e138 = T;
+                    let next_T = (_e138 * (1f - alpha));
+                    if (next_T <= 0.0001f) {
+                        let _e146 = atomicAdd((&count_done), 1u);
+                        done = true;
+                        break;
+                    }
+                    let _e149 = t;
+                    let g = id_batch[_e149];
+                    let _e152 = T;
+                    let vis = (alpha * _e152);
+                    let c = colors[g];
+                    let _e159 = pix_out;
+                    pix_out = (_e159 + (c * vis));
+                    T = next_T;
+                    let _e161 = t;
+                    cur_idx = (batch_start + _e161);
+                }
+                continuing {
+                    let _e165 = t;
+                    t = (_e165 + 1u);
+                }
+            }
+        }
+        continuing {
+            let _e168 = b;
+            b = (_e168 + 1u);
+        }
+    }
+    if inside {
+        let _e172 = cur_idx;
+        final_index[pix_id] = _e172;
+        let _e175 = pix_out;
+        let _e176 = T;
+        let _e178 = T;
+        out_img[pix_id] = (vec4<f32>(_e175, _e176) + vec4<f32>((_e178 * background), 0f));
         return;
     } else {
         return;

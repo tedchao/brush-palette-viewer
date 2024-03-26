@@ -19,35 +19,19 @@ pub fn render<B: Backend>(
     means: Tensor<B, 2>,
     scales: Tensor<B, 2>,
     quats: Tensor<B, 2>,
-    _shs: Tensor<B, 3>,
+    colors: Tensor<B, 2>,
+    opacity: Tensor<B, 1>,
     _active_sh_degree: u32,
-    _opacity: Tensor<B, 1>,
-    _bg_color: glam::Vec3,
-    _device: &B::Device,
-) -> RenderPackage<B> {
-    // screnspace_points is used as a vessel to carry the viewpsace gradients
-
-    // let tanfovx = (camera.fovx * 0.5).tan();
-    // let tanfovy = (camera.fovy * 0.5).tan();
-    // let active_sh_degree = 1;
-
-    let screenspace_points = B::render_gaussians(
+    background: glam::Vec3,
+) -> Tensor<B, 3> {
+    let img = B::render_gaussians(
         camera,
         means.clone().into_primitive(),
         scales.clone().into_primitive(),
         quats.clone().into_primitive(),
+        colors.clone().into_primitive(),
+        opacity.clone().into_primitive(),
+        background,
     );
-
-    let image =
-        means
-            .clone()
-            .unsqueeze::<3>()
-            .reshape([camera.height as usize, camera.width as usize, 3]);
-
-    let radii = Tensor::zeros_like(&_opacity);
-    RenderPackage {
-        image,
-        radii,
-        screenspace_points: Tensor::from_primitive(screenspace_points),
-    }
+    Tensor::from_primitive(img)
 }

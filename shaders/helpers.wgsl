@@ -1,17 +1,24 @@
 struct InfoBinding {
     // View matrix transform world to view position.
     viewmat: mat4x4f,
+    // Projection matrix of camera
     projmat: mat4x4f,
-
+    // fx, fy, cx, cy
     intrins: vec4f,
-
+    // Img resolution (w, h)
     img_size: vec2u,
+    // Total reachable pixels (w, h)
     tile_bounds: vec2u,
-
+    // Global scale for blobs.
     glob_scale: f32,
+    // Number of splats that exist.
     num_points: u32,
+    // Near clip threshold.
     clip_thresh: f32,
+    // Width of blocks image is divided into.
     block_width: u32,
+    // Background to use when rastering splats.
+    background: vec3f,
 }
 
 // device helper to get 3D covariance from scale and quat parameters
@@ -168,3 +175,21 @@ fn compute_cov2d_bounds(cov2d: vec3f) -> ComputeCov2DBounds {
 //     return v_quat;
 // }
 
+// given v_xy_pix, get v_xyz
+// fn project_pix_vjp(transform: mat4x4f, p: vec3f, img_size: vec3u, v_xy: vec2f) -> vec3f {
+//     let t = transform * p;
+//     let rw = 1.f / (t.w + 1e-6f);
+
+//     let v_ndc = vec3f(0.5f * img_size.x * v_xy.x, 0.5f * img_size.y * v_xy.y);
+//     let v_t = vec4f(v_ndc.x * rw, v_ndc.y * rw, 0.0, -(v_ndc.x * t.x + v_ndc.y * t.y) * rw * rw);
+    
+//     // df / d_world = df / d_cam * d_cam / d_world
+//     // = v_t * mat[:3, :4]
+
+//     // TOOD: Row column major? Why just raw indexing it? Ugh.
+//     return vec3f(
+//         transform[0] * v_t.x + transform[4] * v_t.y + transform[8] * v_t.z + transform[12] * v_t.w,
+//         transform[1] * v_t.x + transform[5] * v_t.y + transform[9] * v_t.z + transform[13] * v_t.w,
+//         transform[2] * v_t.x + transform[6] * v_t.y + transform[10] * v_t.z + transform[14] * v_t.w,
+//     );
+// }

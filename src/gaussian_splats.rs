@@ -49,10 +49,10 @@ pub(crate) struct Splats<B: Backend> {
     max_sh_degree: u32,
 
     // f32[n, 3]. Position.
-    xyz: Param<Tensor<B, 2>>,
+    means: Param<Tensor<B, 2>>,
 
-    // f32[n, sh, 3]. SH coefficients for diffuse color.
-    shs: Param<Tensor<B, 3>>,
+    // f32[n, sh]. SH coefficients for diffuse color.
+    colors: Param<Tensor<B, 2>>,
 
     // f32[n, 4]. Rotation as quaternion matrices.
     rotation: Param<Tensor<B, 2>>,
@@ -98,12 +98,11 @@ impl<B: Backend> Splats<B> {
             .unsqueeze()
             .repeat(0, num_points);
 
+        // TODO: Support shs.
         // f32[n, 1, 3]. Diffuse color, aka the first spherical harmonic coefficient
         // for each color channel.
-
-        // TODO: Support shs.
-        let shs = spherical_harmonics::rgb_to_sh_dc(rgb);
-        let shs = shs.unsqueeze_dim(1);
+        // let shs = spherical_harmonics::rgb_to_sh_dc(rgb);
+        // let shs = shs.unsqueeze_dim(1);
 
         let init_rotation = Tensor::from_floats([1.0, 0.0, 0.0, 0.0], device)
             .unsqueeze::<2>()
@@ -124,8 +123,8 @@ impl<B: Backend> Splats<B> {
         Splats {
             active_sh_degree,
             max_sh_degree,
-            xyz: xyz.into(),
-            shs: shs.into(),
+            means: xyz.into(),
+            colors: rgb.into(),
             rotation: init_rotation.into(),
             opacity: init_opacity.into(),
             scale: init_scale.into(),
@@ -439,44 +438,34 @@ impl<B: Backend> Splats<B> {
     //   * visibility_filter: a boolean tensor that indicates which gaussians
     //     participated in the rendering.
     //   * radii: the maximum screenspace radius of each gaussian
-    pub(crate) fn render(
-        &self,
-        camera: &Camera,
-        bg_color: glam::Vec3,
-        device: &Device<B>,
-    ) -> RenderPackage<B> {
+    pub(crate) fn render(&self, camera: &Camera, bg_color: glam::Vec3) -> Tensor<B, 3> {
         println!("Render splats!!");
-        let opacity = burn::tensor::activation::sigmoid(self.opacity.val());
-        let scale = self.scale.val().exp();
-        let rotation = self.rotation.val(); // TODO: torch.nn.functional.normalize?
-
         splat_render::render::render(
             camera,
-            self.xyz.val(),
-            scale,
-            rotation,
-            self.shs.val(),
-            self.active_sh_degree,
-            opacity,
+            self.means.val(),
+            self.scale.val().exp(),
+            self.rotation.val(),
+            self.colors.val(),
+            burn::tensor::activation::sigmoid(self.opacity.val()),
+            0,
             bg_color,
-            device,
         )
     }
 
     pub(crate) fn visualize(&self, rec: &RecordingStream) -> Result<()> {
-        let points_data = utils::burn_to_ndarray(self.xyz.val());
+        let points_data = utils::burn_to_ndarray(self.means.val());
 
         let glam_data = points_data
             .axis_iter(Axis(0))
             .map(|c| glam::vec3(c[0], c[1], c[2]))
             .collect::<Vec<_>>();
 
-        let colors_data = utils::burn_to_ndarray(self.shs.val());
+        let colors_data = utils::burn_to_ndarray(self.colors.val());
         let colors = colors_data.axis_iter(Axis(0)).map(|c| {
             Rgba32::from([
-                (c[[0, 0]] * 255.0) as u8,
-                (c[[0, 1]] * 255.0) as u8,
-                (c[[0, 2]] * 255.0) as u8,
+                (c[[0]] * 255.0) as u8,
+                (c[[1]] * 255.0) as u8,
+                (c[[2]] * 255.0) as u8,
             ])
         });
         rec.log(
@@ -487,6 +476,6 @@ impl<B: Backend> Splats<B> {
     }
 
     pub(crate) fn cur_num_points(&self) -> usize {
-        self.xyz.dims()[0]
+        self.means.dims()[0]
     }
 }

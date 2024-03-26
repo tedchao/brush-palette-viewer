@@ -87,8 +87,8 @@ where
         scene.default_bg_color
     };
 
-    let render = splats.render(&viewpoint.camera, background_color, device);
-    let render_img = render.image.clone();
+    let render = splats.render(&viewpoint.camera, background_color);
+    let render_img = render.clone();
     let gt_image = utils::ndarray_to_burn(viewpoint.view.image.clone(), device);
     // TODO: Burn should be able to slice open ranges.
     let dims = gt_image.dims();
@@ -115,9 +115,7 @@ where
     // Update the model using the optimizer.
     splats = optim.step(cur_lr, splats, grads);
 
-    // total_loss.backward()
-    splats.update_rolling_statistics(render);
-
+    // splats.update_rolling_statistics(render);
     // adaptive_density_control(scene, cfg);
 
     let num_points = splats.cur_num_points();

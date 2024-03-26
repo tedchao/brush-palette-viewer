@@ -5,7 +5,7 @@ use burn::{
         autodiff::{
             checkpoint::{base::Checkpointer, strategy::CheckpointStrategy},
             grads::Gradients,
-            ops::{Backward, Ops, OpsKind},
+            ops::{Backward, Ops},
             NodeID,
         },
         wgpu::{
@@ -65,7 +65,7 @@ struct RasterizeForward {}
 
 impl DynamicKernelSource for RasterizeForward {
     fn source(&self) -> SourceTemplate {
-        todo!();
+        SourceTemplate::new(gen::rasterize::SHADER_STRING)
     }
 
     fn id(&self) -> String {
@@ -91,7 +91,8 @@ impl<G: GraphicsApi, F: FloatElement, I: IntElement> Backend for JitBackend<Wgpu
         scales: FloatTensor<Self, 2>,
         quats: FloatTensor<Self, 2>,
         colors: FloatTensor<Self, 2>,
-        opacity: FloatTensor<Self, 2>,
+        opacity: FloatTensor<Self, 1>,
+        background: glam::Vec3,
     ) -> FloatTensor<Self, 3> {
         println!("Project gaussians!");
 
@@ -127,7 +128,7 @@ impl<G: GraphicsApi, F: FloatElement, I: IntElement> Backend for JitBackend<Wgpu
         let client = means.client.clone();
         let device = means.device.clone();
 
-        let create_empty_f32 = |dim| {
+        let create_empty_f32 = |dim|-> JitTensor<WgpuRuntime<G, F, I>, F, 2> {
             let shape = Shape::new(dim);
             JitTensor::new(
                 client.clone(),
@@ -157,6 +158,7 @@ impl<G: GraphicsApi, F: FloatElement, I: IntElement> Backend for JitBackend<Wgpu
             num_points: num_points as u32,
             clip_thresh: 0.001,
             block_width: block_size,
+            background: background.into(),
         }));
 
         // Create the output tensor primitive.
@@ -175,17 +177,17 @@ impl<G: GraphicsApi, F: FloatElement, I: IntElement> Backend for JitBackend<Wgpu
             Box::new(DynamicKernel::new(ProjectSplats::new(), workgroup)),
             &[
                 // Input tensors.
-                &means.handle,  // 0
-                &scales.handle, // 1
-                &quats.handle,  // 2
+                &means.handle,
+                &scales.handle,
+                &quats.handle,
                 // Output tensors.
-                &covs3d.handle,        // 3
-                &xys.handle,           // 4
-                &depths.handle,        // 5
-                &radii.handle,         // 6
-                &conics.handle,        // 7
-                &compensation.handle,  // 8
-                &num_tiles_hit.handle, // 9
+                &covs3d.handle,
+                &xys.handle,
+                &depths.handle,
+                &radii.handle,
+                &conics.handle,
+                &compensation.handle,
+                &num_tiles_hit.handle,
                 // Aux data.
                 &aux_data
             ],
@@ -202,7 +204,8 @@ impl<G: GraphicsApi, F: FloatElement, I: IntElement> Backend for JitBackend<Wgpu
             })
             .collect();
 
-        let num_intersects = cum_tiles_hit.last().unwrap();
+        // TODO:
+        // let num_intersects = cum_tiles_hit.last().unwrap();
 
         // Mapping gaussians to sorted unique intersection IDs and tile bins used for fast rasterization.
         // We return both dsorted an unsorted versions of intersect IDs and gaussian IDs for testing purposes.
@@ -242,8 +245,8 @@ impl<G: GraphicsApi, F: FloatElement, I: IntElement> Backend for JitBackend<Wgpu
         let isect_ids = bytemuck::cast_vec::<u8, u32>(client.read(&isect_ids.handle).read());
         let gaussian_ids = bytemuck::cast_vec::<u8, u32>(client.read(&gaussian_ids.handle).read());
         let sorted_indices = argsort(&isect_ids);
-        let isect_ids_sorted = sorted_indices.iter().copied().map(|x| isect_ids[x]).collect();
-        let gaussian_ids_sorted = sorted_indices.iter().copied().map(|x| gaussian_ids[x]).collect();
+        let isect_ids_sorted: Vec<_> = sorted_indices.iter().copied().map(|x| isect_ids[x]).collect();
+        let gaussian_ids_sorted: Vec<_> = sorted_indices.iter().copied().map(|x| gaussian_ids[x]).collect();
 
         // Map sorted intersection IDs to tile bins which give the range of unique gaussian IDs belonging to each tile.
         // Expects that intersection IDs are sorted by increasing tile ID.
@@ -260,6 +263,7 @@ impl<G: GraphicsApi, F: FloatElement, I: IntElement> Backend for JitBackend<Wgpu
         // TODO: Num intersects.
         let workgroup = get_workgroup(uvec3(num_points as u32, 1, 1), uvec3(16, 1, 1));
         let isect_ids_sorted = client.create(bytemuck::cast_slice::<u32, u8>(&isect_ids_sorted));
+        let gaussian_ids_sorted = client.create(bytemuck::cast_slice::<u32, u8>(&gaussian_ids_sorted));
 
         let tile_bins = create_empty_i32([num_points, 2]);
 
@@ -272,16 +276,26 @@ impl<G: GraphicsApi, F: FloatElement, I: IntElement> Backend for JitBackend<Wgpu
             ],
         );
 
+        let out_img_shape = Shape::new([camera.height as usize, camera.width as usize, 4]);
+        let out_img = JitTensor::new(
+            client.clone(),
+            device.clone(),
+            out_img_shape.clone(),
+            client.empty(out_img_shape.num_elements() * core::mem::size_of::<f32>()),
+        );
+
+        let workgroup = get_workgroup(uvec3(num_points as u32, 1, 1), uvec3(16, 1, 1));
         client.execute(
             Box::new(DynamicKernel::new(RasterizeForward::new(), workgroup)),
             &[
                 // Input tensors.
-                &gaussian_ids_sorted.handle,
+                &gaussian_ids_sorted,
                 &tile_bins.handle,
                 &xys.handle,
                 &conics.handle,
                 &colors.handle,
                 &opacity.handle,
+                &out_img.handle,
                 // Aux data.
                 &aux_data
             ],
@@ -346,57 +360,61 @@ impl<B: Backend> Backward<B, 2, 3> for ProjectSplatsBackward {
 
 impl<B: Backend, C: CheckpointStrategy> Backend for Autodiff<B, C> {
     fn render_gaussians(
-        camera: &Camera,
-        means: FloatTensor<Self, 2>,
-        scales: FloatTensor<Self, 2>,
-        quats: FloatTensor<Self, 2>,
-    ) -> FloatTensor<Self, 2> {
-        // Prepare a stateful operation with each variable node and corresponding graph.
-        //
-        // Each node can be fetched with `ops.parents` in the same order as defined here.
-        match ProjectSplatsBackward
-            .prepare::<C>(
-                [means.node.clone(), scales.node.clone(), quats.node.clone()],
-                [
-                    means.graph.clone(),
-                    scales.graph.clone(),
-                    quats.graph.clone(),
-                ],
-            )
-            // Marks the operation as compute bound, meaning it will save its
-            // state instead of recomputing itself during checkpointing
-            .compute_bound()
-            .stateful()
-        {
-            OpsKind::Tracked(mut prep) => {
-                // When at least one node is tracked, we should register our backward step.
+        _cam: &Camera,
+        _xys: FloatTensor<Self, 2>,
+        _scales: FloatTensor<Self, 2>,
+        _quats: FloatTensor<Self, 2>,
+        _colors: FloatTensor<Self, 2>,
+        _opacity: FloatTensor<Self, 1>,
+        _background: glam::Vec3,
+    ) -> FloatTensor<Self, 3> {
+        todo!();
+        // // Prepare a stateful operation with each variable node and corresponding graph.
+        // //
+        // // Each node can be fetched with `ops.parents` in the same order as defined here.
+        // match ProjectSplatsBackward
+        //     .prepare::<C>(
+        //         [means.node.clone(), scales.node.clone(), quats.node.clone()],
+        //         [
+        //             means.graph.clone(),
+        //             scales.graph.clone(),
+        //             quats.graph.clone(),
+        //         ],
+        //     )
+        //     // Marks the operation as compute bound, meaning it will save its
+        //     // state instead of recomputing itself during checkpointing
+        //     .compute_bound()
+        //     .stateful()
+        // {
+        //     OpsKind::Tracked(mut prep) => {
+        //         // When at least one node is tracked, we should register our backward step.
 
-                // The state consists of what will be needed for this operation's backward pass.
-                // Since we need the parents' outputs, we must checkpoint their ids to retrieve their node
-                // output at the beginning of the backward. We can also save utilitary data such as the bias shape
-                // If we also need this operation's output, we can either save it in the state or recompute it
-                // during the backward pass. Here we choose to save it in the state because it's a compute bound operation.
-                let means_state = prep.checkpoint(&means);
-                let scale_state = prep.checkpoint(&scales);
-                let quat_state = prep.checkpoint(&quats);
+        //         // The state consists of what will be needed for this operation's backward pass.
+        //         // Since we need the parents' outputs, we must checkpoint their ids to retrieve their node
+        //         // output at the beginning of the backward. We can also save utilitary data such as the bias shape
+        //         // If we also need this operation's output, we can either save it in the state or recompute it
+        //         // during the backward pass. Here we choose to save it in the state because it's a compute bound operation.
+        //         let means_state = prep.checkpoint(&means);
+        //         let scale_state = prep.checkpoint(&scales);
+        //         let quat_state = prep.checkpoint(&quats);
 
-                let output = B::render_gaussians(
-                    camera,
-                    means.primitive.clone(),
-                    scales.primitive.clone(),
-                    quats.primitive,
-                );
+        //         let output = B::render_gaussians(
+        //             camera,
+        //             means.primitive.clone(),
+        //             scales.primitive.clone(),
+        //             quats.primitive,
+        //         );
 
-                let state = (means_state, scale_state, quat_state);
-                prep.finish(state, output)
-            }
-            OpsKind::UnTracked(prep) => {
-                // When no node is tracked, we can just compute the original operation without
-                // keeping any state.
-                let output =
-                    B::render_gaussians(camera, means.primitive, scales.primitive, quats.primitive);
-                prep.finish(output)
-            }
-        }
+        //         let state = (means_state, scale_state, quat_state);
+        //         prep.finish(state, output)
+        //     }
+        //     OpsKind::UnTracked(prep) => {
+        //         // When no node is tracked, we can just compute the original operation without
+        //         // keeping any state.
+        //         let output =
+        //             B::render_gaussians(camera, means.primitive, scales.primitive, quats.primitive);
+        //         prep.finish(output)
+        //     }
+        // }
     }
 }

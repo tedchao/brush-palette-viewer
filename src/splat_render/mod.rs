@@ -1,7 +1,6 @@
 use burn::backend::autodiff::checkpoint::strategy::CheckpointStrategy;
 use burn::backend::wgpu::{AutoGraphicsApi, JitBackend, WgpuRuntime};
 use burn::backend::Autodiff;
-use burn::tensor::ops::IntTensor;
 
 use crate::camera::Camera;
 
@@ -35,11 +34,12 @@ pub trait Backend: burn::tensor::backend::Backend {
     // which we use to 'carry' the gradients'.
     fn render_gaussians(
         cam: &Camera,
-        xys: FloatTensor<Self, 2>,
+        means: FloatTensor<Self, 2>,
         scales: FloatTensor<Self, 2>,
         quats: FloatTensor<Self, 2>,
         colors: FloatTensor<Self, 2>,
-        opacity: FloatTensor<Self, 2>,
+        opacity: FloatTensor<Self, 1>,
+        background: glam::Vec3,
     ) -> FloatTensor<Self, 3>;
 }
 
