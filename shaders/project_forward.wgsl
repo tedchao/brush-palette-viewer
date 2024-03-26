@@ -12,24 +12,7 @@
 @group(0) @binding(8) var<storage, read_write> compensation: array<f32>;
 @group(0) @binding(9) var<storage, read_write> num_tiles_hit: array<i32>;
 
-@group(0) @binding(10) var<storage, read> info_array: array<InfoBinding>;
-
-struct InfoBinding {
-    // View matrix transform world to view position.
-    viewmat: mat4x4f,
-    
-    projmat: mat4x4f,
-
-    intrins: vec4f,
-
-    img_size: vec2u,
-    tile_bounds: vec2u,
-
-    glob_scale: f32,
-    num_points: u32,
-    clip_thresh: f32,
-    block_width: u32,
-}
+@group(0) @binding(10) var<storage, read> info_array: array<helpers::InfoBinding>;
 
 // kernel function for projecting each gaussian on device
 // each thread processes one gaussian

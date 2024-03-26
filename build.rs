@@ -10,6 +10,7 @@ fn main() {
         .type_map(GlamWgslTypeMap)
         .workspace_root("shaders")
         .add_entry_point("shaders/project_forward.wgsl")
+        .add_entry_point("shaders/map_gaussian_to_intersects.wgsl")
         .output("src/splat_render/gen/bindings.rs")
         .build()
         .unwrap();

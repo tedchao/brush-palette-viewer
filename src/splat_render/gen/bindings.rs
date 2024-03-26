@@ -2,17 +2,21 @@
 //
 // ^ wgsl_bindgen version 0.10.0
 // Changes made to this file will not be saved.
-// SourceHash: 34d164a0eccb03734e4acd5e0d282c6cb2c958a0cec86458f03b4ecf30d8dc36
+// SourceHash: 860bce4f7bce77ac4fd53aab66e4336a30e57ca3808c0fc4abd432892170d478
 
 #![allow(unused, non_snake_case, non_camel_case_types, non_upper_case_globals)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ShaderEntry {
     ProjectForward,
+    MapGaussianToIntersects,
 }
 impl ShaderEntry {
     pub fn create_pipeline_layout(&self, device: &wgpu::Device) -> wgpu::PipelineLayout {
         match self {
             Self::ProjectForward => project_forward::create_pipeline_layout(device),
+            Self::MapGaussianToIntersects => {
+                map_gaussian_to_intersects::create_pipeline_layout(device)
+            }
         }
     }
     pub fn create_shader_module_embed_source(
@@ -22,6 +26,9 @@ impl ShaderEntry {
         match self {
             Self::ProjectForward => {
                 project_forward::create_shader_module_embed_source(device)
+            }
+            Self::MapGaussianToIntersects => {
+                map_gaussian_to_intersects::create_shader_module_embed_source(device)
             }
         }
     }
@@ -41,20 +48,20 @@ pub mod layout_asserts {
         assert!(std::mem::size_of:: < glam::Mat4 > () == 64);
         assert!(std::mem::align_of:: < glam::Mat4 > () == 16);
     };
-    const PROJECT_FORWARD_INFO_BINDING_ASSERTS: () = {
-        assert!(std::mem::offset_of!(project_forward::InfoBinding, viewmat) == 0);
-        assert!(std::mem::offset_of!(project_forward::InfoBinding, projmat) == 64);
-        assert!(std::mem::offset_of!(project_forward::InfoBinding, intrins) == 128);
-        assert!(std::mem::offset_of!(project_forward::InfoBinding, img_size) == 144);
-        assert!(std::mem::offset_of!(project_forward::InfoBinding, tile_bounds) == 152);
-        assert!(std::mem::offset_of!(project_forward::InfoBinding, glob_scale) == 160);
-        assert!(std::mem::offset_of!(project_forward::InfoBinding, num_points) == 164);
-        assert!(std::mem::offset_of!(project_forward::InfoBinding, clip_thresh) == 168);
-        assert!(std::mem::offset_of!(project_forward::InfoBinding, block_width) == 172);
-        assert!(std::mem::size_of:: < project_forward::InfoBinding > () == 176);
+    const HELPERS_INFO_BINDING_ASSERTS: () = {
+        assert!(std::mem::offset_of!(helpers::InfoBinding, viewmat) == 0);
+        assert!(std::mem::offset_of!(helpers::InfoBinding, projmat) == 64);
+        assert!(std::mem::offset_of!(helpers::InfoBinding, intrins) == 128);
+        assert!(std::mem::offset_of!(helpers::InfoBinding, img_size) == 144);
+        assert!(std::mem::offset_of!(helpers::InfoBinding, tile_bounds) == 152);
+        assert!(std::mem::offset_of!(helpers::InfoBinding, glob_scale) == 160);
+        assert!(std::mem::offset_of!(helpers::InfoBinding, num_points) == 164);
+        assert!(std::mem::offset_of!(helpers::InfoBinding, clip_thresh) == 168);
+        assert!(std::mem::offset_of!(helpers::InfoBinding, block_width) == 172);
+        assert!(std::mem::size_of:: < helpers::InfoBinding > () == 176);
     };
 }
-pub mod project_forward {
+pub mod helpers {
     use super::{_root, _root::*};
     #[repr(C, align(16))]
     #[derive(Debug, PartialEq, Clone, Copy)]
@@ -103,6 +110,14 @@ pub mod project_forward {
             }
         }
     }
+}
+pub mod bytemuck_impls {
+    use super::{_root, _root::*};
+    unsafe impl bytemuck::Zeroable for helpers::InfoBinding {}
+    unsafe impl bytemuck::Pod for helpers::InfoBinding {}
+}
+pub mod project_forward {
+    use super::{_root, _root::*};
     pub mod bind_groups {
         #[derive(Debug)]
         pub struct WgpuBindGroupLayout0<'a> {
@@ -400,13 +415,7 @@ pub mod project_forward {
             })
     }
     pub const SHADER_STRING: &'static str = r#"
-struct ComputeCov2DBoundsX_naga_oil_mod_XNBSWY4DFOJZQX {
-    conic: vec3<f32>,
-    radius: f32,
-    valid: bool,
-}
-
-struct InfoBinding {
+struct InfoBindingX_naga_oil_mod_XNBSWY4DFOJZQX {
     viewmat: mat4x4<f32>,
     projmat: mat4x4<f32>,
     intrins: vec4<f32>,
@@ -416,6 +425,12 @@ struct InfoBinding {
     num_points: u32,
     clip_thresh: f32,
     block_width: u32,
+}
+
+struct ComputeCov2DBoundsX_naga_oil_mod_XNBSWY4DFOJZQX {
+    conic: vec3<f32>,
+    radius: f32,
+    valid: bool,
 }
 
 @group(0) @binding(0) 
@@ -439,7 +454,7 @@ var<storage, read_write> compensation: array<f32>;
 @group(0) @binding(9) 
 var<storage, read_write> num_tiles_hit: array<i32>;
 @group(0) @binding(10) 
-var<storage> info_array: array<InfoBinding>;
+var<storage> info_array: array<InfoBindingX_naga_oil_mod_XNBSWY4DFOJZQX>;
 
 fn quat_to_rotmatX_naga_oil_mod_XNBSWY4DFOJZQX(quat: vec4<f32>) -> mat3x3<f32> {
     let quat_norm = normalize(quat);
@@ -583,8 +598,382 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
 }
 "#;
 }
-pub mod bytemuck_impls {
+pub mod map_gaussian_to_intersects {
     use super::{_root, _root::*};
-    unsafe impl bytemuck::Zeroable for project_forward::InfoBinding {}
-    unsafe impl bytemuck::Pod for project_forward::InfoBinding {}
+    pub mod bind_groups {
+        #[derive(Debug)]
+        pub struct WgpuBindGroupLayout0<'a> {
+            pub xys: wgpu::BufferBinding<'a>,
+            pub depths: wgpu::BufferBinding<'a>,
+            pub radii: wgpu::BufferBinding<'a>,
+            pub cum_tiles_hit: wgpu::BufferBinding<'a>,
+            pub isect_ids: wgpu::BufferBinding<'a>,
+            pub gaussian_ids: wgpu::BufferBinding<'a>,
+            pub conics: wgpu::BufferBinding<'a>,
+            pub compensation: wgpu::BufferBinding<'a>,
+            pub info_array: wgpu::BufferBinding<'a>,
+        }
+        impl<'a> WgpuBindGroupLayout0<'a> {
+            pub fn entries(self) -> [wgpu::BindGroupEntry<'a>; 9] {
+                [
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::Buffer(self.xys),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Buffer(self.depths),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: wgpu::BindingResource::Buffer(self.radii),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: wgpu::BindingResource::Buffer(self.cum_tiles_hit),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 4,
+                        resource: wgpu::BindingResource::Buffer(self.isect_ids),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 5,
+                        resource: wgpu::BindingResource::Buffer(self.gaussian_ids),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 6,
+                        resource: wgpu::BindingResource::Buffer(self.conics),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 7,
+                        resource: wgpu::BindingResource::Buffer(self.compensation),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 8,
+                        resource: wgpu::BindingResource::Buffer(self.info_array),
+                    },
+                ]
+            }
+        }
+        #[derive(Debug)]
+        pub struct WgpuBindGroup0(wgpu::BindGroup);
+        impl WgpuBindGroup0 {
+            pub const LAYOUT_DESCRIPTOR: wgpu::BindGroupLayoutDescriptor<'static> = wgpu::BindGroupLayoutDescriptor {
+                label: Some("MapGaussianToIntersects::BindGroup0::LayoutDescriptor"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage {
+                                read_only: true,
+                            },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage {
+                                read_only: true,
+                            },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage {
+                                read_only: true,
+                            },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 3,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage {
+                                read_only: true,
+                            },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 4,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage {
+                                read_only: false,
+                            },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 5,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage {
+                                read_only: false,
+                            },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 6,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage {
+                                read_only: false,
+                            },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 7,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage {
+                                read_only: false,
+                            },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 8,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage {
+                                read_only: true,
+                            },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                ],
+            };
+            pub fn get_bind_group_layout(
+                device: &wgpu::Device,
+            ) -> wgpu::BindGroupLayout {
+                device.create_bind_group_layout(&Self::LAYOUT_DESCRIPTOR)
+            }
+            pub fn from_bindings(
+                device: &wgpu::Device,
+                bindings: WgpuBindGroupLayout0,
+            ) -> Self {
+                let bind_group_layout = Self::get_bind_group_layout(&device);
+                let entries = bindings.entries();
+                let bind_group = device
+                    .create_bind_group(
+                        &wgpu::BindGroupDescriptor {
+                            label: Some("MapGaussianToIntersects::BindGroup0"),
+                            layout: &bind_group_layout,
+                            entries: &entries,
+                        },
+                    );
+                Self(bind_group)
+            }
+            pub fn set<'a>(&'a self, render_pass: &mut wgpu::ComputePass<'a>) {
+                render_pass.set_bind_group(0, &self.0, &[]);
+            }
+        }
+        #[derive(Debug, Copy, Clone)]
+        pub struct WgpuBindGroups<'a> {
+            pub bind_group0: &'a WgpuBindGroup0,
+        }
+        impl<'a> WgpuBindGroups<'a> {
+            pub fn set(&self, pass: &mut wgpu::ComputePass<'a>) {
+                self.bind_group0.set(pass);
+            }
+        }
+    }
+    pub fn set_bind_groups<'a>(
+        pass: &mut wgpu::ComputePass<'a>,
+        bind_group0: &'a bind_groups::WgpuBindGroup0,
+    ) {
+        bind_group0.set(pass);
+    }
+    pub mod compute {
+        pub const MAP_GAUSSIAN_TO_INTERSECTS_WORKGROUP_SIZE: [u32; 3] = [16, 1, 1];
+        pub fn create_map_gaussian_to_intersects_pipeline_embed_source(
+            device: &wgpu::Device,
+        ) -> wgpu::ComputePipeline {
+            let module = super::create_shader_module_embed_source(device);
+            let layout = super::create_pipeline_layout(device);
+            device
+                .create_compute_pipeline(
+                    &wgpu::ComputePipelineDescriptor {
+                        label: Some("Compute Pipeline map_gaussian_to_intersects"),
+                        layout: Some(&layout),
+                        module: &module,
+                        entry_point: "map_gaussian_to_intersects",
+                    },
+                )
+        }
+    }
+    pub const ENTRY_MAP_GAUSSIAN_TO_INTERSECTS: &str = "map_gaussian_to_intersects";
+    #[derive(Debug)]
+    pub struct WgpuPipelineLayout;
+    impl WgpuPipelineLayout {
+        pub fn bind_group_layout_entries(
+            entries: [wgpu::BindGroupLayout; 1],
+        ) -> [wgpu::BindGroupLayout; 1] {
+            entries
+        }
+    }
+    pub fn create_pipeline_layout(device: &wgpu::Device) -> wgpu::PipelineLayout {
+        device
+            .create_pipeline_layout(
+                &wgpu::PipelineLayoutDescriptor {
+                    label: Some("MapGaussianToIntersects::PipelineLayout"),
+                    bind_group_layouts: &[
+                        &bind_groups::WgpuBindGroup0::get_bind_group_layout(device),
+                    ],
+                    push_constant_ranges: &[],
+                },
+            )
+    }
+    pub fn create_shader_module_embed_source(
+        device: &wgpu::Device,
+    ) -> wgpu::ShaderModule {
+        let source = std::borrow::Cow::Borrowed(SHADER_STRING);
+        device
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("map_gaussian_to_intersects.wgsl"),
+                source: wgpu::ShaderSource::Wgsl(source),
+            })
+    }
+    pub const SHADER_STRING: &'static str = r#"
+struct InfoBindingX_naga_oil_mod_XNBSWY4DFOJZQX {
+    viewmat: mat4x4<f32>,
+    projmat: mat4x4<f32>,
+    intrins: vec4<f32>,
+    img_size: vec2<u32>,
+    tile_bounds: vec2<u32>,
+    glob_scale: f32,
+    num_points: u32,
+    clip_thresh: f32,
+    block_width: u32,
+}
+
+@group(0) @binding(0) 
+var<storage> xys: array<vec2<f32>>;
+@group(0) @binding(1) 
+var<storage> depths: array<f32>;
+@group(0) @binding(2) 
+var<storage> radii: array<i32>;
+@group(0) @binding(3) 
+var<storage> cum_tiles_hit: array<u32>;
+@group(0) @binding(4) 
+var<storage, read_write> isect_ids: array<u32>;
+@group(0) @binding(5) 
+var<storage, read_write> gaussian_ids: array<u32>;
+@group(0) @binding(6) 
+var<storage, read_write> conics: array<vec3<f32>>;
+@group(0) @binding(7) 
+var<storage, read_write> compensation: array<f32>;
+@group(0) @binding(8) 
+var<storage> info_array: array<InfoBindingX_naga_oil_mod_XNBSWY4DFOJZQX>;
+
+fn get_bboxX_naga_oil_mod_XNBSWY4DFOJZQX(center: vec2<f32>, dims: vec2<f32>, img_size: vec2<u32>) -> vec4<i32> {
+    let bb_min_x = min(max(0i, i32((center.x - dims.x))), i32(img_size.x));
+    let bb_max_x = min(max(0i, i32(((center.x + dims.x) + 1f))), i32(img_size.x));
+    let bb_min_y = min(max(0i, i32((center.y - dims.y))), i32(img_size.y));
+    let bb_max_y = min(max(0i, i32(((center.y + dims.y) + 1f))), i32(img_size.y));
+    return vec4<i32>(bb_min_x, bb_min_y, bb_max_y, bb_max_y);
+}
+
+fn get_tile_bboxX_naga_oil_mod_XNBSWY4DFOJZQX(pix_center: vec2<f32>, pix_radius: f32, tile_bounds: vec2<u32>, block_size: u32) -> vec4<i32> {
+    let tile_center = (pix_center / vec2(f32(block_size)));
+    let tile_radius = (vec2<f32>(pix_radius, pix_radius) / vec2(f32(block_size)));
+    let _e11 = get_bboxX_naga_oil_mod_XNBSWY4DFOJZQX(tile_center, tile_radius, tile_bounds);
+    return _e11;
+}
+
+@compute @workgroup_size(16, 1, 1) 
+fn map_gaussian_to_intersects(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invocation_id) local_id: vec3<u32>, @builtin(workgroup_id) workgroup_id: vec3<u32>) {
+    var cur_idx: u32 = 0u;
+    var i: i32;
+    var j: i32;
+
+    let info = info_array[0];
+    let num_points = info.num_points;
+    let tile_bounds_1 = info.tile_bounds;
+    let block_width = info.block_width;
+    let idx = global_id.x;
+    if (idx >= num_points) {
+        return;
+    }
+    let _e12 = radii[idx];
+    if (_e12 <= 0i) {
+        return;
+    }
+    let center_1 = xys[idx];
+    let _e20 = radii[idx];
+    let _e22 = get_tile_bboxX_naga_oil_mod_XNBSWY4DFOJZQX(center_1, f32(_e20), tile_bounds_1, block_width);
+    let tile_min = _e22.xy;
+    let tile_max = _e22.zw;
+    if (idx != 0u) {
+        let _e31 = cum_tiles_hit[(idx - 1u)];
+        cur_idx = _e31;
+    }
+    i = tile_min.y;
+    loop {
+        let _e35 = i;
+        if (_e35 < tile_max.y) {
+        } else {
+            break;
+        }
+        {
+            j = tile_min.x;
+            loop {
+                let _e40 = j;
+                if (_e40 < tile_max.x) {
+                } else {
+                    break;
+                }
+                {
+                    let _e43 = i;
+                    let _e47 = j;
+                    let tile_id = u32(((_e43 * i32(tile_bounds_1.x)) + _e47));
+                    let _e51 = cur_idx;
+                    isect_ids[_e51] = ((tile_id << 32u) | 0u);
+                    let _e58 = cur_idx;
+                    gaussian_ids[_e58] = idx;
+                    let _e61 = cur_idx;
+                    cur_idx = (_e61 + 1u);
+                }
+                continuing {
+                    let _e64 = j;
+                    j = (_e64 + 1i);
+                }
+            }
+        }
+        continuing {
+            let _e67 = i;
+            i = (_e67 + 1i);
+        }
+    }
+    return;
+}
+"#;
 }

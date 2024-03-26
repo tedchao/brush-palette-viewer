@@ -1,3 +1,19 @@
+struct InfoBinding {
+    // View matrix transform world to view position.
+    viewmat: mat4x4f,
+    projmat: mat4x4f,
+
+    intrins: vec4f,
+
+    img_size: vec2u,
+    tile_bounds: vec2u,
+
+    glob_scale: f32,
+    num_points: u32,
+    clip_thresh: f32,
+    block_width: u32,
+}
+
 // device helper to get 3D covariance from scale and quat parameters
 fn quat_to_rotmat(quat: vec4f) -> mat3x3f {
     // quat to rotation matrix
