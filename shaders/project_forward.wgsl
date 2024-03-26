@@ -1,10 +1,8 @@
 #import helpers;
 
-
 @group(0) @binding(0) var<storage, read> means3d: array<vec3f>;
 @group(0) @binding(1) var<storage, read> scales: array<vec3f>;
 @group(0) @binding(2) var<storage, read> quats: array<vec4f>;
-
 
 @group(0) @binding(3) var<storage, read_write> covs3d: array<f32>;
 @group(0) @binding(4) var<storage, read_write> xys: array<vec2f>;
@@ -169,51 +167,7 @@ fn main(
 }
 
 
-// // kernel to map each intersection from tile ID and depth to a gaussian
-// // writes output to isect_ids and gaussian_ids
-// fn map_gaussian_to_intersects(
-//     num_points: i32,
-//     xys: array<vec2f>,
-//     depths: array<f32>,
-//     radii: array<i32>,
-//     cum_tiles_hit: array<i32>,
-//     tile_bounds: vec3u,
-//     block_width: u32,
-//     isect_ids: array<u64>,
-//     gaussian_ids: array<i32>,
-//     @builtin(global_invocation_id) global_id: vec3u,
-//     @builtin(local_invocation_id) local_id: vec3u,
-//     @builtin(workgroup_id) workgroup_id: vec3u,
-// ) {
-//     let idx = local_id.x;
-//     if idx >= num_points {
-//         return;
-//     }
 
-//     if radii[idx] <= 0 {
-//         return;
-//     }
-//     // get the tile bbox for gaussian
-//     let center = xys[idx];
-//     let tile_minmax = get_tile_bbox(center, radii[idx], tile_bounds, block_width);
-    
-//     // update the intersection info for all tiles this gaussian hits
-//     let cur_idx = select(0, cum_tiles_hit[idx - 1], idx == 0);
-    
-//     // TODO: What in the ever loving god??
-//     // let depth_id = (int64_t) * (int32_t * )&(depths[idx]);
-//     let depth_id = 0;
-
-//     for (let i = tile_min.y; i < tile_max.y; i++) {
-//         for (let j = tile_min.x; j < tile_max.x; j++) {
-//             // isect_id is tile ID and depth as int32
-//             let tile_id = i * tile_bounds.x + j; // tile within image
-//             isect_ids[cur_idx] = (tile_id << 32) | depth_id; // tile | depth id
-//             gaussian_ids[cur_idx] = idx;                     // 3D gaussian id
-//             cur_idx++; // handles gaussians that hit more than one tile
-//         }
-//     }
-// }
 
 // // kernel to map sorted intersection IDs to tile bins
 // // expect that intersection IDs are sorted by increasing tile ID
