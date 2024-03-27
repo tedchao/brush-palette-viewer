@@ -16,7 +16,7 @@ impl Scene {
         Scene {
             train_data,
             test_data,
-            default_bg_color: glam::Vec3::ONE,
+            default_bg_color: glam::Vec3::ZERO,
         }
     }
 

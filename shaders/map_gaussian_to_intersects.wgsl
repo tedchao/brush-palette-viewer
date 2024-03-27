@@ -5,10 +5,19 @@
 @group(0) @binding(2) var<storage, read> radii: array<i32>;
 @group(0) @binding(3) var<storage, read> cum_tiles_hit: array<u32>;
 
-@group(0) @binding(4) var<storage, read_write> isect_ids: array<u32>;
+@group(0) @binding(4) var<storage, read_write> isect_ids: array<vec2u>;
 @group(0) @binding(5) var<storage, read_write> gaussian_ids: array<u32>;
 
-@group(0) @binding(6) var<storage, read> info_array: array<helpers::InfoBinding>;
+@group(0) @binding(6) var<storage, read> info_array: array<Uniforms>;
+
+struct Uniforms {
+    // Number of splats that exist.
+    num_intersections: u32,
+    // Total reachable pixels (w, h)
+    tile_bounds: vec2u,
+    // Width of blocks image is divided into.
+    block_width: u32,
+}
 
 // kernel to map each intersection from tile ID and depth to a gaussian
 // writes output to isect_ids and gaussian_ids
@@ -20,12 +29,13 @@ fn main(
     @builtin(workgroup_id) workgroup_id: vec3u,
 ) {
     let info = info_array[0];
-    let num_points = info.num_points;
+    let num_intersections = info.num_intersections;
     let tile_bounds = info.tile_bounds;
     let block_width = info.block_width;
+
     let idx = global_id.x;
     
-    if idx >= num_points {
+    if idx >= num_intersections {
         return;
     }
     
@@ -53,7 +63,9 @@ fn main(
             let tile_id = u32(i * i32(tile_bounds.x) + j); // tile within image
 
             // TODO: Would need 64 bits to do this properly.
-            isect_ids[cur_idx] = (tile_id << 32) | depth_id; // tile | depth id
+            isect_ids[cur_idx].x = tile_id;
+            isect_ids[cur_idx].y = depth_id;
+            
             gaussian_ids[cur_idx] = idx;                     // 3D gaussian id
             cur_idx++; // handles gaussians that hit more than one tile
         }

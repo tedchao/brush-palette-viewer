@@ -10,7 +10,7 @@
 @group(0) @binding(6) var<storage, read_write> out_img: array<vec4f>;
 // @group(0) @binding(6) var<storage, read_write> final_index: array<u32>;
 
-@group(0) @binding(7) var<storage, read> info_array: array<helpers::InfoBinding>;
+@group(0) @binding(7) var<storage, read> info_array: array<Uniforms>;
 
 const MAX_BLOCK_SIZE: u32 = 16u * 16u;
 const TILE_SIZE: u32 = 16u;
@@ -21,6 +21,15 @@ var<workgroup> id_batch: array<u32, MAX_BLOCK_SIZE>;
 var<workgroup> xy_opacity_batch: array<vec3f, MAX_BLOCK_SIZE>;
 var<workgroup> conic_batch: array<vec3f, MAX_BLOCK_SIZE>;
 var<workgroup> count_done: atomic<u32>;
+
+struct Uniforms {
+    // Total reachable pixels (w, h)
+    tile_bounds: vec2u,
+    // Background color behind splats.
+    background: vec3f,
+    // Img resolution (w, h)
+    img_size: vec2u,
+}
 
 // kernel function for rasterizing each tile
 // each thread treats a single pixel

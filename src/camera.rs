@@ -28,8 +28,6 @@ impl Camera {
         fovy: f32,
         width: u32,
         height: u32,
-        znear: f32,
-        zfar: f32,
     ) -> Self {
         Camera {
             width,

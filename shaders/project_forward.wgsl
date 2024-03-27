@@ -12,8 +12,27 @@
 @group(0) @binding(8) var<storage, read_write> compensation: array<f32>;
 @group(0) @binding(9) var<storage, read_write> num_tiles_hit: array<i32>;
 
-@group(0) @binding(10) var<storage, read> info_array: array<helpers::InfoBinding>;
+@group(0) @binding(10) var<storage, read> info_array: array<Uniforms>;
 
+
+struct Uniforms {
+    // Number of splats that exist.
+    num_points: u32,
+    // View matrix transform world to view position.
+    viewmat: mat4x4f,
+    // fx, fy, cx, cy
+    intrins: vec4f,
+    // Img resolution (w, h)
+    img_size: vec2u,
+    // Total reachable pixels (w, h)
+    tile_bounds: vec2u,
+    // Global scale for blobs.
+    glob_scale: f32,
+    // Near clip threshold.
+    clip_thresh: f32,
+    // Width of blocks image is divided into.
+    block_width: u32,
+}
 
 fn scale_to_mat(scale: vec3f, glob_scale: f32) -> mat3x3f {
     let scale_total = scale * glob_scale;

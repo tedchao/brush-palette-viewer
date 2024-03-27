@@ -1,24 +1,3 @@
-struct InfoBinding {
-    // View matrix transform world to view position.
-    viewmat: mat4x4f,
-    // fx, fy, cx, cy
-    intrins: vec4f,
-    // Img resolution (w, h)
-    img_size: vec2u,
-    // Total reachable pixels (w, h)
-    tile_bounds: vec2u,
-    // Global scale for blobs.
-    glob_scale: f32,
-    // Number of splats that exist.
-    num_points: u32,
-    // Near clip threshold.
-    clip_thresh: f32,
-    // Width of blocks image is divided into.
-    block_width: u32,
-    // Background to use when rastering splats.
-    background: vec3f,
-}
-
 fn get_bbox(center: vec2f, dims: vec2f, bounds: vec2u) -> vec4i {
     // get bounding box with center and dims, within bounds
     // bounding box coords returned in tile coords, inclusive min, exclusive max

@@ -112,7 +112,6 @@ pub fn argsort<T: Ord>(data: &[T]) -> Vec<usize> {
 }
 
 impl<G: GraphicsApi, F: FloatElement, I: IntElement> Backend for JitBackend<WgpuRuntime<G, F, I>> {
-    
     fn render_gaussians(
         camera: &Camera,
         means: FloatTensor<Self, 2>,
@@ -134,13 +133,13 @@ impl<G: GraphicsApi, F: FloatElement, I: IntElement> Backend for JitBackend<Wgpu
             into_contiguous(opacity),
         );
 
-
         let num_points = means.shape.dims[0];
         let batches = [means.shape.dims[0], scales.shape.dims[0], quats.shape.dims[0], colors.shape.dims[0], opacity.shape.dims[0]];
         assert!(batches.iter().all(|&x| x == num_points));
 
         // Divide screen into block
         let block_size = 16;
+        let img_size = [camera.width, camera.height];
         let tile_bounds = [
             (camera.width + block_size - 1) / block_size,
             (camera.height + block_size - 1) / block_size,
@@ -178,27 +177,10 @@ impl<G: GraphicsApi, F: FloatElement, I: IntElement> Backend for JitBackend<Wgpu
             )
         };
 
-        let to_vec_f = |tensor: &JitTensor<WgpuRuntime<G, F, I>, F, 2>| -> Vec<f32> {
-            let data = client.read(&tensor.handle).read();
-            data.into_iter().array_chunks::<4>().map(f32::from_le_bytes).collect()
-        };
-
         let to_vec_i = |tensor: &JitTensor<WgpuRuntime<G, F, I>, I, 2>| -> Vec<u32> {
             let data = client.read(&tensor.handle).read();
             data.into_iter().array_chunks::<4>().map(u32::from_le_bytes).collect()
         };
-
-        let aux_data = client.create(bytemuck::bytes_of(&gen::helpers::InfoBinding {
-            viewmat: camera.transform.inverse(),
-            intrins,
-            img_size: [camera.width, camera.height],
-            tile_bounds,
-            glob_scale: 1.0,
-            num_points: num_points as u32,
-            clip_thresh: 0.001,
-            block_width: block_size,
-            background: background.into(),
-        }));
 
         // TODO: We might only need the data on the client for this not the tensor wrapper?
         let covs3d = create_empty_f32([num_points, 6]);
@@ -226,21 +208,24 @@ impl<G: GraphicsApi, F: FloatElement, I: IntElement> Backend for JitBackend<Wgpu
                 &compensation.handle,
                 &num_tiles_hit.handle,
                 // Aux data.
-                &aux_data
+                &client.create(bytemuck::bytes_of(&gen::project_forward::Uniforms::new(
+                    num_points as u32,
+                    camera.transform.inverse(),
+                    intrins,
+                    img_size,
+                    tile_bounds,
+                    1.0,
+                    0.001,
+                    block_size,
+                ))),
             ],
         );
 
-        let covs3d_vec = to_vec_f(&covs3d);
-
-        println!("Covs3d {:?}", covs3d_vec);
-
         // TODO: CPU emulation for now. Investigate if we can do without a cumulative sum?
-        println!("Num tiles hit calc");
 
+        // Read num tiles to CPU.
         let num_tiles_hit = to_vec_i(&num_tiles_hit);
-        println!("{num_tiles_hit:?}");
-
-
+        // Calculate cumulative sum.
         let cum_tiles_hit: Vec<u32> = num_tiles_hit
             .into_iter()
             .scan(0, |acc, x| {
@@ -249,32 +234,14 @@ impl<G: GraphicsApi, F: FloatElement, I: IntElement> Backend for JitBackend<Wgpu
                 Some(*acc)
             })
             .collect();
-
-        let num_intersects = cum_tiles_hit.last().unwrap();
-        println!("{num_intersects}");
-
-        println!("Num tiles hit" );
-
-        // TODO:
-
-        // Mapping gaussians to sorted unique intersection IDs and tile bins used for fast rasterization.
-        // We return both dsorted an unsorted versions of intersect IDs and gaussian IDs for testing purposes.
-
-        // Returns:
-        //     A tuple of {Tensor, Tensor, Tensor, Tensor, Tensor}:
-
-        //     - **isect_ids_sorted** (Tensor): sorted unique IDs for each gaussian in the form (tile | depth id).
-        //     - **gaussian_ids_sorted** (Tensor): sorted Tensor that maps isect_ids back to cum_tiles_hit. Useful for identifying gaussians.
-        //     - **tile_bins** (Tensor): range of gaussians hit per tile.
-
+        let num_intersections = *cum_tiles_hit.last().unwrap();
+        // Reupload to GPU.
         let cum_tiles_hit = client.create(bytemuck::cast_slice::<u32, u8>(&cum_tiles_hit));
 
-        // TODO Num points -> num_total_intersects.
-
-        let isect_ids = create_empty_i32([num_points, 1]);
+        let isect_ids = create_empty_i32([num_points, 2]);
         let gaussian_ids = create_empty_i32([num_points, 1]);
 
-        let workgroup = get_workgroup(uvec3(num_points as u32, 1, 1), MapGaussiansToIntersect::workgroup_size());
+        let workgroup = get_workgroup(uvec3(num_intersections, 1, 1), MapGaussiansToIntersect::workgroup_size());
         client.execute(
             Box::new(DynamicKernel::new(MapGaussiansToIntersect::new(), workgroup)),
             &[
@@ -287,16 +254,20 @@ impl<G: GraphicsApi, F: FloatElement, I: IntElement> Backend for JitBackend<Wgpu
                 &isect_ids.handle,
                 &gaussian_ids.handle,
 
-                &aux_data
+                &client.create(bytemuck::bytes_of(&gen::map_gaussian_to_intersects::Uniforms::new(
+                    num_intersections,
+                    tile_bounds,
+                    block_size,
+                ))),
             ],
         );
 
         // TODO: WGSL Radix sort.
-        let isect_ids = to_vec_i(&isect_ids);
-        let gaussian_ids = to_vec_i(&gaussian_ids);
-        let sorted_indices = argsort(&isect_ids);
-        let isect_ids_sorted: Vec<_> = sorted_indices.iter().copied().map(|x| isect_ids[x]).collect();
-        let gaussian_ids_sorted: Vec<_> = sorted_indices.iter().copied().map(|x| gaussian_ids[x]).collect();
+        // let isect_ids = bytemuck::cast_vec::<u32, u64>(to_vec_i(&isect_ids));
+        // let gaussian_ids = to_vec_i(&gaussian_ids);
+        // let sorted_indices = argsort(&isect_ids);
+        // let isect_ids_sorted: Vec<_> = sorted_indices.iter().copied().map(|x| isect_ids[x]).collect();
+        // let gaussian_ids_sorted: Vec<_> = sorted_indices.iter().copied().map(|x| gaussian_ids[x]).collect();
 
         // Map sorted intersection IDs to tile bins which give the range of unique gaussian IDs belonging to each tile.
         // Expects that intersection IDs are sorted by increasing tile ID.
@@ -311,18 +282,21 @@ impl<G: GraphicsApi, F: FloatElement, I: IntElement> Backend for JitBackend<Wgpu
         //     - **tile_bins** (Tensor): range of gaussians IDs hit per tile.
         
         // TODO: Num intersects.
-        let workgroup = get_workgroup(uvec3(num_points as u32, 1, 1), GetTileBinEdges::workgroup_size());
-        let isect_ids_sorted = client.create(bytemuck::cast_slice::<u32, u8>(&isect_ids_sorted));
-        let gaussian_ids_sorted = client.create(bytemuck::cast_slice::<u32, u8>(&gaussian_ids_sorted));
+        let workgroup = get_workgroup(uvec3(num_intersections, 1, 1), GetTileBinEdges::workgroup_size());
+        // let isect_ids_sorted = client.create(bytemuck::cast_slice::<u32, u8>(&isect_ids_sorted));
+        // let gaussian_ids_sorted = client.create(bytemuck::cast_slice::<u32, u8>(&gaussian_ids_sorted));
 
         let tile_bins = create_empty_i32([num_points, 2]);
 
         client.execute(
             Box::new(DynamicKernel::new(GetTileBinEdges::new(), workgroup)),
             &[
-                &isect_ids_sorted,
+                &isect_ids.handle,
                 &tile_bins.handle,
-                &aux_data,
+                // Uniforms.
+                &client.create(bytemuck::bytes_of(&gen::get_tile_bin_edges::Uniforms::new(
+                    num_intersections,
+                ))),
             ],
         );
 
@@ -334,12 +308,12 @@ impl<G: GraphicsApi, F: FloatElement, I: IntElement> Backend for JitBackend<Wgpu
             client.empty(out_img_shape.num_elements() * core::mem::size_of::<f32>()),
         );
 
-        let workgroup = get_workgroup(uvec3(num_points as u32, 1, 1), uvec3(16, 1, 1));
+        let workgroup = get_workgroup(uvec3(camera.width, camera.height, 1), RasterizeForward::workgroup_size());
         client.execute(
             Box::new(DynamicKernel::new(RasterizeForward::new(), workgroup)),
             &[
                 // Input tensors.
-                &gaussian_ids_sorted,
+                &gaussian_ids.handle,
                 &tile_bins.handle,
                 &xys.handle,
                 &conics.handle,
@@ -350,7 +324,11 @@ impl<G: GraphicsApi, F: FloatElement, I: IntElement> Backend for JitBackend<Wgpu
                 &out_img.handle,
 
                 // Aux data.
-                &aux_data
+                &client.create(bytemuck::bytes_of(&gen::rasterize::Uniforms::new(
+                    tile_bounds,
+                    background.into(),
+                    img_size
+                ))),
             ],
         );
 

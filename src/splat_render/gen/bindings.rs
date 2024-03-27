@@ -2,7 +2,7 @@
 //
 // ^ wgsl_bindgen version 0.10.0
 // Changes made to this file will not be saved.
-// SourceHash: 0164d3fc9f257eac66fd97ecf0fe994a847a9b10c70e19265ce1184ef9b7a146
+// SourceHash: 09e2eef6e4d39d2a48195c648fe44b1962edcb160dc28d8dad30fdce56301c80
 
 #![allow(unused, non_snake_case, non_camel_case_types, non_upper_case_globals)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -56,76 +56,123 @@ pub mod layout_asserts {
         assert!(std::mem::size_of:: < glam::Mat4 > () == 64);
         assert!(std::mem::align_of:: < glam::Mat4 > () == 16);
     };
-    const HELPERS_INFO_BINDING_ASSERTS: () = {
-        assert!(std::mem::offset_of!(helpers::InfoBinding, viewmat) == 0);
-        assert!(std::mem::offset_of!(helpers::InfoBinding, intrins) == 64);
-        assert!(std::mem::offset_of!(helpers::InfoBinding, img_size) == 80);
-        assert!(std::mem::offset_of!(helpers::InfoBinding, tile_bounds) == 88);
-        assert!(std::mem::offset_of!(helpers::InfoBinding, glob_scale) == 96);
-        assert!(std::mem::offset_of!(helpers::InfoBinding, num_points) == 100);
-        assert!(std::mem::offset_of!(helpers::InfoBinding, clip_thresh) == 104);
-        assert!(std::mem::offset_of!(helpers::InfoBinding, block_width) == 108);
-        assert!(std::mem::offset_of!(helpers::InfoBinding, background) == 112);
-        assert!(std::mem::size_of:: < helpers::InfoBinding > () == 128);
+    const PROJECT_FORWARD_UNIFORMS_ASSERTS: () = {
+        assert!(std::mem::offset_of!(project_forward::Uniforms, num_points) == 0);
+        assert!(std::mem::offset_of!(project_forward::Uniforms, viewmat) == 16);
+        assert!(std::mem::offset_of!(project_forward::Uniforms, intrins) == 80);
+        assert!(std::mem::offset_of!(project_forward::Uniforms, img_size) == 96);
+        assert!(std::mem::offset_of!(project_forward::Uniforms, tile_bounds) == 104);
+        assert!(std::mem::offset_of!(project_forward::Uniforms, glob_scale) == 112);
+        assert!(std::mem::offset_of!(project_forward::Uniforms, clip_thresh) == 116);
+        assert!(std::mem::offset_of!(project_forward::Uniforms, block_width) == 120);
+        assert!(std::mem::size_of:: < project_forward::Uniforms > () == 128);
+    };
+    const MAP_GAUSSIAN_TO_INTERSECTS_UNIFORMS_ASSERTS: () = {
+        assert!(
+            std::mem::offset_of!(map_gaussian_to_intersects::Uniforms, num_intersections)
+            == 0
+        );
+        assert!(
+            std::mem::offset_of!(map_gaussian_to_intersects::Uniforms, tile_bounds) == 8
+        );
+        assert!(
+            std::mem::offset_of!(map_gaussian_to_intersects::Uniforms, block_width) == 16
+        );
+        assert!(std::mem::size_of:: < map_gaussian_to_intersects::Uniforms > () == 24);
+    };
+    const GET_TILE_BIN_EDGES_UNIFORMS_ASSERTS: () = {
+        assert!(std::mem::offset_of!(get_tile_bin_edges::Uniforms, num_intersects) == 0);
+        assert!(std::mem::size_of:: < get_tile_bin_edges::Uniforms > () == 4);
+    };
+    const RASTERIZE_UNIFORMS_ASSERTS: () = {
+        assert!(std::mem::offset_of!(rasterize::Uniforms, tile_bounds) == 0);
+        assert!(std::mem::offset_of!(rasterize::Uniforms, background) == 16);
+        assert!(std::mem::offset_of!(rasterize::Uniforms, img_size) == 32);
+        assert!(std::mem::size_of:: < rasterize::Uniforms > () == 48);
     };
 }
-pub mod helpers {
+pub mod project_forward {
     use super::{_root, _root::*};
     #[repr(C, align(16))]
     #[derive(Debug, PartialEq, Clone, Copy)]
-    pub struct InfoBinding {
-        /// size: 64, offset: 0x0, type: `mat4x4<f32>`
-        pub viewmat: glam::Mat4,
-        /// size: 16, offset: 0x40, type: `vec4<f32>`
-        pub intrins: glam::Vec4,
-        /// size: 8, offset: 0x50, type: `vec2<u32>`
-        pub img_size: [u32; 2],
-        /// size: 8, offset: 0x58, type: `vec2<u32>`
-        pub tile_bounds: [u32; 2],
-        /// size: 4, offset: 0x60, type: `f32`
-        pub glob_scale: f32,
-        /// size: 4, offset: 0x64, type: `u32`
+    pub struct Uniforms {
+        /// size: 4, offset: 0x0, type: `u32`
         pub num_points: u32,
-        /// size: 4, offset: 0x68, type: `f32`
+        pub _pad_num_points: [u8; 0x10 - core::mem::size_of::<u32>()],
+        /// size: 64, offset: 0x10, type: `mat4x4<f32>`
+        pub viewmat: glam::Mat4,
+        /// size: 16, offset: 0x50, type: `vec4<f32>`
+        pub intrins: glam::Vec4,
+        /// size: 8, offset: 0x60, type: `vec2<u32>`
+        pub img_size: [u32; 2],
+        /// size: 8, offset: 0x68, type: `vec2<u32>`
+        pub tile_bounds: [u32; 2],
+        /// size: 4, offset: 0x70, type: `f32`
+        pub glob_scale: f32,
+        /// size: 4, offset: 0x74, type: `f32`
         pub clip_thresh: f32,
-        /// size: 4, offset: 0x6C, type: `u32`
+        /// size: 4, offset: 0x78, type: `u32`
         pub block_width: u32,
-        /// size: 12, offset: 0x70, type: `vec3<f32>`
-        pub background: glam::Vec3A,
+        pub _pad_block_width: [u8; 0x8 - core::mem::size_of::<u32>()],
     }
-    impl InfoBinding {
+    impl Uniforms {
         pub const fn new(
+            num_points: u32,
             viewmat: glam::Mat4,
             intrins: glam::Vec4,
             img_size: [u32; 2],
             tile_bounds: [u32; 2],
             glob_scale: f32,
-            num_points: u32,
             clip_thresh: f32,
             block_width: u32,
-            background: glam::Vec3A,
         ) -> Self {
             Self {
+                num_points,
+                _pad_num_points: [0; 0x10 - core::mem::size_of::<u32>()],
                 viewmat,
                 intrins,
                 img_size,
                 tile_bounds,
                 glob_scale,
-                num_points,
                 clip_thresh,
                 block_width,
-                background,
+                _pad_block_width: [0; 0x8 - core::mem::size_of::<u32>()],
             }
         }
     }
-}
-pub mod bytemuck_impls {
-    use super::{_root, _root::*};
-    unsafe impl bytemuck::Zeroable for helpers::InfoBinding {}
-    unsafe impl bytemuck::Pod for helpers::InfoBinding {}
-}
-pub mod project_forward {
-    use super::{_root, _root::*};
+    #[repr(C)]
+    #[derive(Debug, PartialEq, Clone, Copy)]
+    pub struct UniformsInit {
+        pub num_points: u32,
+        pub viewmat: glam::Mat4,
+        pub intrins: glam::Vec4,
+        pub img_size: [u32; 2],
+        pub tile_bounds: [u32; 2],
+        pub glob_scale: f32,
+        pub clip_thresh: f32,
+        pub block_width: u32,
+    }
+    impl UniformsInit {
+        pub const fn build(&self) -> Uniforms {
+            Uniforms {
+                num_points: self.num_points,
+                _pad_num_points: [0; 0x10 - core::mem::size_of::<u32>()],
+                viewmat: self.viewmat,
+                intrins: self.intrins,
+                img_size: self.img_size,
+                tile_bounds: self.tile_bounds,
+                glob_scale: self.glob_scale,
+                clip_thresh: self.clip_thresh,
+                block_width: self.block_width,
+                _pad_block_width: [0; 0x8 - core::mem::size_of::<u32>()],
+            }
+        }
+    }
+    impl From<UniformsInit> for Uniforms {
+        fn from(data: UniformsInit) -> Self {
+            data.build()
+        }
+    }
     pub mod bind_groups {
         #[derive(Debug)]
         pub struct WgpuBindGroupLayout0<'a> {
@@ -423,16 +470,15 @@ pub mod project_forward {
             })
     }
     pub const SHADER_STRING: &'static str = r#"
-struct InfoBindingX_naga_oil_mod_XNBSWY4DFOJZQX {
+struct Uniforms {
+    num_points: u32,
     viewmat: mat4x4<f32>,
     intrins: vec4<f32>,
     img_size: vec2<u32>,
     tile_bounds: vec2<u32>,
     glob_scale: f32,
-    num_points: u32,
     clip_thresh: f32,
     block_width: u32,
-    background: vec3<f32>,
 }
 
 struct ComputeCov2DBounds {
@@ -462,7 +508,7 @@ var<storage, read_write> compensation: array<f32>;
 @group(0) @binding(9) 
 var<storage, read_write> num_tiles_hit: array<i32>;
 @group(0) @binding(10) 
-var<storage> info_array: array<InfoBindingX_naga_oil_mod_XNBSWY4DFOJZQX>;
+var<storage> info_array: array<Uniforms>;
 
 fn get_bboxX_naga_oil_mod_XNBSWY4DFOJZQX(center: vec2<f32>, dims: vec2<f32>, bounds: vec2<u32>) -> vec4<i32> {
     let min = clamp(vec2<i32>((center - dims)), vec2(0i), vec2<i32>(bounds));
@@ -593,8 +639,69 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
 }
 "#;
 }
+pub mod bytemuck_impls {
+    use super::{_root, _root::*};
+    unsafe impl bytemuck::Zeroable for project_forward::Uniforms {}
+    unsafe impl bytemuck::Pod for project_forward::Uniforms {}
+    unsafe impl bytemuck::Zeroable for map_gaussian_to_intersects::Uniforms {}
+    unsafe impl bytemuck::Pod for map_gaussian_to_intersects::Uniforms {}
+    unsafe impl bytemuck::Zeroable for get_tile_bin_edges::Uniforms {}
+    unsafe impl bytemuck::Pod for get_tile_bin_edges::Uniforms {}
+    unsafe impl bytemuck::Zeroable for rasterize::Uniforms {}
+    unsafe impl bytemuck::Pod for rasterize::Uniforms {}
+}
 pub mod map_gaussian_to_intersects {
     use super::{_root, _root::*};
+    #[repr(C, align(8))]
+    #[derive(Debug, PartialEq, Clone, Copy)]
+    pub struct Uniforms {
+        /// size: 4, offset: 0x0, type: `u32`
+        pub num_intersections: u32,
+        pub _pad_num_intersections: [u8; 0x8 - core::mem::size_of::<u32>()],
+        /// size: 8, offset: 0x8, type: `vec2<u32>`
+        pub tile_bounds: [u32; 2],
+        /// size: 4, offset: 0x10, type: `u32`
+        pub block_width: u32,
+        pub _pad_block_width: [u8; 0x8 - core::mem::size_of::<u32>()],
+    }
+    impl Uniforms {
+        pub const fn new(
+            num_intersections: u32,
+            tile_bounds: [u32; 2],
+            block_width: u32,
+        ) -> Self {
+            Self {
+                num_intersections,
+                _pad_num_intersections: [0; 0x8 - core::mem::size_of::<u32>()],
+                tile_bounds,
+                block_width,
+                _pad_block_width: [0; 0x8 - core::mem::size_of::<u32>()],
+            }
+        }
+    }
+    #[repr(C)]
+    #[derive(Debug, PartialEq, Clone, Copy)]
+    pub struct UniformsInit {
+        pub num_intersections: u32,
+        pub tile_bounds: [u32; 2],
+        pub block_width: u32,
+    }
+    impl UniformsInit {
+        pub const fn build(&self) -> Uniforms {
+            Uniforms {
+                num_intersections: self.num_intersections,
+                _pad_num_intersections: [0; 0x8 - core::mem::size_of::<u32>()],
+                tile_bounds: self.tile_bounds,
+                block_width: self.block_width,
+                _pad_block_width: [0; 0x8 - core::mem::size_of::<u32>()],
+            }
+        }
+    }
+    impl From<UniformsInit> for Uniforms {
+        fn from(data: UniformsInit) -> Self {
+            data.build()
+        }
+    }
     pub mod bind_groups {
         #[derive(Debug)]
         pub struct WgpuBindGroupLayout0<'a> {
@@ -824,16 +931,10 @@ pub mod map_gaussian_to_intersects {
             })
     }
     pub const SHADER_STRING: &'static str = r#"
-struct InfoBindingX_naga_oil_mod_XNBSWY4DFOJZQX {
-    viewmat: mat4x4<f32>,
-    intrins: vec4<f32>,
-    img_size: vec2<u32>,
+struct Uniforms {
+    num_intersections: u32,
     tile_bounds: vec2<u32>,
-    glob_scale: f32,
-    num_points: u32,
-    clip_thresh: f32,
     block_width: u32,
-    background: vec3<f32>,
 }
 
 @group(0) @binding(0) 
@@ -845,11 +946,11 @@ var<storage> radii: array<i32>;
 @group(0) @binding(3) 
 var<storage> cum_tiles_hit: array<u32>;
 @group(0) @binding(4) 
-var<storage, read_write> isect_ids: array<u32>;
+var<storage, read_write> isect_ids: array<vec2<u32>>;
 @group(0) @binding(5) 
 var<storage, read_write> gaussian_ids: array<u32>;
 @group(0) @binding(6) 
-var<storage> info_array: array<InfoBindingX_naga_oil_mod_XNBSWY4DFOJZQX>;
+var<storage> info_array: array<Uniforms>;
 
 fn get_bboxX_naga_oil_mod_XNBSWY4DFOJZQX(center: vec2<f32>, dims: vec2<f32>, bounds: vec2<u32>) -> vec4<i32> {
     let min = clamp(vec2<i32>((center - dims)), vec2(0i), vec2<i32>(bounds));
@@ -871,11 +972,11 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     var j: i32;
 
     let info = info_array[0];
-    let num_points = info.num_points;
+    let num_intersections = info.num_intersections;
     let tile_bounds_1 = info.tile_bounds;
     let block_width = info.block_width;
     let idx = global_id.x;
-    if (idx >= num_points) {
+    if (idx >= num_intersections) {
         return;
     }
     let _e12 = radii[idx];
@@ -913,21 +1014,23 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
                     let _e51 = j;
                     let tile_id = u32(((_e47 * i32(tile_bounds_1.x)) + _e51));
                     let _e55 = cur_idx;
-                    isect_ids[_e55] = ((tile_id << 32u) | depth_id);
-                    let _e61 = cur_idx;
-                    gaussian_ids[_e61] = idx;
-                    let _e64 = cur_idx;
-                    cur_idx = (_e64 + 1u);
+                    isect_ids[_e55].x = tile_id;
+                    let _e59 = cur_idx;
+                    isect_ids[_e59].y = depth_id;
+                    let _e63 = cur_idx;
+                    gaussian_ids[_e63] = idx;
+                    let _e66 = cur_idx;
+                    cur_idx = (_e66 + 1u);
                 }
                 continuing {
-                    let _e67 = j;
-                    j = (_e67 + 1i);
+                    let _e69 = j;
+                    j = (_e69 + 1i);
                 }
             }
         }
         continuing {
-            let _e70 = i;
-            i = (_e70 + 1i);
+            let _e72 = i;
+            i = (_e72 + 1i);
         }
     }
     return;
@@ -936,6 +1039,17 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
 }
 pub mod get_tile_bin_edges {
     use super::{_root, _root::*};
+    #[repr(C, align(4))]
+    #[derive(Debug, PartialEq, Clone, Copy)]
+    pub struct Uniforms {
+        /// size: 4, offset: 0x0, type: `u32`
+        pub num_intersects: u32,
+    }
+    impl Uniforms {
+        pub const fn new(num_intersects: u32) -> Self {
+            Self { num_intersects }
+        }
+    }
     pub mod bind_groups {
         #[derive(Debug)]
         pub struct WgpuBindGroupLayout0<'a> {
@@ -1097,34 +1211,26 @@ pub mod get_tile_bin_edges {
             })
     }
     pub const SHADER_STRING: &'static str = r#"
-struct InfoBindingX_naga_oil_mod_XNBSWY4DFOJZQX {
-    viewmat: mat4x4<f32>,
-    intrins: vec4<f32>,
-    img_size: vec2<u32>,
-    tile_bounds: vec2<u32>,
-    glob_scale: f32,
-    num_points: u32,
-    clip_thresh: f32,
-    block_width: u32,
-    background: vec3<f32>,
+struct Uniforms {
+    num_intersects: u32,
 }
 
 @group(0) @binding(0) 
-var<storage> isect_ids_sorted: array<u32>;
+var<storage> isect_ids_sorted: array<vec2<u32>>;
 @group(0) @binding(1) 
 var<storage, read_write> tile_bins: array<vec2<u32>>;
 @group(0) @binding(2) 
-var<storage> info_array: array<InfoBindingX_naga_oil_mod_XNBSWY4DFOJZQX>;
+var<storage> info_array: array<Uniforms>;
 
 @compute @workgroup_size(16, 1, 1) 
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invocation_id) local_id: vec3<u32>, @builtin(workgroup_id) workgroup_id: vec3<u32>) {
     let info = info_array[0];
-    let num_intersects = info.num_points;
+    let num_intersects = info.num_intersects;
     let idx = global_id.x;
     if (idx >= num_intersects) {
         return;
     }
-    let cur_tile_idx = isect_ids_sorted[idx];
+    let cur_tile_idx = isect_ids_sorted[idx].x;
     if ((idx == 0u) || (idx == (num_intersects - 1u))) {
         if (idx == 0u) {
             tile_bins[cur_tile_idx].x = 0u;
@@ -1136,7 +1242,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     if (idx == 0u) {
         return;
     }
-    let prev_tile_idx = isect_ids_sorted[(idx - 1u)];
+    let prev_tile_idx = isect_ids_sorted[(idx - 1u)].x;
     if (prev_tile_idx != cur_tile_idx) {
         tile_bins[prev_tile_idx].y = idx;
         tile_bins[cur_tile_idx].x = idx;
@@ -1149,6 +1255,56 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
 }
 pub mod rasterize {
     use super::{_root, _root::*};
+    #[repr(C, align(16))]
+    #[derive(Debug, PartialEq, Clone, Copy)]
+    pub struct Uniforms {
+        /// size: 8, offset: 0x0, type: `vec2<u32>`
+        pub tile_bounds: [u32; 2],
+        pub _pad_tile_bounds: [u8; 0x10 - core::mem::size_of::<[u32; 2]>()],
+        /// size: 12, offset: 0x10, type: `vec3<f32>`
+        pub background: glam::Vec3A,
+        /// size: 8, offset: 0x20, type: `vec2<u32>`
+        pub img_size: [u32; 2],
+        pub _pad_img_size: [u8; 0x10 - core::mem::size_of::<[u32; 2]>()],
+    }
+    impl Uniforms {
+        pub const fn new(
+            tile_bounds: [u32; 2],
+            background: glam::Vec3A,
+            img_size: [u32; 2],
+        ) -> Self {
+            Self {
+                tile_bounds,
+                _pad_tile_bounds: [0; 0x10 - core::mem::size_of::<[u32; 2]>()],
+                background,
+                img_size,
+                _pad_img_size: [0; 0x10 - core::mem::size_of::<[u32; 2]>()],
+            }
+        }
+    }
+    #[repr(C)]
+    #[derive(Debug, PartialEq, Clone, Copy)]
+    pub struct UniformsInit {
+        pub tile_bounds: [u32; 2],
+        pub background: glam::Vec3A,
+        pub img_size: [u32; 2],
+    }
+    impl UniformsInit {
+        pub const fn build(&self) -> Uniforms {
+            Uniforms {
+                tile_bounds: self.tile_bounds,
+                _pad_tile_bounds: [0; 0x10 - core::mem::size_of::<[u32; 2]>()],
+                background: self.background,
+                img_size: self.img_size,
+                _pad_img_size: [0; 0x10 - core::mem::size_of::<[u32; 2]>()],
+            }
+        }
+    }
+    impl From<UniformsInit> for Uniforms {
+        fn from(data: UniformsInit) -> Self {
+            data.build()
+        }
+    }
     pub const MAX_BLOCK_SIZE: u32 = 256u32;
     pub const TILE_SIZE: u32 = 16u32;
     pub const GROUP_DIM: u32 = 16u32;
@@ -1398,16 +1554,10 @@ pub mod rasterize {
             })
     }
     pub const SHADER_STRING: &'static str = r#"
-struct InfoBindingX_naga_oil_mod_XNBSWY4DFOJZQX {
-    viewmat: mat4x4<f32>,
-    intrins: vec4<f32>,
-    img_size: vec2<u32>,
+struct Uniforms {
     tile_bounds: vec2<u32>,
-    glob_scale: f32,
-    num_points: u32,
-    clip_thresh: f32,
-    block_width: u32,
     background: vec3<f32>,
+    img_size: vec2<u32>,
 }
 
 const MAX_BLOCK_SIZE: u32 = 256u;
@@ -1429,7 +1579,7 @@ var<storage> opacities: array<f32>;
 @group(0) @binding(6) 
 var<storage, read_write> out_img: array<vec4<f32>>;
 @group(0) @binding(7) 
-var<storage> info_array: array<InfoBindingX_naga_oil_mod_XNBSWY4DFOJZQX>;
+var<storage> info_array: array<Uniforms>;
 var<workgroup> id_batch: array<u32, 256>;
 var<workgroup> xy_opacity_batch: array<vec3<f32>, 256>;
 var<workgroup> conic_batch: array<vec3<f32>, 256>;
