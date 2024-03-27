@@ -14,6 +14,92 @@
 
 @group(0) @binding(10) var<storage, read> info_array: array<helpers::InfoBinding>;
 
+
+fn scale_to_mat(scale: vec3f, glob_scale: f32) -> mat3x3f {
+    let scale_total = scale * glob_scale;
+    return mat3x3(
+        vec3f(scale_total.x, 0, 0),
+        vec3f(0, scale_total.y, 0), 
+        vec3f(0, 0, scale_total.z)
+    );
+}
+
+// device helper to get 3D covariance from scale and quat parameters
+fn quat_to_rotmat(quat: vec4f) -> mat3x3f {
+    // quat to rotation matrix
+    let quat_norm = normalize(quat);
+
+    let x = quat_norm.x;
+    let y = quat_norm.y;
+    let z = quat_norm.z;
+    let w = quat_norm.w;
+
+    // See https://www.songho.ca/opengl/gl_quaternion.html
+    return mat3x3f(
+        vec3f(
+            1.f - 2.f * (y * y + z * z),
+            2.f * (x * y + w * z),
+            2.f * (x * z - w * y),
+        ),
+        vec3f(
+            2.f * (x * y - w * z),
+            1.f - 2.f * (x * x + z * z),
+            2.f * (y * z + w * x),
+        ),
+        vec3f(
+            2.f * (x * z + w * y),
+            2.f * (y * z - w * x),
+            1.f - 2.f * (x * x + y * y)
+        ),
+    );
+}
+
+fn scale_rot_to_cov3d(scale: vec3f, glob_scale: f32, quat: vec4f) -> mat3x3f {
+    let R = quat_to_rotmat(quat);
+    let S = scale_to_mat(scale, glob_scale);
+    let M = R * S;
+    return M * transpose(M);
+}
+
+fn project_pix(fxfy: vec2f, p_view: vec3f, pp: vec2f) -> vec2f {
+    let p_proj = p_view.xy / (p_view.z + 1e-6f);
+    let p_pix = p_proj.xy * fxfy.xy + pp;
+    return p_pix;
+}
+
+
+
+struct ComputeCov2DBounds {
+    conic: vec3f,
+    radius: f32,
+    valid: bool
+}
+
+fn compute_cov2d_bounds(cov2d: vec3f) -> ComputeCov2DBounds {
+    // find eigenvalues of 2d covariance matrix
+    // expects upper triangular values of cov matrix as float3
+    // then compute the radius and conic dimensions
+    // the conic is the inverse cov2d matrix, represented here with upper
+    // triangular values.
+    let det = cov2d.x * cov2d.z - cov2d.y * cov2d.y;
+
+    if det == 0.0f {
+        return ComputeCov2DBounds(vec3f(0.0), 0.0, false);
+    }
+
+    // inverse of 2x2 cov2d matrix
+    let conic = vec3f(cov2d.z, -cov2d.y, cov2d.x) / det;
+
+    let b = 0.5f * (cov2d.x + cov2d.z);
+    let v1 = b + sqrt(max(0.1f, b * b - det));
+    let v2 = b - sqrt(max(0.1f, b * b - det));
+    
+    // take 3 sigma of covariance
+    let radius = ceil(3.0f * sqrt(max(v1, v2)));
+
+    return ComputeCov2DBounds(conic, radius, true);
+}
+
 // kernel function for projecting each gaussian on device
 // each thread processes one gaussian
 @compute
@@ -23,10 +109,10 @@ fn main(
     @builtin(local_invocation_id) local_id: vec3u,
     @builtin(workgroup_id) workgroup_id: vec3u,
 ) {
+    let idx = global_id.x;
+
     // Until burn supports adding in uniforms we read these from a tensor.
     let info = info_array[0];
-
-    let idx = local_id.x;
     let num_points = info.num_points;
 
     if idx >= num_points {
@@ -35,7 +121,6 @@ fn main(
 
     let glob_scale = info.glob_scale;
     let viewmat = info.viewmat;
-    let projmat = info.projmat;
     let intrins = info.intrins;
 
     let img_size = info.img_size;
@@ -48,8 +133,9 @@ fn main(
 
     let p_world = means3d[idx];
 
-    // Project local space to
-    let p_view = viewmat * vec4f(p_world, 1.0f);
+    // Project world space to camera space.
+    let p_view_proj = viewmat * vec4f(p_world, 1.0f);
+    let p_view = p_view_proj.xyz / p_view_proj.w;
 
     if p_view.z <= clip_thresh {
         return;
@@ -59,28 +145,38 @@ fn main(
     let scale = scales[idx];
     let quat = quats[idx];
 
-    let tmp = helpers::scale_rot_to_cov3d(scale, glob_scale, quat);
+    // let tmp = scale_rot_to_cov3d(scale, glob_scale, quat);
 
     // save upper right of matrix, as it's symmetric.
     // TODO: Does this match the original order? row vs column major?
-    let covs0 = tmp[0][0];
-    let covs1 = tmp[0][1];
-    let covs2 = tmp[0][2];
-    let covs3 = tmp[1][1];
-    let covs4 = tmp[1][2];
-    let covs5 = tmp[2][2];
+
+    // let scaless = scale_to_mat(scale, glob_scale);
+    let R = quat_to_rotmat(quat);
+    // let S = scale_to_mat(scale, glob_scale);
+
+    let scale_total = scale * glob_scale;
+    let S = mat3x3(
+        vec3f(scale_total.x, 0, 0),
+        vec3f(0, scale_total.y, 0), 
+        vec3f(0, 0, scale_total.z)
+    );
+
+    let M = R * S;
+    let V = M * transpose(M);
     
-    covs3d[6 * idx + 0] = covs0;
-    covs3d[6 * idx + 1] = covs1;
-    covs3d[6 * idx + 2] = covs2;
-    covs3d[6 * idx + 3] = covs3;
-    covs3d[6 * idx + 4] = covs4;
-    covs3d[6 * idx + 5] = covs5;
+    // TODO: Is it really faster to save these rather than to recalculate them?
+    covs3d[6 * idx + 0] = V[0][0];
+    covs3d[6 * idx + 1] = V[0][1];
+    covs3d[6 * idx + 2] = V[0][2];
+    covs3d[6 * idx + 3] = V[1][1];
+    covs3d[6 * idx + 4] = V[1][2];
+    covs3d[6 * idx + 5] = V[2][2];
 
     let fx = intrins.x;
     let fy = intrins.y;
     let cx = intrins.z;
     let cy = intrins.w;
+
     let tan_fovx = 0.5 * f32(img_size.x) / fx;
     let tan_fovy = 0.5 * f32(img_size.y) / fy;
 
@@ -90,12 +186,10 @@ fn main(
     // TODO: What does that comment mean... :)
     let lims = 1.3f * vec2f(tan_fovx, tan_fovy);
 
-    let t = p_world.z * clamp(p_world.xy / p_world.z, -lims, lims);
-    let rz = 1.0f / p_world.z;
+    let t = p_view.z * clamp(p_view.xy / p_view.z, -lims, lims);
+    let rz = 1.0f / p_view.z;
     let rz2 = rz * rz;
 
-    // column major
-    // we only care about the top 2x2 submatrix
     let J = mat3x3f(
         vec3f(fx * rz, 0.0f, 0.0f,),
         vec3f(0.0f, fy * rz, 0.0f),
@@ -103,48 +197,42 @@ fn main(
     );
 
     let T = J * W;
-
-    let V = mat3x3f(
-        vec3f(covs0, covs1, covs2),
-        vec3f(covs1, covs3, covs4),
-        vec3f(covs2, covs4, covs5)
-    );
-
     let cov = T * V * transpose(T);
 
-    // add a little blur along axes and save upper triangular elements
-    // and compute the density compensation factor due to the blurs
+
     let c00 = cov[0][0];
     let c11 = cov[1][1];
     let c01 = cov[0][1];
-    let det_orig = c00 * c11 - c01 * c01;
     let cov2d = vec3f(c00 + 0.3f, c01, c11 + 0.3f);
-    
-    let det_blur = cov2d.x * cov2d.z - cov2d.y * cov2d.y;
-    let comp = sqrt(max(0.f, det_orig / det_blur));
 
-    let cov2d_bounds = helpers::compute_cov2d_bounds(cov2d);
-
+    let cov2d_bounds = compute_cov2d_bounds(cov2d);
+    // zero determinant
     if !cov2d_bounds.valid {
-        return; // zero determinant
+        return; 
     }
-    conics[idx] = cov2d_bounds.conic;
 
     // compute the projected mean
-    let center = helpers::project_pix(projmat, p_world, img_size, vec2f(cx, cy));
+    let pixel_center = project_pix(vec2f(fx, fy), p_view, vec2f(cx, cy));
 
-    let tile_minmax = helpers::get_tile_bbox(center, cov2d_bounds.radius, tile_bounds, block_width);
-    let tile_min = tile_minmax.xy;
-    let tile_max = tile_minmax.zw;
-    let tile_area = (tile_max.x - tile_min.x) * (tile_max.y - tile_min.y);
+    // TODO: Block_width? Tile width>
+    let tile_minmax = helpers::get_tile_bbox(pixel_center, cov2d_bounds.radius, tile_bounds, block_width);
+    let tile_area = (tile_minmax.z - tile_minmax.x) * (tile_minmax.w - tile_minmax.y);
 
     if tile_area <= 0 {
         return;
     }
 
+    // Now write all the data to the buffers.
     num_tiles_hit[idx] = i32(tile_area);
     depths[idx] = p_view.z;
     radii[idx] = i32(cov2d_bounds.radius);
-    xys[idx] = center;
-    compensation[idx] = comp;
+    xys[idx] = pixel_center;
+
+    conics[idx] = cov2d_bounds.conic;
+
+    // Add a little blur along axes and save upper triangular elements
+    // and compute the density compensation factor due to the blurs.
+    let det_orig = c00 * c11 - c01 * c01;
+    let det_blur = cov2d.x * cov2d.z - cov2d.y * cov2d.y;
+    compensation[idx] = sqrt(max(0.0f, det_orig / det_blur));
 }

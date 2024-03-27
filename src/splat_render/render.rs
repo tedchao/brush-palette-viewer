@@ -21,7 +21,6 @@ pub fn render<B: Backend>(
     quats: Tensor<B, 2>,
     colors: Tensor<B, 2>,
     opacity: Tensor<B, 1>,
-    _active_sh_degree: u32,
     background: glam::Vec3,
 ) -> Tensor<B, 3> {
     let img = B::render_gaussians(

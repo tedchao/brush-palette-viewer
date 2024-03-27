@@ -4,11 +4,8 @@ use ndarray::Array3;
 pub(crate) struct Camera {
     pub width: u32,
     pub height: u32,
-
     pub fovx: f32,
     pub fovy: f32,
-
-    pub proj_mat: glam::Mat4,
     pub transform: glam::Mat4,
 }
 
@@ -39,7 +36,6 @@ impl Camera {
             height,
             fovx,
             fovy,
-            proj_mat: create_projection_matrix(znear, zfar, fovx, fovy),
             transform: glam::Mat4::from_rotation_translation(rotation, translation),
         }
     }
@@ -60,27 +56,6 @@ impl Camera {
             fov_to_focal(self.fovy, self.width),
         )
     }
-}
-
-// Constructs a projection matrix from znear, zfar, fovx, fovy.
-fn create_projection_matrix(znear: f32, zfar: f32, fovx: f32, fovy: f32) -> glam::Mat4 {
-    let top = (fovy / 2.0).tan() * znear;
-    let bottom = -top;
-    let right = (fovx / 2.0).tan() * znear;
-    let left = -right;
-    let z_sign = 1.0;
-
-    glam::Mat4::from_cols_array_2d(&[
-        [2.0 * znear / (right - left), 0.0, 0.0, 0.0],
-        [0.0, 2.0 * znear / (top - bottom), 0.0, 0.0],
-        [
-            (right + left) / (right - left),
-            (top + bottom) / (top - bottom),
-            z_sign * zfar / (zfar - znear),
-            z_sign,
-        ],
-        [0.0, 0.0, -(zfar * znear) / (zfar - znear), 0.0],
-    ])
 }
 
 // Converts field of view to focal length

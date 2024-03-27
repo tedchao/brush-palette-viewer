@@ -1,5 +1,3 @@
-use std::io::Write;
-
 use burn::{
     backend::{
         autodiff::{
@@ -34,8 +32,15 @@ impl DynamicKernelSource for ProjectSplats {
     }
 }
 
+impl ProjectSplats  {
+    fn workgroup_size() -> UVec3 {
+        uvec3(16, 1, 1)
+    }
+}
+
 #[derive(new, Debug)]
-struct MapGaussiansToIntersect {}
+struct MapGaussiansToIntersect {
+}
 
 impl DynamicKernelSource for MapGaussiansToIntersect {
     fn source(&self) -> SourceTemplate {
@@ -47,8 +52,22 @@ impl DynamicKernelSource for MapGaussiansToIntersect {
     }
 }
 
+impl MapGaussiansToIntersect  {
+    fn workgroup_size() -> UVec3 {
+        uvec3(16, 1, 1)
+    }
+}
+
+
 #[derive(new, Debug)]
-struct GetTileBinEdges {}
+struct GetTileBinEdges {
+}
+
+impl GetTileBinEdges  {
+    fn workgroup_size() -> UVec3 {
+        uvec3(16, 1, 1)
+    }
+}
 
 impl DynamicKernelSource for GetTileBinEdges {
     fn source(&self) -> SourceTemplate {
@@ -61,7 +80,8 @@ impl DynamicKernelSource for GetTileBinEdges {
 }
 
 #[derive(new, Debug)]
-struct RasterizeForward {}
+struct RasterizeForward {
+}
 
 impl DynamicKernelSource for RasterizeForward {
     fn source(&self) -> SourceTemplate {
@@ -72,6 +92,13 @@ impl DynamicKernelSource for RasterizeForward {
         format!("{:?}", self)
     }
 }
+
+impl RasterizeForward  {
+    fn workgroup_size() -> UVec3 {
+        uvec3(16, 16, 1)
+    }
+}
+
 
 fn get_workgroup(executions: UVec3, group_size: UVec3) -> WorkGroup {
     let execs = (executions.as_vec3() / group_size.as_vec3()).ceil().as_uvec3();
@@ -85,6 +112,7 @@ pub fn argsort<T: Ord>(data: &[T]) -> Vec<usize> {
 }
 
 impl<G: GraphicsApi, F: FloatElement, I: IntElement> Backend for JitBackend<WgpuRuntime<G, F, I>> {
+    
     fn render_gaussians(
         camera: &Camera,
         means: FloatTensor<Self, 2>,
@@ -96,20 +124,22 @@ impl<G: GraphicsApi, F: FloatElement, I: IntElement> Backend for JitBackend<Wgpu
     ) -> FloatTensor<Self, 3> {
         println!("Project gaussians!");
 
-        // Prolly gonna crash so yeah just
-        // flush beforehand.
-        std::io::stdout().flush().unwrap();
-
         // Preprocess tensors.
-        assert!(means.device == scales.device && means.device == quats.device);
-        let (means, scales, quats) = (
+        assert!(means.device == scales.device && means.device == quats.device && means.device == colors.device && means.device == opacity.device);
+        let (means, scales, quats, colors, opacity) = (
             into_contiguous(means),
             into_contiguous(scales),
             into_contiguous(quats),
+            into_contiguous(colors),
+            into_contiguous(opacity),
         );
-        let num_points = means.shape.dims[0];
-        assert!(means.shape.dims[0] == num_points && scales.shape.dims[0] == num_points);
 
+
+        let num_points = means.shape.dims[0];
+        let batches = [means.shape.dims[0], scales.shape.dims[0], quats.shape.dims[0], colors.shape.dims[0], opacity.shape.dims[0]];
+        assert!(batches.iter().all(|&x| x == num_points));
+
+        // Divide screen into block
         let block_size = 16;
         let tile_bounds = [
             (camera.width + block_size - 1) / block_size,
@@ -128,29 +158,38 @@ impl<G: GraphicsApi, F: FloatElement, I: IntElement> Backend for JitBackend<Wgpu
         let client = means.client.clone();
         let device = means.device.clone();
 
+        // TODO: Must be a faster way to create with nulls.
         let create_empty_f32 = |dim|-> JitTensor<WgpuRuntime<G, F, I>, F, 2> {
             let shape = Shape::new(dim);
             JitTensor::new(
                 client.clone(),
                 device.clone(),
                 shape.clone(),
-                client.empty(shape.num_elements() * core::mem::size_of::<F>()),
+                client.create(&vec![0; shape.num_elements() * core::mem::size_of::<F>()]),
             )
         };
-
         let create_empty_i32 = |dim| -> JitTensor<WgpuRuntime<G, F, I>, I, 2> {
             let shape = Shape::new(dim);
             JitTensor::new(
                 client.clone(),
                 device.clone(),
                 shape.clone(),
-                client.empty(shape.num_elements() * core::mem::size_of::<I>()),
+                client.create(&vec![0; shape.num_elements() * core::mem::size_of::<F>()]),
             )
+        };
+
+        let to_vec_f = |tensor: &JitTensor<WgpuRuntime<G, F, I>, F, 2>| -> Vec<f32> {
+            let data = client.read(&tensor.handle).read();
+            data.into_iter().array_chunks::<4>().map(f32::from_le_bytes).collect()
+        };
+
+        let to_vec_i = |tensor: &JitTensor<WgpuRuntime<G, F, I>, I, 2>| -> Vec<u32> {
+            let data = client.read(&tensor.handle).read();
+            data.into_iter().array_chunks::<4>().map(u32::from_le_bytes).collect()
         };
 
         let aux_data = client.create(bytemuck::bytes_of(&gen::helpers::InfoBinding {
             viewmat: camera.transform.inverse(),
-            projmat: camera.proj_mat,
             intrins,
             img_size: [camera.width, camera.height],
             tile_bounds,
@@ -161,18 +200,16 @@ impl<G: GraphicsApi, F: FloatElement, I: IntElement> Backend for JitBackend<Wgpu
             background: background.into(),
         }));
 
-        // Create the output tensor primitive.
-
         // TODO: We might only need the data on the client for this not the tensor wrapper?
-        let radii = create_empty_i32([num_points, 1]);
-        let num_tiles_hit = create_empty_i32([num_points, 1]);
         let covs3d = create_empty_f32([num_points, 6]);
-        let conics = create_empty_f32([num_points, 3]);
-        let depths = create_empty_f32([num_points, 1]);
         let xys = create_empty_f32([num_points, 2]);
+        let depths = create_empty_f32([num_points, 1]);
+        let radii = create_empty_i32([num_points, 1]);
+        let conics = create_empty_f32([num_points, 3]);
         let compensation = create_empty_f32([num_points, 1]);
+        let num_tiles_hit = create_empty_i32([num_points, 1]);
 
-        let workgroup = get_workgroup(uvec3(num_points as u32, 1, 1), uvec3(16, 1, 1));
+        let workgroup = get_workgroup(uvec3(num_points as u32, 1, 1), ProjectSplats::workgroup_size());
         client.execute(
             Box::new(DynamicKernel::new(ProjectSplats::new(), workgroup)),
             &[
@@ -193,28 +230,32 @@ impl<G: GraphicsApi, F: FloatElement, I: IntElement> Backend for JitBackend<Wgpu
             ],
         );
 
+        let covs3d_vec = to_vec_f(&covs3d);
+
+        println!("Covs3d {:?}", covs3d_vec);
+
         // TODO: CPU emulation for now. Investigate if we can do without a cumulative sum?
         println!("Num tiles hit calc");
 
-        let to_vec = |tensor: JitTensor<WgpuRuntime<G, F, I>, I, 2>| -> Vec<_> {
-            let data = client.read(&tensor.handle).read();
-            data.into_iter().array_chunks::<4>().map(u32::from_le_bytes).collect()
-        };
+        let num_tiles_hit = to_vec_i(&num_tiles_hit);
+        println!("{num_tiles_hit:?}");
 
-        let num_tiles_hit = to_vec(num_tiles_hit);
 
         let cum_tiles_hit: Vec<u32> = num_tiles_hit
             .into_iter()
             .scan(0, |acc, x| {
-                *acc += x;
+                let acc_val: u32 = *acc;
+                *acc = acc_val.saturating_add(x);
                 Some(*acc)
             })
             .collect();
 
+        let num_intersects = cum_tiles_hit.last().unwrap();
+        println!("{num_intersects}");
+
         println!("Num tiles hit" );
 
         // TODO:
-        // let num_intersects = cum_tiles_hit.last().unwrap();
 
         // Mapping gaussians to sorted unique intersection IDs and tile bins used for fast rasterization.
         // We return both dsorted an unsorted versions of intersect IDs and gaussian IDs for testing purposes.
@@ -233,7 +274,7 @@ impl<G: GraphicsApi, F: FloatElement, I: IntElement> Backend for JitBackend<Wgpu
         let isect_ids = create_empty_i32([num_points, 1]);
         let gaussian_ids = create_empty_i32([num_points, 1]);
 
-        let workgroup = get_workgroup(uvec3(num_points as u32, 1, 1), uvec3(16, 1, 1));
+        let workgroup = get_workgroup(uvec3(num_points as u32, 1, 1), MapGaussiansToIntersect::workgroup_size());
         client.execute(
             Box::new(DynamicKernel::new(MapGaussiansToIntersect::new(), workgroup)),
             &[
@@ -251,8 +292,8 @@ impl<G: GraphicsApi, F: FloatElement, I: IntElement> Backend for JitBackend<Wgpu
         );
 
         // TODO: WGSL Radix sort.
-        let isect_ids = to_vec(isect_ids);
-        let gaussian_ids = to_vec(gaussian_ids);
+        let isect_ids = to_vec_i(&isect_ids);
+        let gaussian_ids = to_vec_i(&gaussian_ids);
         let sorted_indices = argsort(&isect_ids);
         let isect_ids_sorted: Vec<_> = sorted_indices.iter().copied().map(|x| isect_ids[x]).collect();
         let gaussian_ids_sorted: Vec<_> = sorted_indices.iter().copied().map(|x| gaussian_ids[x]).collect();
@@ -270,7 +311,7 @@ impl<G: GraphicsApi, F: FloatElement, I: IntElement> Backend for JitBackend<Wgpu
         //     - **tile_bins** (Tensor): range of gaussians IDs hit per tile.
         
         // TODO: Num intersects.
-        let workgroup = get_workgroup(uvec3(num_points as u32, 1, 1), uvec3(16, 1, 1));
+        let workgroup = get_workgroup(uvec3(num_points as u32, 1, 1), GetTileBinEdges::workgroup_size());
         let isect_ids_sorted = client.create(bytemuck::cast_slice::<u32, u8>(&isect_ids_sorted));
         let gaussian_ids_sorted = client.create(bytemuck::cast_slice::<u32, u8>(&gaussian_ids_sorted));
 
@@ -323,50 +364,38 @@ struct ProjectSplatsBackward;
 
 // Implement the backward trait for the given backend B, the node gradient being of rank D
 // with three other gradients to calculate (means, colors, and opacity).
-impl<B: Backend> Backward<B, 3, 3> for ProjectSplatsBackward {
+impl<B: Backend> Backward<B, 3, 1> for ProjectSplatsBackward {
     // Our state that we must build during the forward pass to compute the backward pass.
     //
     // Note that we could improve the performance further by only keeping the state of
     // tensors that are tracked, improving memory management, but for simplicity, we avoid
     // that part.
 
-    //           (means, colors, opacity, ??, ???)
-    type State = (NodeID, NodeID, NodeID);
+    // (means)
+    type State = (NodeID,);
 
     fn backward(
         self,
-        ops: Ops<Self::State, 3>,
+        ops: Ops<Self::State, 1>,
         grads: &mut Gradients,
         checkpointer: &mut Checkpointer,
     ) {
         // // Get the nodes of each variable.
-        // let [node_means, node_colors, node_opacity] = ops.parents;
+        // let image_gradient = grads.consume::<B, 3>(&ops.node);
 
-        // // Fetch the gradient for the current node.
-        // // let grad = grads.consume::<B, 3>(&ops.node);
+        // Read from the state we have setup.
+        let (means_state,) = ops.state;
+        let means = checkpointer.retrieve_node_output(means_state);
 
-        // // Set our state.
-        // let (means_state, colors_state, opacity_state) = ops.state;
-        // let means = checkpointer.retrieve_node_output(means_state);
-        // let colors = checkpointer.retrieve_node_output(colors_state);
-        // let opacity = checkpointer.retrieve_node_output(opacity_state);
+        // Return gradient of means, atm just as itself. So d/dx means == means? errr... ?
+        let grad_means = means;
 
-        // // TODO: Some actual gradients ahh
-        // let grad_colors = colors;
-        // let grad_means = means;
-        // let grad_opacity = opacity;
+        // Get the parent nodes we're registering gradients for.
+        let [mean_parent] = ops.parents;
 
-        // // Register the gradient for each variable based on whether they are marked as
-        // // `tracked`.
-        // if let Some(node) = node_means {
-        //     grads.register::<B, 2>(node, grad_means);
-        // }
-        // if let Some(node) = node_colors {
-        //     grads.register::<B, 2>(node, grad_colors);
-        // }
-        // if let Some(node) = node_opacity {
-        //     grads.register::<B, 1>(node, grad_opacity);
-        // }
+        if let Some(node) = mean_parent {
+            grads.register::<B, 2>(node, grad_means);
+        }
     }
 }
 
@@ -380,23 +409,22 @@ impl<B: Backend, C: CheckpointStrategy> Backend for Autodiff<B, C> {
         opacity: FloatTensor<Self, 1>,
         background: glam::Vec3,
     ) -> FloatTensor<Self, 3> {
-        // Prepare a stateful operation with each variable node and corresponding graph.
-        //
-        // Each node can be fetched with `ops.parents` in the same order as defined here.
-        match ProjectSplatsBackward
+        let prep_nodes = ProjectSplatsBackward
             .prepare::<C>(
-                [means.node.clone(), scales.node.clone(), quats.node.clone()],
+                [means.node.clone()],
                 [
                     means.graph.clone(),
-                    scales.graph.clone(),
-                    quats.graph.clone(),
                 ],
             )
             // Marks the operation as compute bound, meaning it will save its
             // state instead of recomputing itself during checkpointing
             .compute_bound()
-            .stateful()
-        {
+            .stateful();
+
+        // Prepare a stateful operation with each variable node and corresponding graph.
+        //
+        // Each node can be fetched with `ops.parents` in the same order as defined here.
+        match prep_nodes {
             OpsKind::Tracked(mut prep) => {
                 // When at least one node is tracked, we should register our backward step.
 
@@ -406,8 +434,6 @@ impl<B: Backend, C: CheckpointStrategy> Backend for Autodiff<B, C> {
                 // If we also need this operation's output, we can either save it in the state or recompute it
                 // during the backward pass. Here we choose to save it in the state because it's a compute bound operation.
                 let means_state = prep.checkpoint(&means);
-                let scale_state = prep.checkpoint(&scales);
-                let quat_state = prep.checkpoint(&quats);
 
                 let output = B::render_gaussians(
                     camera,
@@ -419,14 +445,13 @@ impl<B: Backend, C: CheckpointStrategy> Backend for Autodiff<B, C> {
                     background
                 );
 
-                let state = (means_state, scale_state, quat_state);
+                let state = (means_state,);
                 prep.finish(state, output)
             }
             OpsKind::UnTracked(prep) => {
                 // When no node is tracked, we can just compute the original operation without
                 // keeping any state.
-                let output =
-                    B::render_gaussians(
+                let output = B::render_gaussians(
                         camera,
                         means.primitive,
                         scales.primitive,

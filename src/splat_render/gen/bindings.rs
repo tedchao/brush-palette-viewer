@@ -2,7 +2,7 @@
 //
 // ^ wgsl_bindgen version 0.10.0
 // Changes made to this file will not be saved.
-// SourceHash: 72ef7770691e15479e796596138c247c93a853d0cdd9d9087c9be25730ddbf2e
+// SourceHash: 0164d3fc9f257eac66fd97ecf0fe994a847a9b10c70e19265ce1184ef9b7a146
 
 #![allow(unused, non_snake_case, non_camel_case_types, non_upper_case_globals)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -58,16 +58,15 @@ pub mod layout_asserts {
     };
     const HELPERS_INFO_BINDING_ASSERTS: () = {
         assert!(std::mem::offset_of!(helpers::InfoBinding, viewmat) == 0);
-        assert!(std::mem::offset_of!(helpers::InfoBinding, projmat) == 64);
-        assert!(std::mem::offset_of!(helpers::InfoBinding, intrins) == 128);
-        assert!(std::mem::offset_of!(helpers::InfoBinding, img_size) == 144);
-        assert!(std::mem::offset_of!(helpers::InfoBinding, tile_bounds) == 152);
-        assert!(std::mem::offset_of!(helpers::InfoBinding, glob_scale) == 160);
-        assert!(std::mem::offset_of!(helpers::InfoBinding, num_points) == 164);
-        assert!(std::mem::offset_of!(helpers::InfoBinding, clip_thresh) == 168);
-        assert!(std::mem::offset_of!(helpers::InfoBinding, block_width) == 172);
-        assert!(std::mem::offset_of!(helpers::InfoBinding, background) == 176);
-        assert!(std::mem::size_of:: < helpers::InfoBinding > () == 192);
+        assert!(std::mem::offset_of!(helpers::InfoBinding, intrins) == 64);
+        assert!(std::mem::offset_of!(helpers::InfoBinding, img_size) == 80);
+        assert!(std::mem::offset_of!(helpers::InfoBinding, tile_bounds) == 88);
+        assert!(std::mem::offset_of!(helpers::InfoBinding, glob_scale) == 96);
+        assert!(std::mem::offset_of!(helpers::InfoBinding, num_points) == 100);
+        assert!(std::mem::offset_of!(helpers::InfoBinding, clip_thresh) == 104);
+        assert!(std::mem::offset_of!(helpers::InfoBinding, block_width) == 108);
+        assert!(std::mem::offset_of!(helpers::InfoBinding, background) == 112);
+        assert!(std::mem::size_of:: < helpers::InfoBinding > () == 128);
     };
 }
 pub mod helpers {
@@ -77,29 +76,26 @@ pub mod helpers {
     pub struct InfoBinding {
         /// size: 64, offset: 0x0, type: `mat4x4<f32>`
         pub viewmat: glam::Mat4,
-        /// size: 64, offset: 0x40, type: `mat4x4<f32>`
-        pub projmat: glam::Mat4,
-        /// size: 16, offset: 0x80, type: `vec4<f32>`
+        /// size: 16, offset: 0x40, type: `vec4<f32>`
         pub intrins: glam::Vec4,
-        /// size: 8, offset: 0x90, type: `vec2<u32>`
+        /// size: 8, offset: 0x50, type: `vec2<u32>`
         pub img_size: [u32; 2],
-        /// size: 8, offset: 0x98, type: `vec2<u32>`
+        /// size: 8, offset: 0x58, type: `vec2<u32>`
         pub tile_bounds: [u32; 2],
-        /// size: 4, offset: 0xA0, type: `f32`
+        /// size: 4, offset: 0x60, type: `f32`
         pub glob_scale: f32,
-        /// size: 4, offset: 0xA4, type: `u32`
+        /// size: 4, offset: 0x64, type: `u32`
         pub num_points: u32,
-        /// size: 4, offset: 0xA8, type: `f32`
+        /// size: 4, offset: 0x68, type: `f32`
         pub clip_thresh: f32,
-        /// size: 4, offset: 0xAC, type: `u32`
+        /// size: 4, offset: 0x6C, type: `u32`
         pub block_width: u32,
-        /// size: 12, offset: 0xB0, type: `vec3<f32>`
+        /// size: 12, offset: 0x70, type: `vec3<f32>`
         pub background: glam::Vec3A,
     }
     impl InfoBinding {
         pub const fn new(
             viewmat: glam::Mat4,
-            projmat: glam::Mat4,
             intrins: glam::Vec4,
             img_size: [u32; 2],
             tile_bounds: [u32; 2],
@@ -111,7 +107,6 @@ pub mod helpers {
         ) -> Self {
             Self {
                 viewmat,
-                projmat,
                 intrins,
                 img_size,
                 tile_bounds,
@@ -430,7 +425,6 @@ pub mod project_forward {
     pub const SHADER_STRING: &'static str = r#"
 struct InfoBindingX_naga_oil_mod_XNBSWY4DFOJZQX {
     viewmat: mat4x4<f32>,
-    projmat: mat4x4<f32>,
     intrins: vec4<f32>,
     img_size: vec2<u32>,
     tile_bounds: vec2<u32>,
@@ -441,7 +435,7 @@ struct InfoBindingX_naga_oil_mod_XNBSWY4DFOJZQX {
     background: vec3<f32>,
 }
 
-struct ComputeCov2DBoundsX_naga_oil_mod_XNBSWY4DFOJZQX {
+struct ComputeCov2DBounds {
     conic: vec3<f32>,
     radius: f32,
     valid: bool,
@@ -470,44 +464,10 @@ var<storage, read_write> num_tiles_hit: array<i32>;
 @group(0) @binding(10) 
 var<storage> info_array: array<InfoBindingX_naga_oil_mod_XNBSWY4DFOJZQX>;
 
-fn quat_to_rotmatX_naga_oil_mod_XNBSWY4DFOJZQX(quat: vec4<f32>) -> mat3x3<f32> {
-    let quat_norm = normalize(quat);
-    let x_1 = quat_norm.x;
-    let y = quat_norm.y;
-    let z = quat_norm.z;
-    let w = quat_norm.w;
-    return mat3x3<f32>(vec3<f32>((1f - (2f * ((y * y) + (z * z)))), (2f * ((x_1 * y) + (w * z))), (2f * ((x_1 * z) - (w * y)))), vec3<f32>((2f * ((x_1 * y) - (w * z))), (1f - (2f * ((x_1 * x_1) + (z * z)))), (2f * ((y * z) + (w * x_1)))), vec3<f32>((2f * ((x_1 * z) + (w * y))), (2f * ((y * z) - (w * x_1))), (1f - (2f * ((x_1 * x_1) + (y * y))))));
-}
-
-fn scale_to_matX_naga_oil_mod_XNBSWY4DFOJZQX(scale: vec3<f32>, glob_scale: f32) -> mat3x3<f32> {
-    return mat3x3<f32>(vec3<f32>((glob_scale * scale.x), 0f, 0f), vec3<f32>(0f, (glob_scale * scale.y), 0f), vec3<f32>(0f, 0f, (glob_scale * scale.z)));
-}
-
-fn scale_rot_to_cov3dX_naga_oil_mod_XNBSWY4DFOJZQX(scale_1: vec3<f32>, glob_scale_1: f32, quat_1: vec4<f32>) -> mat3x3<f32> {
-    let _e1 = quat_to_rotmatX_naga_oil_mod_XNBSWY4DFOJZQX(quat_1);
-    let _e4 = scale_to_matX_naga_oil_mod_XNBSWY4DFOJZQX(scale_1, glob_scale_1);
-    let M = (_e1 * _e4);
-    return (M * transpose(M));
-}
-
-fn ndc2pixX_naga_oil_mod_XNBSWY4DFOJZQX(x: vec2<f32>, W: vec2<f32>, cx: vec2<f32>) -> vec2<f32> {
-    return ((((0.5f * W) * x) + cx) - vec2(0.5f));
-}
-
-fn project_pixX_naga_oil_mod_XNBSWY4DFOJZQX(transform: mat4x4<f32>, p: vec3<f32>, img_size: vec2<u32>, pp: vec2<f32>) -> vec2<f32> {
-    let p_hom = (transform * vec4<f32>(p, 1f));
-    let rw = (1f / (p_hom.w + 0.000001f));
-    let p_proj = (p_hom.xyz / vec3((p_hom.w + 0.000001f)));
-    let _e21 = ndc2pixX_naga_oil_mod_XNBSWY4DFOJZQX(p_proj.xy, vec2<f32>(img_size.xy), pp);
-    return _e21;
-}
-
-fn get_bboxX_naga_oil_mod_XNBSWY4DFOJZQX(center: vec2<f32>, dims: vec2<f32>, img_size_1: vec2<u32>) -> vec4<i32> {
-    let bb_min_x = min(max(0i, i32((center.x - dims.x))), i32(img_size_1.x));
-    let bb_max_x = min(max(0i, i32(((center.x + dims.x) + 1f))), i32(img_size_1.x));
-    let bb_min_y = min(max(0i, i32((center.y - dims.y))), i32(img_size_1.y));
-    let bb_max_y = min(max(0i, i32(((center.y + dims.y) + 1f))), i32(img_size_1.y));
-    return vec4<i32>(bb_min_x, bb_min_y, bb_max_y, bb_max_y);
+fn get_bboxX_naga_oil_mod_XNBSWY4DFOJZQX(center: vec2<f32>, dims: vec2<f32>, bounds: vec2<u32>) -> vec4<i32> {
+    let min = clamp(vec2<i32>((center - dims)), vec2(0i), vec2<i32>(bounds));
+    let max = clamp(vec2<i32>(((center + dims) + vec2(1f))), vec2(0i), vec2<i32>(bounds));
+    return vec4<i32>(min, max);
 }
 
 fn get_tile_bboxX_naga_oil_mod_XNBSWY4DFOJZQX(pix_center: vec2<f32>, pix_radius: f32, tile_bounds: vec2<u32>, block_size: u32) -> vec4<i32> {
@@ -517,97 +477,118 @@ fn get_tile_bboxX_naga_oil_mod_XNBSWY4DFOJZQX(pix_center: vec2<f32>, pix_radius:
     return _e11;
 }
 
-fn compute_cov2d_boundsX_naga_oil_mod_XNBSWY4DFOJZQX(cov2d: vec3<f32>) -> ComputeCov2DBoundsX_naga_oil_mod_XNBSWY4DFOJZQX {
+fn scale_to_mat(scale: vec3<f32>, glob_scale: f32) -> mat3x3<f32> {
+    let scale_total = (scale * glob_scale);
+    return mat3x3<f32>(vec3<f32>(scale_total.x, 0f, 0f), vec3<f32>(0f, scale_total.y, 0f), vec3<f32>(0f, 0f, scale_total.z));
+}
+
+fn quat_to_rotmat(quat: vec4<f32>) -> mat3x3<f32> {
+    let quat_norm = normalize(quat);
+    let x = quat_norm.x;
+    let y = quat_norm.y;
+    let z = quat_norm.z;
+    let w = quat_norm.w;
+    return mat3x3<f32>(vec3<f32>((1f - (2f * ((y * y) + (z * z)))), (2f * ((x * y) + (w * z))), (2f * ((x * z) - (w * y)))), vec3<f32>((2f * ((x * y) - (w * z))), (1f - (2f * ((x * x) + (z * z)))), (2f * ((y * z) + (w * x)))), vec3<f32>((2f * ((x * z) + (w * y))), (2f * ((y * z) - (w * x))), (1f - (2f * ((x * x) + (y * y))))));
+}
+
+fn scale_rot_to_cov3d(scale_1: vec3<f32>, glob_scale_1: f32, quat_1: vec4<f32>) -> mat3x3<f32> {
+    let _e1 = quat_to_rotmat(quat_1);
+    let _e4 = scale_to_mat(scale_1, glob_scale_1);
+    let M = (_e1 * _e4);
+    return (M * transpose(M));
+}
+
+fn project_pix(fxfy: vec2<f32>, p_view: vec3<f32>, pp: vec2<f32>) -> vec2<f32> {
+    let p_proj = (p_view.xy / vec2((p_view.z + 0.000001f)));
+    let p_pix = ((p_proj.xy * fxfy.xy) + pp);
+    return p_pix;
+}
+
+fn compute_cov2d_bounds(cov2d: vec3<f32>) -> ComputeCov2DBounds {
     let det = ((cov2d.x * cov2d.z) - (cov2d.y * cov2d.y));
     if (det == 0f) {
-        return ComputeCov2DBoundsX_naga_oil_mod_XNBSWY4DFOJZQX(vec3(0f), 0f, false);
+        return ComputeCov2DBounds(vec3(0f), 0f, false);
     }
     let conic = (vec3<f32>(cov2d.z, -(cov2d.y), cov2d.x) / vec3(det));
     let b = (0.5f * (cov2d.x + cov2d.z));
     let v1_ = (b + sqrt(max(0.1f, ((b * b) - det))));
     let v2_ = (b - sqrt(max(0.1f, ((b * b) - det))));
     let radius = ceil((3f * sqrt(max(v1_, v2_))));
-    return ComputeCov2DBoundsX_naga_oil_mod_XNBSWY4DFOJZQX(conic, radius, true);
+    return ComputeCov2DBounds(conic, radius, true);
 }
 
 @compute @workgroup_size(16, 1, 1) 
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invocation_id) local_id: vec3<u32>, @builtin(workgroup_id) workgroup_id: vec3<u32>) {
+    let idx = global_id.x;
     let info = info_array[0];
-    let idx = local_id.x;
     let num_points = info.num_points;
     if (idx >= num_points) {
         return;
     }
     let glob_scale_2 = info.glob_scale;
     let viewmat = info.viewmat;
-    let projmat = info.projmat;
     let intrins = info.intrins;
-    let img_size_2 = info.img_size;
+    let img_size = info.img_size;
     let tile_bounds_1 = info.tile_bounds;
     let block_width = info.block_width;
     let clip_thresh = info.clip_thresh;
     radii[idx] = 0i;
     num_tiles_hit[idx] = 0i;
     let p_world = means3d[idx];
-    let p_view = (viewmat * vec4<f32>(p_world, 1f));
-    if (p_view.z <= clip_thresh) {
+    let p_view_proj = (viewmat * vec4<f32>(p_world, 1f));
+    let p_view_1 = (p_view_proj.xyz / vec3(p_view_proj.w));
+    if (p_view_1.z <= clip_thresh) {
         return;
     }
     let scale_2 = scales[idx];
     let quat_2 = quats[idx];
-    let _e35 = scale_rot_to_cov3dX_naga_oil_mod_XNBSWY4DFOJZQX(scale_2, glob_scale_2, quat_2);
-    let covs0_ = _e35[0].x;
-    let covs1_ = _e35[0].y;
-    let covs2_ = _e35[0].z;
-    let covs3_ = _e35[1].y;
-    let covs4_ = _e35[1].z;
-    let covs5_ = _e35[2].z;
-    covs3d[((6u * idx) + 0u)] = covs0_;
-    covs3d[((6u * idx) + 1u)] = covs1_;
-    covs3d[((6u * idx) + 2u)] = covs2_;
-    covs3d[((6u * idx) + 3u)] = covs3_;
-    covs3d[((6u * idx) + 4u)] = covs4_;
-    covs3d[((6u * idx) + 5u)] = covs5_;
+    let _e38 = quat_to_rotmat(quat_2);
+    let scale_total_1 = (scale_2 * glob_scale_2);
+    let S = mat3x3<f32>(vec3<f32>(scale_total_1.x, 0f, 0f), vec3<f32>(0f, scale_total_1.y, 0f), vec3<f32>(0f, 0f, scale_total_1.z));
+    let M_1 = (_e38 * S);
+    let V = (M_1 * transpose(M_1));
+    covs3d[((6u * idx) + 0u)] = V[0].x;
+    covs3d[((6u * idx) + 1u)] = V[0].y;
+    covs3d[((6u * idx) + 2u)] = V[0].z;
+    covs3d[((6u * idx) + 3u)] = V[1].y;
+    covs3d[((6u * idx) + 4u)] = V[1].z;
+    covs3d[((6u * idx) + 5u)] = V[2].z;
     let fx = intrins.x;
     let fy = intrins.y;
-    let cx_1 = intrins.z;
+    let cx = intrins.z;
     let cy = intrins.w;
-    let tan_fovx = ((0.5f * f32(img_size_2.x)) / fx);
-    let tan_fovy = ((0.5f * f32(img_size_2.y)) / fy);
-    let W_1 = mat3x3<f32>(viewmat[0].xyz, viewmat[1].xyz, viewmat[2].xyz);
+    let tan_fovx = ((0.5f * f32(img_size.x)) / fx);
+    let tan_fovy = ((0.5f * f32(img_size.y)) / fy);
+    let W = mat3x3<f32>(viewmat[0].xyz, viewmat[1].xyz, viewmat[2].xyz);
     let lims = (1.3f * vec2<f32>(tan_fovx, tan_fovy));
-    let t = (p_world.z * clamp((p_world.xy / vec2(p_world.z)), -(lims), lims));
-    let rz = (1f / p_world.z);
+    let t = (p_view_1.z * clamp((p_view_1.xy / vec2(p_view_1.z)), -(lims), lims));
+    let rz = (1f / p_view_1.z);
     let rz2_ = (rz * rz);
     let J = mat3x3<f32>(vec3<f32>((fx * rz), 0f, 0f), vec3<f32>(0f, (fy * rz), 0f), vec3<f32>(((-(fx) * t.x) * rz2_), ((-(fy) * t.y) * rz2_), 0f));
-    let T = (J * W_1);
-    let V = mat3x3<f32>(vec3<f32>(covs0_, covs1_, covs2_), vec3<f32>(covs1_, covs3_, covs4_), vec3<f32>(covs2_, covs4_, covs5_));
+    let T = (J * W);
     let cov = ((T * V) * transpose(T));
     let c00_ = cov[0].x;
     let c11_ = cov[1].y;
     let c01_ = cov[0].y;
-    let det_orig = ((c00_ * c11_) - (c01_ * c01_));
     let cov2d_1 = vec3<f32>((c00_ + 0.3f), c01_, (c11_ + 0.3f));
-    let det_blur = ((cov2d_1.x * cov2d_1.z) - (cov2d_1.y * cov2d_1.y));
-    let comp = sqrt(max(0f, (det_orig / det_blur)));
-    let _e172 = compute_cov2d_boundsX_naga_oil_mod_XNBSWY4DFOJZQX(cov2d_1);
-    if !(_e172.valid) {
+    let _e174 = compute_cov2d_bounds(cov2d_1);
+    if !(_e174.valid) {
         return;
     }
-    conics[idx] = _e172.conic;
-    let _e179 = project_pixX_naga_oil_mod_XNBSWY4DFOJZQX(projmat, p_world, img_size_2, vec2<f32>(cx_1, cy));
-    let _e181 = get_tile_bboxX_naga_oil_mod_XNBSWY4DFOJZQX(_e179, _e172.radius, tile_bounds_1, block_width);
-    let tile_min = _e181.xy;
-    let tile_max = _e181.zw;
-    let tile_area = ((tile_max.x - tile_min.x) * (tile_max.y - tile_min.y));
+    let _e179 = project_pix(vec2<f32>(fx, fy), p_view_1, vec2<f32>(cx, cy));
+    let _e181 = get_tile_bboxX_naga_oil_mod_XNBSWY4DFOJZQX(_e179, _e174.radius, tile_bounds_1, block_width);
+    let tile_area = ((_e181.z - _e181.x) * (_e181.w - _e181.y));
     if (tile_area <= 0i) {
         return;
     }
     num_tiles_hit[idx] = i32(tile_area);
-    depths[idx] = p_view.z;
-    radii[idx] = i32(_e172.radius);
+    depths[idx] = p_view_1.z;
+    radii[idx] = i32(_e174.radius);
     xys[idx] = _e179;
-    compensation[idx] = comp;
+    conics[idx] = _e174.conic;
+    let det_orig = ((c00_ * c11_) - (c01_ * c01_));
+    let det_blur = ((cov2d_1.x * cov2d_1.z) - (cov2d_1.y * cov2d_1.y));
+    compensation[idx] = sqrt(max(0f, (det_orig / det_blur)));
     return;
 }
 "#;
@@ -845,7 +826,6 @@ pub mod map_gaussian_to_intersects {
     pub const SHADER_STRING: &'static str = r#"
 struct InfoBindingX_naga_oil_mod_XNBSWY4DFOJZQX {
     viewmat: mat4x4<f32>,
-    projmat: mat4x4<f32>,
     intrins: vec4<f32>,
     img_size: vec2<u32>,
     tile_bounds: vec2<u32>,
@@ -871,12 +851,10 @@ var<storage, read_write> gaussian_ids: array<u32>;
 @group(0) @binding(6) 
 var<storage> info_array: array<InfoBindingX_naga_oil_mod_XNBSWY4DFOJZQX>;
 
-fn get_bboxX_naga_oil_mod_XNBSWY4DFOJZQX(center: vec2<f32>, dims: vec2<f32>, img_size: vec2<u32>) -> vec4<i32> {
-    let bb_min_x = min(max(0i, i32((center.x - dims.x))), i32(img_size.x));
-    let bb_max_x = min(max(0i, i32(((center.x + dims.x) + 1f))), i32(img_size.x));
-    let bb_min_y = min(max(0i, i32((center.y - dims.y))), i32(img_size.y));
-    let bb_max_y = min(max(0i, i32(((center.y + dims.y) + 1f))), i32(img_size.y));
-    return vec4<i32>(bb_min_x, bb_min_y, bb_max_y, bb_max_y);
+fn get_bboxX_naga_oil_mod_XNBSWY4DFOJZQX(center: vec2<f32>, dims: vec2<f32>, bounds: vec2<u32>) -> vec4<i32> {
+    let min = clamp(vec2<i32>((center - dims)), vec2(0i), vec2<i32>(bounds));
+    let max = clamp(vec2<i32>(((center + dims) + vec2(1f))), vec2(0i), vec2<i32>(bounds));
+    return vec4<i32>(min, max);
 }
 
 fn get_tile_bboxX_naga_oil_mod_XNBSWY4DFOJZQX(pix_center: vec2<f32>, pix_radius: f32, tile_bounds: vec2<u32>, block_size: u32) -> vec4<i32> {
@@ -1121,7 +1099,6 @@ pub mod get_tile_bin_edges {
     pub const SHADER_STRING: &'static str = r#"
 struct InfoBindingX_naga_oil_mod_XNBSWY4DFOJZQX {
     viewmat: mat4x4<f32>,
-    projmat: mat4x4<f32>,
     intrins: vec4<f32>,
     img_size: vec2<u32>,
     tile_bounds: vec2<u32>,
@@ -1143,12 +1120,11 @@ var<storage> info_array: array<InfoBindingX_naga_oil_mod_XNBSWY4DFOJZQX>;
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invocation_id) local_id: vec3<u32>, @builtin(workgroup_id) workgroup_id: vec3<u32>) {
     let info = info_array[0];
     let num_intersects = info.num_points;
-    let idx = local_id.x;
+    let idx = global_id.x;
     if (idx >= num_intersects) {
         return;
     }
-    let _e9 = isect_ids_sorted[idx];
-    let cur_tile_idx = i32((_e9 >> 32u));
+    let cur_tile_idx = isect_ids_sorted[idx];
     if ((idx == 0u) || (idx == (num_intersects - 1u))) {
         if (idx == 0u) {
             tile_bins[cur_tile_idx].x = 0u;
@@ -1160,8 +1136,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     if (idx == 0u) {
         return;
     }
-    let _e37 = isect_ids_sorted[(idx - 1u)];
-    let prev_tile_idx = i32((_e37 >> 32u));
+    let prev_tile_idx = isect_ids_sorted[(idx - 1u)];
     if (prev_tile_idx != cur_tile_idx) {
         tile_bins[prev_tile_idx].y = idx;
         tile_bins[cur_tile_idx].x = idx;
@@ -1425,7 +1400,6 @@ pub mod rasterize {
     pub const SHADER_STRING: &'static str = r#"
 struct InfoBindingX_naga_oil_mod_XNBSWY4DFOJZQX {
     viewmat: mat4x4<f32>,
-    projmat: mat4x4<f32>,
     intrins: vec4<f32>,
     img_size: vec2<u32>,
     tile_bounds: vec2<u32>,

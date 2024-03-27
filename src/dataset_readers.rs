@@ -10,6 +10,7 @@ fn read_synthetic_nerf_data(
     base_path: &str,
     transformsfile: &str,
     extension: &str,
+    max_frames: Option<usize>,
 ) -> Result<Vec<InputData>> {
     let mut cameras = vec![];
 
@@ -31,7 +32,7 @@ fn read_synthetic_nerf_data(
         .as_array()
         .context("Parsing frames array")?;
 
-    for frame in frames_array {
+    for (i, frame) in frames_array.iter().enumerate() {
         // NeRF 'transform_matrix' is a camera-to-world transform
         let transform_matrix = frame
             .get("transform_matrix")
@@ -85,13 +86,17 @@ fn read_synthetic_nerf_data(
                 fovy,
                 image.width(),
                 image.height(),
-                0.01,
-                1.0,
             ),
             view: InputView {
                 image: tensor.to_owned().map(|&x| (x as f32) / 255.0),
             },
-        })
+        });
+
+        if let Some(max) = max_frames
+            && i >= max
+        {
+            break;
+        }
     }
 
     Ok(cameras)
@@ -99,7 +104,7 @@ fn read_synthetic_nerf_data(
 
 pub(crate) fn read_scene(scene_path: &str) -> scene::Scene {
     println!("Reading Training Transforms");
-    let train_cams = read_synthetic_nerf_data(scene_path, "transforms_train.json", ".png")
+    let train_cams = read_synthetic_nerf_data(scene_path, "transforms_train.json", ".png", Some(5))
         .expect("Failed to load train cameras.");
 
     // println!("Reading Test Transforms");

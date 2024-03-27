@@ -112,12 +112,10 @@ impl<B: Backend> Splats<B> {
             utils::inverse_sigmoid(Tensor::from_floats([0.1], device)).repeat(0, num_points);
 
         // TODO: Fancy KNN init.
-        let dist = Tensor::random(
-            [num_points, 3],
-            burn::tensor::Distribution::Normal(0.0, 1.0),
-            device,
-        );
-        let init_scale = Tensor::log(dist);
+        let init_scale = Tensor::from_floats([2.0, 1.0, 1.0], device)
+            .log()
+            .unsqueeze::<2>()
+            .repeat(0, num_points);
 
         // Model parameters.
         Splats {
@@ -442,12 +440,11 @@ impl<B: Backend> Splats<B> {
         println!("Render splats!!");
         splat_render::render::render(
             camera,
-            self.means.val(),
+            self.means.val() * 0.0,
             self.scale.val().exp(),
             self.rotation.val(),
             self.colors.val(),
             burn::tensor::activation::sigmoid(self.opacity.val()),
-            0,
             bg_color,
         )
     }

@@ -8,6 +8,7 @@ use burn::{
 use ndarray::{Array, Array1, Array3};
 use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 
+use crate::camera::Camera;
 use crate::splat_render::{self, AutodiffBackend, Backend};
 use crate::{
     dataset_readers,
@@ -81,13 +82,22 @@ where
         .choose(rng)
         .expect("Dataset should have at least 1 camera.");
 
+    let camera = Camera::new(
+        glam::vec3(0.0, 0.0, -10.0),
+        glam::Quat::IDENTITY,
+        60.0_f32.to_radians(),
+        60.0_f32.to_radians(),
+        viewpoint.camera.width,
+        viewpoint.camera.height,
+    );
+
     let background_color = if config.random_bck_color {
         glam::vec3(rand::random(), rand::random(), rand::random())
     } else {
         scene.default_bg_color
     };
 
-    let render = splats.render(&viewpoint.camera, background_color);
+    let render = splats.render(&camera, background_color);
     let dims = render.dims();
 
     let render_img = render.clone().slice([0..dims[0], 0..dims[1], 0..3]);
@@ -161,7 +171,7 @@ where
 
     println!("Create splats.");
 
-    let mut splats: Splats<B> = SplatsConfig::new(200 * 200, 1.0, 0, 1.0).build(device);
+    let mut splats: Splats<B> = SplatsConfig::new(2, 1.0, 0, 1.0).build(device);
 
     // TODO: Original implementation has learning rates different for almost all params.
     let mut scheduler = burn::lr_scheduler::cosine::CosineAnnealingLrSchedulerConfig::new(
