@@ -1,6 +1,6 @@
 #import helpers;
 
-@group(0) @binding(0) var<storage, read> means3d: array<vec4f>;
+@group(0) @binding(0) var<storage, read> means: array<vec4f>;
 @group(0) @binding(1) var<storage, read> scales: array<vec4f>;
 @group(0) @binding(2) var<storage, read> quats: array<vec4f>;
 
@@ -85,7 +85,6 @@ fn project_pix(fxfy: vec2f, p_view: vec3f, pp: vec2f) -> vec2f {
     return p_pix;
 }
 
-
 // kernel function for projecting each gaussian on device
 // each thread processes one gaussian
 @compute
@@ -118,8 +117,10 @@ fn main(
     num_tiles_hit[idx] = 0;
 
     // Project world space to camera space.
-    let mean = means3d[idx];
-    let p_view = viewmat * vec4f(mean.xyz, 1.0f);
+    let mean = means[idx].xyz;
+
+    let p_view_proj = viewmat * vec4f(mean, 1.0f);
+    let p_view = p_view_proj.xyz / p_view_proj.w;
 
     if p_view.z <= clip_thresh {
         return;
@@ -129,10 +130,7 @@ fn main(
     let scale = scales[idx];
     let quat = quats[idx];
 
-    // let tmp = scale_rot_to_cov3d(scale, glob_scale, quat);
-
     // save upper right of matrix, as it's symmetric.
-    // TODO: Does this match the original order? row vs column major?
 
     // let scaless = scale_to_mat(scale, glob_scale);
     let R = quat_to_rotmat(quat);
@@ -207,7 +205,7 @@ fn main(
     let v2 = b - sqrt(max(0.1f, b * b - det));
     
     // take 3 sigma of covariance
-    let radius = ceil(3.0f * sqrt(max(v1, v2)));
+    let radius = ceil(3.0 * sqrt(max(v1, v2)));
 
     // compute the projected mean
     let pixel_center = project_pix(vec2f(fx, fy), p_view.xyz, vec2f(cx, cy));
