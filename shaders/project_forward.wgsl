@@ -1,19 +1,18 @@
 #import helpers;
 
-@group(0) @binding(0) var<storage, read> means3d: array<vec3f>;
-@group(0) @binding(1) var<storage, read> scales: array<vec3f>;
+@group(0) @binding(0) var<storage, read> means3d: array<vec4f>;
+@group(0) @binding(1) var<storage, read> scales: array<vec4f>;
 @group(0) @binding(2) var<storage, read> quats: array<vec4f>;
 
 @group(0) @binding(3) var<storage, read_write> covs3d: array<f32>;
 @group(0) @binding(4) var<storage, read_write> xys: array<vec2f>;
 @group(0) @binding(5) var<storage, read_write> depths: array<f32>;
-@group(0) @binding(6) var<storage, read_write> radii: array<i32>;
-@group(0) @binding(7) var<storage, read_write> conics: array<vec3f>;
+@group(0) @binding(6) var<storage, read_write> radii: array<f32>;
+@group(0) @binding(7) var<storage, read_write> conics: array<vec4f>;
 @group(0) @binding(8) var<storage, read_write> compensation: array<f32>;
 @group(0) @binding(9) var<storage, read_write> num_tiles_hit: array<i32>;
 
 @group(0) @binding(10) var<storage, read> info_array: array<Uniforms>;
-
 
 struct Uniforms {
     // Number of splats that exist.
@@ -87,38 +86,6 @@ fn project_pix(fxfy: vec2f, p_view: vec3f, pp: vec2f) -> vec2f {
 }
 
 
-
-struct ComputeCov2DBounds {
-    conic: vec3f,
-    radius: f32,
-    valid: bool
-}
-
-fn compute_cov2d_bounds(cov2d: vec3f) -> ComputeCov2DBounds {
-    // find eigenvalues of 2d covariance matrix
-    // expects upper triangular values of cov matrix as float3
-    // then compute the radius and conic dimensions
-    // the conic is the inverse cov2d matrix, represented here with upper
-    // triangular values.
-    let det = cov2d.x * cov2d.z - cov2d.y * cov2d.y;
-
-    if det == 0.0f {
-        return ComputeCov2DBounds(vec3f(0.0), 0.0, false);
-    }
-
-    // inverse of 2x2 cov2d matrix
-    let conic = vec3f(cov2d.z, -cov2d.y, cov2d.x) / det;
-
-    let b = 0.5f * (cov2d.x + cov2d.z);
-    let v1 = b + sqrt(max(0.1f, b * b - det));
-    let v2 = b - sqrt(max(0.1f, b * b - det));
-    
-    // take 3 sigma of covariance
-    let radius = ceil(3.0f * sqrt(max(v1, v2)));
-
-    return ComputeCov2DBounds(conic, radius, true);
-}
-
 // kernel function for projecting each gaussian on device
 // each thread processes one gaussian
 @compute
@@ -147,14 +114,12 @@ fn main(
     let block_width = info.block_width;
     let clip_thresh = info.clip_thresh;
 
-    radii[idx] = 0;
+    radii[idx] = 0.0;
     num_tiles_hit[idx] = 0;
 
-    let p_world = means3d[idx];
-
     // Project world space to camera space.
-    let p_view_proj = viewmat * vec4f(p_world, 1.0f);
-    let p_view = p_view_proj.xyz / p_view_proj.w;
+    let mean = means3d[idx];
+    let p_view = viewmat * vec4f(mean.xyz, 1.0f);
 
     if p_view.z <= clip_thresh {
         return;
@@ -218,23 +183,37 @@ fn main(
     let T = J * W;
     let cov = T * V * transpose(T);
 
-
     let c00 = cov[0][0];
     let c11 = cov[1][1];
     let c01 = cov[0][1];
     let cov2d = vec3f(c00 + 0.3f, c01, c11 + 0.3f);
 
-    let cov2d_bounds = compute_cov2d_bounds(cov2d);
-    // zero determinant
-    if !cov2d_bounds.valid {
-        return; 
+    // find eigenvalues of 2d covariance matrix
+    // expects upper triangular values of cov matrix as float3
+    // then compute the radius and conic dimensions
+    // the conic is the inverse cov2d matrix, represented here with upper
+    // triangular values.
+    let det = cov2d.x * cov2d.z - cov2d.y * cov2d.y;
+
+    if det == 0.0f {
+        return;
     }
 
+    // inverse of 2x2 cov2d matrix
+    let conic = vec3f(cov2d.z, -cov2d.y, cov2d.x) / det;
+
+    let b = 0.5f * (cov2d.x + cov2d.z);
+    let v1 = b + sqrt(max(0.1f, b * b - det));
+    let v2 = b - sqrt(max(0.1f, b * b - det));
+    
+    // take 3 sigma of covariance
+    let radius = ceil(3.0f * sqrt(max(v1, v2)));
+
     // compute the projected mean
-    let pixel_center = project_pix(vec2f(fx, fy), p_view, vec2f(cx, cy));
+    let pixel_center = project_pix(vec2f(fx, fy), p_view.xyz, vec2f(cx, cy));
 
     // TODO: Block_width? Tile width>
-    let tile_minmax = helpers::get_tile_bbox(pixel_center, cov2d_bounds.radius, tile_bounds, block_width);
+    let tile_minmax = helpers::get_tile_bbox(pixel_center, radius, tile_bounds, block_width);
     let tile_area = (tile_minmax.z - tile_minmax.x) * (tile_minmax.w - tile_minmax.y);
 
     if tile_area <= 0 {
@@ -244,10 +223,10 @@ fn main(
     // Now write all the data to the buffers.
     num_tiles_hit[idx] = i32(tile_area);
     depths[idx] = p_view.z;
-    radii[idx] = i32(cov2d_bounds.radius);
+    radii[idx] = radius;
     xys[idx] = pixel_center;
 
-    conics[idx] = cov2d_bounds.conic;
+    conics[idx] = vec4f(conic, 1.0);
 
     // Add a little blur along axes and save upper triangular elements
     // and compute the density compensation factor due to the blurs.

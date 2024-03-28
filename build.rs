@@ -16,7 +16,7 @@ fn main() {
         .output("src/splat_render/gen/bindings.rs")
         .build()
         .unwrap();
-    
+
     match bindgen.generate() {
         Ok(_) => println!("Sucesfully updated wgsl bindings."),
         Err(e) => {

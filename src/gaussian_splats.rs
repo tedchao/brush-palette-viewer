@@ -89,20 +89,11 @@ impl<B: Backend> Splats<B> {
         device: &Device<B>,
     ) -> Splats<B> {
         println!("Splats new random tensor.");
-        let xyz = Tensor::random([num_points, 3], Distribution::Uniform(0.0, 1.0), device)
+        let xyz = Tensor::random([num_points, 4], Distribution::Uniform(0.0, 1.0), device)
             * aabb_scale
             - aabb_scale / 2.0;
 
-        // TODO: Is starting all grey better than starting with random rgbs?
-        let rgb = Tensor::from_floats([0.5, 0.5, 0.5], device)
-            .unsqueeze()
-            .repeat(0, num_points);
-
-        // TODO: Support shs.
-        // f32[n, 1, 3]. Diffuse color, aka the first spherical harmonic coefficient
-        // for each color channel.
-        // let shs = spherical_harmonics::rgb_to_sh_dc(rgb);
-        // let shs = shs.unsqueeze_dim(1);
+        let colors = Tensor::random([num_points, 3], Distribution::Uniform(0.0, 1.0), device);
 
         let init_rotation = Tensor::from_floats([1.0, 0.0, 0.0, 0.0], device)
             .unsqueeze::<2>()
@@ -112,7 +103,7 @@ impl<B: Backend> Splats<B> {
             utils::inverse_sigmoid(Tensor::from_floats([0.1], device)).repeat(0, num_points);
 
         // TODO: Fancy KNN init.
-        let init_scale = Tensor::from_floats([2.0, 1.0, 1.0], device)
+        let init_scale = Tensor::from_floats([1.0, 1.0, 1.0, 0.0], device)
             .log()
             .unsqueeze::<2>()
             .repeat(0, num_points);
@@ -122,7 +113,7 @@ impl<B: Backend> Splats<B> {
             active_sh_degree,
             max_sh_degree,
             means: xyz.into(),
-            colors: rgb.into(),
+            colors: colors.into(),
             rotation: init_rotation.into(),
             opacity: init_opacity.into(),
             scale: init_scale.into(),
@@ -437,10 +428,9 @@ impl<B: Backend> Splats<B> {
     //     participated in the rendering.
     //   * radii: the maximum screenspace radius of each gaussian
     pub(crate) fn render(&self, camera: &Camera, bg_color: glam::Vec3) -> Tensor<B, 3> {
-        println!("Render splats!!");
         splat_render::render::render(
             camera,
-            self.means.val() * 0.0,
+            self.means.val(),
             self.scale.val().exp(),
             self.rotation.val(),
             self.colors.val(),

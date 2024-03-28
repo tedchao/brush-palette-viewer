@@ -97,10 +97,10 @@ where
         scene.default_bg_color
     };
 
-    let render = splats.render(&camera, background_color);
-    let dims = render.dims();
+    let pred_img = splats.render(&camera, background_color);
+    let dims = pred_img.dims();
 
-    let render_img = render.clone().slice([0..dims[0], 0..dims[1], 0..3]);
+    let render_img = pred_img.clone().slice([0..dims[0], 0..dims[1], 0..3]);
 
     let gt_image = utils::ndarray_to_burn(viewpoint.view.image.clone(), device);
     // TODO: Burn should be able to slice open ranges.
@@ -171,7 +171,7 @@ where
 
     println!("Create splats.");
 
-    let mut splats: Splats<B> = SplatsConfig::new(2, 1.0, 0, 1.0).build(device);
+    let mut splats: Splats<B> = SplatsConfig::new(50, 1.0, 0, 1.0).build(device);
 
     // TODO: Original implementation has learning rates different for almost all params.
     let mut scheduler = burn::lr_scheduler::cosine::CosineAnnealingLrSchedulerConfig::new(

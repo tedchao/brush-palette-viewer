@@ -2,7 +2,7 @@
 //
 // ^ wgsl_bindgen version 0.10.0
 // Changes made to this file will not be saved.
-// SourceHash: 09e2eef6e4d39d2a48195c648fe44b1962edcb160dc28d8dad30fdce56301c80
+// SourceHash: 5e09f5e7035aab3417df6416ad0e2f2c968a92da114c393039bff9431a9dbf2b
 
 #![allow(unused, non_snake_case, non_camel_case_types, non_upper_case_globals)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -69,8 +69,7 @@ pub mod layout_asserts {
     };
     const MAP_GAUSSIAN_TO_INTERSECTS_UNIFORMS_ASSERTS: () = {
         assert!(
-            std::mem::offset_of!(map_gaussian_to_intersects::Uniforms, num_intersections)
-            == 0
+            std::mem::offset_of!(map_gaussian_to_intersects::Uniforms, num_points) == 0
         );
         assert!(
             std::mem::offset_of!(map_gaussian_to_intersects::Uniforms, tile_bounds) == 8
@@ -481,16 +480,10 @@ struct Uniforms {
     block_width: u32,
 }
 
-struct ComputeCov2DBounds {
-    conic: vec3<f32>,
-    radius: f32,
-    valid: bool,
-}
-
 @group(0) @binding(0) 
-var<storage> means3d: array<vec3<f32>>;
+var<storage> means3d: array<vec4<f32>>;
 @group(0) @binding(1) 
-var<storage> scales: array<vec3<f32>>;
+var<storage> scales: array<vec4<f32>>;
 @group(0) @binding(2) 
 var<storage> quats: array<vec4<f32>>;
 @group(0) @binding(3) 
@@ -500,9 +493,9 @@ var<storage, read_write> xys: array<vec2<f32>>;
 @group(0) @binding(5) 
 var<storage, read_write> depths: array<f32>;
 @group(0) @binding(6) 
-var<storage, read_write> radii: array<i32>;
+var<storage, read_write> radii: array<f32>;
 @group(0) @binding(7) 
-var<storage, read_write> conics: array<vec3<f32>>;
+var<storage, read_write> conics: array<vec4<f32>>;
 @group(0) @binding(8) 
 var<storage, read_write> compensation: array<f32>;
 @group(0) @binding(9) 
@@ -510,13 +503,13 @@ var<storage, read_write> num_tiles_hit: array<i32>;
 @group(0) @binding(10) 
 var<storage> info_array: array<Uniforms>;
 
-fn get_bboxX_naga_oil_mod_XNBSWY4DFOJZQX(center: vec2<f32>, dims: vec2<f32>, bounds: vec2<u32>) -> vec4<i32> {
-    let min = clamp(vec2<i32>((center - dims)), vec2(0i), vec2<i32>(bounds));
-    let max = clamp(vec2<i32>(((center + dims) + vec2(1f))), vec2(0i), vec2<i32>(bounds));
-    return vec4<i32>(min, max);
+fn get_bboxX_naga_oil_mod_XNBSWY4DFOJZQX(center: vec2<f32>, dims: vec2<f32>, bounds: vec2<u32>) -> vec4<u32> {
+    let min = vec2<u32>(clamp(vec2<i32>((center - dims)), vec2(0i), vec2<i32>(bounds)));
+    let max = vec2<u32>(clamp(vec2<i32>(((center + dims) + vec2(1f))), vec2(0i), vec2<i32>(bounds)));
+    return vec4<u32>(min, max);
 }
 
-fn get_tile_bboxX_naga_oil_mod_XNBSWY4DFOJZQX(pix_center: vec2<f32>, pix_radius: f32, tile_bounds: vec2<u32>, block_size: u32) -> vec4<i32> {
+fn get_tile_bboxX_naga_oil_mod_XNBSWY4DFOJZQX(pix_center: vec2<f32>, pix_radius: f32, tile_bounds: vec2<u32>, block_size: u32) -> vec4<u32> {
     let tile_center = (pix_center / vec2(f32(block_size)));
     let tile_radius = (vec2<f32>(pix_radius, pix_radius) / vec2(f32(block_size)));
     let _e11 = get_bboxX_naga_oil_mod_XNBSWY4DFOJZQX(tile_center, tile_radius, tile_bounds);
@@ -550,19 +543,6 @@ fn project_pix(fxfy: vec2<f32>, p_view: vec3<f32>, pp: vec2<f32>) -> vec2<f32> {
     return p_pix;
 }
 
-fn compute_cov2d_bounds(cov2d: vec3<f32>) -> ComputeCov2DBounds {
-    let det = ((cov2d.x * cov2d.z) - (cov2d.y * cov2d.y));
-    if (det == 0f) {
-        return ComputeCov2DBounds(vec3(0f), 0f, false);
-    }
-    let conic = (vec3<f32>(cov2d.z, -(cov2d.y), cov2d.x) / vec3(det));
-    let b = (0.5f * (cov2d.x + cov2d.z));
-    let v1_ = (b + sqrt(max(0.1f, ((b * b) - det))));
-    let v2_ = (b - sqrt(max(0.1f, ((b * b) - det))));
-    let radius = ceil((3f * sqrt(max(v1_, v2_))));
-    return ComputeCov2DBounds(conic, radius, true);
-}
-
 @compute @workgroup_size(16, 1, 1) 
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invocation_id) local_id: vec3<u32>, @builtin(workgroup_id) workgroup_id: vec3<u32>) {
     let idx = global_id.x;
@@ -578,20 +558,19 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     let tile_bounds_1 = info.tile_bounds;
     let block_width = info.block_width;
     let clip_thresh = info.clip_thresh;
-    radii[idx] = 0i;
+    radii[idx] = 0f;
     num_tiles_hit[idx] = 0i;
-    let p_world = means3d[idx];
-    let p_view_proj = (viewmat * vec4<f32>(p_world, 1f));
-    let p_view_1 = (p_view_proj.xyz / vec3(p_view_proj.w));
+    let mean = means3d[idx];
+    let p_view_1 = (viewmat * vec4<f32>(mean.xyz, 1f));
     if (p_view_1.z <= clip_thresh) {
         return;
     }
     let scale_2 = scales[idx];
     let quat_2 = quats[idx];
-    let _e38 = quat_to_rotmat(quat_2);
+    let _e35 = quat_to_rotmat(quat_2);
     let scale_total_1 = (scale_2 * glob_scale_2);
     let S = mat3x3<f32>(vec3<f32>(scale_total_1.x, 0f, 0f), vec3<f32>(0f, scale_total_1.y, 0f), vec3<f32>(0f, 0f, scale_total_1.z));
-    let M_1 = (_e38 * S);
+    let M_1 = (_e35 * S);
     let V = (M_1 * transpose(M_1));
     covs3d[((6u * idx) + 0u)] = V[0].x;
     covs3d[((6u * idx) + 1u)] = V[0].y;
@@ -616,24 +595,29 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     let c00_ = cov[0].x;
     let c11_ = cov[1].y;
     let c01_ = cov[0].y;
-    let cov2d_1 = vec3<f32>((c00_ + 0.3f), c01_, (c11_ + 0.3f));
-    let _e174 = compute_cov2d_bounds(cov2d_1);
-    if !(_e174.valid) {
+    let cov2d = vec3<f32>((c00_ + 0.3f), c01_, (c11_ + 0.3f));
+    let det = ((cov2d.x * cov2d.z) - (cov2d.y * cov2d.y));
+    if (det == 0f) {
         return;
     }
-    let _e179 = project_pix(vec2<f32>(fx, fy), p_view_1, vec2<f32>(cx, cy));
-    let _e181 = get_tile_bboxX_naga_oil_mod_XNBSWY4DFOJZQX(_e179, _e174.radius, tile_bounds_1, block_width);
-    let tile_area = ((_e181.z - _e181.x) * (_e181.w - _e181.y));
-    if (tile_area <= 0i) {
+    let conic = (vec3<f32>(cov2d.z, -(cov2d.y), cov2d.x) / vec3(det));
+    let b = (0.5f * (cov2d.x + cov2d.z));
+    let v1_ = (b + sqrt(max(0.1f, ((b * b) - det))));
+    let v2_ = (b - sqrt(max(0.1f, ((b * b) - det))));
+    let radius = ceil((3f * sqrt(max(v1_, v2_))));
+    let _e212 = project_pix(vec2<f32>(fx, fy), p_view_1.xyz, vec2<f32>(cx, cy));
+    let _e213 = get_tile_bboxX_naga_oil_mod_XNBSWY4DFOJZQX(_e212, radius, tile_bounds_1, block_width);
+    let tile_area = ((_e213.z - _e213.x) * (_e213.w - _e213.y));
+    if (tile_area <= 0u) {
         return;
     }
     num_tiles_hit[idx] = i32(tile_area);
     depths[idx] = p_view_1.z;
-    radii[idx] = i32(_e174.radius);
-    xys[idx] = _e179;
-    conics[idx] = _e174.conic;
+    radii[idx] = radius;
+    xys[idx] = _e212;
+    conics[idx] = vec4<f32>(conic, 1f);
     let det_orig = ((c00_ * c11_) - (c01_ * c01_));
-    let det_blur = ((cov2d_1.x * cov2d_1.z) - (cov2d_1.y * cov2d_1.y));
+    let det_blur = ((cov2d.x * cov2d.z) - (cov2d.y * cov2d.y));
     compensation[idx] = sqrt(max(0f, (det_orig / det_blur)));
     return;
 }
@@ -656,8 +640,8 @@ pub mod map_gaussian_to_intersects {
     #[derive(Debug, PartialEq, Clone, Copy)]
     pub struct Uniforms {
         /// size: 4, offset: 0x0, type: `u32`
-        pub num_intersections: u32,
-        pub _pad_num_intersections: [u8; 0x8 - core::mem::size_of::<u32>()],
+        pub num_points: u32,
+        pub _pad_num_points: [u8; 0x8 - core::mem::size_of::<u32>()],
         /// size: 8, offset: 0x8, type: `vec2<u32>`
         pub tile_bounds: [u32; 2],
         /// size: 4, offset: 0x10, type: `u32`
@@ -666,13 +650,13 @@ pub mod map_gaussian_to_intersects {
     }
     impl Uniforms {
         pub const fn new(
-            num_intersections: u32,
+            num_points: u32,
             tile_bounds: [u32; 2],
             block_width: u32,
         ) -> Self {
             Self {
-                num_intersections,
-                _pad_num_intersections: [0; 0x8 - core::mem::size_of::<u32>()],
+                num_points,
+                _pad_num_points: [0; 0x8 - core::mem::size_of::<u32>()],
                 tile_bounds,
                 block_width,
                 _pad_block_width: [0; 0x8 - core::mem::size_of::<u32>()],
@@ -682,15 +666,15 @@ pub mod map_gaussian_to_intersects {
     #[repr(C)]
     #[derive(Debug, PartialEq, Clone, Copy)]
     pub struct UniformsInit {
-        pub num_intersections: u32,
+        pub num_points: u32,
         pub tile_bounds: [u32; 2],
         pub block_width: u32,
     }
     impl UniformsInit {
         pub const fn build(&self) -> Uniforms {
             Uniforms {
-                num_intersections: self.num_intersections,
-                _pad_num_intersections: [0; 0x8 - core::mem::size_of::<u32>()],
+                num_points: self.num_points,
+                _pad_num_points: [0; 0x8 - core::mem::size_of::<u32>()],
                 tile_bounds: self.tile_bounds,
                 block_width: self.block_width,
                 _pad_block_width: [0; 0x8 - core::mem::size_of::<u32>()],
@@ -932,7 +916,7 @@ pub mod map_gaussian_to_intersects {
     }
     pub const SHADER_STRING: &'static str = r#"
 struct Uniforms {
-    num_intersections: u32,
+    num_points: u32,
     tile_bounds: vec2<u32>,
     block_width: u32,
 }
@@ -942,23 +926,23 @@ var<storage> xys: array<vec2<f32>>;
 @group(0) @binding(1) 
 var<storage> depths: array<f32>;
 @group(0) @binding(2) 
-var<storage> radii: array<i32>;
+var<storage> radii: array<f32>;
 @group(0) @binding(3) 
 var<storage> cum_tiles_hit: array<u32>;
 @group(0) @binding(4) 
-var<storage, read_write> isect_ids: array<vec2<u32>>;
+var<storage, read_write> isect_ids: array<u32>;
 @group(0) @binding(5) 
 var<storage, read_write> gaussian_ids: array<u32>;
 @group(0) @binding(6) 
 var<storage> info_array: array<Uniforms>;
 
-fn get_bboxX_naga_oil_mod_XNBSWY4DFOJZQX(center: vec2<f32>, dims: vec2<f32>, bounds: vec2<u32>) -> vec4<i32> {
-    let min = clamp(vec2<i32>((center - dims)), vec2(0i), vec2<i32>(bounds));
-    let max = clamp(vec2<i32>(((center + dims) + vec2(1f))), vec2(0i), vec2<i32>(bounds));
-    return vec4<i32>(min, max);
+fn get_bboxX_naga_oil_mod_XNBSWY4DFOJZQX(center: vec2<f32>, dims: vec2<f32>, bounds: vec2<u32>) -> vec4<u32> {
+    let min = vec2<u32>(clamp(vec2<i32>((center - dims)), vec2(0i), vec2<i32>(bounds)));
+    let max = vec2<u32>(clamp(vec2<i32>(((center + dims) + vec2(1f))), vec2(0i), vec2<i32>(bounds)));
+    return vec4<u32>(min, max);
 }
 
-fn get_tile_bboxX_naga_oil_mod_XNBSWY4DFOJZQX(pix_center: vec2<f32>, pix_radius: f32, tile_bounds: vec2<u32>, block_size: u32) -> vec4<i32> {
+fn get_tile_bboxX_naga_oil_mod_XNBSWY4DFOJZQX(pix_center: vec2<f32>, pix_radius: f32, tile_bounds: vec2<u32>, block_size: u32) -> vec4<u32> {
     let tile_center = (pix_center / vec2(f32(block_size)));
     let tile_radius = (vec2<f32>(pix_radius, pix_radius) / vec2(f32(block_size)));
     let _e11 = get_bboxX_naga_oil_mod_XNBSWY4DFOJZQX(tile_center, tile_radius, tile_bounds);
@@ -968,69 +952,67 @@ fn get_tile_bboxX_naga_oil_mod_XNBSWY4DFOJZQX(pix_center: vec2<f32>, pix_radius:
 @compute @workgroup_size(16, 1, 1) 
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invocation_id) local_id: vec3<u32>, @builtin(workgroup_id) workgroup_id: vec3<u32>) {
     var cur_idx: u32 = 0u;
-    var i: i32;
-    var j: i32;
+    var i: u32;
+    var j: u32;
 
+    let idx = global_id.x;
     let info = info_array[0];
-    let num_intersections = info.num_intersections;
+    let num_points = info.num_points;
+    if (idx >= num_points) {
+        return;
+    }
+    let radius = radii[idx];
+    if (radius <= 0f) {
+        isect_ids[idx] = 123u;
+        return;
+    }
     let tile_bounds_1 = info.tile_bounds;
     let block_width = info.block_width;
-    let idx = global_id.x;
-    if (idx >= num_intersections) {
-        return;
-    }
-    let _e12 = radii[idx];
-    if (_e12 <= 0i) {
-        return;
-    }
     let center_1 = xys[idx];
-    let _e20 = radii[idx];
-    let _e22 = get_tile_bboxX_naga_oil_mod_XNBSWY4DFOJZQX(center_1, f32(_e20), tile_bounds_1, block_width);
-    let tile_min = _e22.xy;
-    let tile_max = _e22.zw;
-    if (idx != 0u) {
-        let _e31 = cum_tiles_hit[(idx - 1u)];
-        cur_idx = _e31;
+    let _e21 = get_tile_bboxX_naga_oil_mod_XNBSWY4DFOJZQX(center_1, radius, tile_bounds_1, block_width);
+    let tile_min = _e21.xy;
+    let tile_max = _e21.zw;
+    if (idx > 0u) {
+        let _e30 = cum_tiles_hit[(idx - 1u)];
+        cur_idx = _e30;
     }
-    let _e35 = depths[idx];
-    let depth_id = bitcast<u32>(_e35);
+    let _e34 = depths[idx];
+    let depth_id = bitcast<u32>(_e34);
     i = tile_min.y;
     loop {
-        let _e39 = i;
-        if (_e39 < tile_max.y) {
+        let _e38 = i;
+        if (_e38 < tile_max.y) {
         } else {
             break;
         }
         {
             j = tile_min.x;
             loop {
-                let _e44 = j;
-                if (_e44 < tile_max.x) {
+                let _e43 = j;
+                if (_e43 < tile_max.x) {
                 } else {
                     break;
                 }
                 {
-                    let _e47 = i;
-                    let _e51 = j;
-                    let tile_id = u32(((_e47 * i32(tile_bounds_1.x)) + _e51));
+                    let _e46 = i;
+                    let _e49 = j;
+                    let tile_id = ((_e46 * tile_bounds_1.x) + _e49);
+                    let _e52 = cur_idx;
+                    isect_ids[_e52] = tile_id;
                     let _e55 = cur_idx;
-                    isect_ids[_e55].x = tile_id;
-                    let _e59 = cur_idx;
-                    isect_ids[_e59].y = depth_id;
-                    let _e63 = cur_idx;
-                    gaussian_ids[_e63] = idx;
-                    let _e66 = cur_idx;
-                    cur_idx = (_e66 + 1u);
+                    gaussian_ids[_e55] = idx;
+                    let _e58 = cur_idx;
+                    cur_idx = (_e58 + 1u);
                 }
                 continuing {
-                    let _e69 = j;
-                    j = (_e69 + 1i);
+                    let _e61 = j;
+                    j = (_e61 + 1u);
                 }
             }
         }
         continuing {
-            let _e72 = i;
-            i = (_e72 + 1i);
+            let _e64 = i;
+            i = (_e64 + 1u);
         }
     }
     return;
@@ -1216,7 +1198,7 @@ struct Uniforms {
 }
 
 @group(0) @binding(0) 
-var<storage> isect_ids_sorted: array<vec2<u32>>;
+var<storage> isect_ids_sorted: array<u32>;
 @group(0) @binding(1) 
 var<storage, read_write> tile_bins: array<vec2<u32>>;
 @group(0) @binding(2) 
@@ -1230,19 +1212,15 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     if (idx >= num_intersects) {
         return;
     }
-    let cur_tile_idx = isect_ids_sorted[idx].x;
-    if ((idx == 0u) || (idx == (num_intersects - 1u))) {
-        if (idx == 0u) {
-            tile_bins[cur_tile_idx].x = 0u;
-        }
-        if (idx == (num_intersects - 1u)) {
-            tile_bins[cur_tile_idx].y = num_intersects;
-        }
+    let cur_tile_idx = isect_ids_sorted[idx];
+    if (idx == (num_intersects - 1u)) {
+        tile_bins[cur_tile_idx].y = num_intersects;
     }
     if (idx == 0u) {
+        tile_bins[cur_tile_idx].x = 0u;
         return;
     }
-    let prev_tile_idx = isect_ids_sorted[(idx - 1u)].x;
+    let prev_tile_idx = isect_ids_sorted[(idx - 1u)];
     if (prev_tile_idx != cur_tile_idx) {
         tile_bins[prev_tile_idx].y = idx;
         tile_bins[cur_tile_idx].x = idx;
@@ -1306,7 +1284,6 @@ pub mod rasterize {
         }
     }
     pub const MAX_BLOCK_SIZE: u32 = 256u32;
-    pub const TILE_SIZE: u32 = 16u32;
     pub const GROUP_DIM: u32 = 16u32;
     pub mod bind_groups {
         #[derive(Debug)]
@@ -1561,7 +1538,6 @@ struct Uniforms {
 }
 
 const MAX_BLOCK_SIZE: u32 = 256u;
-const TILE_SIZE: u32 = 16u;
 const GROUP_DIM: u32 = 16u;
 
 @group(0) @binding(0) 
@@ -1571,9 +1547,9 @@ var<storage> tile_bins: array<vec2<u32>>;
 @group(0) @binding(2) 
 var<storage> xys: array<vec2<f32>>;
 @group(0) @binding(3) 
-var<storage> conics: array<vec3<f32>>;
+var<storage> conics: array<vec4<f32>>;
 @group(0) @binding(4) 
-var<storage> colors: array<vec3<f32>>;
+var<storage> colors: array<f32>;
 @group(0) @binding(5) 
 var<storage> opacities: array<f32>;
 @group(0) @binding(6) 
@@ -1581,113 +1557,128 @@ var<storage, read_write> out_img: array<vec4<f32>>;
 @group(0) @binding(7) 
 var<storage> info_array: array<Uniforms>;
 var<workgroup> id_batch: array<u32, 256>;
-var<workgroup> xy_opacity_batch: array<vec3<f32>, 256>;
-var<workgroup> conic_batch: array<vec3<f32>, 256>;
+var<workgroup> xy_batch: array<vec2<f32>, 256>;
+var<workgroup> opacity_batch: array<f32, 256>;
+var<workgroup> conic_batch: array<vec4<f32>, 256>;
 var<workgroup> count_done: atomic<u32>;
 
 @compute @workgroup_size(16, 16, 1) 
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invocation_id) local_id: vec3<u32>, @builtin(local_invocation_index) local_idx: u32, @builtin(workgroup_id) workgroup_id: vec3<u32>) {
-    var done: bool;
+    var done: bool = false;
     var T: f32 = 1f;
-    var cur_idx: u32 = 0u;
     var pix_out: vec3<f32> = vec3(0f);
-    var b: u32 = 0u;
+    var batch_start: u32;
     var t: u32;
+    var sigma: f32;
+    var alpha: f32;
 
     let info = info_array[0];
-    let tile_size = vec2<u32>(16u, 16u);
     let tile_bounds = info.tile_bounds;
     let background = info.background;
     let img_size = info.img_size;
-    let tile_id = ((workgroup_id.y * tile_bounds.x) + workgroup_id.x);
-    let i = ((workgroup_id.y * GROUP_DIM) + local_id.y);
-    let j = ((workgroup_id.x * GROUP_DIM) + local_id.x);
+    let tile_id = (workgroup_id.x + (workgroup_id.y * tile_bounds.x));
+    let j = global_id.x;
+    let i = global_id.y;
     let px = f32(j);
     let py = f32(i);
-    let pix_id = ((i * img_size.x) + j);
+    let pix_id = (global_id.x + (global_id.y * img_size.x));
     let inside = ((i < img_size.y) && (j < img_size.x));
-    done = !(inside);
+    if !(inside) {
+        let _e34 = atomicAdd((&count_done), 1u);
+        done = true;
+    }
     let range = tile_bins[tile_id];
-    let num_batches = ((((range.y - range.x) + 256u) - 1u) / 256u);
+    batch_start = range.x;
     loop {
-        let _e54 = b;
-        if (_e54 < num_batches) {
+        let _e42 = batch_start;
+        if (_e42 < range.y) {
         } else {
             break;
         }
         {
-            let _e57 = atomicLoad((&count_done));
-            if (_e57 >= 256u) {
+            workgroupBarrier();
+            let _e47 = atomicLoad((&count_done));
+            if (_e47 >= 256u) {
                 break;
             }
-            let _e60 = b;
-            let batch_start = (range.x + (256u * _e60));
-            let idx = (batch_start + local_idx);
+            let _e50 = batch_start;
+            let idx = (_e50 + local_idx);
             if (idx < range.y) {
                 let g_id = gaussian_ids_sorted[idx];
                 id_batch[local_idx] = g_id;
-                let _e76 = xys[g_id];
-                let _e79 = opacities[g_id];
-                xy_opacity_batch[local_idx] = vec3<f32>(_e76, _e79);
-                let _e85 = conics[g_id];
-                conic_batch[local_idx] = _e85;
+                let _e63 = xys[g_id];
+                xy_batch[local_idx] = _e63;
+                let _e68 = opacities[g_id];
+                opacity_batch[local_idx] = _e68;
+                let _e73 = conics[g_id];
+                conic_batch[local_idx] = _e73;
             }
             workgroupBarrier();
-            let batch_size = min(256u, (range.y - batch_start));
+            let _e75 = batch_start;
+            let batch_size = min(256u, (range.y - _e75));
             t = 0u;
             loop {
-                let _e91 = t;
-                let _e93 = done;
-                if ((_e91 < batch_size) && !(_e93)) {
+                let _e80 = t;
+                let _e82 = done;
+                if ((_e80 < batch_size) && !(_e82)) {
                 } else {
                     break;
                 }
                 {
-                    let _e97 = t;
-                    let conic = conic_batch[_e97];
-                    let _e101 = t;
-                    let xy_opac = xy_opacity_batch[_e101];
-                    let opac = xy_opac.z;
-                    let delta = (xy_opac.xy - vec2<f32>(px, py));
-                    let sigma = ((0.5f * (((conic.x * delta.x) * delta.x) + ((conic.z * delta.y) * delta.y))) + ((conic.y * delta.x) * delta.y));
-                    let alpha = min(0.999f, (opac * exp(-(sigma))));
-                    if ((sigma < 0f) || (alpha < 0.003921569f)) {
+                    let _e86 = t;
+                    let xy = xy_batch[_e86];
+                    let _e90 = t;
+                    let opac = opacity_batch[_e90];
+                    let _e94 = t;
+                    let conic = conic_batch[_e94];
+                    let delta = (xy - vec2<f32>(px, py));
+                    sigma = ((0.5f * (((conic.x * delta.x) * delta.x) + ((conic.z * delta.y) * delta.y))) + ((conic.y * delta.x) * delta.y));
+                    let _e120 = sigma;
+                    alpha = min(0.999f, (opac * exp(-(_e120))));
+                    let _e126 = sigma;
+                    let _e129 = alpha;
+                    if ((_e126 < 0f) || (_e129 < 0.003921569f)) {
                         continue;
                     }
-                    let _e138 = T;
-                    let next_T = (_e138 * (1f - alpha));
-                    if (next_T <= 0.0001f) {
-                        let _e146 = atomicAdd((&count_done), 1u);
+                    let _e134 = T;
+                    let _e135 = alpha;
+                    let next_T = (_e134 * (1f - _e135));
+                    let _e140 = t;
+                    let g = id_batch[_e140];
+                    let _e143 = alpha;
+                    let _e144 = T;
+                    let vis = (_e143 * _e144);
+                    T = next_T;
+                    let _e152 = colors[((g * 3u) + 0u)];
+                    let _e159 = colors[((g * 3u) + 1u)];
+                    let _e166 = colors[((g * 3u) + 2u)];
+                    let c = vec3<f32>(_e152, _e159, _e166);
+                    let _e170 = pix_out;
+                    pix_out = (_e170 + (c * vis));
+                    out_img[pix_id] = vec4<f32>(conic);
+                    let _e175 = T;
+                    if (_e175 <= 0.0001f) {
+                        let _e180 = atomicAdd((&count_done), 1u);
                         done = true;
                         break;
                     }
-                    let _e149 = t;
-                    let g = id_batch[_e149];
-                    let _e152 = T;
-                    let vis = (alpha * _e152);
-                    let c = colors[g];
-                    let _e159 = pix_out;
-                    pix_out = (_e159 + (c * vis));
-                    T = next_T;
-                    let _e161 = t;
-                    cur_idx = (batch_start + _e161);
                 }
                 continuing {
-                    let _e165 = t;
-                    t = (_e165 + 1u);
+                    let _e183 = t;
+                    t = (_e183 + 1u);
                 }
             }
         }
         continuing {
-            let _e168 = b;
-            b = (_e168 + 1u);
+            let _e185 = batch_start;
+            batch_start = (_e185 + 256u);
         }
     }
     if inside {
-        let _e172 = pix_out;
-        let _e173 = T;
-        let _e175 = T;
-        out_img[pix_id] = (vec4<f32>(_e172, _e173) + vec4<f32>((_e175 * background), 0f));
+        let _e189 = pix_out;
+        let _e190 = T;
+        let _e195 = T;
+        out_img[pix_id] = vec4<f32>((_e189 + ((1f - _e190) * background)), _e195);
         return;
     } else {
         return;

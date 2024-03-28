@@ -1,6 +1,7 @@
 #import helpers
 
-@group(0) @binding(0) var<storage, read> isect_ids_sorted: array<vec2u>;
+@group(0) @binding(0) var<storage, read> isect_ids_sorted: array<u32>;
+
 @group(0) @binding(1) var<storage, read_write> tile_bins: array<vec2u>;
 
 @group(0) @binding(2) var<storage, read> info_array: array<Uniforms>;
@@ -22,30 +23,25 @@ fn main(
 ) {
     let info = info_array[0];
     let num_intersects = info.num_intersects;
-
     let idx = global_id.x;
     if idx >= num_intersects {
         return;
     }
 
-    // save the indices where the tile_id changes
-    let cur_tile_idx = isect_ids_sorted[idx].x;
+    // Save the indices where the tile_id changes
+    let cur_tile_idx = isect_ids_sorted[idx];
 
-    if idx == 0 || idx == num_intersects - 1 {
-        if idx == 0 {
-            tile_bins[cur_tile_idx].x = 0u;
-        }
-
-        if idx == num_intersects - 1 {
-            tile_bins[cur_tile_idx].y = num_intersects;
-        }
+    // handle edge cases.
+    if idx == num_intersects - 1 {
+        tile_bins[cur_tile_idx].y = num_intersects;
     }
-
+    
     if idx == 0 {
+        tile_bins[cur_tile_idx].x = 0u;
         return;
     }
 
-    let prev_tile_idx = isect_ids_sorted[idx - 1].x;
+    let prev_tile_idx = isect_ids_sorted[idx - 1];
 
     if prev_tile_idx != cur_tile_idx {
         tile_bins[prev_tile_idx].y = idx;

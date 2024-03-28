@@ -15,7 +15,7 @@ use burn::{
     tensor::Shape,
 };
 use derive_new::new;
-use glam::{uvec3, UVec3};
+use glam::{uvec2, uvec3, UVec3};
 use crate::camera::Camera;
 use super::{gen, Backend, FloatTensor};
 
@@ -137,13 +137,18 @@ impl<G: GraphicsApi, F: FloatElement, I: IntElement> Backend for JitBackend<Wgpu
         let batches = [means.shape.dims[0], scales.shape.dims[0], quats.shape.dims[0], colors.shape.dims[0], opacity.shape.dims[0]];
         assert!(batches.iter().all(|&x| x == num_points));
 
+        // Atm these have to be dim=4, to be compatible
+        // with wgsl alignment.
+        assert!(means.shape.dims[1] == 4);
+        assert!(scales.shape.dims[1] == 4);
+
+        // 4D quaternion.
+        assert!(quats.shape.dims[1] == 4);
+
         // Divide screen into block
         let block_size = 16;
         let img_size = [camera.width, camera.height];
-        let tile_bounds = [
-            (camera.width + block_size - 1) / block_size,
-            (camera.height + block_size - 1) / block_size,
-        ];
+        let tile_bounds = uvec2(camera.height.div_ceil(block_size), camera.height.div_ceil(block_size));
 
         let intrins = 
             // TODO: Does this need the tan business?
@@ -167,29 +172,34 @@ impl<G: GraphicsApi, F: FloatElement, I: IntElement> Backend for JitBackend<Wgpu
                 client.create(&vec![0; shape.num_elements() * core::mem::size_of::<F>()]),
             )
         };
-        let create_empty_i32 = |dim| -> JitTensor<WgpuRuntime<G, F, I>, I, 2> {
+        let create_empty_u32 = |dim| -> JitTensor<WgpuRuntime<G, F, I>, I, 2> {
             let shape = Shape::new(dim);
             JitTensor::new(
                 client.clone(),
                 device.clone(),
                 shape.clone(),
-                client.create(&vec![0; shape.num_elements() * core::mem::size_of::<F>()]),
+                client.create(&vec![0; shape.num_elements() * core::mem::size_of::<I>()]),
             )
         };
 
-        let to_vec_i = |tensor: &JitTensor<WgpuRuntime<G, F, I>, I, 2>| -> Vec<u32> {
+        let to_vec_u32 = |tensor: &JitTensor<WgpuRuntime<G, F, I>, I, 2>| -> Vec<u32> {
             let data = client.read(&tensor.handle).read();
             data.into_iter().array_chunks::<4>().map(u32::from_le_bytes).collect()
+        };
+
+        let to_vec_f32 = |tensor: &JitTensor<WgpuRuntime<G, F, I>, F, 2>| -> Vec<f32> {
+            let data = client.read(&tensor.handle).read();
+            data.into_iter().array_chunks::<4>().map(f32::from_le_bytes).collect()
         };
 
         // TODO: We might only need the data on the client for this not the tensor wrapper?
         let covs3d = create_empty_f32([num_points, 6]);
         let xys = create_empty_f32([num_points, 2]);
         let depths = create_empty_f32([num_points, 1]);
-        let radii = create_empty_i32([num_points, 1]);
-        let conics = create_empty_f32([num_points, 3]);
+        let radii = create_empty_f32([num_points, 1]);
+        let conics = create_empty_f32([num_points, 4]);
         let compensation = create_empty_f32([num_points, 1]);
-        let num_tiles_hit = create_empty_i32([num_points, 1]);
+        let num_tiles_hit = create_empty_u32([num_points, 1]);
 
         let workgroup = get_workgroup(uvec3(num_points as u32, 1, 1), ProjectSplats::workgroup_size());
         client.execute(
@@ -213,7 +223,7 @@ impl<G: GraphicsApi, F: FloatElement, I: IntElement> Backend for JitBackend<Wgpu
                     camera.transform.inverse(),
                     intrins,
                     img_size,
-                    tile_bounds,
+                    tile_bounds.into(),
                     1.0,
                     0.001,
                     block_size,
@@ -224,108 +234,104 @@ impl<G: GraphicsApi, F: FloatElement, I: IntElement> Backend for JitBackend<Wgpu
         // TODO: CPU emulation for now. Investigate if we can do without a cumulative sum?
 
         // Read num tiles to CPU.
-        let num_tiles_hit = to_vec_i(&num_tiles_hit);
+        let num_tiles_hit = to_vec_u32(&num_tiles_hit);
         // Calculate cumulative sum.
         let cum_tiles_hit: Vec<u32> = num_tiles_hit
             .into_iter()
             .scan(0, |acc, x| {
-                let acc_val: u32 = *acc;
-                *acc = acc_val.saturating_add(x);
+                *acc += x;
                 Some(*acc)
             })
             .collect();
-        let num_intersections = *cum_tiles_hit.last().unwrap();
+        let num_intersects = *cum_tiles_hit.last().unwrap() as usize;
+        
         // Reupload to GPU.
         let cum_tiles_hit = client.create(bytemuck::cast_slice::<u32, u8>(&cum_tiles_hit));
 
-        let isect_ids = create_empty_i32([num_points, 2]);
-        let gaussian_ids = create_empty_i32([num_points, 1]);
+        // Each intersection maps to a gaussian.
+        let gaussian_ids_unsorted = create_empty_u32([num_intersects, 1]);
+        let isect_ids_unsorted = create_empty_u32([num_intersects, 1]);
 
-        let workgroup = get_workgroup(uvec3(num_intersections, 1, 1), MapGaussiansToIntersect::workgroup_size());
+        // Dispatch one thread per point.
+        let workgroup = get_workgroup(uvec3(num_points as u32, 1, 1), MapGaussiansToIntersect::workgroup_size());
         client.execute(
             Box::new(DynamicKernel::new(MapGaussiansToIntersect::new(), workgroup)),
             &[
-                // Input tensors.
+                // Read
                 &xys.handle,
                 &depths.handle,
                 &radii.handle,
                 &cum_tiles_hit,
-
-                &isect_ids.handle,
-                &gaussian_ids.handle,
-
+                // Write
+                &isect_ids_unsorted.handle,
+                &gaussian_ids_unsorted.handle,
+                // Uniforms
                 &client.create(bytemuck::bytes_of(&gen::map_gaussian_to_intersects::Uniforms::new(
-                    num_intersections,
-                    tile_bounds,
+                    num_points as u32,
+                    tile_bounds.into(),
                     block_size,
                 ))),
             ],
         );
 
         // TODO: WGSL Radix sort.
-        // let isect_ids = bytemuck::cast_vec::<u32, u64>(to_vec_i(&isect_ids));
-        // let gaussian_ids = to_vec_i(&gaussian_ids);
-        // let sorted_indices = argsort(&isect_ids);
-        // let isect_ids_sorted: Vec<_> = sorted_indices.iter().copied().map(|x| isect_ids[x]).collect();
-        // let gaussian_ids_sorted: Vec<_> = sorted_indices.iter().copied().map(|x| gaussian_ids[x]).collect();
+        let isect_ids_unsorted = to_vec_u32(&isect_ids_unsorted);
 
-        // Map sorted intersection IDs to tile bins which give the range of unique gaussian IDs belonging to each tile.
-        // Expects that intersection IDs are sorted by increasing tile ID.
-        // Indexing into tile_bins[tile_idx] returns the range (lower,upper) of gaussian IDs that hit tile_idx.
-        // Args:
-        //     num_intersects (int): total number of gaussian intersects.
-        //     isect_ids_sorted (Tensor): sorted unique IDs for each gaussian in the form (tile | depth id).
-        //     tile_bounds (Tuple): tile dimensions as a len 3 tuple (tiles.x , tiles.y, 1).
-    
-        // Returns:
-        //     A Tensor:
-        //     - **tile_bins** (Tensor): range of gaussians IDs hit per tile.
+        let gaussian_ids_unsorted = to_vec_u32(&gaussian_ids_unsorted);
+        let sorted_indices = argsort(&isect_ids_unsorted);
         
-        // TODO: Num intersects.
-        let workgroup = get_workgroup(uvec3(num_intersections, 1, 1), GetTileBinEdges::workgroup_size());
-        // let isect_ids_sorted = client.create(bytemuck::cast_slice::<u32, u8>(&isect_ids_sorted));
-        // let gaussian_ids_sorted = client.create(bytemuck::cast_slice::<u32, u8>(&gaussian_ids_sorted));
+        let isect_ids_sorted: Vec<_> = sorted_indices.iter().copied().map(|x| isect_ids_unsorted[x]).collect();
+        let gaussian_ids_sorted: Vec<_> = sorted_indices.iter().copied().map(|x| gaussian_ids_unsorted[x]).collect();
+        
 
-        let tile_bins = create_empty_i32([num_points, 2]);
+        let workgroup = get_workgroup(uvec3(num_intersects as u32, 1, 1), GetTileBinEdges::workgroup_size());
+        let isect_ids_sorted = client.create(bytemuck::cast_slice::<u32, u8>(&isect_ids_sorted));
+
+        let tile_bins = create_empty_u32([(tile_bounds[0] * tile_bounds[1]) as usize, 2]);
 
         client.execute(
             Box::new(DynamicKernel::new(GetTileBinEdges::new(), workgroup)),
             &[
-                &isect_ids.handle,
+                // Read
+                &isect_ids_sorted,
+                // Write
                 &tile_bins.handle,
-                // Uniforms.
+                // Uniforms
                 &client.create(bytemuck::bytes_of(&gen::get_tile_bin_edges::Uniforms::new(
-                    num_intersections,
+                    num_intersects as u32,
                 ))),
             ],
         );
 
-        let out_img_shape = Shape::new([camera.height as usize, camera.width as usize, 4]);
+        let img_shape = Shape::new([camera.height as usize, camera.width as usize, 4]);
         let out_img = JitTensor::new(
             client.clone(),
             device.clone(),
-            out_img_shape.clone(),
-            client.empty(out_img_shape.num_elements() * core::mem::size_of::<f32>()),
+            img_shape.clone(),
+            client.empty(img_shape.num_elements() * core::mem::size_of::<f32>()),
         );
+        let gaussian_ids_sorted = client.create(bytemuck::cast_slice::<u32, u8>(&gaussian_ids_sorted));
 
-        let workgroup = get_workgroup(uvec3(camera.width, camera.height, 1), RasterizeForward::workgroup_size());
+        println!("{:?}", to_vec_f32(&conics));
+
+        let workgroup = get_workgroup(uvec3(img_shape.dims[0] as u32, img_shape.dims[1] as u32, 1), RasterizeForward::workgroup_size());
         client.execute(
             Box::new(DynamicKernel::new(RasterizeForward::new(), workgroup)),
             &[
-                // Input tensors.
-                &gaussian_ids.handle,
+                // Read
+                &gaussian_ids_sorted,
                 &tile_bins.handle,
                 &xys.handle,
                 &conics.handle,
                 &colors.handle,
                 &opacity.handle,
 
-                // Output data
+                // Write
                 &out_img.handle,
 
-                // Aux data.
+                // Uniforms
                 &client.create(bytemuck::bytes_of(&gen::rasterize::Uniforms::new(
-                    tile_bounds,
+                    tile_bounds.into(),
                     background.into(),
                     img_size
                 ))),
