@@ -4,20 +4,22 @@ use burn::{
             checkpoint::{base::Checkpointer, strategy::CheckpointStrategy},
             grads::Gradients,
             ops::{Backward, Ops, OpsKind},
-            NodeID,
         },
         wgpu::{
-            into_contiguous, DynamicKernel, DynamicKernelSource, FloatElement, GraphicsApi,
-            IntElement, JitBackend, JitTensor, SourceTemplate, WgpuRuntime, WorkGroup,
+            into_contiguous, AutoGraphicsApi, DynamicKernel, DynamicKernelSource, FloatElement, GraphicsApi, IntElement, JitBackend, JitTensor, SourceTemplate, WgpuRuntime, WorkGroup
         },
         Autodiff,
     },
     tensor::Shape,
 };
+
+type BurnBack = JitBackend<WgpuRuntime<AutoGraphicsApi, f32, i32>>;
+type BurnBackInner = WgpuRuntime<AutoGraphicsApi, f32, i32>;
+
 use derive_new::new;
-use glam::{uvec2, uvec3, UVec3};
+use glam::{uvec2, uvec3, UVec3, Vec3};
 use crate::camera::Camera;
-use super::{gen, Backend, FloatTensor};
+use super::{gen, AutodiffBackend, Backend, FloatTensor};
 
 #[derive(new, Debug)]
 struct ProjectSplats {}
@@ -80,14 +82,12 @@ impl DynamicKernelSource for GetTileBinEdges {
 }
 
 #[derive(new, Debug)]
-struct RasterizeForward {
-}
+struct RasterizeForward {}
 
 impl DynamicKernelSource for RasterizeForward {
     fn source(&self) -> SourceTemplate {
         SourceTemplate::new(gen::rasterize::SHADER_STRING)
     }
-
     fn id(&self) -> String {
         format!("{:?}", self)
     }
@@ -99,6 +99,24 @@ impl RasterizeForward  {
     }
 }
 
+
+#[derive(new, Debug)]
+struct RasterizeBackwards {}
+
+impl DynamicKernelSource for RasterizeBackwards {
+    fn source(&self) -> SourceTemplate {
+        SourceTemplate::new(gen::rasterize_backwards::SHADER_STRING)
+    }
+    fn id(&self) -> String {
+        format!("{:?}", self)
+    }
+}
+
+impl RasterizeBackwards  {
+    fn workgroup_size() -> UVec3 {
+        uvec3(16, 16, 1)
+    }
+}
 
 fn get_workgroup(executions: UVec3, group_size: UVec3) -> WorkGroup {
     let execs = (executions.as_vec3() / group_size.as_vec3()).ceil().as_uvec3();
@@ -113,15 +131,158 @@ pub fn argsort<T: Ord>(data: &[T]) -> Vec<usize> {
 
 impl<G: GraphicsApi, F: FloatElement, I: IntElement> Backend for JitBackend<WgpuRuntime<G, F, I>> {
     fn render_gaussians(
+        _camera: &Camera,
+        _means: FloatTensor<Self, 2>,
+        _scales: FloatTensor<Self, 2>,
+        _quats: FloatTensor<Self, 2>,
+        _colors: FloatTensor<Self, 2>,
+        _opacity: FloatTensor<Self, 1>,
+        _background: glam::Vec3,
+    ) -> FloatTensor<Self, 3> {
+        // Implement inference only version. This shouln't be hard but burn makes it a bit annoying!
+        todo!();
+    }
+}
+
+// Create our zero-sized type that will implement the Backward trait.
+#[derive(Debug)]
+struct RenderBackwards;
+
+impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
+    fn render_gaussians(
         camera: &Camera,
-        means: FloatTensor<Self, 2>,
-        scales: FloatTensor<Self, 2>,
-        quats: FloatTensor<Self, 2>,
-        colors: FloatTensor<Self, 2>,
-        opacity: FloatTensor<Self, 1>,
+        means_diff: FloatTensor<Self, 2>,
+        scales_diff: FloatTensor<Self, 2>,
+        quats_diff: FloatTensor<Self, 2>,
+        colors_diff: FloatTensor<Self, 2>,
+        opacity_diff: FloatTensor<Self, 1>,
         background: glam::Vec3,
     ) -> FloatTensor<Self, 3> {
+        #[derive(Debug, Clone)]
+        struct GaussianBackwardState {
+            cam: Camera,
+            background: Vec3,
+            gaussian_ids_sorted: JitTensor<BurnBackInner, i32, 1>,
+            tile_bins: JitTensor<BurnBackInner, i32, 2>,
+            xys: JitTensor<BurnBackInner, f32, 2>,
+            conics: JitTensor<BurnBackInner, f32, 2>,
+            colors: JitTensor<BurnBackInner, f32, 2>,
+            opacity: JitTensor<BurnBackInner, f32, 1>,
+            final_index: JitTensor<BurnBackInner, i32, 2>,
+            out_img: JitTensor<BurnBackInner, f32, 3>,
+        }
+
+        // Implement the backward trait for the given backend B, the node gradient being of rank D
+        // with three other gradients to calculate (means, colors, and opacity).
+        impl Backward<BurnBack, 3, 5> for RenderBackwards {
+            // Our state that we must build during the forward pass to compute the backward pass.
+            // (means)
+            type State = GaussianBackwardState;
+
+            fn backward(
+                self,
+                ops: Ops<Self::State, 5>,
+                grads: &mut Gradients,
+                checkpointer: &mut Checkpointer,
+            ) {
+                // // Get the nodes of each variable.
+                let block_size = 16;
+                
+                let state = ops.state;
+                let v_output = grads.consume::<BurnBack, 3>(&ops.node);
+                let camera = state.cam;
+                let tile_bounds = uvec2(camera.height.div_ceil(block_size), camera.height.div_ceil(block_size));
+
+                let client = v_output.client.clone();
+                let device = v_output.device.clone();
+
+                
+                let create_empty_f32 = |dim|-> JitTensor<BurnBackInner, f32, 2> {
+                    let shape = Shape::new(dim);
+                    JitTensor::new(
+                        client.clone(),
+                        device.clone(),
+                        shape.clone(),
+                        client.create(&vec![0; shape.num_elements() * core::mem::size_of::<f32>()]),
+                    )
+                };
+
+                let num_points = state.colors.shape.dims[0];
+                let v_opacity = create_empty_f32([num_points, 1]);
+                let v_conic = create_empty_f32([num_points, 4]);
+                let v_xy = create_empty_f32([num_points, 2]);
+                let v_rgb = create_empty_f32([num_points, 4]);
+
+                let workgroup = get_workgroup(uvec3(camera.height, camera.width, 1), RasterizeBackwards::workgroup_size());
+
+                client.execute(
+                    Box::new(DynamicKernel::new(RasterizeBackwards::new(), workgroup)),
+                    &[
+                        // Read
+                        &state.gaussian_ids_sorted.handle,
+                        &state.tile_bins.handle,
+                        &state.xys.handle,
+                        &state.conics.handle,
+                        &state.colors.handle,
+                        &state.opacity.handle,
+                        &state.final_index.handle,
+                        &state.out_img.handle,
+                        &v_output.handle,
+
+                        &v_opacity.handle,
+                        &v_conic.handle,
+                        &v_xy.handle,
+                        &v_rgb.handle,
+
+                        // Uniforms
+                        &client.create(bytemuck::bytes_of(&gen::rasterize_backwards::Uniforms::new(
+                            [camera.height, camera.width],
+                            tile_bounds.into(),
+                            state.background.into()
+                        ))),
+                    ],
+                );
+
+                // Read from the state we have setup.
+                // let means = checkpointer.retrieve_node_output(means_state);
+
+                // Return gradient of means, atm just as itself. So d/dx means == means? errr... ?
+                // let grad_means = means;
+
+                // Get the parent nodes we're registering gradients for.
+                // let [mean_parent] = ops.parents;
+
+                // if let Some(node) = mean_parent {
+                    // grads.register::<B, 2>(node, grad_means);
+                // }
+            }
+        }
+
+        let prep_nodes = RenderBackwards
+        .prepare::<C>(
+            [
+                means_diff.node.clone(), 
+                scales_diff.node.clone(), 
+                quats_diff.node.clone(), 
+                colors_diff.node.clone(), 
+                opacity_diff.node.clone()
+            ],
+            [
+                means_diff.graph.clone(), 
+                scales_diff.graph.clone(), 
+                quats_diff.graph.clone(), 
+                colors_diff.graph.clone(), 
+                opacity_diff.graph.clone()
+            ],
+        )
+        // Marks the operation as compute bound, meaning it will save its
+        // state instead of recomputing itself during checkpointing
+        .compute_bound()
+        .stateful();
+
         println!("Project gaussians!");
+
+        let (means, scales, quats, colors, opacity) = (means_diff.primitive, scales_diff.primitive, quats_diff.primitive, colors_diff.primitive, opacity_diff.primitive);
 
         // Preprocess tensors.
         assert!(means.device == scales.device && means.device == quats.device && means.device == colors.device && means.device == opacity.device);
@@ -163,31 +324,31 @@ impl<G: GraphicsApi, F: FloatElement, I: IntElement> Backend for JitBackend<Wgpu
         let device = means.device.clone();
 
         // TODO: Must be a faster way to create with nulls.
-        let create_empty_f32 = |dim|-> JitTensor<WgpuRuntime<G, F, I>, F, 2> {
+        let create_empty_f32 = |dim|-> JitTensor<BurnBackInner, f32, 2> {
             let shape = Shape::new(dim);
             JitTensor::new(
                 client.clone(),
                 device.clone(),
                 shape.clone(),
-                client.create(&vec![0; shape.num_elements() * core::mem::size_of::<F>()]),
+                client.create(&vec![0; shape.num_elements() * core::mem::size_of::<f32>()]),
             )
         };
-        let create_empty_u32 = |dim| -> JitTensor<WgpuRuntime<G, F, I>, I, 2> {
+        let create_empty_u32 = |dim| -> JitTensor<BurnBackInner, i32, 2> {
             let shape = Shape::new(dim);
             JitTensor::new(
                 client.clone(),
                 device.clone(),
                 shape.clone(),
-                client.create(&vec![0; shape.num_elements() * core::mem::size_of::<I>()]),
+                client.create(&vec![0; shape.num_elements() * core::mem::size_of::<i32>()]),
             )
         };
 
-        let to_vec_u32 = |tensor: &JitTensor<WgpuRuntime<G, F, I>, I, 2>| -> Vec<u32> {
+        let to_vec_u32 = |tensor: &JitTensor<BurnBackInner, i32, 2>| -> Vec<u32> {
             let data = client.read(&tensor.handle).read();
             data.into_iter().array_chunks::<4>().map(u32::from_le_bytes).collect()
         };
 
-        let to_vec_f32 = |tensor: &JitTensor<WgpuRuntime<G, F, I>, F, 2>| -> Vec<f32> {
+        let to_vec_f32 = |tensor: &JitTensor<BurnBackInner, f32, 2>| -> Vec<f32> {
             let data = client.read(&tensor.handle).read();
             data.into_iter().array_chunks::<4>().map(f32::from_le_bytes).collect()
         };
@@ -310,7 +471,19 @@ impl<G: GraphicsApi, F: FloatElement, I: IntElement> Backend for JitBackend<Wgpu
             img_shape.clone(),
             client.empty(img_shape.num_elements() * core::mem::size_of::<f32>()),
         );
-        let gaussian_ids_sorted = client.create(bytemuck::cast_slice::<u32, u8>(&gaussian_ids_sorted));
+
+        let final_index_shape = Shape::new([camera.height as usize, camera.width as usize]);
+        let final_index = JitTensor::new(
+            client.clone(),
+            device.clone(),
+            final_index_shape.clone(),
+            client.empty(final_index_shape.num_elements() * core::mem::size_of::<u32>()),
+        );
+        let gaussian_ids_sorted = JitTensor::new(client.clone(), device.clone(), 
+        
+        Shape::new([num_intersects]),
+
+        client.create(bytemuck::cast_slice::<u32, u8>(&gaussian_ids_sorted)));
 
         println!("{:?}", to_vec_f32(&conics));
 
@@ -319,7 +492,7 @@ impl<G: GraphicsApi, F: FloatElement, I: IntElement> Backend for JitBackend<Wgpu
             Box::new(DynamicKernel::new(RasterizeForward::new(), workgroup)),
             &[
                 // Read
-                &gaussian_ids_sorted,
+                &gaussian_ids_sorted.handle,
                 &tile_bins.handle,
                 &xys.handle,
                 &conics.handle,
@@ -328,6 +501,7 @@ impl<G: GraphicsApi, F: FloatElement, I: IntElement> Backend for JitBackend<Wgpu
 
                 // Write
                 &out_img.handle,
+                &final_index.handle,
 
                 // Uniforms
                 &client.create(bytemuck::bytes_of(&gen::rasterize::Uniforms::new(
@@ -338,114 +512,35 @@ impl<G: GraphicsApi, F: FloatElement, I: IntElement> Backend for JitBackend<Wgpu
             ],
         );
 
-        out_img
-    }
-}
-
-// Create our zero-sized type that will implement the Backward trait.
-#[derive(Debug)]
-struct ProjectSplatsBackward;
-
-// Implement the backward trait for the given backend B, the node gradient being of rank D
-// with three other gradients to calculate (means, colors, and opacity).
-impl<B: Backend> Backward<B, 3, 1> for ProjectSplatsBackward {
-    // Our state that we must build during the forward pass to compute the backward pass.
-    //
-    // Note that we could improve the performance further by only keeping the state of
-    // tensors that are tracked, improving memory management, but for simplicity, we avoid
-    // that part.
-
-    // (means)
-    type State = (NodeID,);
-
-    fn backward(
-        self,
-        ops: Ops<Self::State, 1>,
-        grads: &mut Gradients,
-        checkpointer: &mut Checkpointer,
-    ) {
-        // // Get the nodes of each variable.
-        // let image_gradient = grads.consume::<B, 3>(&ops.node);
-
-        // Read from the state we have setup.
-        let (means_state,) = ops.state;
-        let means = checkpointer.retrieve_node_output(means_state);
-
-        // Return gradient of means, atm just as itself. So d/dx means == means? errr... ?
-        let grad_means = means;
-
-        // Get the parent nodes we're registering gradients for.
-        let [mean_parent] = ops.parents;
-
-        if let Some(node) = mean_parent {
-            grads.register::<B, 2>(node, grad_means);
-        }
-    }
-}
-
-impl<B: Backend, C: CheckpointStrategy> Backend for Autodiff<B, C> {
-    fn render_gaussians(
-        camera: &Camera,
-        means: FloatTensor<Self, 2>,
-        scales: FloatTensor<Self, 2>,
-        quats: FloatTensor<Self, 2>,
-        colors: FloatTensor<Self, 2>,
-        opacity: FloatTensor<Self, 1>,
-        background: glam::Vec3,
-    ) -> FloatTensor<Self, 3> {
-        let prep_nodes = ProjectSplatsBackward
-            .prepare::<C>(
-                [means.node.clone()],
-                [
-                    means.graph.clone(),
-                ],
-            )
-            // Marks the operation as compute bound, meaning it will save its
-            // state instead of recomputing itself during checkpointing
-            .compute_bound()
-            .stateful();
-
         // Prepare a stateful operation with each variable node and corresponding graph.
         //
         // Each node can be fetched with `ops.parents` in the same order as defined here.
         match prep_nodes {
             OpsKind::Tracked(mut prep) => {
-                // When at least one node is tracked, we should register our backward step.
-
-                // The state consists of what will be needed for this operation's backward pass.
-                // Since we need the parents' outputs, we must checkpoint their ids to retrieve their node
-                // output at the beginning of the backward. We can also save utilitary data such as the bias shape
-                // If we also need this operation's output, we can either save it in the state or recompute it
-                // during the backward pass. Here we choose to save it in the state because it's a compute bound operation.
-                let means_state = prep.checkpoint(&means);
-
-                let output = B::render_gaussians(
-                    camera,
-                    means.primitive,
-                    scales.primitive,
-                    quats.primitive,
-                    colors.primitive,
-                    opacity.primitive,
-                    background
-                );
-
-                let state = (means_state,);
-                prep.finish(state, output)
+                let state = GaussianBackwardState {
+                    cam: camera.clone(),
+                    background,
+                    out_img: out_img.clone(),
+                    gaussian_ids_sorted,
+                    tile_bins,
+                    xys,
+                    conics,
+                    colors,
+                    opacity,
+                    final_index,
+                };
+        
+                prep.finish(state, out_img)
             }
             OpsKind::UnTracked(prep) => {
                 // When no node is tracked, we can just compute the original operation without
                 // keeping any state.
-                let output = B::render_gaussians(
-                        camera,
-                        means.primitive,
-                        scales.primitive,
-                        quats.primitive,
-                        colors.primitive,
-                        opacity.primitive,
-                        background
-                    );
-                prep.finish(output)
+                prep.finish(out_img)
             }
         }
     }
+}
+
+impl AutodiffBackend for Autodiff<BurnBack>
+{
 }

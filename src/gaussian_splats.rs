@@ -89,9 +89,12 @@ impl<B: Backend> Splats<B> {
         device: &Device<B>,
     ) -> Splats<B> {
         println!("Splats new random tensor.");
-        let xyz = Tensor::random([num_points, 4], Distribution::Uniform(0.0, 1.0), device)
-            * aabb_scale
-            - aabb_scale / 2.0;
+        let extent = (aabb_scale as f64) / 2.0;
+        let means = Tensor::random(
+            [num_points, 4],
+            Distribution::Uniform(-extent, extent),
+            device,
+        );
 
         let colors = Tensor::random([num_points, 3], Distribution::Uniform(0.0, 1.0), device);
 
@@ -112,7 +115,7 @@ impl<B: Backend> Splats<B> {
         Splats {
             active_sh_degree,
             max_sh_degree,
-            means: xyz.into(),
+            means: means.into(),
             colors: colors.into(),
             rotation: init_rotation.into(),
             opacity: init_opacity.into(),

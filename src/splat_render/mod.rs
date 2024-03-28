@@ -1,5 +1,6 @@
-use burn::backend::autodiff::checkpoint::strategy::CheckpointStrategy;
-use burn::backend::wgpu::{AutoGraphicsApi, JitBackend, WgpuRuntime};
+use burn::backend::wgpu::{
+    AutoGraphicsApi, FloatElement, GraphicsApi, IntElement, JitBackend, WgpuRuntime,
+};
 use burn::backend::Autodiff;
 
 use crate::camera::Camera;
@@ -10,10 +11,11 @@ mod render_2d_gaussians;
 
 mod gen;
 
-type ImplBack = JitBackend<WgpuRuntime<AutoGraphicsApi, f32, i32>>;
-
 pub type FloatTensor<B, const D: usize> =
     <B as burn::tensor::backend::Backend>::FloatTensorPrimitive<D>;
+
+pub type IntTensor<B, const D: usize> =
+    <B as burn::tensor::backend::Backend>::IntTensorPrimitive<D>;
 
 struct ProjectionOutput<B: Backend> {
     covs3d: FloatTensor<B, 2>,
@@ -47,9 +49,4 @@ pub trait Backend: burn::tensor::backend::Backend {
 // For now all code using it will need to specify this bound itself.
 pub trait AutodiffBackend: Backend + burn::tensor::backend::AutodiffBackend {}
 
-// Blanket impl for autodiffbackend.
-impl<C: CheckpointStrategy> AutodiffBackend for Autodiff<ImplBack, C> {}
-
 // /// Implement our custom backend trait for the existing backend `WgpuBackend`.
-
-// TODO: backwards.

@@ -13,6 +13,7 @@ fn main() {
         .add_entry_point("shaders/map_gaussian_to_intersects.wgsl")
         .add_entry_point("shaders/get_tile_bin_edges.wgsl")
         .add_entry_point("shaders/rasterize.wgsl")
+        .add_entry_point("shaders/rasterize_backwards.wgsl")
         .output("src/splat_render/gen/bindings.rs")
         .build()
         .unwrap();

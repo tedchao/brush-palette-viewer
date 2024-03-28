@@ -8,17 +8,18 @@
 @group(0) @binding(5) var<storage, read> opacities: array<f32>;
 
 @group(0) @binding(6) var<storage, read_write> out_img: array<vec4f>;
+@group(0) @binding(7) var<storage, read_write> final_index: array<u32>;
 
-@group(0) @binding(7) var<storage, read> info_array: array<Uniforms>;
+@group(0) @binding(8) var<storage, read> info_array: array<Uniforms>;
 
-const MAX_BLOCK_SIZE: u32 = 16u * 16u;
 const GROUP_DIM: u32 = 16u;
+const BLOCK_SIZE: u32 = GROUP_DIM * GROUP_DIM;
 
 // Workgroup variables.
-var<workgroup> id_batch: array<u32, MAX_BLOCK_SIZE>;
-var<workgroup> xy_batch: array<vec2f, MAX_BLOCK_SIZE>;
-var<workgroup> opacity_batch: array<f32, MAX_BLOCK_SIZE>;
-var<workgroup> conic_batch: array<vec4f, MAX_BLOCK_SIZE>;
+var<workgroup> id_batch: array<u32, BLOCK_SIZE>;
+var<workgroup> xy_batch: array<vec2f, BLOCK_SIZE>;
+var<workgroup> opacity_batch: array<f32, BLOCK_SIZE>;
+var<workgroup> conic_batch: array<vec4f, BLOCK_SIZE>;
 
 // Keep track of how many threads are done in this workgroup.
 var<workgroup> count_done: atomic<u32>;
@@ -78,7 +79,6 @@ fn main(
     // first collect gaussians between range.x and range.y in batches
     // which gaussians to look through in this tile
     let range = tile_bins[tile_id];
-    let block_size = GROUP_DIM * GROUP_DIM;
 
     // collect and process batches of gaussians
     // each thread loads one gaussian at a time before rasterizing its
@@ -89,13 +89,14 @@ fn main(
 
     // TODO: Is this local_invocation_index?
     var pix_out = vec3f(0.0);
+    var cur_idx = 0u;
 
-    for (var batch_start = range.x; batch_start < range.y; batch_start += block_size) {
+    for (var batch_start = range.x; batch_start < range.y; batch_start += BLOCK_SIZE) {
         // resync all threads before beginning next batch
         workgroupBarrier();
 
         // end early out if entire tile is done
-        if count_done >= block_size {
+        if count_done >= BLOCK_SIZE {
             break;
         }
 
@@ -115,7 +116,7 @@ fn main(
         workgroupBarrier();
 
         // process gaussians in the current batch for this pixel
-        let batch_size = min(block_size, range.y - batch_start);
+        let batch_size = min(BLOCK_SIZE, range.y - batch_start);
         
         for (var t = 0u; (t < batch_size) && !done; t++) {
             let xy = xy_batch[t];
@@ -140,6 +141,7 @@ fn main(
             pix_out += c * vis;
 
             out_img[pix_id] = vec4f(conic);
+            cur_idx = batch_start + t;
 
             if T <= 1e-4f { 
                 // this pixel is done
@@ -155,5 +157,6 @@ fn main(
     if inside {
         // add background
         out_img[pix_id] = vec4f(pix_out + (1.0 - T) * background, T);
+        final_index[pix_id] = cur_idx; // index of in bin of last gaussian in this pixel
     }
 }

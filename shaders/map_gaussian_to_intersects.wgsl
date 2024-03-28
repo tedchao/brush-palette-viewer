@@ -32,7 +32,6 @@ fn main(
     let info = info_array[0];
     let num_points = info.num_points;
 
-    
     if idx >= num_points {
         return;
     }

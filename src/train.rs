@@ -83,7 +83,7 @@ where
         .expect("Dataset should have at least 1 camera.");
 
     let camera = Camera::new(
-        glam::vec3(0.0, 0.0, -10.0),
+        glam::vec3(0.0, (iteration as f32) * 0.25, -10.0),
         glam::Quat::IDENTITY,
         60.0_f32.to_radians(),
         60.0_f32.to_radians(),
@@ -171,7 +171,7 @@ where
 
     println!("Create splats.");
 
-    let mut splats: Splats<B> = SplatsConfig::new(50, 1.0, 0, 1.0).build(device);
+    let mut splats: Splats<B> = SplatsConfig::new(250, 25.0, 0, 1.0).build(device);
 
     // TODO: Original implementation has learning rates different for almost all params.
     let mut scheduler = burn::lr_scheduler::cosine::CosineAnnealingLrSchedulerConfig::new(
