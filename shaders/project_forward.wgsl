@@ -33,52 +33,6 @@ struct Uniforms {
     block_width: u32,
 }
 
-fn scale_to_mat(scale: vec3f, glob_scale: f32) -> mat3x3f {
-    let scale_total = scale * glob_scale;
-    return mat3x3(
-        vec3f(scale_total.x, 0, 0),
-        vec3f(0, scale_total.y, 0), 
-        vec3f(0, 0, scale_total.z)
-    );
-}
-
-// device helper to get 3D covariance from scale and quat parameters
-fn quat_to_rotmat(quat: vec4f) -> mat3x3f {
-    // quat to rotation matrix
-    let quat_norm = normalize(quat);
-
-    let x = quat_norm.x;
-    let y = quat_norm.y;
-    let z = quat_norm.z;
-    let w = quat_norm.w;
-
-    // See https://www.songho.ca/opengl/gl_quaternion.html
-    return mat3x3f(
-        vec3f(
-            1.f - 2.f * (y * y + z * z),
-            2.f * (x * y + w * z),
-            2.f * (x * z - w * y),
-        ),
-        vec3f(
-            2.f * (x * y - w * z),
-            1.f - 2.f * (x * x + z * z),
-            2.f * (y * z + w * x),
-        ),
-        vec3f(
-            2.f * (x * z + w * y),
-            2.f * (y * z - w * x),
-            1.f - 2.f * (x * x + y * y)
-        ),
-    );
-}
-
-fn scale_rot_to_cov3d(scale: vec3f, glob_scale: f32, quat: vec4f) -> mat3x3f {
-    let R = quat_to_rotmat(quat);
-    let S = scale_to_mat(scale, glob_scale);
-    let M = R * S;
-    return M * transpose(M);
-}
-
 fn project_pix(fxfy: vec2f, p_view: vec3f, pp: vec2f) -> vec2f {
     let p_proj = p_view.xy / (p_view.z + 1e-6f);
     let p_pix = p_proj.xy * fxfy.xy + pp;
@@ -133,7 +87,7 @@ fn main(
     // save upper right of matrix, as it's symmetric.
 
     // let scaless = scale_to_mat(scale, glob_scale);
-    let R = quat_to_rotmat(quat);
+    let R = helpers::quat_to_rotmat(quat);
     // let S = scale_to_mat(scale, glob_scale);
 
     let scale_total = scale * glob_scale;

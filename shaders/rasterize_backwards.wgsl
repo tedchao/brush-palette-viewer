@@ -4,7 +4,7 @@
 @group(0) @binding(1) var<storage, read> tile_bins: array<vec2u>;
 @group(0) @binding(2) var<storage, read> xys: array<vec2f>;
 @group(0) @binding(3) var<storage, read> conics: array<vec4f>;
-@group(0) @binding(4) var<storage, read> colors: array<f32>;
+@group(0) @binding(4) var<storage, read> colors: array<vec4f>;
 @group(0) @binding(5) var<storage, read> opacities: array<f32>;
 @group(0) @binding(6) var<storage, read> final_index: array<u32>;
 @group(0) @binding(7) var<storage, read> output: array<vec4f>;
@@ -112,8 +112,7 @@ fn main(
             conic_batch[tr] = conics[g_id];
             opacity_batch[tr] = opacities[g_id];
 
-            let c = vec3f(colors[g_id * 3 + 0], colors[g_id  * 3 + 1], colors[g_id  * 3 + 2]);
-            rgbs_batch[tr] = vec4f(c, 0.0);
+            rgbs_batch[tr] = vec4f(colors[g_id].xyz, 0.0);
         }
     
         // wait for other threads to collect the gaussians in batch
@@ -178,7 +177,7 @@ fn main(
 
             v_opacity[g] += vis * v_alpha;
             v_rgb[g] += fac * v_out;
-            v_conic[g] += vec4f(0.5f * v_sigma * vec3f(delta.x * delta.x, delta.x * delta.y, delta.y * delta.y), 0.0);
+            v_conic[g] += vec4f(v_sigma * vec3f(0.5f * delta.x * delta.x, delta.x * delta.y, 0.5f * delta.y * delta.y), 0.0);
             v_xy[g] += v_sigma * (conic.x * delta.x + conic.y * delta.y);
         }
     }

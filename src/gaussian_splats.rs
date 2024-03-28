@@ -96,7 +96,7 @@ impl<B: Backend> Splats<B> {
             device,
         );
 
-        let colors = Tensor::random([num_points, 3], Distribution::Uniform(0.0, 1.0), device);
+        let colors = Tensor::random([num_points, 4], Distribution::Uniform(0.0, 1.0), device);
 
         let init_rotation = Tensor::from_floats([1.0, 0.0, 0.0, 0.0], device)
             .unsqueeze::<2>()

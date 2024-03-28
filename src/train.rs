@@ -79,11 +79,11 @@ where
     // TODO: If there is no camera, maybe just bail?
     let viewpoint = scene
         .train_data
-        .choose(rng)
+        .get(0)
         .expect("Dataset should have at least 1 camera.");
 
     let camera = Camera::new(
-        glam::vec3(0.0, (iteration as f32) * 0.25, -10.0),
+        glam::vec3(0.0, 0.0, -10.0),
         glam::Quat::IDENTITY,
         60.0_f32.to_radians(),
         60.0_f32.to_radians(),

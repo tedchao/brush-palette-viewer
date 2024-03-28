@@ -4,7 +4,7 @@
 @group(0) @binding(1) var<storage, read> tile_bins: array<vec2u>;
 @group(0) @binding(2) var<storage, read> xys: array<vec2f>;
 @group(0) @binding(3) var<storage, read> conics: array<vec4f>;
-@group(0) @binding(4) var<storage, read> colors: array<f32>;
+@group(0) @binding(4) var<storage, read> colors: array<vec4f>;
 @group(0) @binding(5) var<storage, read> opacities: array<f32>;
 
 @group(0) @binding(6) var<storage, read_write> out_img: array<vec4f>;
@@ -137,7 +137,7 @@ fn main(
             T = next_T;
 
             // TODO: Why not groupshare fetch the color? :/
-            let c = vec3f(colors[g * 3 + 0], colors[g * 3 + 1], colors[g * 3 + 2]);
+            let c = colors[g].xyz;
             pix_out += c * vis;
 
             out_img[pix_id] = vec4f(conic);

@@ -118,6 +118,26 @@ impl RasterizeBackwards  {
     }
 }
 
+
+#[derive(new, Debug)]
+struct ProjectBackwards {}
+
+impl DynamicKernelSource for ProjectBackwards {
+    fn source(&self) -> SourceTemplate {
+        SourceTemplate::new(gen::project_backwards::SHADER_STRING)
+    }
+    fn id(&self) -> String {
+        format!("{:?}", self)
+    }
+}
+
+impl ProjectBackwards  {
+    fn workgroup_size() -> UVec3 {
+        uvec3(16, 1, 1)
+    }
+}
+
+
 fn get_workgroup(executions: UVec3, group_size: UVec3) -> WorkGroup {
     let execs = (executions.as_vec3() / group_size.as_vec3()).ceil().as_uvec3();
     WorkGroup::new(execs.x, execs.y, execs.z)
@@ -162,12 +182,21 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
         struct GaussianBackwardState {
             cam: Camera,
             background: Vec3,
+
+            // Splat inputs.
+            means: JitTensor<BurnBackInner, f32, 2>,
+            scales: JitTensor<BurnBackInner, f32, 2>,
+            quats: JitTensor<BurnBackInner, f32, 2>,
+            colors: JitTensor<BurnBackInner, f32, 2>,
+            opacity: JitTensor<BurnBackInner, f32, 1>,
+
+            // Calculated state.
+            radii: JitTensor<BurnBackInner, f32, 1>,
+            compensation: JitTensor<BurnBackInner, f32, 1>,
             gaussian_ids_sorted: JitTensor<BurnBackInner, i32, 1>,
             tile_bins: JitTensor<BurnBackInner, i32, 2>,
             xys: JitTensor<BurnBackInner, f32, 2>,
             conics: JitTensor<BurnBackInner, f32, 2>,
-            colors: JitTensor<BurnBackInner, f32, 2>,
-            opacity: JitTensor<BurnBackInner, f32, 1>,
             final_index: JitTensor<BurnBackInner, i32, 2>,
             out_img: JitTensor<BurnBackInner, f32, 3>,
         }
@@ -183,7 +212,7 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
                 self,
                 ops: Ops<Self::State, 5>,
                 grads: &mut Gradients,
-                checkpointer: &mut Checkpointer,
+                _checkpointer: &mut Checkpointer,
             ) {
                 // // Get the nodes of each variable.
                 let block_size = 16;
@@ -193,10 +222,21 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
                 let camera = state.cam;
                 let tile_bounds = uvec2(camera.height.div_ceil(block_size), camera.height.div_ceil(block_size));
 
+                assert!(v_output.shape.dims == [camera.height as usize, camera.width as usize, 4]);
+
                 let client = v_output.client.clone();
                 let device = v_output.device.clone();
 
-                
+                let intrins = 
+                    // TODO: Does this need the tan business?
+                    glam::vec4(
+                        (camera.width as f32) / (2.0 * camera.fovx.tan()),
+                        (camera.height as f32) / (2.0 * camera.fovy.tan()),
+                        (camera.width as f32) / 2.0,
+                        (camera.height as f32) / 2.0,
+                    );
+                let viewmat = camera.transform.inverse();
+
                 let create_empty_f32 = |dim|-> JitTensor<BurnBackInner, f32, 2> {
                     let shape = Shape::new(dim);
                     JitTensor::new(
@@ -206,12 +246,25 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
                         client.create(&vec![0; shape.num_elements() * core::mem::size_of::<f32>()]),
                     )
                 };
+                let create_empty_f32_1d = |dim|-> JitTensor<BurnBackInner, f32, 1> {
+                    let shape = Shape::new(dim);
+                    JitTensor::new(
+                        client.clone(),
+                        device.clone(),
+                        shape.clone(),
+                        client.create(&vec![0; shape.num_elements() * core::mem::size_of::<f32>()]),
+                    )
+                };
 
-                let num_points = state.colors.shape.dims[0];
-                let v_opacity = create_empty_f32([num_points, 1]);
+                let num_points = state.means.shape.dims[0];
+                let v_opacity = create_empty_f32_1d([num_points]);
+
+                let v_colors = create_empty_f32([num_points, 4]);
                 let v_conic = create_empty_f32([num_points, 4]);
                 let v_xy = create_empty_f32([num_points, 2]);
-                let v_rgb = create_empty_f32([num_points, 4]);
+
+                println!("Calculating gradients");
+                println!("Raster backwards");
 
                 let workgroup = get_workgroup(uvec3(camera.height, camera.width, 1), RasterizeBackwards::workgroup_size());
 
@@ -232,7 +285,7 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
                         &v_opacity.handle,
                         &v_conic.handle,
                         &v_xy.handle,
-                        &v_rgb.handle,
+                        &v_colors.handle,
 
                         // Uniforms
                         &client.create(bytemuck::bytes_of(&gen::rasterize_backwards::Uniforms::new(
@@ -243,18 +296,73 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
                     ],
                 );
 
+                let workgroup = get_workgroup(uvec3(num_points as u32, 1, 1), ProjectBackwards::workgroup_size());
+
+                let v_means = create_empty_f32([num_points, 4]);
+                let v_scales = create_empty_f32([num_points, 4]);
+                let v_quats = create_empty_f32([num_points, 4]);
+
+                println!("Project backwards");
+
+                client.execute(
+                    Box::new(DynamicKernel::new(ProjectBackwards::new(), workgroup)),
+                    &[
+                        // Read
+                        &state.means.handle,
+                        &state.scales.handle,
+                        &state.quats.handle,
+
+                        &state.radii.handle,
+                        &state.conics.handle,
+                        &state.compensation.handle,
+                        &v_xy.handle,
+                        &v_conic.handle,
+                        &v_means.handle,
+                        &v_scales.handle,
+                        &v_quats.handle,
+
+                        // Uniforms
+                        &client.create(bytemuck::bytes_of(&gen::project_backwards::Uniforms::new(
+                            num_points as u32,
+                            1.0,
+                            viewmat,
+                            intrins,
+                            [camera.height, camera.width],
+                        ))),
+                    ],
+                );
+
+                println!("Registering gradients");
+
+
                 // Read from the state we have setup.
                 // let means = checkpointer.retrieve_node_output(means_state);
 
                 // Return gradient of means, atm just as itself. So d/dx means == means? errr... ?
                 // let grad_means = means;
 
-                // Get the parent nodes we're registering gradients for.
-                // let [mean_parent] = ops.parents;
+                // Register gradients for parent nodes.
+                let [mean_parent, scales_parent, quats_parent, colors_parent, opacity_parent] = ops.parents;
 
-                // if let Some(node) = mean_parent {
-                    // grads.register::<B, 2>(node, grad_means);
-                // }
+                if let Some(node) = mean_parent {
+                    grads.register::<BurnBack, 2>(node, v_means);
+                }
+
+                if let Some(node) = scales_parent {
+                    grads.register::<BurnBack, 2>(node, v_scales);
+                }
+
+                if let Some(node) = quats_parent {
+                    grads.register::<BurnBack, 2>(node, v_quats);
+                }
+
+                if let Some(node) = colors_parent {
+                    grads.register::<BurnBack, 2>(node, v_colors);
+                }
+
+                if let Some(node) = opacity_parent {
+                    grads.register::<BurnBack, 1>(node, v_opacity);
+                }
             }
         }
 
@@ -279,8 +387,6 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
         // state instead of recomputing itself during checkpointing
         .compute_bound()
         .stateful();
-
-        println!("Project gaussians!");
 
         let (means, scales, quats, colors, opacity) = (means_diff.primitive, scales_diff.primitive, quats_diff.primitive, colors_diff.primitive, opacity_diff.primitive);
 
@@ -319,11 +425,13 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
                 (camera.width as f32) / 2.0,
                 (camera.height as f32) / 2.0,
             );
+        let viewmat = camera.transform.inverse();
 
         let client = means.client.clone();
         let device = means.device.clone();
 
         // TODO: Must be a faster way to create with nulls.
+        // TODO: Move all these helpers somewhere else.
         let create_empty_f32 = |dim|-> JitTensor<BurnBackInner, f32, 2> {
             let shape = Shape::new(dim);
             JitTensor::new(
@@ -333,7 +441,27 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
                 client.create(&vec![0; shape.num_elements() * core::mem::size_of::<f32>()]),
             )
         };
+        let create_empty_f32_1d = |dim|-> JitTensor<BurnBackInner, f32, 1> {
+            let shape = Shape::new(dim);
+            JitTensor::new(
+                client.clone(),
+                device.clone(),
+                shape.clone(),
+                client.create(&vec![0; shape.num_elements() * core::mem::size_of::<f32>()]),
+            )
+        };
+
         let create_empty_u32 = |dim| -> JitTensor<BurnBackInner, i32, 2> {
+            let shape = Shape::new(dim);
+            JitTensor::new(
+                client.clone(),
+                device.clone(),
+                shape.clone(),
+                client.create(&vec![0; shape.num_elements() * core::mem::size_of::<i32>()]),
+            )
+        };
+
+        let create_empty_u32_1d = |dim| -> JitTensor<BurnBackInner, i32, 1> {
             let shape = Shape::new(dim);
             JitTensor::new(
                 client.clone(),
@@ -348,6 +476,11 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
             data.into_iter().array_chunks::<4>().map(u32::from_le_bytes).collect()
         };
 
+        let to_vec_u32_1d = |tensor: &JitTensor<BurnBackInner, i32, 1>| -> Vec<u32> {
+            let data = client.read(&tensor.handle).read();
+            data.into_iter().array_chunks::<4>().map(u32::from_le_bytes).collect()
+        };
+
         let to_vec_f32 = |tensor: &JitTensor<BurnBackInner, f32, 2>| -> Vec<f32> {
             let data = client.read(&tensor.handle).read();
             data.into_iter().array_chunks::<4>().map(f32::from_le_bytes).collect()
@@ -356,11 +489,12 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
         // TODO: We might only need the data on the client for this not the tensor wrapper?
         let covs3d = create_empty_f32([num_points, 6]);
         let xys = create_empty_f32([num_points, 2]);
-        let depths = create_empty_f32([num_points, 1]);
-        let radii = create_empty_f32([num_points, 1]);
         let conics = create_empty_f32([num_points, 4]);
-        let compensation = create_empty_f32([num_points, 1]);
-        let num_tiles_hit = create_empty_u32([num_points, 1]);
+
+        let depths = create_empty_f32_1d([num_points]);
+        let radii = create_empty_f32_1d([num_points]);
+        let compensation = create_empty_f32_1d([num_points]);
+        let num_tiles_hit = create_empty_u32_1d([num_points]);
 
         let workgroup = get_workgroup(uvec3(num_points as u32, 1, 1), ProjectSplats::workgroup_size());
         client.execute(
@@ -381,7 +515,7 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
                 // Aux data.
                 &client.create(bytemuck::bytes_of(&gen::project_forward::Uniforms::new(
                     num_points as u32,
-                    camera.transform.inverse(),
+                    viewmat,
                     intrins,
                     img_size,
                     tile_bounds.into(),
@@ -395,7 +529,7 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
         // TODO: CPU emulation for now. Investigate if we can do without a cumulative sum?
 
         // Read num tiles to CPU.
-        let num_tiles_hit = to_vec_u32(&num_tiles_hit);
+        let num_tiles_hit = to_vec_u32_1d(&num_tiles_hit);
         // Calculate cumulative sum.
         let cum_tiles_hit: Vec<u32> = num_tiles_hit
             .into_iter()
@@ -443,7 +577,6 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
         
         let isect_ids_sorted: Vec<_> = sorted_indices.iter().copied().map(|x| isect_ids_unsorted[x]).collect();
         let gaussian_ids_sorted: Vec<_> = sorted_indices.iter().copied().map(|x| gaussian_ids_unsorted[x]).collect();
-        
 
         let workgroup = get_workgroup(uvec3(num_intersects as u32, 1, 1), GetTileBinEdges::workgroup_size());
         let isect_ids_sorted = client.create(bytemuck::cast_slice::<u32, u8>(&isect_ids_sorted));
@@ -479,13 +612,11 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
             final_index_shape.clone(),
             client.empty(final_index_shape.num_elements() * core::mem::size_of::<u32>()),
         );
-        let gaussian_ids_sorted = JitTensor::new(client.clone(), device.clone(), 
-        
-        Shape::new([num_intersects]),
-
-        client.create(bytemuck::cast_slice::<u32, u8>(&gaussian_ids_sorted)));
-
-        println!("{:?}", to_vec_f32(&conics));
+        let gaussian_ids_sorted = JitTensor::new(
+            client.clone(), device.clone(), 
+            Shape::new([num_intersects]),
+            client.create(bytemuck::cast_slice::<u32, u8>(&gaussian_ids_sorted))
+        );
 
         let workgroup = get_workgroup(uvec3(img_shape.dims[0] as u32, img_shape.dims[1] as u32, 1), RasterizeForward::workgroup_size());
         client.execute(
@@ -518,6 +649,12 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
         match prep_nodes {
             OpsKind::Tracked(mut prep) => {
                 let state = GaussianBackwardState {
+                    // TODO: Respect checkpointing in this.
+                    means,
+                    scales,
+                    quats,
+                    radii,
+                    compensation,
                     cam: camera.clone(),
                     background,
                     out_img: out_img.clone(),

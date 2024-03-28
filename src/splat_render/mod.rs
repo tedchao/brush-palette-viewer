@@ -1,8 +1,3 @@
-use burn::backend::wgpu::{
-    AutoGraphicsApi, FloatElement, GraphicsApi, IntElement, JitBackend, WgpuRuntime,
-};
-use burn::backend::Autodiff;
-
 use crate::camera::Camera;
 
 mod project_gaussians;
