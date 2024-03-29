@@ -39,7 +39,6 @@ fn project_pix_vjp(fxfy: vec2f, p_view: vec3f, v_xy: vec2f) -> vec3f {
     return vec3f(v_proj.x * rw, v_proj.y * rw, -(v_proj.x * p_view.x + v_proj.y * p_view.y) * rw * rw);
 }
 
-
 fn quat_to_rotmat_vjp(quat: vec4f, v_R: mat3x3f) -> vec4f {
     let quat_norm = normalize(quat);
 
@@ -101,15 +100,20 @@ fn main(
     let viewmat = info.viewmat;
     let glob_scale = info.glob_scale;
 
-    let mean = means[idx];
+    let p_world = means[idx];
+    let quat = quats[idx];
+    let scale = scales[idx];
+
     let fx = intrins.x;
     let fy = intrins.y;
     let cx = intrins.z;
     let cy = intrins.w;
-
-    let p_view_proj = viewmat * vec4f(mean.xyz, 1.0f);
+    let p_view_proj = viewmat * vec4f(p_world.xyz, 1.0f);
     let p_view = p_view_proj.xyz / p_view_proj.w;
-    var v_mean = (viewmat * vec4f(project_pix_vjp(vec2f(fx, fy), p_view, v_xy[idx]), 0.0f)).xyz;
+    let pix_vjp = project_pix_vjp(vec2f(fx, fy), p_view, v_xy[idx]);
+
+    let W = mat3x3f(viewmat[0].xyz, viewmat[1].xyz, viewmat[2].xyz);
+    var v_mean = transpose(W) * pix_vjp;
 
     // get v_mean3d from v_xy
     // get z gradient contribution to mean3d gradient
@@ -133,11 +137,11 @@ fn main(
     // matrix... wtf. Just negating v_cov2d now.
     // let v_sigma = -X * G * X;
     let v_sigma = X * G * X;
-    let v_cov_sigma = -vec3f(v_sigma[0][0], v_sigma[1][0] + v_sigma[0][1], v_sigma[1][1]);
+    let v_cov_conic = -vec3f(v_sigma[0][0], v_sigma[1][0] + v_sigma[0][1], v_sigma[1][1]);
     
     // TODO: Where does v_compensation come from exactly...
     let comp = compensation[idx];
-    let v_compensation = 1.0;
+    let v_compensation = 0.0;
 
     // comp = sqrt(det(cov2d - 0.3 I) / det(cov2d))
     // conic = inverse(cov2d)
@@ -152,23 +156,18 @@ fn main(
         v_sqr_comp * (one_minus_sqr_comp * conic.z - 0.3 * inv_det)
     );
 
-    let v_cov2d = v_cov_sigma + v_cov_comp;
+    let v_cov2d = v_cov_conic + v_cov_comp;
 
     // get v_cov3d (and v_mean3d contribution)
-    let W = mat3x3f(viewmat[0].xyz, viewmat[1].xyz, viewmat[2].xyz);
-
-    let t = p_view;
-    let rz = 1.0f / t.z;
+    let rz = 1.0f / p_view.z;
     let rz2 = rz * rz;
 
     let J = mat3x3f(
-        vec3f(fx * rz, 0.0f, 0.0f,),
+        vec3f(fx * rz, 0.0f, 0.0f),
         vec3f(0.0f, fy * rz, 0.0f),
-        vec3f(-fx * t.x * rz2, -fy * t.y * rz2, 0.0f)
+        vec3f(-fx * p_view.x * rz2, -fy * p_view.y * rz2, 0.0f)
     );
 
-    let quat = quats[idx];
-    let scale = scales[idx];
     let R = helpers::quat_to_rotmat(quat);
 
     let scale_total = scale * glob_scale;
@@ -214,8 +213,8 @@ fn main(
     let v_t = vec3f(
         -fx * rz2 * v_J[2][0],
         -fy * rz2 * v_J[2][1],
-        -fx * rz2 * v_J[0][0] + 2.f * fx * t.x * rz3 * v_J[2][0] -
-            fy * rz2 * v_J[1][1] + 2.f * fy * t.y * rz3 * v_J[2][1]
+        -fx * rz2 * v_J[0][0] + 2.0f * fx * p_view.x * rz3 * v_J[2][0] -
+            fy * rz2 * v_J[1][1] + 2.0f * fy * p_view.y * rz3 * v_J[2][1]
     );
 
     v_mean.x += dot(v_t, W[0]);
@@ -226,31 +225,33 @@ fn main(
     // off-diagonal elements count grads from both ij and ji elements,
     // must halve when expanding back into symmetric matrix
     // TODO: Is this definitely the same as above?
-    // let v_V = mat3x3f(
-    //     v_cov3d0,
-    //     0.5 * v_cov3d1,
-    //     0.5 * v_cov3d2,
-    //     0.5 * v_cov3d1,
-    //     v_cov3d3,
-    //     0.5 * v_cov3d4,
-    //     0.5 * v_cov3d2,
-    //     0.5 * v_cov3d4,
-    //     v_cov3d5
-    // );
+    let v_V_symm = mat3x3f(
+        v_cov3d0,
+        0.5 * v_cov3d1,
+        0.5 * v_cov3d2,
+        0.5 * v_cov3d1,
+        v_cov3d3,
+        0.5 * v_cov3d4,
+        0.5 * v_cov3d2,
+        0.5 * v_cov3d4,
+        v_cov3d5
+    );
 
     // https://math.stackexchange.com/a/3850121
     // for D = W * X, G = df/dD
     // df/dW = G * XT, df/dX = WT * G
-    let v_M = 2.f * v_V * M;
-    v_scales[idx] = vec4f(
+    let v_M = 2.0f * v_V_symm * M;
+
+    let v_scale = vec3f(
         dot(R[0], v_M[0]) * glob_scale,
         dot(R[1], v_M[1]) * glob_scale,
         dot(R[2], v_M[2]) * glob_scale,
-        0.0f,
     );
 
     let v_R = v_M * S;
-    v_quats[idx] = quat_to_rotmat_vjp(quat, v_R);
-    
+    let v_quat = quat_to_rotmat_vjp(quat, v_R);
+
+    v_quats[idx] = v_quat;
+    v_scales[idx] = vec4f(v_scale, 0.0);
     v_means[idx] = vec4f(v_mean, 0.0f);
 }

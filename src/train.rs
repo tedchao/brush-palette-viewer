@@ -28,7 +28,7 @@ pub(crate) struct TrainConfig {
     pub(crate) random_bck_color: bool,
     #[config(default = 3e-2)]
     pub lr: f64,
-    #[config(default = 3e-4)]
+    #[config(default = 1e-3)]
     pub min_lr: f64,
     pub(crate) scene_path: String,
 }
@@ -171,7 +171,7 @@ where
 
     println!("Create splats.");
 
-    let mut splats: Splats<B> = SplatsConfig::new(250, 25.0, 0, 1.0).build(device);
+    let mut splats: Splats<B> = SplatsConfig::new(500, 10.0, 0, 1.0).build(device);
 
     // TODO: Original implementation has learning rates different for almost all params.
     let mut scheduler = burn::lr_scheduler::cosine::CosineAnnealingLrSchedulerConfig::new(
