@@ -2,6 +2,7 @@
 #![allow(clippy::too_many_arguments)]
 #![feature(iter_array_chunks)]
 #![feature(let_chains)]
+#![feature(generic_const_exprs)]
 
 use std::error::Error;
 mod camera;

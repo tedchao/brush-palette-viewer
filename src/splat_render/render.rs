@@ -1,5 +1,10 @@
+use super::kernels::WGSLKernel;
 use crate::camera::Camera;
-use crate::splat_render::kernels::{GetTileBinEdges, MapGaussiansToIntersect, ProjectBackwards, ProjectSplats, RasterizeBackwards, RasterizeForward};
+use crate::splat_render::kernels::{
+    GetTileBinEdges, MapGaussiansToIntersect, ProjectBackwards, ProjectSplats, Rasterize,
+    RasterizeBackwards,
+};
+use burn::tensor::ops::IntTensor;
 use burn::tensor::Tensor;
 
 use burn::{
@@ -10,21 +15,21 @@ use burn::{
             ops::{Backward, Ops, OpsKind},
         },
         wgpu::{
-            into_contiguous, AutoGraphicsApi, DynamicKernel, FloatElement, GraphicsApi, IntElement, JitBackend, JitTensor, WgpuRuntime, WorkGroup
+            into_contiguous, FloatElement, GraphicsApi, IntElement, JitBackend, JitTensor,
+            WgpuRuntime, WorkGroup,
         },
         Autodiff,
     },
     tensor::Shape,
 };
 
-type BurnBack = JitBackend<WgpuRuntime<AutoGraphicsApi, f32, i32>>;
-type BurnBackInner = WgpuRuntime<AutoGraphicsApi, f32, i32>;
+use super::{gen, AutodiffBackend, Backend, BurnBack, FloatTensor};
+use glam::{uvec2, UVec3, Vec3};
 
-use glam::{uvec2, uvec3, UVec3, Vec3};
-use super::{gen, AutodiffBackend, Backend, FloatTensor};
-
-fn get_workgroup(executions: UVec3, group_size: UVec3) -> WorkGroup {
-    let execs = (executions.as_vec3() / group_size.as_vec3()).ceil().as_uvec3();
+fn get_workgroup(executions: [u32; 3], group_size: [u32; 3]) -> WorkGroup {
+    let execs = (UVec3::from_array(executions).as_vec3() / UVec3::from_array(group_size).as_vec3())
+        .ceil()
+        .as_uvec3();
     WorkGroup::new(execs.x, execs.y, execs.z)
 }
 
@@ -69,21 +74,23 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
             background: Vec3,
 
             // Splat inputs.
-            means: JitTensor<BurnBackInner, f32, 2>,
-            scales: JitTensor<BurnBackInner, f32, 2>,
-            quats: JitTensor<BurnBackInner, f32, 2>,
-            colors: JitTensor<BurnBackInner, f32, 2>,
-            opacity: JitTensor<BurnBackInner, f32, 1>,
+            means: FloatTensor<BurnBack, 2>,
+            scales: FloatTensor<BurnBack, 2>,
+            quats: FloatTensor<BurnBack, 2>,
+            colors: FloatTensor<BurnBack, 2>,
+            opacity: FloatTensor<BurnBack, 1>,
 
             // Calculated state.
-            radii: JitTensor<BurnBackInner, f32, 1>,
-            compensation: JitTensor<BurnBackInner, f32, 1>,
-            gaussian_ids_sorted: JitTensor<BurnBackInner, i32, 1>,
-            tile_bins: JitTensor<BurnBackInner, i32, 2>,
-            xys: JitTensor<BurnBackInner, f32, 2>,
-            conics: JitTensor<BurnBackInner, f32, 2>,
-            final_index: JitTensor<BurnBackInner, i32, 2>,
-            out_img: JitTensor<BurnBackInner, f32, 3>,
+            radii: FloatTensor<BurnBack, 1>,
+            compensation: FloatTensor<BurnBack, 1>,
+
+            xys: FloatTensor<BurnBack, 2>,
+            conics: FloatTensor<BurnBack, 2>,
+            out_img: FloatTensor<BurnBack, 3>,
+
+            gaussian_ids_sorted: IntTensor<BurnBack, 1>,
+            tile_bins: IntTensor<BurnBack, 2>,
+            final_index: IntTensor<BurnBack, 2>,
         }
 
         // Implement the backward trait for the given backend B, the node gradient being of rank D
@@ -101,28 +108,29 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
             ) {
                 // // Get the nodes of each variable.
                 let block_size = 16;
-                
+
                 let state = ops.state;
                 let v_output = grads.consume::<BurnBack, 3>(&ops.node);
                 let camera = state.cam;
-                let tile_bounds = uvec2(camera.height.div_ceil(block_size), camera.height.div_ceil(block_size));
+                let tile_bounds = uvec2(
+                    camera.height.div_ceil(block_size),
+                    camera.height.div_ceil(block_size),
+                );
 
                 assert!(v_output.shape.dims == [camera.height as usize, camera.width as usize, 4]);
 
                 let client = v_output.client.clone();
                 let device = v_output.device.clone();
 
-                let intrins = 
-                    // TODO: Does this need the tan business?
-                    glam::vec4(
-                        (camera.width as f32) / (2.0 * camera.fovx.tan()),
-                        (camera.height as f32) / (2.0 * camera.fovy.tan()),
-                        (camera.width as f32) / 2.0,
-                        (camera.height as f32) / 2.0,
-                    );
+                let intrins = glam::vec4(
+                    (camera.width as f32) / (2.0 * camera.fovx.tan()),
+                    (camera.height as f32) / (2.0 * camera.fovy.tan()),
+                    (camera.width as f32) / 2.0,
+                    (camera.height as f32) / 2.0,
+                );
                 let viewmat = camera.transform.inverse();
 
-                let create_empty_f32 = |dim|-> JitTensor<BurnBackInner, f32, 2> {
+                let create_empty_f32 = |dim| -> FloatTensor<BurnBack, 2> {
                     let shape = Shape::new(dim);
                     JitTensor::new(
                         client.clone(),
@@ -131,7 +139,7 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
                         client.create(&vec![0; shape.num_elements() * core::mem::size_of::<f32>()]),
                     )
                 };
-                let create_empty_f32_1d = |dim|-> JitTensor<BurnBackInner, f32, 1> {
+                let create_empty_f32_1d = |dim| -> FloatTensor<BurnBack, 1> {
                     let shape = Shape::new(dim);
                     JitTensor::new(
                         client.clone(),
@@ -151,12 +159,14 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
                 println!("Calculating gradients");
                 println!("Raster backwards");
 
-                let workgroup = get_workgroup(uvec3(camera.height, camera.width, 1), RasterizeBackwards::workgroup_size());
-
-                client.execute(
-                    Box::new(DynamicKernel::new(RasterizeBackwards::new(), workgroup)),
-                    &[
-                        // Read
+                RasterizeBackwards::exec(
+                    &client,
+                    gen::rasterize_backwards::Uniforms::new(
+                        [camera.height, camera.width],
+                        tile_bounds.into(),
+                        state.background.into(),
+                    ),
+                    [
                         &state.gaussian_ids_sorted.handle,
                         &state.tile_bins.handle,
                         &state.xys.handle,
@@ -166,22 +176,15 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
                         &state.final_index.handle,
                         &state.out_img.handle,
                         &v_output.handle,
-
+                    ],
+                    [
                         &v_opacity.handle,
                         &v_conic.handle,
                         &v_xy.handle,
                         &v_colors.handle,
-
-                        // Uniforms
-                        &client.create(bytemuck::bytes_of(&gen::rasterize_backwards::Uniforms::new(
-                            [camera.height, camera.width],
-                            tile_bounds.into(),
-                            state.background.into()
-                        ))),
                     ],
+                    [camera.height, camera.width, 1],
                 );
-
-                let workgroup = get_workgroup(uvec3(num_points as u32, 1, 1), ProjectBackwards::workgroup_size());
 
                 let v_means = create_empty_f32([num_points, 4]);
                 let v_scales = create_empty_f32([num_points, 4]);
@@ -189,36 +192,30 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
 
                 println!("Project backwards");
 
-                client.execute(
-                    Box::new(DynamicKernel::new(ProjectBackwards::new(), workgroup)),
-                    &[
-                        // Read
+                ProjectBackwards::exec(
+                    &client,
+                    gen::project_backwards::Uniforms::new(
+                        num_points as u32,
+                        1.0,
+                        viewmat,
+                        intrins,
+                        [camera.height, camera.width],
+                    ),
+                    [
                         &state.means.handle,
                         &state.scales.handle,
                         &state.quats.handle,
-
                         &state.radii.handle,
                         &state.conics.handle,
                         &state.compensation.handle,
                         &v_xy.handle,
                         &v_conic.handle,
-                        &v_means.handle,
-                        &v_scales.handle,
-                        &v_quats.handle,
-
-                        // Uniforms
-                        &client.create(bytemuck::bytes_of(&gen::project_backwards::Uniforms::new(
-                            num_points as u32,
-                            1.0,
-                            viewmat,
-                            intrins,
-                            [camera.height, camera.width],
-                        ))),
                     ],
+                    [&v_means.handle, &v_scales.handle, &v_quats.handle],
+                    [num_points as u32, 1, 1],
                 );
 
                 println!("Registering gradients");
-
 
                 // Read from the state we have setup.
                 // let means = checkpointer.retrieve_node_output(means_state);
@@ -227,7 +224,8 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
                 // let grad_means = means;
 
                 // Register gradients for parent nodes.
-                let [mean_parent, scales_parent, quats_parent, colors_parent, opacity_parent] = ops.parents;
+                let [mean_parent, scales_parent, quats_parent, colors_parent, opacity_parent] =
+                    ops.parents;
 
                 if let Some(node) = mean_parent {
                     grads.register::<BurnBack, 2>(node, v_means);
@@ -252,31 +250,42 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
         }
 
         let prep_nodes = RenderBackwards
-        .prepare::<C>(
-            [
-                means_diff.node.clone(), 
-                scales_diff.node.clone(), 
-                quats_diff.node.clone(), 
-                colors_diff.node.clone(), 
-                opacity_diff.node.clone()
-            ],
-            [
-                means_diff.graph.clone(), 
-                scales_diff.graph.clone(), 
-                quats_diff.graph.clone(), 
-                colors_diff.graph.clone(), 
-                opacity_diff.graph.clone()
-            ],
-        )
-        // Marks the operation as compute bound, meaning it will save its
-        // state instead of recomputing itself during checkpointing
-        .compute_bound()
-        .stateful();
+            .prepare::<C>(
+                [
+                    means_diff.node.clone(),
+                    scales_diff.node.clone(),
+                    quats_diff.node.clone(),
+                    colors_diff.node.clone(),
+                    opacity_diff.node.clone(),
+                ],
+                [
+                    means_diff.graph.clone(),
+                    scales_diff.graph.clone(),
+                    quats_diff.graph.clone(),
+                    colors_diff.graph.clone(),
+                    opacity_diff.graph.clone(),
+                ],
+            )
+            // Marks the operation as compute bound, meaning it will save its
+            // state instead of recomputing itself during checkpointing
+            .compute_bound()
+            .stateful();
 
-        let (means, scales, quats, colors, opacity) = (means_diff.primitive, scales_diff.primitive, quats_diff.primitive, colors_diff.primitive, opacity_diff.primitive);
+        let (means, scales, quats, colors, opacity) = (
+            means_diff.primitive,
+            scales_diff.primitive,
+            quats_diff.primitive,
+            colors_diff.primitive,
+            opacity_diff.primitive,
+        );
 
         // Preprocess tensors.
-        assert!(means.device == scales.device && means.device == quats.device && means.device == colors.device && means.device == opacity.device);
+        assert!(
+            means.device == scales.device
+                && means.device == quats.device
+                && means.device == colors.device
+                && means.device == opacity.device
+        );
         let (means, scales, quats, colors, opacity) = (
             into_contiguous(means),
             into_contiguous(scales),
@@ -286,7 +295,13 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
         );
 
         let num_points = means.shape.dims[0];
-        let batches = [means.shape.dims[0], scales.shape.dims[0], quats.shape.dims[0], colors.shape.dims[0], opacity.shape.dims[0]];
+        let batches = [
+            means.shape.dims[0],
+            scales.shape.dims[0],
+            quats.shape.dims[0],
+            colors.shape.dims[0],
+            opacity.shape.dims[0],
+        ];
         assert!(batches.iter().all(|&x| x == num_points));
 
         // Atm these have to be dim=4, to be compatible
@@ -300,16 +315,17 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
         // Divide screen into block
         let block_size = 16;
         let img_size = [camera.width, camera.height];
-        let tile_bounds = uvec2(camera.height.div_ceil(block_size), camera.height.div_ceil(block_size));
+        let tile_bounds = uvec2(
+            camera.height.div_ceil(block_size),
+            camera.height.div_ceil(block_size),
+        );
 
-        let intrins = 
-            // TODO: Does this need the tan business?
-            glam::vec4(
-                (camera.width as f32) / (2.0 * camera.fovx.tan()),
-                (camera.height as f32) / (2.0 * camera.fovy.tan()),
-                (camera.width as f32) / 2.0,
-                (camera.height as f32) / 2.0,
-            );
+        let intrins = glam::vec4(
+            (camera.width as f32) / (2.0 * camera.fovx.tan()),
+            (camera.height as f32) / (2.0 * camera.fovy.tan()),
+            (camera.width as f32) / 2.0,
+            (camera.height as f32) / 2.0,
+        );
         let viewmat = camera.transform.inverse();
 
         let client = means.client.clone();
@@ -317,7 +333,7 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
 
         // TODO: Must be a faster way to create with nulls.
         // TODO: Move all these helpers somewhere else.
-        let create_empty_f32 = |dim|-> JitTensor<BurnBackInner, f32, 2> {
+        let create_empty_f32 = |dim| -> FloatTensor<BurnBack, 2> {
             let shape = Shape::new(dim);
             JitTensor::new(
                 client.clone(),
@@ -326,7 +342,7 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
                 client.create(&vec![0; shape.num_elements() * core::mem::size_of::<f32>()]),
             )
         };
-        let create_empty_f32_1d = |dim|-> JitTensor<BurnBackInner, f32, 1> {
+        let create_empty_f32_1d = |dim| -> FloatTensor<BurnBack, 1> {
             let shape = Shape::new(dim);
             JitTensor::new(
                 client.clone(),
@@ -336,7 +352,7 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
             )
         };
 
-        let create_empty_u32 = |dim| -> JitTensor<BurnBackInner, i32, 2> {
+        let create_empty_u32 = |dim| -> IntTensor<BurnBack, 2> {
             let shape = Shape::new(dim);
             JitTensor::new(
                 client.clone(),
@@ -346,7 +362,7 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
             )
         };
 
-        let create_empty_u32_1d = |dim| -> JitTensor<BurnBackInner, i32, 1> {
+        let create_empty_u32_1d = |dim| -> IntTensor<BurnBack, 1> {
             let shape = Shape::new(dim);
             JitTensor::new(
                 client.clone(),
@@ -356,19 +372,28 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
             )
         };
 
-        let to_vec_u32 = |tensor: &JitTensor<BurnBackInner, i32, 2>| -> Vec<u32> {
+        let to_vec_u32 = |tensor: &IntTensor<BurnBack, 2>| -> Vec<u32> {
             let data = client.read(&tensor.handle).read();
-            data.into_iter().array_chunks::<4>().map(u32::from_le_bytes).collect()
+            data.into_iter()
+                .array_chunks::<4>()
+                .map(u32::from_le_bytes)
+                .collect()
         };
 
-        let to_vec_u32_1d = |tensor: &JitTensor<BurnBackInner, i32, 1>| -> Vec<u32> {
+        let to_vec_u32_1d = |tensor: &IntTensor<BurnBack, 1>| -> Vec<u32> {
             let data = client.read(&tensor.handle).read();
-            data.into_iter().array_chunks::<4>().map(u32::from_le_bytes).collect()
+            data.into_iter()
+                .array_chunks::<4>()
+                .map(u32::from_le_bytes)
+                .collect()
         };
 
-        let to_vec_f32 = |tensor: &JitTensor<BurnBackInner, f32, 2>| -> Vec<f32> {
+        let to_vec_f32 = |tensor: &FloatTensor<BurnBack, 2>| -> Vec<f32> {
             let data = client.read(&tensor.handle).read();
-            data.into_iter().array_chunks::<4>().map(f32::from_le_bytes).collect()
+            data.into_iter()
+                .array_chunks::<4>()
+                .map(f32::from_le_bytes)
+                .collect()
         };
 
         // TODO: We might only need the data on the client for this not the tensor wrapper?
@@ -381,15 +406,25 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
         let compensation = create_empty_f32_1d([num_points]);
         let num_tiles_hit = create_empty_u32_1d([num_points]);
 
-        let workgroup = get_workgroup(uvec3(num_points as u32, 1, 1), ProjectSplats::workgroup_size());
-        client.execute(
-            Box::new(DynamicKernel::new(ProjectSplats::new(), workgroup)),
-            &[
-                // Input tensors.
-                &means.handle,
-                &scales.handle,
-                &quats.handle,
-                // Output tensors.
+        let workgroup = get_workgroup(
+            [num_points as u32, 1, 1],
+            gen::project_forward::compute::MAIN_WORKGROUP_SIZE,
+        );
+
+        ProjectSplats::exec(
+            &client,
+            gen::project_forward::Uniforms::new(
+                num_points as u32,
+                viewmat,
+                intrins,
+                img_size,
+                tile_bounds.into(),
+                1.0,
+                0.001,
+                block_size,
+            ),
+            [&means.handle, &scales.handle, &quats.handle],
+            [
                 &covs3d.handle,
                 &xys.handle,
                 &depths.handle,
@@ -397,18 +432,8 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
                 &conics.handle,
                 &compensation.handle,
                 &num_tiles_hit.handle,
-                // Aux data.
-                &client.create(bytemuck::bytes_of(&gen::project_forward::Uniforms::new(
-                    num_points as u32,
-                    viewmat,
-                    intrins,
-                    img_size,
-                    tile_bounds.into(),
-                    1.0,
-                    0.001,
-                    block_size,
-                ))),
             ],
+            [num_points as u32, 1, 1],
         );
 
         // TODO: CPU emulation for now. Investigate if we can do without a cumulative sum?
@@ -424,7 +449,7 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
             })
             .collect();
         let num_intersects = *cum_tiles_hit.last().unwrap() as usize;
-        
+
         // Reupload to GPU.
         let cum_tiles_hit = client.create(bytemuck::cast_slice::<u32, u8>(&cum_tiles_hit));
 
@@ -433,25 +458,21 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
         let isect_ids_unsorted = create_empty_u32([num_intersects, 1]);
 
         // Dispatch one thread per point.
-        let workgroup = get_workgroup(uvec3(num_points as u32, 1, 1), MapGaussiansToIntersect::workgroup_size());
-        client.execute(
-            Box::new(DynamicKernel::new(MapGaussiansToIntersect::new(), workgroup)),
-            &[
-                // Read
-                &xys.handle,
-                &depths.handle,
-                &radii.handle,
-                &cum_tiles_hit,
-                // Write
-                &isect_ids_unsorted.handle,
-                &gaussian_ids_unsorted.handle,
-                // Uniforms
-                &client.create(bytemuck::bytes_of(&gen::map_gaussian_to_intersects::Uniforms::new(
-                    num_points as u32,
-                    tile_bounds.into(),
-                    block_size,
-                ))),
-            ],
+        let workgroup = get_workgroup(
+            [num_points as u32, 1, 1],
+            gen::map_gaussian_to_intersects::compute::MAIN_WORKGROUP_SIZE,
+        );
+
+        MapGaussiansToIntersect::exec(
+            &client,
+            gen::map_gaussian_to_intersects::Uniforms::new(
+                num_points as u32,
+                tile_bounds.into(),
+                block_size,
+            ),
+            [&xys.handle, &depths.handle, &radii.handle, &cum_tiles_hit],
+            [&isect_ids_unsorted.handle, &gaussian_ids_unsorted.handle],
+            [num_points as u32, 1, 1],
         );
 
         // TODO: WGSL Radix sort.
@@ -459,27 +480,32 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
 
         let gaussian_ids_unsorted = to_vec_u32(&gaussian_ids_unsorted);
         let sorted_indices = argsort(&isect_ids_unsorted);
-        
-        let isect_ids_sorted: Vec<_> = sorted_indices.iter().copied().map(|x| isect_ids_unsorted[x]).collect();
-        let gaussian_ids_sorted: Vec<_> = sorted_indices.iter().copied().map(|x| gaussian_ids_unsorted[x]).collect();
 
-        let workgroup = get_workgroup(uvec3(num_intersects as u32, 1, 1), GetTileBinEdges::workgroup_size());
+        let isect_ids_sorted: Vec<_> = sorted_indices
+            .iter()
+            .copied()
+            .map(|x| isect_ids_unsorted[x])
+            .collect();
+        let gaussian_ids_sorted: Vec<_> = sorted_indices
+            .iter()
+            .copied()
+            .map(|x| gaussian_ids_unsorted[x])
+            .collect();
+
+        let workgroup = get_workgroup(
+            [num_intersects as u32, 1, 1],
+            gen::get_tile_bin_edges::compute::MAIN_WORKGROUP_SIZE,
+        );
         let isect_ids_sorted = client.create(bytemuck::cast_slice::<u32, u8>(&isect_ids_sorted));
 
         let tile_bins = create_empty_u32([(tile_bounds[0] * tile_bounds[1]) as usize, 2]);
 
-        client.execute(
-            Box::new(DynamicKernel::new(GetTileBinEdges::new(), workgroup)),
-            &[
-                // Read
-                &isect_ids_sorted,
-                // Write
-                &tile_bins.handle,
-                // Uniforms
-                &client.create(bytemuck::bytes_of(&gen::get_tile_bin_edges::Uniforms::new(
-                    num_intersects as u32,
-                ))),
-            ],
+        GetTileBinEdges::exec(
+            &client,
+            gen::get_tile_bin_edges::Uniforms::new(num_intersects as u32),
+            [&isect_ids_sorted],
+            [&tile_bins.handle],
+            [num_intersects as u32, 1, 1],
         );
 
         let img_shape = Shape::new([camera.height as usize, camera.width as usize, 4]);
@@ -498,34 +524,25 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
             client.empty(final_index_shape.num_elements() * core::mem::size_of::<u32>()),
         );
         let gaussian_ids_sorted = JitTensor::new(
-            client.clone(), device.clone(), 
+            client.clone(),
+            device.clone(),
             Shape::new([num_intersects]),
-            client.create(bytemuck::cast_slice::<u32, u8>(&gaussian_ids_sorted))
+            client.create(bytemuck::cast_slice::<u32, u8>(&gaussian_ids_sorted)),
         );
 
-        let workgroup = get_workgroup(uvec3(img_shape.dims[0] as u32, img_shape.dims[1] as u32, 1), RasterizeForward::workgroup_size());
-        client.execute(
-            Box::new(DynamicKernel::new(RasterizeForward::new(), workgroup)),
-            &[
-                // Read
+        Rasterize::exec(
+            &client,
+            gen::rasterize::Uniforms::new(tile_bounds.into(), background.into(), img_size),
+            [
                 &gaussian_ids_sorted.handle,
                 &tile_bins.handle,
                 &xys.handle,
                 &conics.handle,
                 &colors.handle,
                 &opacity.handle,
-
-                // Write
-                &out_img.handle,
-                &final_index.handle,
-
-                // Uniforms
-                &client.create(bytemuck::bytes_of(&gen::rasterize::Uniforms::new(
-                    tile_bounds.into(),
-                    background.into(),
-                    img_size
-                ))),
             ],
+            [&out_img.handle, &final_index.handle],
+            [img_shape.dims[0] as u32, img_shape.dims[1] as u32, 1],
         );
 
         // Prepare a stateful operation with each variable node and corresponding graph.
@@ -551,7 +568,7 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
                     opacity,
                     final_index,
                 };
-        
+
                 prep.finish(state, out_img)
             }
             OpsKind::UnTracked(prep) => {
@@ -563,9 +580,7 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
     }
 }
 
-impl AutodiffBackend for Autodiff<BurnBack>
-{
-}
+impl AutodiffBackend for Autodiff<BurnBack> {}
 
 pub(crate) struct RenderPackage<B: Backend> {
     // The final rendered image [h, w, 3].

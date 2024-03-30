@@ -9,6 +9,10 @@ edition = "2021"
 glam = "0.22"
 
 burn = { path = "../burn/crates/burn", features = ['wgpu', 'autodiff'] }
+burn-compute = { path = "../burn/crates/burn-compute" }
+burn-jit = { path = "../burn/crates/burn-jit" }
+burn-wgpu = { path = "../burn/crates/burn-wgpu" }
+
 bytemuck = "1.14.3"
 derive-new = "0.6.0"
 ndarray = "0.15.6"

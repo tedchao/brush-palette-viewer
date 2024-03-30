@@ -1,8 +1,12 @@
+use burn::backend::wgpu::{AutoGraphicsApi, JitBackend, WgpuRuntime};
+
 use crate::camera::Camera;
 
-pub mod render;
 mod gen;
 mod kernels;
+pub mod render;
+
+type BurnBack = JitBackend<WgpuRuntime<AutoGraphicsApi, f32, i32>>;
 
 pub type FloatTensor<B, const D: usize> =
     <B as burn::tensor::backend::Backend>::FloatTensorPrimitive<D>;
