@@ -1,10 +1,8 @@
 use crate::camera::Camera;
 
-mod project_gaussians;
 pub mod render;
-mod render_2d_gaussians;
-
 mod gen;
+mod kernels;
 
 pub type FloatTensor<B, const D: usize> =
     <B as burn::tensor::backend::Backend>::FloatTensorPrimitive<D>;

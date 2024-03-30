@@ -6,7 +6,7 @@ use burn::{
     tensor::Tensor,
 };
 use ndarray::{Array, Array1, Array3};
-use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
+use rand::{rngs::StdRng, SeedableRng};
 
 use crate::camera::Camera;
 use crate::splat_render::{self, AutodiffBackend, Backend};
