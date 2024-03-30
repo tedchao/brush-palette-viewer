@@ -19,7 +19,7 @@ where
     type Uniforms: NoUninit;
     const WORKGROUP_SIZE: [u32; 3];
 
-    fn exec(
+    fn execute(
         client: &ComputeClient<S, C>,
         uniforms: Self::Uniforms,
         read_handles: [&Handle<S>; Self::DIM_READ],
@@ -63,7 +63,7 @@ impl<S: ComputeServer<Kernel = Box<dyn Kernel>>, C: ComputeChannel<S>> WGSLKerne
     for ProjectSplats
 {
     const DIM_READ: usize = 3;
-    const DIM_WRITE: usize = 7;
+    const DIM_WRITE: usize = 6;
     type Uniforms = gen::project_forward::Uniforms;
     const WORKGROUP_SIZE: [u32; 3] = gen::project_forward::compute::MAIN_WORKGROUP_SIZE;
 }

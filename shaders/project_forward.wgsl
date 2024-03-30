@@ -4,15 +4,14 @@
 @group(0) @binding(1) var<storage, read> scales: array<vec4f>;
 @group(0) @binding(2) var<storage, read> quats: array<vec4f>;
 
-@group(0) @binding(3) var<storage, read_write> covs3d: array<f32>;
-@group(0) @binding(4) var<storage, read_write> xys: array<vec2f>;
-@group(0) @binding(5) var<storage, read_write> depths: array<f32>;
-@group(0) @binding(6) var<storage, read_write> radii: array<f32>;
-@group(0) @binding(7) var<storage, read_write> conics: array<vec4f>;
-@group(0) @binding(8) var<storage, read_write> compensation: array<f32>;
-@group(0) @binding(9) var<storage, read_write> num_tiles_hit: array<i32>;
+@group(0) @binding(3) var<storage, read_write> xys: array<vec2f>;
+@group(0) @binding(4) var<storage, read_write> depths: array<f32>;
+@group(0) @binding(5) var<storage, read_write> radii: array<f32>;
+@group(0) @binding(6) var<storage, read_write> conics: array<vec4f>;
+@group(0) @binding(7) var<storage, read_write> compensation: array<f32>;
+@group(0) @binding(8) var<storage, read_write> num_tiles_hit: array<i32>;
 
-@group(0) @binding(10) var<storage, read> info_array: array<Uniforms>;
+@group(0) @binding(9) var<storage, read> info_array: array<Uniforms>;
 
 struct Uniforms {
     // Number of splats that exist.
@@ -100,14 +99,6 @@ fn main(
     let M = R * S;
     let V = M * transpose(M);
     
-    // TODO: Is it really faster to save these rather than to recalculate them?
-    covs3d[6 * idx + 0] = V[0][0];
-    covs3d[6 * idx + 1] = V[0][1];
-    covs3d[6 * idx + 2] = V[0][2];
-    covs3d[6 * idx + 3] = V[1][1];
-    covs3d[6 * idx + 4] = V[1][2];
-    covs3d[6 * idx + 5] = V[2][2];
-
     let fx = intrins.x;
     let fy = intrins.y;
     let cx = intrins.z;

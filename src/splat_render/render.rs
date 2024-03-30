@@ -4,6 +4,7 @@ use crate::splat_render::kernels::{
     GetTileBinEdges, MapGaussiansToIntersect, ProjectBackwards, ProjectSplats, Rasterize,
     RasterizeBackwards,
 };
+use crate::splat_render::{create_buffer, create_tensor, read_buffer_to_u32};
 use burn::tensor::ops::IntTensor;
 use burn::tensor::Tensor;
 
@@ -22,8 +23,10 @@ use burn::{
     },
     tensor::Shape,
 };
+use burn_compute::server::{ComputeServer, Handle};
 
 use super::{gen, AutodiffBackend, Backend, BurnBack, FloatTensor};
+use crate::splat_render::BufferAlloc;
 use glam::{uvec2, UVec3, Vec3};
 
 fn get_workgroup(executions: [u32; 3], group_size: [u32; 3]) -> WorkGroup {
@@ -159,7 +162,7 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
                 println!("Calculating gradients");
                 println!("Raster backwards");
 
-                RasterizeBackwards::exec(
+                RasterizeBackwards::execute(
                     &client,
                     gen::rasterize_backwards::Uniforms::new(
                         [camera.height, camera.width],
@@ -192,7 +195,7 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
 
                 println!("Project backwards");
 
-                ProjectBackwards::exec(
+                ProjectBackwards::execute(
                     &client,
                     gen::project_backwards::Uniforms::new(
                         num_points as u32,
@@ -331,87 +334,16 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
         let client = means.client.clone();
         let device = means.device.clone();
 
-        // TODO: Must be a faster way to create with nulls.
-        // TODO: Move all these helpers somewhere else.
-        let create_empty_f32 = |dim| -> FloatTensor<BurnBack, 2> {
-            let shape = Shape::new(dim);
-            JitTensor::new(
-                client.clone(),
-                device.clone(),
-                shape.clone(),
-                client.create(&vec![0; shape.num_elements() * core::mem::size_of::<f32>()]),
-            )
-        };
-        let create_empty_f32_1d = |dim| -> FloatTensor<BurnBack, 1> {
-            let shape = Shape::new(dim);
-            JitTensor::new(
-                client.clone(),
-                device.clone(),
-                shape.clone(),
-                client.create(&vec![0; shape.num_elements() * core::mem::size_of::<f32>()]),
-            )
-        };
+        let depths = create_buffer::<f32, 1>(&client, [num_points], BufferAlloc::Empty);
 
-        let create_empty_u32 = |dim| -> IntTensor<BurnBack, 2> {
-            let shape = Shape::new(dim);
-            JitTensor::new(
-                client.clone(),
-                device.clone(),
-                shape.clone(),
-                client.create(&vec![0; shape.num_elements() * core::mem::size_of::<i32>()]),
-            )
-        };
+        let xys = create_tensor(&client, &device, [num_points, 2], BufferAlloc::Empty);
+        let conics = create_tensor(&client, &device, [num_points, 4], BufferAlloc::Empty);
+        let radii = create_tensor(&client, &device, [num_points], BufferAlloc::Empty);
+        let compensation = create_tensor(&client, &device, [num_points], BufferAlloc::Empty);
+        let num_tiles_hit =
+            create_tensor::<u32, 1>(&client, &device, [num_points], BufferAlloc::Empty);
 
-        let create_empty_u32_1d = |dim| -> IntTensor<BurnBack, 1> {
-            let shape = Shape::new(dim);
-            JitTensor::new(
-                client.clone(),
-                device.clone(),
-                shape.clone(),
-                client.create(&vec![0; shape.num_elements() * core::mem::size_of::<i32>()]),
-            )
-        };
-
-        let to_vec_u32 = |tensor: &IntTensor<BurnBack, 2>| -> Vec<u32> {
-            let data = client.read(&tensor.handle).read();
-            data.into_iter()
-                .array_chunks::<4>()
-                .map(u32::from_le_bytes)
-                .collect()
-        };
-
-        let to_vec_u32_1d = |tensor: &IntTensor<BurnBack, 1>| -> Vec<u32> {
-            let data = client.read(&tensor.handle).read();
-            data.into_iter()
-                .array_chunks::<4>()
-                .map(u32::from_le_bytes)
-                .collect()
-        };
-
-        let to_vec_f32 = |tensor: &FloatTensor<BurnBack, 2>| -> Vec<f32> {
-            let data = client.read(&tensor.handle).read();
-            data.into_iter()
-                .array_chunks::<4>()
-                .map(f32::from_le_bytes)
-                .collect()
-        };
-
-        // TODO: We might only need the data on the client for this not the tensor wrapper?
-        let covs3d = create_empty_f32([num_points, 6]);
-        let xys = create_empty_f32([num_points, 2]);
-        let conics = create_empty_f32([num_points, 4]);
-
-        let depths = create_empty_f32_1d([num_points]);
-        let radii = create_empty_f32_1d([num_points]);
-        let compensation = create_empty_f32_1d([num_points]);
-        let num_tiles_hit = create_empty_u32_1d([num_points]);
-
-        let workgroup = get_workgroup(
-            [num_points as u32, 1, 1],
-            gen::project_forward::compute::MAIN_WORKGROUP_SIZE,
-        );
-
-        ProjectSplats::exec(
+        ProjectSplats::execute(
             &client,
             gen::project_forward::Uniforms::new(
                 num_points as u32,
@@ -425,9 +357,8 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
             ),
             [&means.handle, &scales.handle, &quats.handle],
             [
-                &covs3d.handle,
                 &xys.handle,
-                &depths.handle,
+                &depths,
                 &radii.handle,
                 &conics.handle,
                 &compensation.handle,
@@ -439,7 +370,7 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
         // TODO: CPU emulation for now. Investigate if we can do without a cumulative sum?
 
         // Read num tiles to CPU.
-        let num_tiles_hit = to_vec_u32_1d(&num_tiles_hit);
+        let num_tiles_hit = read_buffer_to_u32(&client, &num_tiles_hit.handle);
         // Calculate cumulative sum.
         let cum_tiles_hit: Vec<u32> = num_tiles_hit
             .into_iter()
@@ -454,31 +385,27 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
         let cum_tiles_hit = client.create(bytemuck::cast_slice::<u32, u8>(&cum_tiles_hit));
 
         // Each intersection maps to a gaussian.
-        let gaussian_ids_unsorted = create_empty_u32([num_intersects, 1]);
-        let isect_ids_unsorted = create_empty_u32([num_intersects, 1]);
+        let gaussian_ids_unsorted =
+            create_buffer::<u32, 1>(&client, [num_intersects], BufferAlloc::Empty);
+        let isect_ids_unsorted =
+            create_buffer::<u32, 1>(&client, [num_intersects], BufferAlloc::Empty);
 
         // Dispatch one thread per point.
-        let workgroup = get_workgroup(
-            [num_points as u32, 1, 1],
-            gen::map_gaussian_to_intersects::compute::MAIN_WORKGROUP_SIZE,
-        );
-
-        MapGaussiansToIntersect::exec(
+        MapGaussiansToIntersect::execute(
             &client,
             gen::map_gaussian_to_intersects::Uniforms::new(
                 num_points as u32,
                 tile_bounds.into(),
                 block_size,
             ),
-            [&xys.handle, &depths.handle, &radii.handle, &cum_tiles_hit],
-            [&isect_ids_unsorted.handle, &gaussian_ids_unsorted.handle],
+            [&xys.handle, &depths, &radii.handle, &cum_tiles_hit],
+            [&isect_ids_unsorted, &gaussian_ids_unsorted],
             [num_points as u32, 1, 1],
         );
 
         // TODO: WGSL Radix sort.
-        let isect_ids_unsorted = to_vec_u32(&isect_ids_unsorted);
-
-        let gaussian_ids_unsorted = to_vec_u32(&gaussian_ids_unsorted);
+        let isect_ids_unsorted = read_buffer_to_u32(&client, &isect_ids_unsorted);
+        let gaussian_ids_unsorted = read_buffer_to_u32(&client, &gaussian_ids_unsorted);
         let sorted_indices = argsort(&isect_ids_unsorted);
 
         let isect_ids_sorted: Vec<_> = sorted_indices
@@ -492,15 +419,15 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
             .map(|x| gaussian_ids_unsorted[x])
             .collect();
 
-        let workgroup = get_workgroup(
-            [num_intersects as u32, 1, 1],
-            gen::get_tile_bin_edges::compute::MAIN_WORKGROUP_SIZE,
-        );
         let isect_ids_sorted = client.create(bytemuck::cast_slice::<u32, u8>(&isect_ids_sorted));
+        let tile_bins = create_tensor(
+            &client,
+            &device,
+            [(tile_bounds[0] * tile_bounds[1]) as usize, 2],
+            BufferAlloc::Zeros,
+        );
 
-        let tile_bins = create_empty_u32([(tile_bounds[0] * tile_bounds[1]) as usize, 2]);
-
-        GetTileBinEdges::exec(
+        GetTileBinEdges::execute(
             &client,
             gen::get_tile_bin_edges::Uniforms::new(num_intersects as u32),
             [&isect_ids_sorted],
@@ -530,7 +457,7 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
             client.create(bytemuck::cast_slice::<u32, u8>(&gaussian_ids_sorted)),
         );
 
-        Rasterize::exec(
+        Rasterize::execute(
             &client,
             gen::rasterize::Uniforms::new(tile_bounds.into(), background.into(), img_size),
             [
