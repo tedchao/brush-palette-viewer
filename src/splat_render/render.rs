@@ -49,6 +49,31 @@ impl<G: GraphicsApi, F: FloatElement, I: IntElement> Backend for JitBackend<Wgpu
     }
 }
 
+#[derive(Debug, Clone)]
+struct GaussianBackwardState {
+    cam: Camera,
+    background: Vec3,
+
+    // Splat inputs.
+    means: NodeID,
+    scales: NodeID,
+    quats: NodeID,
+    colors: NodeID,
+    opacity: NodeID,
+
+    // Calculated state.
+    radii: FloatTensor<BurnBack, 1>,
+    compensation: FloatTensor<BurnBack, 1>,
+
+    xys: FloatTensor<BurnBack, 2>,
+    conics: FloatTensor<BurnBack, 2>,
+    out_img: FloatTensor<BurnBack, 3>,
+
+    gaussian_ids_sorted: IntTensor<BurnBack, 1>,
+    tile_bins: IntTensor<BurnBack, 2>,
+    final_index: IntTensor<BurnBack, 2>,
+}
+
 #[derive(Debug)]
 struct RenderBackwards;
 
@@ -62,198 +87,6 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
         opacity_diff: FloatTensor<Self, 1>,
         background: glam::Vec3,
     ) -> FloatTensor<Self, 3> {
-        #[derive(Debug, Clone)]
-        struct GaussianBackwardState {
-            cam: Camera,
-            background: Vec3,
-
-            // Splat inputs.
-            means: NodeID,
-            scales: NodeID,
-            quats: NodeID,
-            colors: NodeID,
-            opacity: NodeID,
-
-            // Calculated state.
-            radii: FloatTensor<BurnBack, 1>,
-            compensation: FloatTensor<BurnBack, 1>,
-
-            xys: FloatTensor<BurnBack, 2>,
-            conics: FloatTensor<BurnBack, 2>,
-            out_img: FloatTensor<BurnBack, 3>,
-
-            gaussian_ids_sorted: IntTensor<BurnBack, 1>,
-            tile_bins: IntTensor<BurnBack, 2>,
-            final_index: IntTensor<BurnBack, 2>,
-        }
-
-        // Implement the backward trait for the given backend B, the node gradient being of rank D
-        // with three other gradients to calculate (means, colors, and opacity).
-        impl Backward<BurnBack, 3, 5> for RenderBackwards {
-            // Our state that we must build during the forward pass to compute the backward pass.
-            // (means)
-            type State = GaussianBackwardState;
-
-            fn backward(
-                self,
-                ops: Ops<Self::State, 5>,
-                grads: &mut Gradients,
-                checkpointer: &mut Checkpointer,
-            ) {
-                // // Get the nodes of each variable.
-                let block_size = 16;
-
-                let state = ops.state;
-                let v_output = grads.consume::<BurnBack, 3>(&ops.node);
-                let camera = state.cam;
-                let tile_bounds = uvec2(
-                    camera.height.div_ceil(block_size),
-                    camera.height.div_ceil(block_size),
-                );
-
-                assert!(v_output.shape.dims == [camera.height as usize, camera.width as usize, 4]);
-
-                let client = v_output.client.clone();
-                let device = v_output.device.clone();
-
-                let intrins = glam::vec4(
-                    (camera.width as f32) / (2.0 * camera.fovx.tan()),
-                    (camera.height as f32) / (2.0 * camera.fovy.tan()),
-                    (camera.width as f32) / 2.0,
-                    (camera.height as f32) / 2.0,
-                );
-                let viewmat = camera.transform.inverse();
-
-                let create_empty_f32 = |dim| -> FloatTensor<BurnBack, 2> {
-                    let shape = Shape::new(dim);
-                    JitTensor::new(
-                        client.clone(),
-                        device.clone(),
-                        shape.clone(),
-                        client.create(&vec![0; shape.num_elements() * core::mem::size_of::<f32>()]),
-                    )
-                };
-                let create_empty_f32_1d = |dim| -> FloatTensor<BurnBack, 1> {
-                    let shape = Shape::new(dim);
-                    JitTensor::new(
-                        client.clone(),
-                        device.clone(),
-                        shape.clone(),
-                        client.create(&vec![0; shape.num_elements() * core::mem::size_of::<f32>()]),
-                    )
-                };
-
-                let means =
-                    checkpointer.retrieve_node_output::<FloatTensor<BurnBack, 2>>(state.means);
-                let quats =
-                    checkpointer.retrieve_node_output::<FloatTensor<BurnBack, 2>>(state.quats);
-                let scales =
-                    checkpointer.retrieve_node_output::<FloatTensor<BurnBack, 2>>(state.scales);
-                let colors =
-                    checkpointer.retrieve_node_output::<FloatTensor<BurnBack, 2>>(state.colors);
-                let opacity =
-                    checkpointer.retrieve_node_output::<FloatTensor<BurnBack, 1>>(state.opacity);
-
-                let num_points = means.shape.dims[0];
-                let v_opacity = create_empty_f32_1d([num_points]);
-
-                let v_colors = create_empty_f32([num_points, 4]);
-                let v_conic = create_empty_f32([num_points, 4]);
-                let v_xy = create_empty_f32([num_points, 2]);
-
-                println!("Calculating gradients");
-                println!("Raster backwards");
-
-                RasterizeBackwards::execute(
-                    &client,
-                    gen::rasterize_backwards::Uniforms::new(
-                        [camera.height, camera.width],
-                        tile_bounds.into(),
-                        state.background.into(),
-                    ),
-                    [
-                        &state.gaussian_ids_sorted.handle,
-                        &state.tile_bins.handle,
-                        &state.xys.handle,
-                        &state.conics.handle,
-                        &colors.handle,
-                        &opacity.handle,
-                        &state.final_index.handle,
-                        &state.out_img.handle,
-                        &v_output.handle,
-                    ],
-                    [
-                        &v_opacity.handle,
-                        &v_conic.handle,
-                        &v_xy.handle,
-                        &v_colors.handle,
-                    ],
-                    [camera.height, camera.width, 1],
-                );
-
-                let v_means = create_empty_f32([num_points, 4]);
-                let v_scales = create_empty_f32([num_points, 4]);
-                let v_quats = create_empty_f32([num_points, 4]);
-
-                println!("Project backwards");
-
-                ProjectBackwards::execute(
-                    &client,
-                    gen::project_backwards::Uniforms::new(
-                        num_points as u32,
-                        1.0,
-                        viewmat,
-                        intrins,
-                        [camera.height, camera.width],
-                    ),
-                    [
-                        &means.handle,
-                        &scales.handle,
-                        &quats.handle,
-                        &state.radii.handle,
-                        &state.conics.handle,
-                        &state.compensation.handle,
-                        &v_xy.handle,
-                        &v_conic.handle,
-                    ],
-                    [&v_means.handle, &v_scales.handle, &v_quats.handle],
-                    [num_points as u32, 1, 1],
-                );
-
-                println!("Registering gradients");
-
-                // Read from the state we have setup.
-                // let means = checkpointer.retrieve_node_output(means_state);
-
-                // Return gradient of means, atm just as itself. So d/dx means == means? errr... ?
-                // let grad_means = means;
-
-                // Register gradients for parent nodes.
-                let [mean_parent, scales_parent, quats_parent, colors_parent, opacity_parent] =
-                    ops.parents;
-
-                if let Some(node) = mean_parent {
-                    grads.register::<BurnBack, 2>(node, v_means);
-                }
-
-                if let Some(node) = scales_parent {
-                    grads.register::<BurnBack, 2>(node, v_scales);
-                }
-
-                if let Some(node) = quats_parent {
-                    grads.register::<BurnBack, 2>(node, v_quats);
-                }
-
-                if let Some(node) = colors_parent {
-                    grads.register::<BurnBack, 2>(node, v_colors);
-                }
-
-                if let Some(node) = opacity_parent {
-                    grads.register::<BurnBack, 1>(node, v_opacity);
-                }
-            }
-        }
-
         let prep_nodes = RenderBackwards
             .prepare::<C>(
                 [
@@ -510,18 +343,168 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
     }
 }
 
-impl AutodiffBackend for Autodiff<BurnBack> {}
+// Implement the backward trait for the given backend B, the node gradient being of rank D
+// with three other gradients to calculate (means, colors, and opacity).
+impl Backward<BurnBack, 3, 5> for RenderBackwards {
+    // Our state that we must build during the forward pass to compute the backward pass.
+    // (means)
+    type State = GaussianBackwardState;
 
-pub(crate) struct RenderPackage<B: Backend> {
-    // The final rendered image [h, w, 3].
-    pub image: Tensor<B, 3>,
-    // The radii of each gaussian point.
-    // TODO: Do we need this?
-    pub radii: Tensor<B, 1>,
-    // The sceenspace points.
-    // TODO: What even is this?
-    pub screenspace_points: Tensor<B, 2>,
+    fn backward(
+        self,
+        ops: Ops<Self::State, 5>,
+        grads: &mut Gradients,
+        checkpointer: &mut Checkpointer,
+    ) {
+        // // Get the nodes of each variable.
+        let block_size = 16;
+
+        let state = ops.state;
+        let v_output = grads.consume::<BurnBack, 3>(&ops.node);
+        let camera = state.cam;
+        let tile_bounds = uvec2(
+            camera.height.div_ceil(block_size),
+            camera.height.div_ceil(block_size),
+        );
+
+        assert!(v_output.shape.dims == [camera.height as usize, camera.width as usize, 4]);
+
+        let client = v_output.client.clone();
+        let device = v_output.device.clone();
+
+        let intrins = glam::vec4(
+            (camera.width as f32) / (2.0 * camera.fovx.tan()),
+            (camera.height as f32) / (2.0 * camera.fovy.tan()),
+            (camera.width as f32) / 2.0,
+            (camera.height as f32) / 2.0,
+        );
+        let viewmat = camera.transform.inverse();
+
+        let create_empty_f32 = |dim| -> FloatTensor<BurnBack, 2> {
+            let shape = Shape::new(dim);
+            JitTensor::new(
+                client.clone(),
+                device.clone(),
+                shape.clone(),
+                client.create(&vec![0; shape.num_elements() * core::mem::size_of::<f32>()]),
+            )
+        };
+        let create_empty_f32_1d = |dim| -> FloatTensor<BurnBack, 1> {
+            let shape = Shape::new(dim);
+            JitTensor::new(
+                client.clone(),
+                device.clone(),
+                shape.clone(),
+                client.create(&vec![0; shape.num_elements() * core::mem::size_of::<f32>()]),
+            )
+        };
+
+        let means = checkpointer.retrieve_node_output::<FloatTensor<BurnBack, 2>>(state.means);
+        let quats = checkpointer.retrieve_node_output::<FloatTensor<BurnBack, 2>>(state.quats);
+        let scales = checkpointer.retrieve_node_output::<FloatTensor<BurnBack, 2>>(state.scales);
+        let colors = checkpointer.retrieve_node_output::<FloatTensor<BurnBack, 2>>(state.colors);
+        let opacity = checkpointer.retrieve_node_output::<FloatTensor<BurnBack, 1>>(state.opacity);
+
+        let num_points = means.shape.dims[0];
+        let v_opacity = create_empty_f32_1d([num_points]);
+
+        let v_colors = create_empty_f32([num_points, 4]);
+        let v_conic = create_empty_f32([num_points, 4]);
+        let v_xy = create_empty_f32([num_points, 2]);
+
+        println!("Calculating gradients");
+        println!("Raster backwards");
+
+        RasterizeBackwards::execute(
+            &client,
+            gen::rasterize_backwards::Uniforms::new(
+                [camera.height, camera.width],
+                tile_bounds.into(),
+                state.background.into(),
+            ),
+            [
+                &state.gaussian_ids_sorted.handle,
+                &state.tile_bins.handle,
+                &state.xys.handle,
+                &state.conics.handle,
+                &colors.handle,
+                &opacity.handle,
+                &state.final_index.handle,
+                &state.out_img.handle,
+                &v_output.handle,
+            ],
+            [
+                &v_opacity.handle,
+                &v_conic.handle,
+                &v_xy.handle,
+                &v_colors.handle,
+            ],
+            [camera.height, camera.width, 1],
+        );
+
+        let v_means = create_empty_f32([num_points, 4]);
+        let v_scales = create_empty_f32([num_points, 4]);
+        let v_quats = create_empty_f32([num_points, 4]);
+
+        println!("Project backwards");
+
+        ProjectBackwards::execute(
+            &client,
+            gen::project_backwards::Uniforms::new(
+                num_points as u32,
+                1.0,
+                viewmat,
+                intrins,
+                [camera.height, camera.width],
+            ),
+            [
+                &means.handle,
+                &scales.handle,
+                &quats.handle,
+                &state.radii.handle,
+                &state.conics.handle,
+                &state.compensation.handle,
+                &v_xy.handle,
+                &v_conic.handle,
+            ],
+            [&v_means.handle, &v_scales.handle, &v_quats.handle],
+            [num_points as u32, 1, 1],
+        );
+
+        println!("Registering gradients");
+
+        // Read from the state we have setup.
+        // let means = checkpointer.retrieve_node_output(means_state);
+
+        // Return gradient of means, atm just as itself. So d/dx means == means? errr... ?
+        // let grad_means = means;
+
+        // Register gradients for parent nodes.
+        let [mean_parent, scales_parent, quats_parent, colors_parent, opacity_parent] = ops.parents;
+
+        if let Some(node) = mean_parent {
+            grads.register::<BurnBack, 2>(node, v_means);
+        }
+
+        if let Some(node) = scales_parent {
+            grads.register::<BurnBack, 2>(node, v_scales);
+        }
+
+        if let Some(node) = quats_parent {
+            grads.register::<BurnBack, 2>(node, v_quats);
+        }
+
+        if let Some(node) = colors_parent {
+            grads.register::<BurnBack, 2>(node, v_colors);
+        }
+
+        if let Some(node) = opacity_parent {
+            grads.register::<BurnBack, 1>(node, v_opacity);
+        }
+    }
 }
+
+impl AutodiffBackend for Autodiff<BurnBack> {}
 
 pub fn render<B: Backend>(
     camera: &Camera,
