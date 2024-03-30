@@ -5,9 +5,12 @@ use crate::splat_render::kernels::{
     RasterizeBackwards,
 };
 use crate::splat_render::{create_buffer, create_tensor, read_buffer_to_u32};
+use burn::backend::autodiff::NodeID;
 use burn::tensor::ops::IntTensor;
 use burn::tensor::Tensor;
 
+use super::{gen, AutodiffBackend, Backend, BurnBack, FloatTensor};
+use crate::splat_render::BufferAlloc;
 use burn::{
     backend::{
         autodiff::{
@@ -17,24 +20,13 @@ use burn::{
         },
         wgpu::{
             into_contiguous, FloatElement, GraphicsApi, IntElement, JitBackend, JitTensor,
-            WgpuRuntime, WorkGroup,
+            WgpuRuntime,
         },
         Autodiff,
     },
     tensor::Shape,
 };
-use burn_compute::server::{ComputeServer, Handle};
-
-use super::{gen, AutodiffBackend, Backend, BurnBack, FloatTensor};
-use crate::splat_render::BufferAlloc;
-use glam::{uvec2, UVec3, Vec3};
-
-fn get_workgroup(executions: [u32; 3], group_size: [u32; 3]) -> WorkGroup {
-    let execs = (UVec3::from_array(executions).as_vec3() / UVec3::from_array(group_size).as_vec3())
-        .ceil()
-        .as_uvec3();
-    WorkGroup::new(execs.x, execs.y, execs.z)
-}
+use glam::{uvec2, Vec3};
 
 pub fn argsort<T: Ord>(data: &[T]) -> Vec<usize> {
     let mut indices = (0..data.len()).collect::<Vec<_>>();
@@ -52,12 +44,11 @@ impl<G: GraphicsApi, F: FloatElement, I: IntElement> Backend for JitBackend<Wgpu
         _opacity: FloatTensor<Self, 1>,
         _background: glam::Vec3,
     ) -> FloatTensor<Self, 3> {
-        // Implement inference only version. This shouln't be hard but burn makes it a bit annoying!
+        // Implement inference only version. This shouldn't be hard, but burn makes it a bit annoying!
         todo!();
     }
 }
 
-// Create our zero-sized type that will implement the Backward trait.
 #[derive(Debug)]
 struct RenderBackwards;
 
@@ -77,11 +68,11 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
             background: Vec3,
 
             // Splat inputs.
-            means: FloatTensor<BurnBack, 2>,
-            scales: FloatTensor<BurnBack, 2>,
-            quats: FloatTensor<BurnBack, 2>,
-            colors: FloatTensor<BurnBack, 2>,
-            opacity: FloatTensor<BurnBack, 1>,
+            means: NodeID,
+            scales: NodeID,
+            quats: NodeID,
+            colors: NodeID,
+            opacity: NodeID,
 
             // Calculated state.
             radii: FloatTensor<BurnBack, 1>,
@@ -107,7 +98,7 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
                 self,
                 ops: Ops<Self::State, 5>,
                 grads: &mut Gradients,
-                _checkpointer: &mut Checkpointer,
+                checkpointer: &mut Checkpointer,
             ) {
                 // // Get the nodes of each variable.
                 let block_size = 16;
@@ -152,7 +143,18 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
                     )
                 };
 
-                let num_points = state.means.shape.dims[0];
+                let means =
+                    checkpointer.retrieve_node_output::<FloatTensor<BurnBack, 2>>(state.means);
+                let quats =
+                    checkpointer.retrieve_node_output::<FloatTensor<BurnBack, 2>>(state.quats);
+                let scales =
+                    checkpointer.retrieve_node_output::<FloatTensor<BurnBack, 2>>(state.scales);
+                let colors =
+                    checkpointer.retrieve_node_output::<FloatTensor<BurnBack, 2>>(state.colors);
+                let opacity =
+                    checkpointer.retrieve_node_output::<FloatTensor<BurnBack, 1>>(state.opacity);
+
+                let num_points = means.shape.dims[0];
                 let v_opacity = create_empty_f32_1d([num_points]);
 
                 let v_colors = create_empty_f32([num_points, 4]);
@@ -174,8 +176,8 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
                         &state.tile_bins.handle,
                         &state.xys.handle,
                         &state.conics.handle,
-                        &state.colors.handle,
-                        &state.opacity.handle,
+                        &colors.handle,
+                        &opacity.handle,
                         &state.final_index.handle,
                         &state.out_img.handle,
                         &v_output.handle,
@@ -205,9 +207,9 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
                         [camera.height, camera.width],
                     ),
                     [
-                        &state.means.handle,
-                        &state.scales.handle,
-                        &state.quats.handle,
+                        &means.handle,
+                        &scales.handle,
+                        &quats.handle,
                         &state.radii.handle,
                         &state.conics.handle,
                         &state.compensation.handle,
@@ -275,11 +277,11 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
             .stateful();
 
         let (means, scales, quats, colors, opacity) = (
-            means_diff.primitive,
-            scales_diff.primitive,
-            quats_diff.primitive,
-            colors_diff.primitive,
-            opacity_diff.primitive,
+            means_diff.clone().primitive,
+            scales_diff.clone().primitive,
+            quats_diff.clone().primitive,
+            colors_diff.clone().primitive,
+            opacity_diff.clone().primitive,
         );
 
         // Preprocess tensors.
@@ -289,6 +291,7 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
                 && means.device == colors.device
                 && means.device == opacity.device
         );
+
         let (means, scales, quats, colors, opacity) = (
             into_contiguous(means),
             into_contiguous(scales),
@@ -479,9 +482,11 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
             OpsKind::Tracked(mut prep) => {
                 let state = GaussianBackwardState {
                     // TODO: Respect checkpointing in this.
-                    means,
-                    scales,
-                    quats,
+                    means: prep.checkpoint(&means_diff),
+                    scales: prep.checkpoint(&scales_diff),
+                    quats: prep.checkpoint(&quats_diff),
+                    colors: prep.checkpoint(&colors_diff),
+                    opacity: prep.checkpoint(&opacity_diff),
                     radii,
                     compensation,
                     cam: camera.clone(),
@@ -491,8 +496,6 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
                     tile_bins,
                     xys,
                     conics,
-                    colors,
-                    opacity,
                     final_index,
                 };
 
