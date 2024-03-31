@@ -18,6 +18,8 @@ use crate::{
     utils,
 };
 
+use rand::seq::SliceRandom;
+
 #[derive(Config)]
 pub(crate) struct TrainConfig {
     #[config(default = 42)]
@@ -68,8 +70,6 @@ fn train_step<B: AutodiffBackend>(
 where
     B::InnerBackend: Backend,
 {
-    println!("Train step {iteration}");
-
     if iteration % 1000 == 0 {
         splats.oneup_sh_degree();
     }
@@ -79,17 +79,19 @@ where
     // TODO: If there is no camera, maybe just bail?
     let viewpoint = scene
         .train_data
-        .get(0)
+        .choose(rng)
         .expect("Dataset should have at least 1 camera.");
 
-    let camera = Camera::new(
-        glam::vec3(0.0, 0.0, -10.0),
-        glam::Quat::IDENTITY,
-        60.0_f32.to_radians(),
-        60.0_f32.to_radians(),
-        viewpoint.camera.width,
-        viewpoint.camera.height,
-    );
+    // let camera = Camera::new(
+    //     glam::vec3(0.0, 0.0, -10.0),
+    //     glam::Quat::IDENTITY,
+    //     60.0_f32.to_radians(),
+    //     60.0_f32.to_radians(),
+    //     viewpoint.camera.width,
+    //     viewpoint.camera.height,
+    // );
+
+    let camera = &viewpoint.camera;
 
     let background_color = if config.random_bck_color {
         glam::vec3(rand::random(), rand::random(), rand::random())
@@ -171,7 +173,7 @@ where
 
     println!("Create splats.");
 
-    let mut splats: Splats<B> = SplatsConfig::new(500, 10.0, 0, 1.0).build(device);
+    let mut splats: Splats<B> = SplatsConfig::new(5000, 1.0, 0, 1.0).build(device);
 
     // TODO: Original implementation has learning rates different for almost all params.
     let mut scheduler = burn::lr_scheduler::cosine::CosineAnnealingLrSchedulerConfig::new(

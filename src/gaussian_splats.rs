@@ -6,7 +6,6 @@ use burn::{
 use ndarray::Axis;
 use rerun::{RecordingStream, Rgba32};
 
-use crate::splat_render::render::RenderPackage;
 use crate::{
     camera::Camera,
     splat_render::{self, Backend},
@@ -106,7 +105,7 @@ impl<B: Backend> Splats<B> {
             utils::inverse_sigmoid(Tensor::from_floats([0.1], device)).repeat(0, num_points);
 
         // TODO: Fancy KNN init.
-        let init_scale = Tensor::random([num_points, 4], Distribution::Uniform(0.1, 1.0), device);
+        let init_scale = Tensor::random([num_points, 4], Distribution::Uniform(0.01, 0.5), device);
 
         // Model parameters.
         Splats {
@@ -136,31 +135,27 @@ impl<B: Backend> Splats<B> {
     }
 
     // Updates rolling statistics that we capture during rendering.
-    pub(crate) fn update_rolling_statistics(&mut self, render_pkg: RenderPackage<B>) {
-        let radii = render_pkg.radii;
-
-        let visible_mask = radii.clone().greater_elem(0.0);
-
-        // TODO: This is not as efficient as could be...
-        // Want these operations to be sparse.
-        // TODO: Use max_pair.
-        self.max_radii_2d = radii.clone().mask_where(
-            visible_mask.clone(),
-            Tensor::cat(
-                vec![radii.unsqueeze(), self.max_radii_2d.clone().unsqueeze()],
-                0,
-            )
-            .max_dim(0),
-        );
-
-        // TODO: How do we get grads here? Would need to be sure B: AutoDiffBackend.
-        // let grad = screenspace_points.
-        // self.xyz_gradient_accum[visibility_filter] += torch.norm(
-        //     screenspace_points.grad[visibility_filter, :2], dim=-1, keepdim=True
-        // );
-
-        self.denom = self.denom.clone() + visible_mask.float();
-    }
+    // pub(crate) fn update_rolling_statistics(&mut self, render_pkg: RenderPackage<B>) {
+    //     let radii = render_pkg.radii;
+    //     let visible_mask = radii.clone().greater_elem(0.0);
+    //     // TODO: This is not as efficient as could be...
+    //     // Want these operations to be sparse.
+    //     // TODO: Use max_pair.
+    //     self.max_radii_2d = radii.clone().mask_where(
+    //         visible_mask.clone(),
+    //         Tensor::cat(
+    //             vec![radii.unsqueeze(), self.max_radii_2d.clone().unsqueeze()],
+    //             0,
+    //         )
+    //         .max_dim(0),
+    //     );
+    //     // TODO: How do we get grads here? Would need to be sure B: AutoDiffBackend.
+    //     // let grad = screenspace_points.
+    //     // self.xyz_gradient_accum[visibility_filter] += torch.norm(
+    //     //     screenspace_points.grad[visibility_filter, :2], dim=-1, keepdim=True
+    //     // );
+    //     self.denom = self.denom.clone() + visible_mask.float();
+    // }
 
     /// Resets all the opacities to 0.01.
     pub(crate) fn reset_opacity(&mut self) {

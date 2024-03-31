@@ -1,11 +1,13 @@
 use burn::{
-    backend::wgpu::{AutoGraphicsApi, JitBackend, WgpuRuntime},
+    backend::{
+        wgpu::{AutoGraphicsApi, JitBackend, WgpuRuntime},
+        Autodiff,
+    },
     tensor::Shape,
 };
 use burn_compute::{
     channel::ComputeChannel,
     client::ComputeClient,
-    memory_management::SimpleMemoryManagement,
     server::{ComputeServer, Handle},
 };
 use burn_jit::{compute::Kernel, JitElement, Runtime};
@@ -63,8 +65,7 @@ pub trait Backend: burn::tensor::backend::Backend {
 // TODO: In rust 1.80 having a trait bound here on the inner backend would be great.
 // For now all code using it will need to specify this bound itself.
 pub trait AutodiffBackend: Backend + burn::tensor::backend::AutodiffBackend {}
-
-// /// Implement our custom backend trait for the existing backend `WgpuBackend`.
+impl AutodiffBackend for Autodiff<BurnBack> {}
 
 enum BufferAlloc {
     Empty,
@@ -107,7 +108,7 @@ fn read_buffer_to_u32<S: ComputeServer<Kernel = Box<dyn Kernel>>, C: ComputeChan
     client: &ComputeClient<S, C>,
     tensor: &Handle<S>,
 ) -> Vec<u32> {
-    let data = client.read(&tensor).read();
+    let data = client.read(tensor).read();
     data.into_iter()
         .array_chunks::<4>()
         .map(u32::from_le_bytes)
@@ -118,7 +119,7 @@ fn read_buffer_to_f32<S: ComputeServer<Kernel = Box<dyn Kernel>>, C: ComputeChan
     client: &ComputeClient<S, C>,
     tensor: &Handle<S>,
 ) -> Vec<f32> {
-    let data = client.read(&tensor).read();
+    let data = client.read(tensor).read();
     data.into_iter()
         .array_chunks::<4>()
         .map(f32::from_le_bytes)

@@ -10,14 +10,14 @@ use glam::UVec3;
 
 use super::gen;
 
-pub(crate) trait WGSLKernel<S: ComputeServer<Kernel = Box<dyn Kernel>>, C: ComputeChannel<S>>
+pub(crate) trait SplatKernel<S: ComputeServer<Kernel = Box<dyn Kernel>>, C: ComputeChannel<S>>
 where
     Self: Default + DynamicKernelSource + 'static,
 {
     const DIM_READ: usize;
     const DIM_WRITE: usize;
-    type Uniforms: NoUninit;
     const WORKGROUP_SIZE: [u32; 3];
+    type Uniforms: NoUninit;
 
     fn execute(
         client: &ComputeClient<S, C>,
@@ -59,7 +59,7 @@ impl DynamicKernelSource for ProjectSplats {
     }
 }
 
-impl<S: ComputeServer<Kernel = Box<dyn Kernel>>, C: ComputeChannel<S>> WGSLKernel<S, C>
+impl<S: ComputeServer<Kernel = Box<dyn Kernel>>, C: ComputeChannel<S>> SplatKernel<S, C>
     for ProjectSplats
 {
     const DIM_READ: usize = 3;
@@ -81,7 +81,7 @@ impl DynamicKernelSource for MapGaussiansToIntersect {
     }
 }
 
-impl<S: ComputeServer<Kernel = Box<dyn Kernel>>, C: ComputeChannel<S>> WGSLKernel<S, C>
+impl<S: ComputeServer<Kernel = Box<dyn Kernel>>, C: ComputeChannel<S>> SplatKernel<S, C>
     for MapGaussiansToIntersect
 {
     const DIM_READ: usize = 4;
@@ -103,7 +103,7 @@ impl DynamicKernelSource for GetTileBinEdges {
     }
 }
 
-impl<S: ComputeServer<Kernel = Box<dyn Kernel>>, C: ComputeChannel<S>> WGSLKernel<S, C>
+impl<S: ComputeServer<Kernel = Box<dyn Kernel>>, C: ComputeChannel<S>> SplatKernel<S, C>
     for GetTileBinEdges
 {
     const DIM_READ: usize = 1;
@@ -124,7 +124,7 @@ impl DynamicKernelSource for Rasterize {
     }
 }
 
-impl<S: ComputeServer<Kernel = Box<dyn Kernel>>, C: ComputeChannel<S>> WGSLKernel<S, C>
+impl<S: ComputeServer<Kernel = Box<dyn Kernel>>, C: ComputeChannel<S>> SplatKernel<S, C>
     for Rasterize
 {
     const DIM_READ: usize = 6;
@@ -145,7 +145,7 @@ impl DynamicKernelSource for RasterizeBackwards {
     }
 }
 
-impl<S: ComputeServer<Kernel = Box<dyn Kernel>>, C: ComputeChannel<S>> WGSLKernel<S, C>
+impl<S: ComputeServer<Kernel = Box<dyn Kernel>>, C: ComputeChannel<S>> SplatKernel<S, C>
     for RasterizeBackwards
 {
     const DIM_READ: usize = 9;
@@ -166,7 +166,7 @@ impl DynamicKernelSource for ProjectBackwards {
     }
 }
 
-impl<S: ComputeServer<Kernel = Box<dyn Kernel>>, C: ComputeChannel<S>> WGSLKernel<S, C>
+impl<S: ComputeServer<Kernel = Box<dyn Kernel>>, C: ComputeChannel<S>> SplatKernel<S, C>
     for ProjectBackwards
 {
     const DIM_READ: usize = 8;
