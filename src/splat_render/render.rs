@@ -5,7 +5,7 @@ use crate::splat_render::kernels::{
     GetTileBinEdges, MapGaussiansToIntersect, ProjectBackwards, ProjectSplats, Rasterize,
     RasterizeBackwards,
 };
-use crate::splat_render::{create_buffer, create_tensor, read_buffer_to_u32};
+use crate::splat_render::{create_buffer, create_tensor, read_buffer_to_f32, read_buffer_to_u32};
 use burn::backend::autodiff::NodeID;
 use burn::tensor::ops::IntTensor;
 use burn::tensor::Tensor;
@@ -193,6 +193,7 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
 
         // Read num tiles to CPU.
         let num_tiles_hit = read_buffer_to_u32(&client, &num_tiles_hit);
+
         // Calculate cumulative sum.
         let cum_tiles_hit: Vec<u32> = num_tiles_hit
             .into_iter()
@@ -209,6 +210,8 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
         // Each intersection maps to a gaussian.
         let isect_ids_unsorted =
             create_buffer::<u32, 1>(&client, [num_intersects], BufferAlloc::Empty);
+        let isect_depths_unsorted =
+            create_buffer::<f32, 1>(&client, [num_intersects], BufferAlloc::Empty);
         let gaussian_ids_unsorted =
             create_buffer::<u32, 1>(&client, [num_intersects], BufferAlloc::Empty);
 
@@ -221,14 +224,28 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
                 block_width,
             ),
             [&xys.handle, &depths, &radii.handle, &cum_tiles_hit],
-            [&isect_ids_unsorted, &gaussian_ids_unsorted],
+            [
+                &isect_ids_unsorted,
+                &isect_depths_unsorted,
+                &gaussian_ids_unsorted,
+            ],
             [num_points as u32, 1, 1],
         );
 
         // TODO: WGSL Radix sort.
         let isect_ids_unsorted = read_buffer_to_u32(&client, &isect_ids_unsorted);
+        let isect_depths_unsorted = read_buffer_to_f32(&client, &isect_depths_unsorted);
         let gaussian_ids_unsorted = read_buffer_to_u32(&client, &gaussian_ids_unsorted);
-        let sorted_indices = argsort(&isect_ids_unsorted);
+        let sorted_indices = {
+            let data = &isect_ids_unsorted;
+            let mut indices = (0..data.len()).collect::<Vec<_>>();
+            indices.sort_by(|&ai, &bi| {
+                let a = (isect_ids_unsorted[ai], isect_depths_unsorted[ai]);
+                let b = (isect_ids_unsorted[bi], isect_depths_unsorted[bi]);
+                a.0.cmp(&b.0).then(a.1.partial_cmp(&b.1).unwrap())
+            });
+            indices
+        };
 
         let isect_ids_sorted: Vec<_> = sorted_indices
             .iter()

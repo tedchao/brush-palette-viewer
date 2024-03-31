@@ -2,7 +2,7 @@
 //
 // ^ wgsl_bindgen version 0.10.0
 // Changes made to this file will not be saved.
-// SourceHash: 09f22c562ee386ef137665c40a3d3c3acb5a645bff93fa16a7a302fa11a781b7
+// SourceHash: b878b6fd438e1b198d52cc5f34b719608433a8a5730a8ea9344013d50f41c2f7
 
 #![allow(unused, non_snake_case, non_camel_case_types, non_upper_case_globals)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -689,11 +689,12 @@ pub mod map_gaussian_to_intersects {
             pub radii: wgpu::BufferBinding<'a>,
             pub cum_tiles_hit: wgpu::BufferBinding<'a>,
             pub isect_ids: wgpu::BufferBinding<'a>,
+            pub isect_depths: wgpu::BufferBinding<'a>,
             pub gaussian_ids: wgpu::BufferBinding<'a>,
             pub info_array: wgpu::BufferBinding<'a>,
         }
         impl<'a> WgpuBindGroupLayout0<'a> {
-            pub fn entries(self) -> [wgpu::BindGroupEntry<'a>; 7] {
+            pub fn entries(self) -> [wgpu::BindGroupEntry<'a>; 8] {
                 [
                     wgpu::BindGroupEntry {
                         binding: 0,
@@ -717,10 +718,14 @@ pub mod map_gaussian_to_intersects {
                     },
                     wgpu::BindGroupEntry {
                         binding: 5,
-                        resource: wgpu::BindingResource::Buffer(self.gaussian_ids),
+                        resource: wgpu::BindingResource::Buffer(self.isect_depths),
                     },
                     wgpu::BindGroupEntry {
                         binding: 6,
+                        resource: wgpu::BindingResource::Buffer(self.gaussian_ids),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 7,
                         resource: wgpu::BindingResource::Buffer(self.info_array),
                     },
                 ]
@@ -806,6 +811,18 @@ pub mod map_gaussian_to_intersects {
                     },
                     wgpu::BindGroupLayoutEntry {
                         binding: 6,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage {
+                                read_only: false,
+                            },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 7,
                         visibility: wgpu::ShaderStages::COMPUTE,
                         ty: wgpu::BindingType::Buffer {
                             ty: wgpu::BufferBindingType::Storage {
@@ -927,8 +944,10 @@ var<storage> cum_tiles_hit: array<u32>;
 @group(0) @binding(4) 
 var<storage, read_write> isect_ids: array<u32>;
 @group(0) @binding(5) 
-var<storage, read_write> gaussian_ids: array<u32>;
+var<storage, read_write> isect_depths: array<f32>;
 @group(0) @binding(6) 
+var<storage, read_write> gaussian_ids: array<u32>;
+@group(0) @binding(7) 
 var<storage> info_array: array<Uniforms>;
 
 fn get_bboxX_naga_oil_mod_XNBSWY4DFOJZQX(center: vec2<f32>, dims: vec2<f32>, bounds: vec2<u32>) -> vec4<u32> {
@@ -971,43 +990,44 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
         let _e30 = cum_tiles_hit[(idx - 1u)];
         cur_idx = _e30;
     }
-    let _e34 = depths[idx];
-    let depth_id = bitcast<u32>(_e34);
     i = tile_min.y;
     loop {
-        let _e38 = i;
-        if (_e38 < tile_max.y) {
+        let _e34 = i;
+        if (_e34 < tile_max.y) {
         } else {
             break;
         }
         {
             j = tile_min.x;
             loop {
-                let _e43 = j;
-                if (_e43 < tile_max.x) {
+                let _e39 = j;
+                if (_e39 < tile_max.x) {
                 } else {
                     break;
                 }
                 {
-                    let _e46 = i;
-                    let _e49 = j;
-                    let tile_id = ((_e46 * tile_bounds_1.x) + _e49);
-                    let _e52 = cur_idx;
-                    isect_ids[_e52] = tile_id;
-                    let _e55 = cur_idx;
-                    gaussian_ids[_e55] = idx;
-                    let _e58 = cur_idx;
-                    cur_idx = (_e58 + 1u);
+                    let _e42 = i;
+                    let _e45 = j;
+                    let tile_id = ((_e42 * tile_bounds_1.x) + _e45);
+                    let _e48 = cur_idx;
+                    isect_ids[_e48] = tile_id;
+                    let _e51 = cur_idx;
+                    let _e55 = depths[idx];
+                    isect_depths[_e51] = _e55;
+                    let _e57 = cur_idx;
+                    gaussian_ids[_e57] = idx;
+                    let _e60 = cur_idx;
+                    cur_idx = (_e60 + 1u);
                 }
                 continuing {
-                    let _e61 = j;
-                    j = (_e61 + 1u);
+                    let _e63 = j;
+                    j = (_e63 + 1u);
                 }
             }
         }
         continuing {
-            let _e64 = i;
-            i = (_e64 + 1u);
+            let _e66 = i;
+            i = (_e66 + 1u);
         }
     }
     return;

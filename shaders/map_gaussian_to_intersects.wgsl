@@ -6,9 +6,10 @@
 @group(0) @binding(3) var<storage, read> cum_tiles_hit: array<u32>;
 
 @group(0) @binding(4) var<storage, read_write> isect_ids: array<u32>;
-@group(0) @binding(5) var<storage, read_write> gaussian_ids: array<u32>;
+@group(0) @binding(5) var<storage, read_write> isect_depths: array<f32>;
+@group(0) @binding(6) var<storage, read_write> gaussian_ids: array<u32>;
 
-@group(0) @binding(6) var<storage, read> info_array: array<Uniforms>;
+@group(0) @binding(7) var<storage, read> info_array: array<Uniforms>;
 
 struct Uniforms {
     // Number of splats that exist.
@@ -59,7 +60,7 @@ fn main(
         cur_idx = cum_tiles_hit[idx - 1];
     }
     
-    let depth_id = bitcast<u32>(depths[idx]);
+    // let depth_id = bitcast<u32>(depths[idx]);
 
     for (var i = tile_min.y; i < tile_max.y; i++) {
         for (var j = tile_min.x; j < tile_max.x; j++) {
@@ -68,7 +69,7 @@ fn main(
             isect_ids[cur_idx] = tile_id;
 
             // TODO: Also sort by depth
-            // isect_ids[cur_idx].y = depth_id;
+            isect_depths[cur_idx] = depths[idx];
 
             gaussian_ids[cur_idx] = idx;                     // 3D gaussian id
             cur_idx++; // handles gaussians that hit more than one tile

@@ -85,7 +85,7 @@ impl<S: ComputeServer<Kernel = Box<dyn Kernel>>, C: ComputeChannel<S>> SplatKern
     for MapGaussiansToIntersect
 {
     const DIM_READ: usize = 4;
-    const DIM_WRITE: usize = 2;
+    const DIM_WRITE: usize = 3;
     type Uniforms = gen::map_gaussian_to_intersects::Uniforms;
     const WORKGROUP_SIZE: [u32; 3] = gen::map_gaussian_to_intersects::compute::MAIN_WORKGROUP_SIZE;
 }
