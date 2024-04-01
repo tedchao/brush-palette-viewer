@@ -15,6 +15,7 @@ use burn_wgpu::JitTensor;
 
 use crate::camera::Camera;
 
+mod dim_check;
 mod gen;
 mod kernels;
 pub mod render;

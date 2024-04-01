@@ -2,7 +2,7 @@
 //
 // ^ wgsl_bindgen version 0.10.0
 // Changes made to this file will not be saved.
-// SourceHash: b878b6fd438e1b198d52cc5f34b719608433a8a5730a8ea9344013d50f41c2f7
+// SourceHash: ad452e6a873316d840f907299037a3f07a44f215279829d79b4ce2abf0d1994a
 
 #![allow(unused, non_snake_case, non_camel_case_types, non_upper_case_globals)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -428,7 +428,7 @@ pub mod project_forward {
         bind_group0.set(pass);
     }
     pub mod compute {
-        pub const MAIN_WORKGROUP_SIZE: [u32; 3] = [16, 1, 1];
+        pub const MAIN_WORKGROUP_SIZE: [u32; 3] = [128, 1, 1];
         pub fn create_main_pipeline_embed_source(
             device: &wgpu::Device,
         ) -> wgpu::ComputePipeline {
@@ -538,7 +538,7 @@ fn project_pix(fxfy: vec2<f32>, p_view: vec3<f32>, pp: vec2<f32>) -> vec2<f32> {
     return p_pix;
 }
 
-@compute @workgroup_size(16, 1, 1) 
+@compute @workgroup_size(128, 1, 1) 
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invocation_id) local_id: vec3<u32>, @builtin(workgroup_id) workgroup_id: vec3<u32>) {
     let idx = global_id.x;
     let info = info_array[0];
@@ -877,7 +877,7 @@ pub mod map_gaussian_to_intersects {
         bind_group0.set(pass);
     }
     pub mod compute {
-        pub const MAIN_WORKGROUP_SIZE: [u32; 3] = [16, 1, 1];
+        pub const MAIN_WORKGROUP_SIZE: [u32; 3] = [128, 1, 1];
         pub fn create_main_pipeline_embed_source(
             device: &wgpu::Device,
         ) -> wgpu::ComputePipeline {
@@ -963,7 +963,7 @@ fn get_tile_bboxX_naga_oil_mod_XNBSWY4DFOJZQX(pix_center: vec2<f32>, pix_radius:
     return _e11;
 }
 
-@compute @workgroup_size(16, 1, 1) 
+@compute @workgroup_size(128, 1, 1) 
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invocation_id) local_id: vec3<u32>, @builtin(workgroup_id) workgroup_id: vec3<u32>) {
     var cur_idx: u32 = 0u;
     var i: u32;
@@ -1158,7 +1158,7 @@ pub mod get_tile_bin_edges {
         bind_group0.set(pass);
     }
     pub mod compute {
-        pub const MAIN_WORKGROUP_SIZE: [u32; 3] = [16, 1, 1];
+        pub const MAIN_WORKGROUP_SIZE: [u32; 3] = [128, 1, 1];
         pub fn create_main_pipeline_embed_source(
             device: &wgpu::Device,
         ) -> wgpu::ComputePipeline {
@@ -1219,7 +1219,7 @@ var<storage, read_write> tile_bins: array<vec2<u32>>;
 @group(0) @binding(2) 
 var<storage> info_array: array<Uniforms>;
 
-@compute @workgroup_size(16, 1, 1) 
+@compute @workgroup_size(128, 1, 1) 
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invocation_id) local_id: vec3<u32>, @builtin(workgroup_id) workgroup_id: vec3<u32>) {
     let info = info_array[0];
     let num_intersects = info.num_intersects;
@@ -1298,7 +1298,7 @@ pub mod rasterize {
             data.build()
         }
     }
-    pub const GROUP_DIM: u32 = 16u32;
+    pub const BLOCK_WIDTH: u32 = 16u32;
     pub const BLOCK_SIZE: u32 = 256u32;
     pub mod bind_groups {
         #[derive(Debug)]
@@ -1569,7 +1569,7 @@ struct Uniforms {
     img_size: vec2<u32>,
 }
 
-const GROUP_DIM: u32 = 16u;
+const BLOCK_WIDTH: u32 = 16u;
 const BLOCK_SIZE: u32 = 256u;
 
 @group(0) @binding(0) 
@@ -2611,7 +2611,7 @@ pub mod project_backwards {
         bind_group0.set(pass);
     }
     pub mod compute {
-        pub const MAIN_WORKGROUP_SIZE: [u32; 3] = [16, 1, 1];
+        pub const MAIN_WORKGROUP_SIZE: [u32; 3] = [128, 1, 1];
         pub fn create_main_pipeline_embed_source(
             device: &wgpu::Device,
         ) -> wgpu::ComputePipeline {
@@ -2718,7 +2718,7 @@ fn quat_to_rotmat_vjp(quat_1: vec4<f32>, v_R: mat3x3<f32>) -> vec4<f32> {
     return vec4<f32>((2f * (((x_1 * (v_R[1].z - v_R[2].y)) + (y_1 * (v_R[2].x - v_R[0].z))) + (z_1 * (v_R[0].y - v_R[1].x)))), (2f * (((((-2f * x_1) * (v_R[1].y + v_R[2].z)) + (y_1 * (v_R[0].y + v_R[1].x))) + (z_1 * (v_R[0].z + v_R[2].x))) + (w_1 * (v_R[1].z - v_R[2].y)))), (2f * ((((x_1 * (v_R[0].y + v_R[1].x)) - ((2f * y_1) * (v_R[0].x + v_R[2].z))) + (z_1 * (v_R[1].z + v_R[2].y))) + (w_1 * (v_R[2].x - v_R[0].z)))), (2f * ((((x_1 * (v_R[0].z + v_R[2].x)) + (y_1 * (v_R[1].z + v_R[2].y))) - ((2f * z_1) * (v_R[0].x + v_R[1].y))) + (w_1 * (v_R[0].y - v_R[1].x)))));
 }
 
-@compute @workgroup_size(16, 1, 1) 
+@compute @workgroup_size(128, 1, 1) 
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invocation_id) local_id: vec3<u32>, @builtin(workgroup_id) workgroup_id: vec3<u32>) {
     var v_mean: vec3<f32>;
 

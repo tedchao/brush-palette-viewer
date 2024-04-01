@@ -1,5 +1,6 @@
 use super::kernels::SplatKernel;
 use crate::camera::Camera;
+use crate::splat_render::dim_check::DimCheck;
 use crate::splat_render::gen::rasterize;
 use crate::splat_render::kernels::{
     GetTileBinEdges, MapGaussiansToIntersect, ProjectBackwards, ProjectSplats, Rasterize,
@@ -123,25 +124,17 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
                 && means.device == opacity.device
         );
 
-        let num_points = means.shape.dims[0];
-        let batches = [
-            means.shape.dims[0],
-            scales.shape.dims[0],
-            quats.shape.dims[0],
-            colors.shape.dims[0],
-            opacity.shape.dims[0],
-        ];
-        assert!(batches.iter().all(|&x| x == num_points));
+        DimCheck::new()
+            .check_dims(&means, ["D".into(), 4.into()])
+            .check_dims(&scales, ["D".into(), 4.into()])
+            .check_dims(&quats, ["D".into(), 4.into()])
+            .check_dims(&colors, ["D".into(), 4.into()])
+            .check_dims(&opacity, ["D".into()]);
 
-        // Atm these have to be dim=4, to be compatible
-        // with wgsl alignment.
-        assert!(means.shape.dims[1] == 4);
-        assert!(scales.shape.dims[1] == 4);
-        // 4D quaternions.
-        assert!(quats.shape.dims[1] == 4);
+        let num_points = means.shape.dims[0];
 
         // Divide screen into blocks.
-        let block_width = rasterize::GROUP_DIM;
+        let block_width = rasterize::BLOCK_WIDTH;
         let img_size = [camera.width, camera.height];
         let tile_bounds = uvec2(
             camera.height.div_ceil(block_width),

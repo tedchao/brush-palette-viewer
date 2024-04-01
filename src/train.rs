@@ -8,7 +8,6 @@ use burn::{
 use ndarray::{Array, Array1, Array3};
 use rand::{rngs::StdRng, SeedableRng};
 
-use crate::camera::Camera;
 use crate::splat_render::{self, AutodiffBackend, Backend};
 use crate::{
     dataset_readers,
@@ -82,15 +81,6 @@ where
         .choose(rng)
         .expect("Dataset should have at least 1 camera.");
 
-    // let camera = Camera::new(
-    //     glam::vec3(0.0, 0.0, -10.0),
-    //     glam::Quat::IDENTITY,
-    //     60.0_f32.to_radians(),
-    //     60.0_f32.to_radians(),
-    //     viewpoint.camera.width,
-    //     viewpoint.camera.height,
-    // );
-
     let camera = &viewpoint.camera;
 
     let background_color = if config.random_bck_color {
@@ -99,7 +89,7 @@ where
         scene.default_bg_color
     };
 
-    let pred_img = splats.render(&camera, background_color);
+    let pred_img = splats.render(camera, background_color);
     let dims = pred_img.dims();
 
     let render_img = pred_img.clone().slice([0..dims[0], 0..dims[1], 0..3]);
