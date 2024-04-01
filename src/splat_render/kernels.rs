@@ -22,10 +22,13 @@ where
     fn execute(
         client: &ComputeClient<S, C>,
         uniforms: Self::Uniforms,
-        read_handles: [&Handle<S>; Self::DIM_READ],
-        write_handles: [&Handle<S>; Self::DIM_WRITE],
+        read_handles: &[&Handle<S>],
+        write_handles: &[&Handle<S>],
         executions: [u32; 3],
     ) {
+        assert_eq!(read_handles.len(), Self::DIM_READ);
+        assert_eq!(write_handles.len(), Self::DIM_WRITE);
+
         let execs = (UVec3::from_array(executions).as_vec3()
             / UVec3::from_array(Self::WORKGROUP_SIZE).as_vec3())
         .ceil()
@@ -33,11 +36,7 @@ where
         let workgroup = WorkGroup::new(execs.x, execs.y, execs.z);
 
         let uniform_data = client.create(bytemuck::bytes_of(&uniforms));
-        let total_handles: Vec<_> = read_handles
-            .into_iter()
-            .chain(write_handles)
-            .chain([&uniform_data])
-            .collect();
+        let total_handles = [read_handles, write_handles, &[&uniform_data]].concat();
 
         client.execute(
             Box::new(DynamicKernel::new(Self::default(), workgroup)),

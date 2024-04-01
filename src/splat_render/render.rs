@@ -170,8 +170,8 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
                 0.001,
                 block_width,
             ),
-            [&means.handle, &scales.handle, &quats.handle],
-            [
+            &[&means.handle, &scales.handle, &quats.handle],
+            &[
                 &xys.handle,
                 &depths,
                 &radii.handle,
@@ -216,8 +216,8 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
                 tile_bounds.into(),
                 block_width,
             ),
-            [&xys.handle, &depths, &radii.handle, &cum_tiles_hit],
-            [
+            &[&xys.handle, &depths, &radii.handle, &cum_tiles_hit],
+            &[
                 &isect_ids_unsorted,
                 &isect_depths_unsorted,
                 &gaussian_ids_unsorted,
@@ -262,8 +262,8 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
         GetTileBinEdges::execute(
             &client,
             gen::get_tile_bin_edges::Uniforms::new(num_intersects as u32),
-            [&isect_ids_sorted],
-            [&tile_bins.handle],
+            &[&isect_ids_sorted],
+            &[&tile_bins.handle],
             [num_intersects as u32, 1, 1],
         );
 
@@ -290,7 +290,7 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
         Rasterize::execute(
             &client,
             gen::rasterize::Uniforms::new(tile_bounds.into(), background.into(), img_size),
-            [
+            &[
                 &gaussian_ids_sorted.handle,
                 &tile_bins.handle,
                 &xys.handle,
@@ -298,7 +298,7 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
                 &colors.handle,
                 &opacity.handle,
             ],
-            [&out_img.handle, &final_index.handle],
+            &[&out_img.handle, &final_index.handle],
             [camera.height, camera.width, 1],
         );
 
@@ -412,7 +412,7 @@ impl Backward<BurnBack, 3, 5> for RenderBackwards {
                 tile_bounds.into(),
                 state.background.into(),
             ),
-            [
+            &[
                 &state.gaussian_ids_sorted.handle,
                 &state.tile_bins.handle,
                 &state.xys.handle,
@@ -423,7 +423,7 @@ impl Backward<BurnBack, 3, 5> for RenderBackwards {
                 &state.out_img.handle,
                 &v_output.handle,
             ],
-            [
+            &[
                 &v_opacity.handle,
                 &v_conic.handle,
                 &v_xy.handle,
@@ -445,7 +445,7 @@ impl Backward<BurnBack, 3, 5> for RenderBackwards {
                 intrins,
                 [camera.height, camera.width],
             ),
-            [
+            &[
                 &means.handle,
                 &scales.handle,
                 &quats.handle,
@@ -455,7 +455,7 @@ impl Backward<BurnBack, 3, 5> for RenderBackwards {
                 &v_xy.handle,
                 &v_conic.handle,
             ],
-            [&v_means.handle, &v_scales.handle, &v_quats.handle],
+            &[&v_means.handle, &v_scales.handle, &v_quats.handle],
             [num_points as u32, 1, 1],
         );
 
