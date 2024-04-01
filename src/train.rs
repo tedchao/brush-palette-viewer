@@ -24,14 +24,20 @@ pub(crate) struct TrainConfig {
     #[config(default = 42)]
     pub(crate) seed: u64,
     #[config(default = 250)]
-    pub(crate) train_steps: i32,
+    pub(crate) train_steps: u32,
     #[config(default = false)]
     pub(crate) random_bck_color: bool,
     #[config(default = 3e-2)]
     pub lr: f64,
     #[config(default = 1e-3)]
     pub min_lr: f64,
-    pub(crate) scene_path: String,
+    #[config(default = 5)]
+    pub visualize_every: u32,
+
+    #[config(default = 512)]
+    pub init_points: usize,
+
+    pub scene_path: String,
 }
 
 struct TrainStats {
@@ -59,7 +65,7 @@ fn compute_loss<B: Backend>(this_image: Tensor<B, 3>, other_image: Tensor<B, 3>)
 fn train_step<B: AutodiffBackend>(
     scene: &Scene,
     mut splats: Splats<B>,
-    iteration: i32,
+    iteration: u32,
     cur_lr: f64,
     config: &TrainConfig,
     optim: &mut impl Optimizer<Splats<B>, B>,
@@ -148,22 +154,16 @@ where
 {
     let rec = rerun::RecordingStreamBuilder::new("visualize training").spawn()?;
 
-    println!("Reading dataset.");
-
-    let scene = dataset_readers::read_scene(&config.scene_path);
+    println!("Loading dataset.");
+    let scene = dataset_readers::read_scene(&config.scene_path, Some(1), false);
     let config_optimizer = AdamConfig::new();
     let mut optim = config_optimizer.init::<B, Splats<B>>();
 
     B::seed(config.seed);
     let mut rng = StdRng::from_seed([10; 32]);
-
-    println!("Visualize scene.");
-
     scene.visualize(&rec)?;
 
-    println!("Create splats.");
-
-    let mut splats: Splats<B> = SplatsConfig::new(5000, 1.0, 0, 1.0).build(device);
+    let mut splats: Splats<B> = SplatsConfig::new(config.init_points, 1.0, 0, 1.0).build(device);
 
     // TODO: Original implementation has learning rates different for almost all params.
     let mut scheduler = burn::lr_scheduler::cosine::CosineAnnealingLrSchedulerConfig::new(
@@ -173,7 +173,7 @@ where
     .with_min_lr(config.min_lr)
     .init();
 
-    println!("Start of training.");
+    println!("Start training.");
 
     for iter in 0..config.train_steps + 1 {
         let lr = LrScheduler::<B>::step(&mut scheduler);
@@ -185,22 +185,24 @@ where
         // Replace current model.
         splats = new_splats;
 
-        rec.log("stats/loss", &rerun::Scalar::new(stats.loss[[0]] as f64))?;
-        rec.log("stats/lr", &rerun::Scalar::new(lr))?;
-        rec.log(
-            "stats/total points",
-            &rerun::Scalar::new(stats.total_points as f64),
-        )?;
-        rec.log(
-            "images/ground truth",
-            &utils::ndarray_to_rerun_image(&stats.gt_image),
-        )?;
-        rec.log(
-            "images/predicted",
-            &utils::ndarray_to_rerun_image(&stats.pred_image),
-        )?;
+        if iter % config.visualize_every == 0 {
+            rec.log("stats/loss", &rerun::Scalar::new(stats.loss[[0]] as f64))?;
+            rec.log("stats/lr", &rerun::Scalar::new(lr))?;
+            rec.log(
+                "stats/total points",
+                &rerun::Scalar::new(stats.total_points as f64),
+            )?;
+            rec.log(
+                "images/ground truth",
+                &utils::ndarray_to_rerun_image(&stats.gt_image),
+            )?;
+            rec.log(
+                "images/predicted",
+                &utils::ndarray_to_rerun_image(&stats.pred_image),
+            )?;
 
-        splats.visualize(&rec)?;
+            splats.visualize(&rec)?;
+        }
     }
     Ok(())
 }

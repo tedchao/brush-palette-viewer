@@ -93,7 +93,7 @@ fn read_synthetic_nerf_data(
         });
 
         if let Some(max) = max_frames
-            && i >= max
+            && i == max - 1
         {
             break;
         }
@@ -102,14 +102,24 @@ fn read_synthetic_nerf_data(
     Ok(cameras)
 }
 
-pub(crate) fn read_scene(scene_path: &str) -> scene::Scene {
+pub(crate) fn read_scene(
+    scene_path: &str,
+    max_images: Option<usize>,
+    with_test_data: bool,
+) -> scene::Scene {
     println!("Reading Training Transforms");
-    let train_cams = read_synthetic_nerf_data(scene_path, "transforms_train.json", ".png", Some(5))
-        .expect("Failed to load train cameras.");
+    let train_cams =
+        read_synthetic_nerf_data(scene_path, "transforms_train.json", ".png", max_images)
+            .expect("Failed to load train cameras.");
 
-    // println!("Reading Test Transforms");
-    // let test_cams = read_synthetic_nerf_data(scene_path, "transforms_test.json", ".png")
-    //     .expect("Failed to load test cameras.");
+    let mut test_cams = vec![];
 
-    scene::Scene::new(train_cams, vec![])
+    if with_test_data {
+        println!("Reading Test Transforms");
+        test_cams =
+            read_synthetic_nerf_data(scene_path, "transforms_test.json", ".png", max_images)
+                .expect("Failed to load test cameras.");
+    }
+
+    scene::Scene::new(train_cams, test_cams)
 }
