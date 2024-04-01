@@ -15,7 +15,7 @@ struct Uniforms {
 // expect that intersection IDs are sorted by increasing tile ID
 // i.e. intersections of a tile are in contiguous chunks
 @compute
-@workgroup_size(16, 1, 1)
+@workgroup_size(128, 1, 1)
 fn main(
     @builtin(global_invocation_id) global_id: vec3u,
     @builtin(local_invocation_id) local_id: vec3u,
@@ -24,6 +24,7 @@ fn main(
     let info = info_array[0];
     let num_intersects = info.num_intersects;
     let idx = global_id.x;
+
     if idx >= num_intersects {
         return;
     }

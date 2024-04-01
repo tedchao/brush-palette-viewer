@@ -23,7 +23,7 @@ struct Uniforms {
 // kernel to map each intersection from tile ID and depth to a gaussian
 // writes output to isect_ids and gaussian_ids
 @compute
-@workgroup_size(16, 1, 1)
+@workgroup_size(128, 1, 1)
 fn main(
     @builtin(global_invocation_id) global_id: vec3u,
     @builtin(local_invocation_id) local_id: vec3u,

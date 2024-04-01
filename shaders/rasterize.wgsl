@@ -12,8 +12,8 @@
 
 @group(0) @binding(8) var<storage, read> info_array: array<Uniforms>;
 
-const GROUP_DIM: u32 = 16u;
-const BLOCK_SIZE: u32 = GROUP_DIM * GROUP_DIM;
+const BLOCK_WIDTH: u32 = 16u;
+const BLOCK_SIZE: u32 = BLOCK_WIDTH * BLOCK_WIDTH;
 
 // Workgroup variables.
 var<workgroup> id_batch: array<u32, BLOCK_SIZE>;
@@ -39,7 +39,7 @@ struct Uniforms {
 
 // TODO: Is this workgroup the size of block_width and co?
 @compute
-@workgroup_size(GROUP_DIM, GROUP_DIM, 1)
+@workgroup_size(BLOCK_WIDTH, BLOCK_WIDTH, 1)
 fn main(
     @builtin(global_invocation_id) global_id: vec3u,
     @builtin(local_invocation_id) local_id: vec3u,

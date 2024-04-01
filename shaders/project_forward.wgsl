@@ -41,7 +41,7 @@ fn project_pix(fxfy: vec2f, p_view: vec3f, pp: vec2f) -> vec2f {
 // kernel function for projecting each gaussian on device
 // each thread processes one gaussian
 @compute
-@workgroup_size(16, 1, 1)
+@workgroup_size(128, 1, 1)
 fn main(
     @builtin(global_invocation_id) global_id: vec3u,
     @builtin(local_invocation_id) local_id: vec3u,

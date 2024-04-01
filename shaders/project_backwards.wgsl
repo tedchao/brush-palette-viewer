@@ -80,7 +80,7 @@ fn quat_to_rotmat_vjp(quat: vec4f, v_R: mat3x3f) -> vec4f {
 
 // output space: 2D covariance, input space: cov3d
 @compute
-@workgroup_size(16, 1, 1)
+@workgroup_size(128, 1, 1)
 fn main(
     @builtin(global_invocation_id) global_id: vec3u,
     @builtin(local_invocation_id) local_id: vec3u,
