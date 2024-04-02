@@ -148,7 +148,7 @@ impl<S: ComputeServer<Kernel = Box<dyn Kernel>>, C: ComputeChannel<S>> SplatKern
     for RasterizeBackwards
 {
     const DIM_READ: usize = 9;
-    const DIM_WRITE: usize = 4;
+    const DIM_WRITE: usize = 5;
     type Uniforms = gen::rasterize_backwards::Uniforms;
     const WORKGROUP_SIZE: [u32; 3] = gen::rasterize_backwards::compute::MAIN_WORKGROUP_SIZE;
 }

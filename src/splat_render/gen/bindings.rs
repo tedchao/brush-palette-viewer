@@ -2,7 +2,7 @@
 //
 // ^ wgsl_bindgen version 0.10.0
 // Changes made to this file will not be saved.
-// SourceHash: ad452e6a873316d840f907299037a3f07a44f215279829d79b4ce2abf0d1994a
+// SourceHash: 5ed4d70b461720629063504de6e87d10faa426eb7052858fd72ea08a6bba9520
 
 #![allow(unused, non_snake_case, non_camel_case_types, non_upper_case_globals)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -1767,10 +1767,11 @@ pub mod rasterize_backwards {
             pub v_conic: wgpu::BufferBinding<'a>,
             pub v_xy: wgpu::BufferBinding<'a>,
             pub v_rgb: wgpu::BufferBinding<'a>,
+            pub locks: wgpu::BufferBinding<'a>,
             pub info_array: wgpu::BufferBinding<'a>,
         }
         impl<'a> WgpuBindGroupLayout0<'a> {
-            pub fn entries(self) -> [wgpu::BindGroupEntry<'a>; 14] {
+            pub fn entries(self) -> [wgpu::BindGroupEntry<'a>; 15] {
                 [
                     wgpu::BindGroupEntry {
                         binding: 0,
@@ -1826,6 +1827,10 @@ pub mod rasterize_backwards {
                     },
                     wgpu::BindGroupEntry {
                         binding: 13,
+                        resource: wgpu::BindingResource::Buffer(self.locks),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 14,
                         resource: wgpu::BindingResource::Buffer(self.info_array),
                     },
                 ]
@@ -1998,6 +2003,18 @@ pub mod rasterize_backwards {
                         visibility: wgpu::ShaderStages::COMPUTE,
                         ty: wgpu::BindingType::Buffer {
                             ty: wgpu::BufferBindingType::Storage {
+                                read_only: false,
+                            },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 14,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage {
                                 read_only: true,
                             },
                             has_dynamic_offset: false,
@@ -2105,6 +2122,11 @@ struct Uniforms {
     background: vec3<f32>,
 }
 
+struct _atomic_compare_exchange_resultUint4_ {
+    old_value: u32,
+    exchanged: bool,
+}
+
 const BLOCK_WIDTH: u32 = 16u;
 const BLOCK_SIZE: u32 = 256u;
 
@@ -2135,6 +2157,8 @@ var<storage, read_write> v_xy: array<vec2<f32>>;
 @group(0) @binding(12) 
 var<storage, read_write> v_rgb: array<vec4<f32>>;
 @group(0) @binding(13) 
+var<storage, read_write> locks: array<atomic<u32>>;
+@group(0) @binding(14) 
 var<storage> info_array: array<Uniforms>;
 var<workgroup> id_batch: array<u32, 256>;
 var<workgroup> xy_batch: array<vec2<f32>, 256>;
@@ -2259,24 +2283,36 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
                     let v_xy_local = (v_sigma * vec2<f32>(((conic.x * delta.x) + (conic.y * delta.y)), ((conic.y * delta.x) + (conic.z * delta.y))));
                     let _e269 = v_alpha;
                     let v_opacity_local = (vis * _e269);
-                    let _e273 = v_opacity[g];
-                    v_opacity[g] = (_e273 + v_opacity_local);
-                    let _e277 = v_rgb[g];
-                    v_rgb[g] = (_e277 + v_rgb_local);
-                    let _e283 = v_conic[g];
-                    v_conic[g] = (_e283 + vec4<f32>(v_conic_local, 0f));
-                    let _e287 = v_xy[g];
-                    v_xy[g] = (_e287 + v_xy_local);
+                    let lock = (&locks[g]);
+                    loop {
+                        let _e273 = atomicLoad(lock);
+                        if (_e273 == 1u) {
+                        } else {
+                            break;
+                        }
+                        {
+                        }
+                    }
+                    let _e278 = atomicCompareExchangeWeak(lock, 0u, 1u);
+                    let _e281 = v_opacity[g];
+                    v_opacity[g] = (_e281 + v_opacity_local);
+                    let _e285 = v_rgb[g];
+                    v_rgb[g] = (_e285 + v_rgb_local);
+                    let _e291 = v_conic[g];
+                    v_conic[g] = (_e291 + vec4<f32>(v_conic_local, 0f));
+                    let _e295 = v_xy[g];
+                    v_xy[g] = (_e295 + v_xy_local);
+                    atomicStore(lock, 0u);
                 }
                 continuing {
-                    let _e290 = t;
-                    t = (_e290 + 1u);
+                    let _e299 = t;
+                    t = (_e299 + 1u);
                 }
             }
         }
         continuing {
-            let _e293 = b;
-            b = (_e293 + 1u);
+            let _e302 = b;
+            b = (_e302 + 1u);
         }
     }
     return;

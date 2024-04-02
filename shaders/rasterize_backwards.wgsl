@@ -16,7 +16,11 @@
 @group(0) @binding(11) var<storage, read_write> v_xy: array<vec2f>;
 @group(0) @binding(12) var<storage, read_write> v_rgb: array<vec4f>;
 
-@group(0) @binding(13) var<storage, read> info_array: array<Uniforms>;
+@group(0) @binding(13) var<storage, read_write> locks: array<atomic<u32>>;
+
+@group(0) @binding(14) var<storage, read> info_array: array<Uniforms>;
+
+
 
 const BLOCK_WIDTH: u32 = 16;
 const BLOCK_SIZE: u32 = 16 * 16;
@@ -173,10 +177,24 @@ fn main(
             );
             let v_opacity_local = vis * v_alpha;
 
+
+            // This is NOT a correct spin lock, but a lossy one.
+            // Between loading the lock and locking it, someone else might lock!!
+            // However, a 'correct' spin lock seems to crash quite a lot... gpus
+            // really don't like to busy wait :/
+            let lock = &locks[g];
+            while atomicLoad(lock) == 1u {
+            }
+            // while !atomicCompareExchangeWeak(&locks[g], 0u, 1u).exchanged {
+            // }
+            atomicCompareExchangeWeak(lock, 0u, 1u);
+
             v_opacity[g] += v_opacity_local;
             v_rgb[g] += v_rgb_local;
             v_conic[g] += vec4f(v_conic_local, 0.0f);
             v_xy[g] += v_xy_local;
+
+            atomicStore(lock, 0u);
         }
     }
 }

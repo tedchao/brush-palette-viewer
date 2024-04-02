@@ -373,25 +373,6 @@ impl Backward<BurnBack, 3, 5> for RenderBackwards {
             camera.center().y,
         );
 
-        let create_empty_f32 = |dim| -> FloatTensor<BurnBack, 2> {
-            let shape = Shape::new(dim);
-            JitTensor::new(
-                client.clone(),
-                device.clone(),
-                shape.clone(),
-                client.create(&vec![0; shape.num_elements() * core::mem::size_of::<f32>()]),
-            )
-        };
-        let create_empty_f32_1d = |dim| -> FloatTensor<BurnBack, 1> {
-            let shape = Shape::new(dim);
-            JitTensor::new(
-                client.clone(),
-                device.clone(),
-                shape.clone(),
-                client.create(&vec![0; shape.num_elements() * core::mem::size_of::<f32>()]),
-            )
-        };
-
         let means = checkpointer.retrieve_node_output::<FloatTensor<BurnBack, 2>>(state.means);
         let quats = checkpointer.retrieve_node_output::<FloatTensor<BurnBack, 2>>(state.quats);
         let scales = checkpointer.retrieve_node_output::<FloatTensor<BurnBack, 2>>(state.scales);
@@ -399,11 +380,12 @@ impl Backward<BurnBack, 3, 5> for RenderBackwards {
         let opacity = checkpointer.retrieve_node_output::<FloatTensor<BurnBack, 1>>(state.opacity);
 
         let num_points = means.shape.dims[0];
-        let v_opacity = create_empty_f32_1d([num_points]);
 
-        let v_colors = create_empty_f32([num_points, 4]);
-        let v_conic = create_empty_f32([num_points, 4]);
-        let v_xy = create_empty_f32([num_points, 2]);
+        let v_opacity = create_tensor(&client, &device, [num_points], BufferAlloc::Zeros);
+        let v_colors = create_tensor(&client, &device, [num_points, 4], BufferAlloc::Zeros);
+        let v_conic = create_buffer::<f32, 2>(&client, [num_points, 4], BufferAlloc::Zeros);
+        let v_xy = create_buffer::<f32, 2>(&client, [num_points, 2], BufferAlloc::Zeros);
+        let locks = create_buffer::<u32, 1>(&client, [num_points], BufferAlloc::Zeros);
 
         RasterizeBackwards::execute(
             &client,
@@ -423,18 +405,13 @@ impl Backward<BurnBack, 3, 5> for RenderBackwards {
                 &state.out_img.handle,
                 &v_output.handle,
             ],
-            &[
-                &v_opacity.handle,
-                &v_conic.handle,
-                &v_xy.handle,
-                &v_colors.handle,
-            ],
+            &[&v_opacity.handle, &v_conic, &v_xy, &v_colors.handle, &locks],
             [camera.height, camera.width, 1],
         );
 
-        let v_means = create_empty_f32([num_points, 4]);
-        let v_scales = create_empty_f32([num_points, 4]);
-        let v_quats = create_empty_f32([num_points, 4]);
+        let v_means = create_tensor(&client, &device, [num_points, 4], BufferAlloc::Zeros);
+        let v_scales = create_tensor(&client, &device, [num_points, 4], BufferAlloc::Zeros);
+        let v_quats = create_tensor(&client, &device, [num_points, 4], BufferAlloc::Zeros);
 
         ProjectBackwards::execute(
             &client,
@@ -452,8 +429,8 @@ impl Backward<BurnBack, 3, 5> for RenderBackwards {
                 &state.radii.handle,
                 &state.conics.handle,
                 &state.compensation.handle,
-                &v_xy.handle,
-                &v_conic.handle,
+                &v_xy,
+                &v_conic,
             ],
             &[&v_means.handle, &v_scales.handle, &v_quats.handle],
             [num_points as u32, 1, 1],
