@@ -208,22 +208,24 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
         let gaussian_ids_unsorted =
             create_buffer::<u32, 1>(&client, [num_intersects], BufferAlloc::Empty);
 
-        // Dispatch one thread per point.
-        MapGaussiansToIntersect::execute(
-            &client,
-            gen::map_gaussian_to_intersects::Uniforms::new(
-                num_points as u32,
-                tile_bounds.into(),
-                block_width,
-            ),
-            &[&xys.handle, &depths, &radii.handle, &cum_tiles_hit],
-            &[
-                &isect_ids_unsorted,
-                &isect_depths_unsorted,
-                &gaussian_ids_unsorted,
-            ],
-            [num_points as u32, 1, 1],
-        );
+        if num_intersects > 0 {
+            // Dispatch one thread per point.
+            MapGaussiansToIntersect::execute(
+                &client,
+                gen::map_gaussian_to_intersects::Uniforms::new(
+                    num_points as u32,
+                    tile_bounds.into(),
+                    block_width,
+                ),
+                &[&xys.handle, &depths, &radii.handle, &cum_tiles_hit],
+                &[
+                    &isect_ids_unsorted,
+                    &isect_depths_unsorted,
+                    &gaussian_ids_unsorted,
+                ],
+                [num_points as u32, 1, 1],
+            );
+        }
 
         // TODO: WGSL Radix sort.
         let isect_ids_unsorted = read_buffer_to_u32(&client, &isect_ids_unsorted);
