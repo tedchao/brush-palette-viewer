@@ -28,9 +28,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     type BackGPU = JitBackend<WgpuRuntime<AutoGraphicsApi, f32, i32>>;
     type DiffBack = Autodiff<BackGPU>;
 
-    let config = TrainConfig::new("../nerf_synthetic/lego/".to_owned())
-        .with_train_steps(3000)
-        .with_init_points(16);
+    let config = TrainConfig::new("../nerf_synthetic/lego/".to_owned());
     train::train::<DiffBack>(&config, &device)?;
     Ok(())
 }

@@ -71,9 +71,11 @@ fn main(
 
     // Project world space to camera space.
     let mean = means[idx].xyz;
-
-    let p_view_proj = viewmat * vec4f(mean, 1.0f);
-    let p_view = p_view_proj.xyz / p_view_proj.w;
+    let W = mat3x3f(viewmat[0].xyz, viewmat[1].xyz, viewmat[2].xyz);
+    
+    let p_view = W * mean + viewmat[3].xyz;
+    // let p_view_proj = viewmat * vec4f(mean, 1.0f);
+    // let p_view = p_view_proj.xyz / p_view_proj.w;
 
     if p_view.z <= clip_thresh {
         return;
@@ -107,8 +109,7 @@ fn main(
     let tan_fovx = 0.5 * f32(img_size.x) / fx;
     let tan_fovy = 0.5 * f32(img_size.y) / fy;
 
-    let W = mat3x3f(viewmat[0].xyz, viewmat[1].xyz, viewmat[2].xyz);
-
+    
     // clip so that the covariance
     // TODO: What does that comment mean... :)
     let lims = 1.3f * vec2f(tan_fovx, tan_fovy);
@@ -148,9 +149,9 @@ fn main(
     let b = 0.5f * (cov2d.x + cov2d.z);
     let v1 = b + sqrt(max(0.1f, b * b - det));
     let v2 = b - sqrt(max(0.1f, b * b - det));
-    
+
     // take 3 sigma of covariance
-    let radius = ceil(3.0 * sqrt(max(v1, v2)));
+    let radius = ceil(3.0 * sqrt(max(0.0, max(v1, v2))));
 
     // compute the projected mean
     let pixel_center = project_pix(vec2f(fx, fy), p_view.xyz, vec2f(cx, cy));
@@ -175,5 +176,5 @@ fn main(
     // and compute the density compensation factor due to the blurs.
     let det_orig = c00 * c11 - c01 * c01;
     let det_blur = cov2d.x * cov2d.z - cov2d.y * cov2d.y;
-    compensation[idx] = sqrt(max(0.0f, det_orig / det_blur));
+    compensation[idx] = sqrt(max(0.0, det_orig / det_blur));
 }

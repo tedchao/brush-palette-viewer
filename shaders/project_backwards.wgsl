@@ -40,7 +40,7 @@ fn project_pix_vjp(fxfy: vec2f, p_view: vec3f, v_xy: vec2f) -> vec3f {
 }
 
 fn quat_to_rotmat_vjp(quat: vec4f, v_R: mat3x3f) -> vec4f {
-    let quat_norm = normalize(quat);
+    let quat_norm = normalize(quat + 1e-6);
 
     let w = quat_norm.x;
     let x = quat_norm.y;
@@ -78,6 +78,21 @@ fn quat_to_rotmat_vjp(quat: vec4f, v_R: mat3x3f) -> vec4f {
     );
 }
 
+
+fn cov2d_to_conic_vjp(conic: vec3f, v_conic: vec3f) -> vec3f {
+    // conic = inverse cov2d
+    // df/d_cov2d = -conic * df/d_conic * conic
+    let X = mat2x2f(conic.x, conic.y, conic.y, conic.z);
+    let G = mat2x2f(v_conic.x, v_conic.y / 2.0, v_conic.y / 2.0, v_conic.z);
+    let v_Sigma = X * G * X;
+
+    return -vec3f(
+        v_Sigma[0][0],
+        v_Sigma[1][0] + v_Sigma[0][1],
+        v_Sigma[1][1]
+    );
+}
+
 // output space: 2D covariance, input space: cov3d
 @compute
 @workgroup_size(128, 1, 1)
@@ -100,7 +115,7 @@ fn main(
     let viewmat = info.viewmat;
     let glob_scale = info.glob_scale;
 
-    let p_world = means[idx];
+    let mean = means[idx].xyz;
     let quat = quats[idx];
     let scale = scales[idx];
 
@@ -108,55 +123,47 @@ fn main(
     let fy = intrins.y;
     let cx = intrins.z;
     let cy = intrins.w;
-    let p_view_proj = viewmat * vec4f(p_world.xyz, 1.0f);
-    let p_view = p_view_proj.xyz / p_view_proj.w;
-    let pix_vjp = project_pix_vjp(vec2f(fx, fy), p_view, v_xy[idx]);
 
     let W = mat3x3f(viewmat[0].xyz, viewmat[1].xyz, viewmat[2].xyz);
+    let p_view = W * mean + viewmat[3].xyz;
+    
+    let pix_vjp = project_pix_vjp(vec2f(fx, fy), p_view, v_xy[idx]);
+
     var v_mean = transpose(W) * pix_vjp;
 
     // get v_mean3d from v_xy
     // get z gradient contribution to mean3d gradient
+    // TODO: Is this indeed only active if depth is supervised?
     // z = viemwat[8] * mean3d.x + viewmat[9] * mean3d.y + viewmat[10] *
     // mean3d.z + viewmat[11]
     // let v_z = v_depth[idx];
     // v_mean += viewmat[2].xyz * v_z;
 
     // get v_cov2d
-
     // compute vjp from df/d_conic to df/c_cov2d
     // conic = inverse cov2d
     // df/d_cov2d = -conic * df/d_conic * conic
     let conic = conics[idx].xyz;
     let v_conic = v_conic[idx].xyz;
-
-    let X = mat2x2f(vec2f(conic.x, conic.y), vec2f(conic.y, conic.z));
-    let G = mat2x2f(vec2f(v_conic.x, v_conic.y / 2.0), vec2f(v_conic.y / 2.0, v_conic.z));
-    
-    // NB: Very scary, but vulkan just fails to compile if we negate this 
-    // matrix... wtf. Just negating v_cov2d now.
-    // let v_sigma = -X * G * X;
-    let v_sigma = X * G * X;
-    let v_cov_conic = -vec3f(v_sigma[0][0], v_sigma[1][0] + v_sigma[0][1], v_sigma[1][1]);
+    let v_cov2d_base = cov2d_to_conic_vjp(conic, v_conic);
     
     // TODO: Where does v_compensation come from exactly...
     let comp = compensation[idx];
-    let v_compensation = 0.0;
-
+    // let v_compensation = 0.0;
     // comp = sqrt(det(cov2d - 0.3 I) / det(cov2d))
     // conic = inverse(cov2d)
     // df / d_cov2d = df / d comp * 0.5 / comp * [ d comp^2 / d cov2d ]
     // d comp^2 / d cov2d = (1 - comp^2) * conic - 0.3 I * det(conic)
-    let inv_det = conic.x * conic.z - conic.y * conic.y;
-    let one_minus_sqr_comp = 1.0 - comp * comp;
-    let v_sqr_comp = v_compensation * 0.5 / (comp + 1e-6);
-    let v_cov_comp = vec3f(
-        v_sqr_comp * (one_minus_sqr_comp * conic.x - 0.3 * inv_det),
-        2 * v_sqr_comp * (one_minus_sqr_comp * conic.y),
-        v_sqr_comp * (one_minus_sqr_comp * conic.z - 0.3 * inv_det)
-    );
-
-    let v_cov2d = v_cov_conic + v_cov_comp;
+    // let inv_det = conic.x * conic.z - conic.y * conic.y;
+    // let one_minus_sqr_comp = 1.0 - comp * comp;
+    // let v_sqr_comp = v_compensation * 0.5 / (comp + 1e-6);
+    // let v_cov_comp = vec3f(
+    //     v_sqr_comp * (one_minus_sqr_comp * conic.x - 0.3 * inv_det),
+    //     2 * v_sqr_comp * (one_minus_sqr_comp * conic.y),
+    //     v_sqr_comp * (one_minus_sqr_comp * conic.z - 0.3 * inv_det)
+    // );
+    // let v_cov2d = v_cov_conic + v_cov_comp;
+    let v_cov2d = v_cov2d_base;
 
     // get v_cov3d (and v_mean3d contribution)
     let rz = 1.0f / p_view.z;
@@ -240,7 +247,7 @@ fn main(
     // https://math.stackexchange.com/a/3850121
     // for D = W * X, G = df/dD
     // df/dW = G * XT, df/dX = WT * G
-    let v_M = 2.0f * v_V_symm * M;
+    let v_M = 2.0 * v_V_symm * M;
 
     let v_scale = vec3f(
         dot(R[0], v_M[0]) * glob_scale,

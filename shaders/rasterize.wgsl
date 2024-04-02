@@ -22,7 +22,7 @@ var<workgroup> opacity_batch: array<f32, BLOCK_SIZE>;
 var<workgroup> conic_batch: array<vec4f, BLOCK_SIZE>;
 
 // Keep track of how many threads are done in this workgroup.
-var<workgroup> count_done: atomic<u32>;
+// var<workgroup> count_done: atomic<u32>;
 
 struct Uniforms {
     // Total reachable pixels (w, h)
@@ -47,7 +47,6 @@ fn main(
     @builtin(workgroup_id) workgroup_id: vec3u,
 ) {
     let info = info_array[0];
-
     let tile_bounds = info.tile_bounds;
     let background = info.background;
     let img_size = info.img_size;
@@ -55,23 +54,18 @@ fn main(
     // each thread draws one pixel, but also timeshares caching gaussians in a
     // shared tile
     let tile_id = workgroup_id.x + workgroup_id.y * tile_bounds.x;
-
-    let j = global_id.x;
-    let i = global_id.y;
-
-    let px = f32(j);
-    let py = f32(i);
+    let px = f32(global_id.x) + 0.5;
+    let py = f32(global_id.y) + 0.5;
     let pix_id = global_id.x + global_id.y * img_size.x;
 
     // return if out of bounds
     // keep not rasterizing threads around for reading data
-    let inside = i < img_size.y && j < img_size.x;
+    let inside = global_id.x < img_size.x && global_id.y < img_size.y;
 
     var done = false;
-
     if !inside {
         // this pixel is done
-        atomicAdd(&count_done, 1u);
+        // atomicAdd(&count_done, 1u);
         done = true;
     }
 
@@ -89,16 +83,16 @@ fn main(
 
     // TODO: Is this local_invocation_index?
     var pix_out = vec3f(0.0);
-    var cur_idx = 0u;
+    var final_idx = range.y;
 
     for (var batch_start = range.x; batch_start < range.y; batch_start += BLOCK_SIZE) {
         // resync all threads before beginning next batch
         workgroupBarrier();
 
         // end early out if entire tile is done
-        if count_done >= BLOCK_SIZE {
-            break;
-        }
+        // if count_done >= BLOCK_SIZE {
+        //     break;
+        // }
 
         // each thread fetch 1 gaussian from front to back
         // index of gaussian to load
@@ -116,40 +110,42 @@ fn main(
         workgroupBarrier();
 
         // process gaussians in the current batch for this pixel
-        let batch_size = min(BLOCK_SIZE, range.y - batch_start);
+        let remaining = min(BLOCK_SIZE, range.y - batch_start);
         
-        for (var t = 0u; (t < batch_size) && !done; t++) {
-            let xy = xy_batch[t];
-            let opac = opacity_batch[t];
-            let conic = conic_batch[t];
+        if !done {
+            for (var t = 0u; t < remaining; t++) {
+                let xy = xy_batch[t];
+                let opac = opacity_batch[t];
+                let conic = conic_batch[t];
 
-            let delta = xy - vec2f(px, py);
-            var sigma = 0.5f * (conic.x * delta.x * delta.x + conic.z * delta.y * delta.y) + conic.y * delta.x * delta.y;
-            var alpha = min(0.999f, opac * exp(-sigma));
-            
-            if sigma < 0.0 || alpha < 1.0 / 255.0 {
-                continue;
-            }
+                let delta = xy - vec2f(px, py);
+                var sigma = 0.5f * (conic.x * delta.x * delta.x + conic.z * delta.y * delta.y) + conic.y * delta.x * delta.y;
+                var alpha = min(0.999f, opac * exp(-sigma));
+                
+                if sigma < 0.0 || alpha < 1.0 / 255.0 {
+                    continue;
+                }
 
-            let next_T = T * (1.0 - alpha);
-            let g = id_batch[t];
-            let vis = alpha * T;
-            T = next_T;
+                let next_T = T * (1.0 - alpha);
 
-            // TODO: Why not groupshare fetch the color? :/
-            let c = colors[g].xyz;
-            pix_out += c * vis;
+                if next_T <= 1e-4f { 
+                    // this pixel is done
+                    // we want to render the last gaussian that contributes and note
+                    // that here idx > range.x so we don't underflow
+                    // atomicAdd(&count_done, 1u);
+                    done = true;
+                    break;
+                }
 
-            out_img[pix_id] = vec4f(conic);
-            cur_idx = batch_start + t;
+                let g = id_batch[t];
+                let vis = alpha * T;
+                T = next_T;
 
-            if T <= 1e-4f { 
-                // this pixel is done
-                // we want to render the last gaussian that contributes and note
-                // that here idx > range.x so we don't underflow
-                atomicAdd(&count_done, 1u);
-                done = true;
-                break;
+                // TODO: Why not groupshare fetch the color? :/
+                let c = colors[g].xyz;
+                pix_out += c * vis;
+
+                final_idx = batch_start + t;
             }
         }
     }
@@ -157,6 +153,6 @@ fn main(
     if inside {
         // add background
         out_img[pix_id] = vec4f(pix_out + (1.0 - T) * background, T);
-        final_index[pix_id] = cur_idx; // index of in bin of last gaussian in this pixel
+        final_index[pix_id] = final_idx; // index of in bin of last gaussian in this pixel
     }
 }

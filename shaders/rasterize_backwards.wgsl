@@ -22,8 +22,8 @@
 
 
 
-const BLOCK_WIDTH: u32 = 16;
-const BLOCK_SIZE: u32 = 16 * 16;
+const BLOCK_WIDTH: u32 = 16u;
+const BLOCK_SIZE: u32 = BLOCK_WIDTH * BLOCK_WIDTH;
 
 var<workgroup> id_batch: array<u32, BLOCK_SIZE>;
 var<workgroup> xy_batch: array<vec2f, BLOCK_SIZE>;
@@ -46,8 +46,7 @@ struct Uniforms {
 @workgroup_size(BLOCK_WIDTH, BLOCK_WIDTH, 1)
 fn main(
     @builtin(global_invocation_id) global_id: vec3u,
-    @builtin(local_invocation_id) local_id: vec3u,
-    @builtin(local_invocation_index) tr: u32,
+    @builtin(local_invocation_index) local_idx: u32,
     @builtin(workgroup_id) workgroup_id: vec3u,
 ) {
     let info = info_array[0];
@@ -57,15 +56,13 @@ fn main(
 
     // TODO: Make a function to share this with the forward pass.
     let tile_id = workgroup_id.x + workgroup_id.y * tile_bounds.x;
-    let j = global_id.x;
-    let i = global_id.y;
-
-    let px = f32(j);
-    let py = f32(i);
+    let px = f32(global_id.x) + 0.5;
+    let py = f32(global_id.y) + 0.5;
     let pix_id = global_id.x + global_id.y * img_size.x;
 
+    // return if out of bounds
     // keep not rasterizing threads around for reading data
-    let inside = i < img_size.y && j < img_size.x;
+    let inside = global_id.x < img_size.x && global_id.y < img_size.y;
 
     // this is the T AFTER the last gaussian in this pixel
     let T_final = output[pix_id].w;
@@ -73,128 +70,136 @@ fn main(
     // the contribution from gaussians behind the current one
     var buffer = vec3f(0.0, 0.0, 0.0);
 
-    // index of last gaussian to contribute to this pixel
-    var bin_final = 0u;
+    // have all threads in tile process the same gaussians in batches
+    // first collect gaussians between bin_start and bin_final in batches
+    // which gaussians to look through in this tile
+    let range = tile_bins[tile_id];
+
+    let bin_start = range.x;
+    var bin_final = range.y;
     if inside {
         bin_final = final_index[pix_id];
     }
-
-    // have all threads in tile process the same gaussians in batches
-    // first collect gaussians between range.x and range.y in batches
-    // which gaussians to look through in this tile
-    let range = tile_bins[tile_id];
-    let num_batches = (range.y - range.x + BLOCK_SIZE - 1) / BLOCK_SIZE;
 
     // df/d_out for this pixel
     let v_out = v_output[pix_id];
 
     // collect and process batches of gaussians
     // each thread loads one gaussian at a time before rasterizing
-    for (var b = 0u; b < num_batches; b++) {
+    var num_batches = (bin_final - bin_start + BLOCK_SIZE - 1) / BLOCK_SIZE;
+    // num_batches = min(3u, num_batches);
+
+    for(var batch = 0u; batch < num_batches; batch++) {
+        let gauss_idx_start = bin_final - 1 - batch * BLOCK_SIZE;
         // resync all threads before writing next batch of shared mem
-        workgroupBarrier();
+        // workgroupBarrier();
         
         // each thread fetch 1 gaussian from back to front
         // 0 index will be furthest back in batch
         // index of gaussian to load
         // batch end is the index of the last gaussian in the batch
-        let batch_end = range.y - 1 - BLOCK_SIZE * b;
-        let idx = batch_end - tr;
+        let gauss_idx = gauss_idx_start - local_idx;
 
-        if (idx >= range.x) {
-            let g_id = gaussian_ids_sorted[idx];
-            id_batch[tr] = g_id;
-            xy_batch[tr] = xys[g_id];
-            conic_batch[tr] = conics[g_id];
-            opacity_batch[tr] = opacities[g_id];
-
-            rgbs_batch[tr] = colors[g_id].xyz;
+        if gauss_idx >= range.x {
+            let g_id = gaussian_ids_sorted[gauss_idx];
+            
+            id_batch[local_idx] = g_id;
+            xy_batch[local_idx] = xys[g_id];
+            conic_batch[local_idx] = conics[g_id];
+            opacity_batch[local_idx] = opacities[g_id];
+            rgbs_batch[local_idx] = colors[g_id].xyz;
         }
     
         // wait for other threads to collect the gaussians in batch
         workgroupBarrier();
 
-        // process gaussians in the current batch for this pixel
-        // 0 index is the furthest back gaussian in the batch
-        let batch_size = min(BLOCK_SIZE, batch_end + 1 - range.x);
-
         // TODO: WGSL lacks warp intrinsics, quite a bit more contention here
         // than needed. Might be some other ways to reduce it?
-        for (var t = 0u; (t < batch_size) && inside; t++) {
-            if (batch_end - t > bin_final) {
-                continue;
+        let remaining = min(BLOCK_SIZE, gauss_idx_start + 1 - range.x);
+
+        if inside {
+            for (var t = 0u; t < remaining; t++) {
+                let conic = conic_batch[t];
+                let delta =  xy_batch[t] - vec2f(px, py);
+
+                // TODO: Make this a function to share with the forward pass.
+                let sigma = 0.5f * (conic.x * delta.x * delta.x +
+                                            conic.z * delta.y * delta.y) +
+                                    conic.y * delta.x * delta.y;
+
+                let opac = opacity_batch[t];
+                let vis = exp(-sigma);
+                let alpha = min(0.99f, opac * vis);
+
+                if (sigma < 0.0f || alpha < 1.0f / 255.f) {
+                    continue;
+                }
+
+                // compute the current T for this gaussian
+                let ra = 1.0f / (1.0f - alpha);
+                T *= ra;
+
+                // update v_rgb for this gaussian
+                let fac = alpha * T;
+                let v_rgb_local = fac * v_out;
+
+                var v_alpha = 0.0;
+
+                let rgb = rgbs_batch[t];
+                // contribution from this pixel
+                v_alpha += (rgb.x * T - buffer.x * ra) * v_out.x;
+                v_alpha += (rgb.y * T - buffer.y * ra) * v_out.y;
+                v_alpha += (rgb.z * T - buffer.z * ra) * v_out.z;
+                // contribution from background pixel
+                v_alpha += -T_final * ra * background.x * v_out.x;
+                v_alpha += -T_final * ra * background.y * v_out.y;
+                v_alpha += -T_final * ra * background.z * v_out.z;
+
+                // update the running sum
+                buffer += rgb * fac;
+
+                // TODO: With WGSL lacking atomic floats (urgh), maybe we could
+                // take a lock here for one gaussian, do all the writes, release the lock.
+                let v_sigma = -opac * vis * v_alpha;
+
+                let v_conic_local = vec3f(0.5f * v_sigma * delta.x * delta.x, 
+                                    v_sigma * delta.x * delta.y,
+                                    0.5f * v_sigma * delta.y * delta.y);
+
+                let v_xy_local = v_sigma * vec2f(
+                    conic.x * delta.x + conic.y * delta.y, 
+                    conic.y * delta.x + conic.z * delta.y
+                );
+                let v_opacity_local = vis * v_alpha;
+
+                // This is NOT a correct spin lock, but a lossy one.
+                // Between loading the lock and locking it, someone else might lock!!
+                // However, a 'correct' spin lock seems to crash quite a lot... gpus
+                // really don't like to busy wait :/
+                // let lock = &locks[g];
+                // while atomicLoad(lock) == 1u {
+                // }
+                let g_id = id_batch[t];
+
+                //while !atomicCompareExchangeWeak(&locks[g_id], 0u, 1u).exchanged {
+                //}
+                // atomicCompareExchangeWeak(lock, 0u, 1u);
+
+                v_opacity[g_id] += v_opacity_local;
+                v_rgb[g_id] += v_rgb_local;
+                v_conic[g_id] += vec4f(v_conic_local, 0.0f);
+                v_xy[g_id] += v_xy_local;
+
+                atomicStore(&locks[g_id], 0u);
             }
 
-            let conic = conic_batch[t];
-            let delta =  xy_batch[t] - vec2f(px, py);
-            // TODO: Make this a function to share with the forward pass.
-            let sigma = 0.5f * (conic.x * delta.x * delta.x +
-                                        conic.z * delta.y * delta.y) +
-                                conic.y * delta.x * delta.y;
+            // Sum up gradients for all pixels (which remember share the same gaussian list).
 
-            let opac = opacity_batch[t];
-            let vis = exp(-sigma);
-            let alpha = min(0.99f, opac * vis);
-            if (sigma < 0.0f || alpha < 1.0f / 255.f) {
-                continue;
+            if local_idx == 0 {
+                // "atomic" add to gradients.
+                // TODO: Atomic float emulation seems hard :/
+                let g_id = id_batch[0];
             }
-
-            let g = id_batch[t];
-            // compute the current T for this gaussian
-            let ra = 1.0f / (1.0f - alpha);
-            T *= ra;
-
-            // update v_rgb for this gaussian
-            let fac = alpha * T;
-            let v_rgb_local = fac * v_out;
-
-            var v_alpha = 0.0;
-
-            let rgb = rgbs_batch[t];
-            // contribution from this pixel
-            v_alpha += (rgb.x * T - buffer.x * ra) * v_out.x;
-            v_alpha += (rgb.y * T - buffer.y * ra) * v_out.y;
-            v_alpha += (rgb.z * T - buffer.z * ra) * v_out.z;
-            // contribution from background pixel
-            v_alpha += -T_final * ra * background.x * v_out.x;
-            v_alpha += -T_final * ra * background.y * v_out.y;
-            v_alpha += -T_final * ra * background.z * v_out.z;
-
-            // update the running sum
-            buffer += rgb * fac;
-
-            // TODO: With WGSL lacking atomic floats (urgh), maybe we could
-            // take a lock here for one gaussian, do all the writes, release the lock.
-            let v_sigma = -opac * vis * v_alpha;
-
-            let v_conic_local = vec3f(0.5f * v_sigma * delta.x * delta.x, 
-                                 v_sigma * delta.x * delta.y,
-                                 0.5f * v_sigma * delta.y * delta.y);
-
-            let v_xy_local = v_sigma * vec2f(
-                conic.x * delta.x + conic.y * delta.y, 
-                conic.y * delta.x + conic.z * delta.y
-            );
-            let v_opacity_local = vis * v_alpha;
-
-
-            // This is NOT a correct spin lock, but a lossy one.
-            // Between loading the lock and locking it, someone else might lock!!
-            // However, a 'correct' spin lock seems to crash quite a lot... gpus
-            // really don't like to busy wait :/
-            let lock = &locks[g];
-            while atomicLoad(lock) == 1u {
-            }
-            // while !atomicCompareExchangeWeak(&locks[g], 0u, 1u).exchanged {
-            // }
-            atomicCompareExchangeWeak(lock, 0u, 1u);
-
-            v_opacity[g] += v_opacity_local;
-            v_rgb[g] += v_rgb_local;
-            v_conic[g] += vec4f(v_conic_local, 0.0f);
-            v_xy[g] += v_xy_local;
-
-            atomicStore(lock, 0u);
         }
     }
 }

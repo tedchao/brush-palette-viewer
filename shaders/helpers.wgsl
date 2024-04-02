@@ -28,7 +28,7 @@ fn scale_to_mat(scale: vec3f, glob_scale: f32) -> mat3x3f {
 // device helper to get 3D covariance from scale and quat parameters
 fn quat_to_rotmat(quat: vec4f) -> mat3x3f {
     // quat to rotation matrix
-    let quat_norm = normalize(quat);
+    let quat_norm = normalize(quat + 1e-6);
 
     let w = quat_norm.x;
     let x = quat_norm.y;

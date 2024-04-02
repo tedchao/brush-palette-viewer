@@ -2,7 +2,7 @@
 //
 // ^ wgsl_bindgen version 0.10.0
 // Changes made to this file will not be saved.
-// SourceHash: 5ed4d70b461720629063504de6e87d10faa426eb7052858fd72ea08a6bba9520
+// SourceHash: ad9967ee4023575d0bf6732300b24205bf2fe04906e3901ac753a41b2b901eca
 
 #![allow(unused, non_snake_case, non_camel_case_types, non_upper_case_globals)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -524,7 +524,7 @@ fn get_tile_bboxX_naga_oil_mod_XNBSWY4DFOJZQX(pix_center: vec2<f32>, pix_radius:
 }
 
 fn quat_to_rotmatX_naga_oil_mod_XNBSWY4DFOJZQX(quat: vec4<f32>) -> mat3x3<f32> {
-    let quat_norm = normalize(quat);
+    let quat_norm = normalize((quat + vec4(0.000001f)));
     let w = quat_norm.x;
     let x = quat_norm.y;
     let y = quat_norm.z;
@@ -557,17 +557,17 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     num_tiles_hit[idx] = 0i;
     let _e22 = means[idx];
     let mean = _e22.xyz;
-    let p_view_proj = (viewmat * vec4<f32>(mean, 1f));
-    let p_view_1 = (p_view_proj.xyz / vec3(p_view_proj.w));
+    let W = mat3x3<f32>(viewmat[0].xyz, viewmat[1].xyz, viewmat[2].xyz);
+    let p_view_1 = ((W * mean) + viewmat[3].xyz);
     if (p_view_1.z <= clip_thresh) {
         return;
     }
     let scale = scales[idx];
     let quat_1 = quats[idx];
-    let _e39 = quat_to_rotmatX_naga_oil_mod_XNBSWY4DFOJZQX(quat_1);
+    let _e43 = quat_to_rotmatX_naga_oil_mod_XNBSWY4DFOJZQX(quat_1);
     let scale_total = (scale * glob_scale);
     let S = mat3x3<f32>(vec3<f32>(scale_total.x, 0f, 0f), vec3<f32>(0f, scale_total.y, 0f), vec3<f32>(0f, 0f, scale_total.z));
-    let M = (_e39 * S);
+    let M = (_e43 * S);
     let V = (M * transpose(M));
     let fx = intrins.x;
     let fy = intrins.y;
@@ -575,7 +575,6 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     let cy = intrins.w;
     let tan_fovx = ((0.5f * f32(img_size.x)) / fx);
     let tan_fovy = ((0.5f * f32(img_size.y)) / fy);
-    let W = mat3x3<f32>(viewmat[0].xyz, viewmat[1].xyz, viewmat[2].xyz);
     let lims = (1.3f * vec2<f32>(tan_fovx, tan_fovy));
     let t = (p_view_1.z * clamp((p_view_1.xy / vec2(p_view_1.z)), -(lims), lims));
     let rz = (1f / p_view_1.z);
@@ -595,17 +594,17 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     let b = (0.5f * (cov2d.x + cov2d.z));
     let v1_ = (b + sqrt(max(0.1f, ((b * b) - det))));
     let v2_ = (b - sqrt(max(0.1f, ((b * b) - det))));
-    let radius = ceil((3f * sqrt(max(v1_, v2_))));
-    let _e168 = project_pix(vec2<f32>(fx, fy), p_view_1.xyz, vec2<f32>(cx, cy));
-    let _e169 = get_tile_bboxX_naga_oil_mod_XNBSWY4DFOJZQX(_e168, radius, tile_bounds_1, block_width);
-    let tile_area = ((_e169.z - _e169.x) * (_e169.w - _e169.y));
+    let radius = ceil((3f * sqrt(max(0f, max(v1_, v2_)))));
+    let _e167 = project_pix(vec2<f32>(fx, fy), p_view_1.xyz, vec2<f32>(cx, cy));
+    let _e168 = get_tile_bboxX_naga_oil_mod_XNBSWY4DFOJZQX(_e167, radius, tile_bounds_1, block_width);
+    let tile_area = ((_e168.z - _e168.x) * (_e168.w - _e168.y));
     if (tile_area <= 0u) {
         return;
     }
     num_tiles_hit[idx] = i32(tile_area);
     depths[idx] = p_view_1.z;
     radii[idx] = radius;
-    xys[idx] = _e168;
+    xys[idx] = _e167;
     conics[idx] = vec4<f32>(conic, 1f);
     let det_orig = ((c00_ * c11_) - (c01_ * c01_));
     let det_blur = ((cov2d.x * cov2d.z) - (cov2d.y * cov2d.y));
@@ -1594,14 +1593,13 @@ var<workgroup> id_batch: array<u32, 256>;
 var<workgroup> xy_batch: array<vec2<f32>, 256>;
 var<workgroup> opacity_batch: array<f32, 256>;
 var<workgroup> conic_batch: array<vec4<f32>, 256>;
-var<workgroup> count_done: atomic<u32>;
 
 @compute @workgroup_size(16, 16, 1) 
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invocation_id) local_id: vec3<u32>, @builtin(local_invocation_index) local_idx: u32, @builtin(workgroup_id) workgroup_id: vec3<u32>) {
     var done: bool = false;
     var T: f32 = 1f;
     var pix_out: vec3<f32> = vec3(0f);
-    var cur_idx: u32 = 0u;
+    var final_idx: u32;
     var batch_start: u32;
     var t: u32;
     var sigma: f32;
@@ -1612,30 +1610,24 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     let background = info.background;
     let img_size = info.img_size;
     let tile_id = (workgroup_id.x + (workgroup_id.y * tile_bounds.x));
-    let j = global_id.x;
-    let i = global_id.y;
-    let px = f32(j);
-    let py = f32(i);
+    let px = (f32(global_id.x) + 0.5f);
+    let py = (f32(global_id.y) + 0.5f);
     let pix_id = (global_id.x + (global_id.y * img_size.x));
-    let inside = ((i < img_size.y) && (j < img_size.x));
+    let inside = ((global_id.x < img_size.x) && (global_id.y < img_size.y));
     if !(inside) {
-        let _e35 = atomicAdd((&count_done), 1u);
         done = true;
     }
     let range = tile_bins[tile_id];
+    final_idx = range.y;
     batch_start = range.x;
     loop {
-        let _e43 = batch_start;
-        if (_e43 < range.y) {
+        let _e47 = batch_start;
+        if (_e47 < range.y) {
         } else {
             break;
         }
         {
             workgroupBarrier();
-            let _e47 = atomicLoad((&count_done));
-            if (_e47 >= BLOCK_SIZE) {
-                break;
-            }
             let _e51 = batch_start;
             let idx = (_e51 + local_idx);
             if (idx < range.y) {
@@ -1650,73 +1642,72 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
             }
             workgroupBarrier();
             let _e76 = batch_start;
-            let batch_size = min(BLOCK_SIZE, (range.y - _e76));
-            t = 0u;
-            loop {
-                let _e82 = t;
-                let _e84 = done;
-                if ((_e82 < batch_size) && !(_e84)) {
-                } else {
-                    break;
-                }
-                {
-                    let _e88 = t;
-                    let xy = xy_batch[_e88];
-                    let _e92 = t;
-                    let opac = opacity_batch[_e92];
-                    let _e96 = t;
-                    let conic = conic_batch[_e96];
-                    let delta = (xy - vec2<f32>(px, py));
-                    sigma = ((0.5f * (((conic.x * delta.x) * delta.x) + ((conic.z * delta.y) * delta.y))) + ((conic.y * delta.x) * delta.y));
-                    let _e122 = sigma;
-                    alpha = min(0.999f, (opac * exp(-(_e122))));
-                    let _e128 = sigma;
-                    let _e131 = alpha;
-                    if ((_e128 < 0f) || (_e131 < 0.003921569f)) {
-                        continue;
-                    }
-                    let _e136 = T;
-                    let _e137 = alpha;
-                    let next_T = (_e136 * (1f - _e137));
-                    let _e142 = t;
-                    let g = id_batch[_e142];
-                    let _e145 = alpha;
-                    let _e146 = T;
-                    let vis = (_e145 * _e146);
-                    T = next_T;
-                    let _e150 = colors[g];
-                    let c = _e150.xyz;
-                    let _e154 = pix_out;
-                    pix_out = (_e154 + (c * vis));
-                    out_img[pix_id] = vec4<f32>(conic);
-                    let _e159 = batch_start;
-                    let _e160 = t;
-                    cur_idx = (_e159 + _e160);
-                    let _e163 = T;
-                    if (_e163 <= 0.0001f) {
-                        let _e168 = atomicAdd((&count_done), 1u);
-                        done = true;
+            let remaining = min(BLOCK_SIZE, (range.y - _e76));
+            let _e80 = done;
+            if !(_e80) {
+                t = 0u;
+                loop {
+                    let _e84 = t;
+                    if (_e84 < remaining) {
+                    } else {
                         break;
                     }
-                }
-                continuing {
-                    let _e171 = t;
-                    t = (_e171 + 1u);
+                    {
+                        let _e87 = t;
+                        let xy = xy_batch[_e87];
+                        let _e91 = t;
+                        let opac = opacity_batch[_e91];
+                        let _e95 = t;
+                        let conic = conic_batch[_e95];
+                        let delta = (xy - vec2<f32>(px, py));
+                        sigma = ((0.5f * (((conic.x * delta.x) * delta.x) + ((conic.z * delta.y) * delta.y))) + ((conic.y * delta.x) * delta.y));
+                        let _e121 = sigma;
+                        alpha = min(0.999f, (opac * exp(-(_e121))));
+                        let _e127 = sigma;
+                        let _e130 = alpha;
+                        if ((_e127 < 0f) || (_e130 < 0.003921569f)) {
+                            continue;
+                        }
+                        let _e135 = T;
+                        let _e136 = alpha;
+                        let next_T = (_e135 * (1f - _e136));
+                        if (next_T <= 0.0001f) {
+                            done = true;
+                            break;
+                        }
+                        let _e144 = t;
+                        let g = id_batch[_e144];
+                        let _e147 = alpha;
+                        let _e148 = T;
+                        let vis = (_e147 * _e148);
+                        T = next_T;
+                        let _e152 = colors[g];
+                        let c = _e152.xyz;
+                        let _e156 = pix_out;
+                        pix_out = (_e156 + (c * vis));
+                        let _e158 = batch_start;
+                        let _e159 = t;
+                        final_idx = (_e158 + _e159);
+                    }
+                    continuing {
+                        let _e162 = t;
+                        t = (_e162 + 1u);
+                    }
                 }
             }
         }
         continuing {
-            let _e174 = batch_start;
-            batch_start = (_e174 + BLOCK_SIZE);
+            let _e165 = batch_start;
+            batch_start = (_e165 + BLOCK_SIZE);
         }
     }
     if inside {
-        let _e178 = pix_out;
-        let _e179 = T;
-        let _e184 = T;
-        out_img[pix_id] = vec4<f32>((_e178 + ((1f - _e179) * background)), _e184);
-        let _e188 = cur_idx;
-        final_index[pix_id] = _e188;
+        let _e169 = pix_out;
+        let _e170 = T;
+        let _e175 = T;
+        out_img[pix_id] = vec4<f32>((_e169 + ((1f - _e170) * background)), _e175);
+        let _e179 = final_idx;
+        final_index[pix_id] = _e179;
         return;
     } else {
         return;
@@ -2122,11 +2113,6 @@ struct Uniforms {
     background: vec3<f32>,
 }
 
-struct _atomic_compare_exchange_resultUint4_ {
-    old_value: u32,
-    exchanged: bool,
-}
-
 const BLOCK_WIDTH: u32 = 16u;
 const BLOCK_SIZE: u32 = 256u;
 
@@ -2167,11 +2153,12 @@ var<workgroup> conic_batch: array<vec4<f32>, 256>;
 var<workgroup> rgbs_batch: array<vec3<f32>, 256>;
 
 @compute @workgroup_size(16, 16, 1) 
-fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invocation_id) local_id: vec3<u32>, @builtin(local_invocation_index) tr: u32, @builtin(workgroup_id) workgroup_id: vec3<u32>) {
+fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invocation_index) local_idx: u32, @builtin(workgroup_id) workgroup_id: vec3<u32>) {
     var T: f32;
     var buffer: vec3<f32> = vec3<f32>(0f, 0f, 0f);
-    var bin_final: u32 = 0u;
-    var b: u32 = 0u;
+    var bin_final: u32;
+    var num_batches: u32;
+    var batch: u32 = 0u;
     var t: u32;
     var v_alpha: f32;
 
@@ -2180,139 +2167,131 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     let background = info.background;
     let img_size = info.img_size;
     let tile_id = (workgroup_id.x + (workgroup_id.y * tile_bounds.x));
-    let j = global_id.x;
-    let i = global_id.y;
-    let px = f32(j);
-    let py = f32(i);
+    let px = (f32(global_id.x) + 0.5f);
+    let py = (f32(global_id.y) + 0.5f);
     let pix_id = (global_id.x + (global_id.y * img_size.x));
-    let inside = ((i < img_size.y) && (j < img_size.x));
+    let inside = ((global_id.x < img_size.x) && (global_id.y < img_size.y));
     let T_final = output[pix_id].w;
     T = T_final;
-    if inside {
-        let _e37 = final_index[pix_id];
-        bin_final = _e37;
-    }
     let range = tile_bins[tile_id];
-    let num_batches = ((((range.y - range.x) + BLOCK_SIZE) - 1u) / BLOCK_SIZE);
+    let bin_start = range.x;
+    bin_final = range.y;
+    if inside {
+        let _e49 = final_index[pix_id];
+        bin_final = _e49;
+    }
     let v_out = v_output[pix_id];
+    let _e53 = bin_final;
+    num_batches = ((((_e53 - bin_start) + BLOCK_SIZE) - 1u) / BLOCK_SIZE);
     loop {
-        let _e55 = b;
-        if (_e55 < num_batches) {
+        let _e63 = batch;
+        let _e64 = num_batches;
+        if (_e63 < _e64) {
         } else {
             break;
         }
         {
-            workgroupBarrier();
-            let _e60 = b;
-            let batch_end = ((range.y - 1u) - (BLOCK_SIZE * _e60));
-            let idx = (batch_end - tr);
-            if (idx >= range.x) {
-                let g_id = gaussian_ids_sorted[idx];
-                id_batch[tr] = g_id;
-                let _e77 = xys[g_id];
-                xy_batch[tr] = _e77;
-                let _e82 = conics[g_id];
-                conic_batch[tr] = _e82;
-                let _e87 = opacities[g_id];
-                opacity_batch[tr] = _e87;
-                let _e92 = colors[g_id];
-                rgbs_batch[tr] = _e92.xyz;
+            let _e66 = bin_final;
+            let _e69 = batch;
+            let gauss_idx_start = ((_e66 - 1u) - (_e69 * BLOCK_SIZE));
+            let gauss_idx = (gauss_idx_start - local_idx);
+            if (gauss_idx >= range.x) {
+                let g_id = gaussian_ids_sorted[gauss_idx];
+                id_batch[local_idx] = g_id;
+                let _e86 = xys[g_id];
+                xy_batch[local_idx] = _e86;
+                let _e91 = conics[g_id];
+                conic_batch[local_idx] = _e91;
+                let _e96 = opacities[g_id];
+                opacity_batch[local_idx] = _e96;
+                let _e101 = colors[g_id];
+                rgbs_batch[local_idx] = _e101.xyz;
             }
             workgroupBarrier();
-            let batch_size = min(BLOCK_SIZE, ((batch_end + 1u) - range.x));
-            t = 0u;
-            loop {
-                let _e102 = t;
-                if ((_e102 < batch_size) && inside) {
-                } else {
-                    break;
-                }
-                {
-                    let _e105 = t;
-                    let _e107 = bin_final;
-                    if ((batch_end - _e105) > _e107) {
-                        continue;
+            let remaining = min(BLOCK_SIZE, ((gauss_idx_start + 1u) - range.x));
+            if inside {
+                t = 0u;
+                loop {
+                    let _e111 = t;
+                    if (_e111 < remaining) {
+                    } else {
+                        break;
                     }
-                    let _e110 = t;
-                    let conic = conic_batch[_e110];
-                    let _e114 = t;
-                    let _e116 = xy_batch[_e114];
-                    let delta = (_e116 - vec2<f32>(px, py));
-                    let sigma = ((0.5f * (((conic.x * delta.x) * delta.x) + ((conic.z * delta.y) * delta.y))) + ((conic.y * delta.x) * delta.y));
-                    let _e139 = t;
-                    let opac = opacity_batch[_e139];
-                    let vis = exp(-(sigma));
-                    let alpha = min(0.99f, (opac * vis));
-                    if ((sigma < 0f) || (alpha < 0.003921569f)) {
-                        continue;
-                    }
-                    let _e153 = t;
-                    let g = id_batch[_e153];
-                    let ra = (1f / (1f - alpha));
-                    let _e160 = T;
-                    T = (_e160 * ra);
-                    let _e162 = T;
-                    let fac = (alpha * _e162);
-                    let v_rgb_local = (fac * v_out);
-                    v_alpha = 0f;
-                    let _e168 = t;
-                    let rgb = rgbs_batch[_e168];
-                    let _e173 = T;
-                    let _e176 = buffer.x;
-                    let _e181 = v_alpha;
-                    v_alpha = (_e181 + (((rgb.x * _e173) - (_e176 * ra)) * v_out.x));
-                    let _e184 = T;
-                    let _e187 = buffer.y;
-                    let _e192 = v_alpha;
-                    v_alpha = (_e192 + (((rgb.y * _e184) - (_e187 * ra)) * v_out.y));
-                    let _e195 = T;
-                    let _e198 = buffer.z;
-                    let _e203 = v_alpha;
-                    v_alpha = (_e203 + (((rgb.z * _e195) - (_e198 * ra)) * v_out.z));
-                    let _e211 = v_alpha;
-                    v_alpha = (_e211 + (((-(T_final) * ra) * background.x) * v_out.x));
-                    let _e219 = v_alpha;
-                    v_alpha = (_e219 + (((-(T_final) * ra) * background.y) * v_out.y));
-                    let _e227 = v_alpha;
-                    v_alpha = (_e227 + (((-(T_final) * ra) * background.z) * v_out.z));
-                    let _e230 = buffer;
-                    buffer = (_e230 + (rgb * fac));
-                    let _e234 = v_alpha;
-                    let v_sigma = ((-(opac) * vis) * _e234);
-                    let v_conic_local = vec3<f32>((((0.5f * v_sigma) * delta.x) * delta.x), ((v_sigma * delta.x) * delta.y), (((0.5f * v_sigma) * delta.y) * delta.y));
-                    let v_xy_local = (v_sigma * vec2<f32>(((conic.x * delta.x) + (conic.y * delta.y)), ((conic.y * delta.x) + (conic.z * delta.y))));
-                    let _e269 = v_alpha;
-                    let v_opacity_local = (vis * _e269);
-                    let lock = (&locks[g]);
-                    loop {
-                        let _e273 = atomicLoad(lock);
-                        if (_e273 == 1u) {
-                        } else {
-                            break;
+                    {
+                        let _e114 = t;
+                        let conic = conic_batch[_e114];
+                        let _e118 = t;
+                        let _e120 = xy_batch[_e118];
+                        let delta = (_e120 - vec2<f32>(px, py));
+                        let sigma = ((0.5f * (((conic.x * delta.x) * delta.x) + ((conic.z * delta.y) * delta.y))) + ((conic.y * delta.x) * delta.y));
+                        let _e143 = t;
+                        let opac = opacity_batch[_e143];
+                        let vis = exp(-(sigma));
+                        let alpha = min(0.99f, (opac * vis));
+                        if ((sigma < 0f) || (alpha < 0.003921569f)) {
+                            continue;
                         }
-                        {
-                        }
+                        let ra = (1f / (1f - alpha));
+                        let _e160 = T;
+                        T = (_e160 * ra);
+                        let _e162 = T;
+                        let fac = (alpha * _e162);
+                        let v_rgb_local = (fac * v_out);
+                        v_alpha = 0f;
+                        let _e168 = t;
+                        let rgb = rgbs_batch[_e168];
+                        let _e173 = T;
+                        let _e176 = buffer.x;
+                        let _e181 = v_alpha;
+                        v_alpha = (_e181 + (((rgb.x * _e173) - (_e176 * ra)) * v_out.x));
+                        let _e184 = T;
+                        let _e187 = buffer.y;
+                        let _e192 = v_alpha;
+                        v_alpha = (_e192 + (((rgb.y * _e184) - (_e187 * ra)) * v_out.y));
+                        let _e195 = T;
+                        let _e198 = buffer.z;
+                        let _e203 = v_alpha;
+                        v_alpha = (_e203 + (((rgb.z * _e195) - (_e198 * ra)) * v_out.z));
+                        let _e211 = v_alpha;
+                        v_alpha = (_e211 + (((-(T_final) * ra) * background.x) * v_out.x));
+                        let _e219 = v_alpha;
+                        v_alpha = (_e219 + (((-(T_final) * ra) * background.y) * v_out.y));
+                        let _e227 = v_alpha;
+                        v_alpha = (_e227 + (((-(T_final) * ra) * background.z) * v_out.z));
+                        let _e230 = buffer;
+                        buffer = (_e230 + (rgb * fac));
+                        let _e234 = v_alpha;
+                        let v_sigma = ((-(opac) * vis) * _e234);
+                        let v_conic_local = vec3<f32>((((0.5f * v_sigma) * delta.x) * delta.x), ((v_sigma * delta.x) * delta.y), (((0.5f * v_sigma) * delta.y) * delta.y));
+                        let v_xy_local = (v_sigma * vec2<f32>(((conic.x * delta.x) + (conic.y * delta.y)), ((conic.y * delta.x) + (conic.z * delta.y))));
+                        let _e269 = v_alpha;
+                        let v_opacity_local = (vis * _e269);
+                        let _e272 = t;
+                        let g_id_1 = id_batch[_e272];
+                        workgroupBarrier();
+                        let _e277 = v_opacity[g_id_1];
+                        v_opacity[g_id_1] = (_e277 + v_opacity_local);
+                        let _e281 = v_rgb[g_id_1];
+                        v_rgb[g_id_1] = (_e281 + v_rgb_local);
+                        let _e287 = v_conic[g_id_1];
+                        v_conic[g_id_1] = (_e287 + vec4<f32>(v_conic_local, 0f));
+                        let _e291 = v_xy[g_id_1];
+                        v_xy[g_id_1] = (_e291 + v_xy_local);
+                        atomicStore((&locks[g_id_1]), 0u);
                     }
-                    let _e278 = atomicCompareExchangeWeak(lock, 0u, 1u);
-                    let _e281 = v_opacity[g];
-                    v_opacity[g] = (_e281 + v_opacity_local);
-                    let _e285 = v_rgb[g];
-                    v_rgb[g] = (_e285 + v_rgb_local);
-                    let _e291 = v_conic[g];
-                    v_conic[g] = (_e291 + vec4<f32>(v_conic_local, 0f));
-                    let _e295 = v_xy[g];
-                    v_xy[g] = (_e295 + v_xy_local);
-                    atomicStore(lock, 0u);
+                    continuing {
+                        let _e297 = t;
+                        t = (_e297 + 1u);
+                    }
                 }
-                continuing {
-                    let _e299 = t;
-                    t = (_e299 + 1u);
+                if (local_idx == 0u) {
+                    let g_id_2 = id_batch[0];
                 }
             }
         }
         continuing {
-            let _e302 = b;
-            b = (_e302 + 1u);
+            let _e305 = batch;
+            batch = (_e305 + 1u);
         }
     }
     return;
@@ -2720,7 +2699,7 @@ var<storage> compensation: array<f32>;
 @group(0) @binding(6) 
 var<storage> v_xy_1: array<vec2<f32>>;
 @group(0) @binding(7) 
-var<storage> v_conic: array<vec4<f32>>;
+var<storage> v_conic_1: array<vec4<f32>>;
 @group(0) @binding(8) 
 var<storage, read_write> v_means: array<vec4<f32>>;
 @group(0) @binding(9) 
@@ -2731,7 +2710,7 @@ var<storage, read_write> v_quats: array<vec4<f32>>;
 var<storage> info_array: array<Uniforms>;
 
 fn quat_to_rotmatX_naga_oil_mod_XNBSWY4DFOJZQX(quat: vec4<f32>) -> mat3x3<f32> {
-    let quat_norm = normalize(quat);
+    let quat_norm = normalize((quat + vec4(0.000001f)));
     let w = quat_norm.x;
     let x = quat_norm.y;
     let y = quat_norm.z;
@@ -2746,12 +2725,19 @@ fn project_pix_vjp(fxfy: vec2<f32>, p_view: vec3<f32>, v_xy: vec2<f32>) -> vec3<
 }
 
 fn quat_to_rotmat_vjp(quat_1: vec4<f32>, v_R: mat3x3<f32>) -> vec4<f32> {
-    let quat_norm_1 = normalize(quat_1);
+    let quat_norm_1 = normalize((quat_1 + vec4(0.000001f)));
     let w_1 = quat_norm_1.x;
     let x_1 = quat_norm_1.y;
     let y_1 = quat_norm_1.z;
     let z_1 = quat_norm_1.w;
     return vec4<f32>((2f * (((x_1 * (v_R[1].z - v_R[2].y)) + (y_1 * (v_R[2].x - v_R[0].z))) + (z_1 * (v_R[0].y - v_R[1].x)))), (2f * (((((-2f * x_1) * (v_R[1].y + v_R[2].z)) + (y_1 * (v_R[0].y + v_R[1].x))) + (z_1 * (v_R[0].z + v_R[2].x))) + (w_1 * (v_R[1].z - v_R[2].y)))), (2f * ((((x_1 * (v_R[0].y + v_R[1].x)) - ((2f * y_1) * (v_R[0].x + v_R[2].z))) + (z_1 * (v_R[1].z + v_R[2].y))) + (w_1 * (v_R[2].x - v_R[0].z)))), (2f * ((((x_1 * (v_R[0].z + v_R[2].x)) + (y_1 * (v_R[1].z + v_R[2].y))) - ((2f * z_1) * (v_R[0].x + v_R[1].y))) + (w_1 * (v_R[0].y - v_R[1].x)))));
+}
+
+fn cov2d_to_conic_vjp(conic: vec3<f32>, v_conic: vec3<f32>) -> vec3<f32> {
+    let X = mat2x2<f32>(vec2<f32>(conic.x, conic.y), vec2<f32>(conic.y, conic.z));
+    let G = mat2x2<f32>(vec2<f32>(v_conic.x, (v_conic.y / 2f)), vec2<f32>((v_conic.y / 2f), v_conic.z));
+    let v_Sigma = ((X * G) * X);
+    return -(vec3<f32>(v_Sigma[0].x, (v_Sigma[1].x + v_Sigma[0].y), v_Sigma[1].y));
 }
 
 @compute @workgroup_size(128, 1, 1) 
@@ -2768,42 +2754,34 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     let intrins = info.intrins;
     let viewmat = info.viewmat;
     let glob_scale = info.glob_scale;
-    let p_world = means[idx];
+    let _e18 = means[idx];
+    let mean = _e18.xyz;
     let quat_2 = quats[idx];
     let scale = scales[idx];
     let fx = intrins.x;
     let fy = intrins.y;
     let cx = intrins.z;
     let cy = intrins.w;
-    let p_view_proj = (viewmat * vec4<f32>(p_world.xyz, 1f));
-    let p_view_1 = (p_view_proj.xyz / vec3(p_view_proj.w));
-    let _e40 = v_xy_1[idx];
-    let _e41 = project_pix_vjp(vec2<f32>(fx, fy), p_view_1, _e40);
     let W = mat3x3<f32>(viewmat[0].xyz, viewmat[1].xyz, viewmat[2].xyz);
-    v_mean = (transpose(W) * _e41);
-    let _e54 = conics[idx];
-    let conic = _e54.xyz;
-    let _e58 = v_conic[idx];
-    let v_conic_1 = _e58.xyz;
-    let X = mat2x2<f32>(vec2<f32>(conic.x, conic.y), vec2<f32>(conic.y, conic.z));
-    let G = mat2x2<f32>(vec2<f32>(v_conic_1.x, (v_conic_1.y / 2f)), vec2<f32>((v_conic_1.y / 2f), v_conic_1.z));
-    let v_sigma = ((X * G) * X);
-    let v_cov_conic = -(vec3<f32>(v_sigma[0].x, (v_sigma[1].x + v_sigma[0].y), v_sigma[1].y));
+    let p_view_1 = ((W * mean) + viewmat[3].xyz);
+    let _e44 = v_xy_1[idx];
+    let _e45 = project_pix_vjp(vec2<f32>(fx, fy), p_view_1, _e44);
+    v_mean = (transpose(W) * _e45);
+    let _e51 = conics[idx];
+    let conic_1 = _e51.xyz;
+    let _e55 = v_conic_1[idx];
+    let v_conic_2 = _e55.xyz;
+    let _e57 = cov2d_to_conic_vjp(conic_1, v_conic_2);
     let comp = compensation[idx];
-    let inv_det = ((conic.x * conic.z) - (conic.y * conic.y));
-    let one_minus_sqr_comp = (1f - (comp * comp));
-    let v_sqr_comp = ((0f * 0.5f) / (comp + 0.000001f));
-    let v_cov_comp = vec3<f32>((v_sqr_comp * ((one_minus_sqr_comp * conic.x) - (0.3f * inv_det))), ((2f * v_sqr_comp) * (one_minus_sqr_comp * conic.y)), (v_sqr_comp * ((one_minus_sqr_comp * conic.z) - (0.3f * inv_det))));
-    let v_cov2d = (v_cov_conic + v_cov_comp);
     let rz = (1f / p_view_1.z);
     let rz2_ = (rz * rz);
     let J = mat3x3<f32>(vec3<f32>((fx * rz), 0f, 0f), vec3<f32>(0f, (fy * rz), 0f), vec3<f32>(((-(fx) * p_view_1.x) * rz2_), ((-(fy) * p_view_1.y) * rz2_), 0f));
-    let _e152 = quat_to_rotmatX_naga_oil_mod_XNBSWY4DFOJZQX(quat_2);
+    let _e84 = quat_to_rotmatX_naga_oil_mod_XNBSWY4DFOJZQX(quat_2);
     let scale_total = (scale * glob_scale);
     let S = mat3x3<f32>(vec3<f32>(scale_total.x, 0f, 0f), vec3<f32>(0f, scale_total.y, 0f), vec3<f32>(0f, 0f, scale_total.z));
-    let M = (_e152 * S);
+    let M = (_e84 * S);
     let V = (M * transpose(M));
-    let v_cov = mat3x3<f32>(vec3<f32>(v_cov2d.x, (0.5f * v_cov2d.y), 0f), vec3<f32>((0.5f * v_cov2d.y), v_cov2d.z, 0f), vec3<f32>(0f, 0f, 0f));
+    let v_cov = mat3x3<f32>(vec3<f32>(_e57.x, (0.5f * _e57.y), 0f), vec3<f32>((0.5f * _e57.y), _e57.z, 0f), vec3<f32>(0f, 0f, 0f));
     let T = (J * W);
     let Tt = transpose(T);
     let Vt = transpose(V);
@@ -2818,21 +2796,21 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     let v_J = (v_T * transpose(W));
     let rz3_ = (rz2_ * rz);
     let v_t = vec3<f32>(((-(fx) * rz2_) * v_J[2].x), ((-(fy) * rz2_) * v_J[2].y), (((((-(fx) * rz2_) * v_J[0].x) + ((((2f * fx) * p_view_1.x) * rz3_) * v_J[2].x)) - ((fy * rz2_) * v_J[1].y)) + ((((2f * fy) * p_view_1.y) * rz3_) * v_J[2].y)));
-    let _e264 = v_mean.x;
-    v_mean.x = (_e264 + dot(v_t, W[0]));
-    let _e269 = v_mean.y;
-    v_mean.y = (_e269 + dot(v_t, W[1]));
-    let _e274 = v_mean.z;
-    v_mean.z = (_e274 + dot(v_t, W[2]));
+    let _e196 = v_mean.x;
+    v_mean.x = (_e196 + dot(v_t, W[0]));
+    let _e201 = v_mean.y;
+    v_mean.y = (_e201 + dot(v_t, W[1]));
+    let _e206 = v_mean.z;
+    v_mean.z = (_e206 + dot(v_t, W[2]));
     let v_V_symm = mat3x3<f32>(vec3<f32>(v_cov3d0_, (0.5f * v_cov3d1_), (0.5f * v_cov3d2_)), vec3<f32>((0.5f * v_cov3d1_), v_cov3d3_, (0.5f * v_cov3d4_)), vec3<f32>((0.5f * v_cov3d2_), (0.5f * v_cov3d4_), v_cov3d5_));
     let v_M = ((2f * v_V_symm) * M);
-    let v_scale = vec3<f32>((dot(_e152[0], v_M[0]) * glob_scale), (dot(_e152[1], v_M[1]) * glob_scale), (dot(_e152[2], v_M[2]) * glob_scale));
+    let v_scale = vec3<f32>((dot(_e84[0], v_M[0]) * glob_scale), (dot(_e84[1], v_M[1]) * glob_scale), (dot(_e84[2], v_M[2]) * glob_scale));
     let v_R_1 = (v_M * S);
-    let _e309 = quat_to_rotmat_vjp(quat_2, v_R_1);
-    v_quats[idx] = _e309;
+    let _e241 = quat_to_rotmat_vjp(quat_2, v_R_1);
+    v_quats[idx] = _e241;
     v_scales[idx] = vec4<f32>(v_scale, 0f);
-    let _e318 = v_mean;
-    v_means[idx] = vec4<f32>(_e318, 0f);
+    let _e250 = v_mean;
+    v_means[idx] = vec4<f32>(_e250, 0f);
     return;
 }
 "#;

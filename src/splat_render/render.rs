@@ -167,7 +167,7 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
                 img_size,
                 tile_bounds.into(),
                 1.0,
-                0.001,
+                0.01,
                 block_width,
             ),
             &[&means.handle, &scales.handle, &quats.handle],

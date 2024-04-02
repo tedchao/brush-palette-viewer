@@ -60,7 +60,7 @@ pub(crate) struct Splats<B: Backend> {
     opacity: Param<Tensor<B, 1>>,
 
     // f32[n, 3]. Scale matrix coefficients.
-    scale: Param<Tensor<B, 2>>,
+    scales: Param<Tensor<B, 2>>,
 
     // Non trainable params.
 
@@ -105,7 +105,7 @@ impl<B: Backend> Splats<B> {
             utils::inverse_sigmoid(Tensor::from_floats([0.1], device)).repeat(0, num_points);
 
         // TODO: Fancy KNN init.
-        let init_scale = Tensor::random([num_points, 4], Distribution::Uniform(0.01, 0.5), device);
+        let init_scale = Tensor::random([num_points, 4], Distribution::Uniform(-4.0, -2.0), device);
 
         // Model parameters.
         Splats {
@@ -115,7 +115,7 @@ impl<B: Backend> Splats<B> {
             colors: colors.into(),
             rotation: init_rotation.into(),
             opacity: init_opacity.into(),
-            scale: init_scale.into(),
+            scales: init_scale.into(),
             max_radii_2d: Tensor::zeros([num_points], device),
             xyz_gradient_accum: Tensor::zeros([num_points], device),
             denom: Tensor::zeros([num_points], device),
@@ -426,7 +426,7 @@ impl<B: Backend> Splats<B> {
         splat_render::render::render(
             camera,
             self.means.val(),
-            self.scale.val(),
+            self.scales.val().exp(),
             self.rotation.val(),
             self.colors.val(),
             burn::tensor::activation::sigmoid(self.opacity.val()),
@@ -450,9 +450,15 @@ impl<B: Backend> Splats<B> {
                 (c[[2]] * 255.0) as u8,
             ])
         });
+        let scales_data = utils::burn_to_ndarray(self.scales.val());
+        let radii = scales_data
+            .axis_iter(Axis(0))
+            .map(|c| c[0].max(c[1]).max(c[2]).exp() * 0.1);
         rec.log(
             "world/splat/points",
-            &rerun::Points3D::new(glam_data).with_colors(colors),
+            &rerun::Points3D::new(glam_data)
+                .with_colors(colors)
+                .with_radii(radii),
         )?;
         Ok(())
     }
