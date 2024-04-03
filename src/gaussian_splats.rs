@@ -2,7 +2,7 @@ use burn::{
     config::Config,
     module::{Module, Param, ParamId},
     nn::conv::Conv1d,
-    tensor::Device,
+    tensor::{activation::sigmoid, Device},
 };
 use ndarray::Axis;
 use rerun::{RecordingStream, Rgba32};
@@ -95,19 +95,16 @@ impl<B: Backend> Splats<B> {
             Distribution::Uniform(-extent, extent),
             device,
         );
-
-        let colors = Tensor::random([num_points, 4], Distribution::Uniform(0.0, 1.0), device);
+        let colors = Tensor::random([num_points, 4], Distribution::Uniform(-4.0, 4.0), device);
 
         let init_rotation = Tensor::from_floats([1.0, 0.0, 0.0, 0.0], device)
             .unsqueeze::<2>()
             .repeat(0, num_points);
 
-        let init_opacity =
-            utils::inverse_sigmoid(Tensor::from_floats([0.1], device)).repeat(0, num_points);
+        let init_opacity = Tensor::random([num_points], Distribution::Uniform(-4.0, -2.0), device);
 
         // TODO: Fancy KNN init.
-        let init_scale =
-            Tensor::random([num_points, 1], Distribution::Uniform(-4.0, -2.0), device).repeat(1, 4);
+        let init_scale = Tensor::random([num_points, 4], Distribution::Uniform(-3.0, -2.0), device);
 
         // TODO: Support lazy loading.
         // Model parameters.
@@ -430,8 +427,8 @@ impl<B: Backend> Splats<B> {
             self.means.val(),
             self.scales.val().exp(),
             self.rotation.val(),
-            self.colors.val(),
-            burn::tensor::activation::sigmoid(self.opacity.val()),
+            sigmoid(self.colors.val()),
+            sigmoid(self.opacity.val()),
             bg_color,
         )
     }
@@ -444,7 +441,7 @@ impl<B: Backend> Splats<B> {
             .map(|c| glam::vec3(c[0], c[1], c[2]))
             .collect::<Vec<_>>();
 
-        let colors_data = utils::burn_to_ndarray(self.colors.val());
+        let colors_data = utils::burn_to_ndarray(sigmoid(self.colors.val()));
         let colors = colors_data.axis_iter(Axis(0)).map(|c| {
             Rgba32::from([
                 (c[[0]] * 255.0) as u8,
