@@ -19,6 +19,7 @@ const BLOCK_SIZE: u32 = BLOCK_WIDTH * BLOCK_WIDTH;
 var<workgroup> id_batch: array<u32, BLOCK_SIZE>;
 var<workgroup> xy_batch: array<vec2f, BLOCK_SIZE>;
 var<workgroup> opacity_batch: array<f32, BLOCK_SIZE>;
+var<workgroup> colors_batch: array<vec3f, BLOCK_SIZE>;
 var<workgroup> conic_batch: array<vec4f, BLOCK_SIZE>;
 
 // Keep track of how many threads are done in this workgroup.
@@ -53,7 +54,10 @@ fn main(
 
     // each thread draws one pixel, but also timeshares caching gaussians in a
     // shared tile
+
+    // Get index of tile being drawn.
     let tile_id = workgroup_id.x + workgroup_id.y * tile_bounds.x;
+
     let px = f32(global_id.x) + 0.5;
     let py = f32(global_id.y) + 0.5;
     let pix_id = global_id.x + global_id.y * img_size.x;
@@ -103,6 +107,7 @@ fn main(
             id_batch[local_idx] = g_id;
             xy_batch[local_idx] = xys[g_id];
             opacity_batch[local_idx] = opacities[g_id];
+            colors_batch[local_idx] = colors[g_id].xyz;
             conic_batch[local_idx] = conics[g_id];
         }
 
@@ -141,8 +146,7 @@ fn main(
                 let vis = alpha * T;
                 T = next_T;
 
-                // TODO: Why not groupshare fetch the color? :/
-                let c = colors[g].xyz;
+                let c = colors_batch[t].xyz;
                 pix_out += c * vis;
 
                 final_idx = batch_start + t;

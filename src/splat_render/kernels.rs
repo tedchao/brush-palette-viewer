@@ -83,8 +83,8 @@ impl DynamicKernelSource for MapGaussiansToIntersect {
 impl<S: ComputeServer<Kernel = Box<dyn Kernel>>, C: ComputeChannel<S>> SplatKernel<S, C>
     for MapGaussiansToIntersect
 {
-    const DIM_READ: usize = 4;
-    const DIM_WRITE: usize = 3;
+    const DIM_READ: usize = 3;
+    const DIM_WRITE: usize = 2;
     type Uniforms = gen::map_gaussian_to_intersects::Uniforms;
     const WORKGROUP_SIZE: [u32; 3] = gen::map_gaussian_to_intersects::compute::MAIN_WORKGROUP_SIZE;
 }
@@ -148,7 +148,7 @@ impl<S: ComputeServer<Kernel = Box<dyn Kernel>>, C: ComputeChannel<S>> SplatKern
     for RasterizeBackwards
 {
     const DIM_READ: usize = 9;
-    const DIM_WRITE: usize = 5;
+    const DIM_WRITE: usize = 4;
     type Uniforms = gen::rasterize_backwards::Uniforms;
     const WORKGROUP_SIZE: [u32; 3] = gen::rasterize_backwards::compute::MAIN_WORKGROUP_SIZE;
 }

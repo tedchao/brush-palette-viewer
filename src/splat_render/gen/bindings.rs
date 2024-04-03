@@ -2,7 +2,7 @@
 //
 // ^ wgsl_bindgen version 0.10.0
 // Changes made to this file will not be saved.
-// SourceHash: ad9967ee4023575d0bf6732300b24205bf2fe04906e3901ac753a41b2b901eca
+// SourceHash: 389356df065055d4902779d4f2471a5d0771abf0fd462ebe7f31ff60a2569b70
 
 #![allow(unused, non_snake_case, non_camel_case_types, non_upper_case_globals)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -71,12 +71,12 @@ pub mod layout_asserts {
     const PROJECT_FORWARD_UNIFORMS_ASSERTS: () = {
         assert!(std::mem::offset_of!(project_forward::Uniforms, num_points) == 0);
         assert!(std::mem::offset_of!(project_forward::Uniforms, viewmat) == 16);
-        assert!(std::mem::offset_of!(project_forward::Uniforms, intrins) == 80);
+        assert!(std::mem::offset_of!(project_forward::Uniforms, focal) == 80);
+        assert!(std::mem::offset_of!(project_forward::Uniforms, pixel_center) == 88);
         assert!(std::mem::offset_of!(project_forward::Uniforms, img_size) == 96);
         assert!(std::mem::offset_of!(project_forward::Uniforms, tile_bounds) == 104);
-        assert!(std::mem::offset_of!(project_forward::Uniforms, glob_scale) == 112);
-        assert!(std::mem::offset_of!(project_forward::Uniforms, clip_thresh) == 116);
-        assert!(std::mem::offset_of!(project_forward::Uniforms, block_width) == 120);
+        assert!(std::mem::offset_of!(project_forward::Uniforms, clip_thresh) == 112);
+        assert!(std::mem::offset_of!(project_forward::Uniforms, block_width) == 116);
         assert!(std::mem::size_of:: < project_forward::Uniforms > () == 128);
     };
     const MAP_GAUSSIAN_TO_INTERSECTS_UNIFORMS_ASSERTS: () = {
@@ -109,11 +109,10 @@ pub mod layout_asserts {
     };
     const PROJECT_BACKWARDS_UNIFORMS_ASSERTS: () = {
         assert!(std::mem::offset_of!(project_backwards::Uniforms, num_points) == 0);
-        assert!(std::mem::offset_of!(project_backwards::Uniforms, glob_scale) == 4);
         assert!(std::mem::offset_of!(project_backwards::Uniforms, viewmat) == 16);
-        assert!(std::mem::offset_of!(project_backwards::Uniforms, intrins) == 80);
-        assert!(std::mem::offset_of!(project_backwards::Uniforms, img_size) == 96);
-        assert!(std::mem::size_of:: < project_backwards::Uniforms > () == 112);
+        assert!(std::mem::offset_of!(project_backwards::Uniforms, focal) == 80);
+        assert!(std::mem::offset_of!(project_backwards::Uniforms, img_size) == 88);
+        assert!(std::mem::size_of:: < project_backwards::Uniforms > () == 96);
     };
 }
 pub mod project_forward {
@@ -126,28 +125,28 @@ pub mod project_forward {
         pub _pad_num_points: [u8; 0x10 - core::mem::size_of::<u32>()],
         /// size: 64, offset: 0x10, type: `mat4x4<f32>`
         pub viewmat: glam::Mat4,
-        /// size: 16, offset: 0x50, type: `vec4<f32>`
-        pub intrins: glam::Vec4,
+        /// size: 8, offset: 0x50, type: `vec2<f32>`
+        pub focal: [f32; 2],
+        /// size: 8, offset: 0x58, type: `vec2<f32>`
+        pub pixel_center: [f32; 2],
         /// size: 8, offset: 0x60, type: `vec2<u32>`
         pub img_size: [u32; 2],
         /// size: 8, offset: 0x68, type: `vec2<u32>`
         pub tile_bounds: [u32; 2],
         /// size: 4, offset: 0x70, type: `f32`
-        pub glob_scale: f32,
-        /// size: 4, offset: 0x74, type: `f32`
         pub clip_thresh: f32,
-        /// size: 4, offset: 0x78, type: `u32`
+        /// size: 4, offset: 0x74, type: `u32`
         pub block_width: u32,
-        pub _pad_block_width: [u8; 0x8 - core::mem::size_of::<u32>()],
+        pub _pad_block_width: [u8; 0xC - core::mem::size_of::<u32>()],
     }
     impl Uniforms {
         pub const fn new(
             num_points: u32,
             viewmat: glam::Mat4,
-            intrins: glam::Vec4,
+            focal: [f32; 2],
+            pixel_center: [f32; 2],
             img_size: [u32; 2],
             tile_bounds: [u32; 2],
-            glob_scale: f32,
             clip_thresh: f32,
             block_width: u32,
         ) -> Self {
@@ -155,13 +154,13 @@ pub mod project_forward {
                 num_points,
                 _pad_num_points: [0; 0x10 - core::mem::size_of::<u32>()],
                 viewmat,
-                intrins,
+                focal,
+                pixel_center,
                 img_size,
                 tile_bounds,
-                glob_scale,
                 clip_thresh,
                 block_width,
-                _pad_block_width: [0; 0x8 - core::mem::size_of::<u32>()],
+                _pad_block_width: [0; 0xC - core::mem::size_of::<u32>()],
             }
         }
     }
@@ -170,10 +169,10 @@ pub mod project_forward {
     pub struct UniformsInit {
         pub num_points: u32,
         pub viewmat: glam::Mat4,
-        pub intrins: glam::Vec4,
+        pub focal: [f32; 2],
+        pub pixel_center: [f32; 2],
         pub img_size: [u32; 2],
         pub tile_bounds: [u32; 2],
-        pub glob_scale: f32,
         pub clip_thresh: f32,
         pub block_width: u32,
     }
@@ -183,13 +182,13 @@ pub mod project_forward {
                 num_points: self.num_points,
                 _pad_num_points: [0; 0x10 - core::mem::size_of::<u32>()],
                 viewmat: self.viewmat,
-                intrins: self.intrins,
+                focal: self.focal,
+                pixel_center: self.pixel_center,
                 img_size: self.img_size,
                 tile_bounds: self.tile_bounds,
-                glob_scale: self.glob_scale,
                 clip_thresh: self.clip_thresh,
                 block_width: self.block_width,
-                _pad_block_width: [0; 0x8 - core::mem::size_of::<u32>()],
+                _pad_block_width: [0; 0xC - core::mem::size_of::<u32>()],
             }
         }
     }
@@ -481,10 +480,10 @@ pub mod project_forward {
 struct Uniforms {
     num_points: u32,
     viewmat: mat4x4<f32>,
-    intrins: vec4<f32>,
+    focal: vec2<f32>,
+    pixel_center: vec2<f32>,
     img_size: vec2<u32>,
     tile_bounds: vec2<u32>,
-    glob_scale: f32,
     clip_thresh: f32,
     block_width: u32,
 }
@@ -500,7 +499,7 @@ var<storage, read_write> xys: array<vec2<f32>>;
 @group(0) @binding(4) 
 var<storage, read_write> depths: array<f32>;
 @group(0) @binding(5) 
-var<storage, read_write> radii: array<f32>;
+var<storage, read_write> radii: array<i32>;
 @group(0) @binding(6) 
 var<storage, read_write> conics: array<vec4<f32>>;
 @group(0) @binding(7) 
@@ -516,10 +515,10 @@ fn get_bboxX_naga_oil_mod_XNBSWY4DFOJZQX(center: vec2<f32>, dims: vec2<f32>, bou
     return vec4<u32>(min, max);
 }
 
-fn get_tile_bboxX_naga_oil_mod_XNBSWY4DFOJZQX(pix_center: vec2<f32>, pix_radius: f32, tile_bounds: vec2<u32>, block_size: u32) -> vec4<u32> {
+fn get_tile_bboxX_naga_oil_mod_XNBSWY4DFOJZQX(pix_center: vec2<f32>, pix_radius: i32, tile_bounds: vec2<u32>, block_size: u32) -> vec4<u32> {
     let tile_center = (pix_center / vec2(f32(block_size)));
-    let tile_radius = (vec2<f32>(pix_radius, pix_radius) / vec2(f32(block_size)));
-    let _e11 = get_bboxX_naga_oil_mod_XNBSWY4DFOJZQX(tile_center, tile_radius, tile_bounds);
+    let tile_radius = (f32(pix_radius) / f32(block_size));
+    let _e11 = get_bboxX_naga_oil_mod_XNBSWY4DFOJZQX(tile_center, vec2<f32>(tile_radius, tile_radius), tile_bounds);
     return _e11;
 }
 
@@ -532,28 +531,31 @@ fn quat_to_rotmatX_naga_oil_mod_XNBSWY4DFOJZQX(quat: vec4<f32>) -> mat3x3<f32> {
     return mat3x3<f32>(vec3<f32>((1f - (2f * ((y * y) + (z * z)))), (2f * ((x * y) + (w * z))), (2f * ((x * z) - (w * y)))), vec3<f32>((2f * ((x * y) - (w * z))), (1f - (2f * ((x * x) + (z * z)))), (2f * ((y * z) + (w * x)))), vec3<f32>((2f * ((x * z) + (w * y))), (2f * ((y * z) - (w * x))), (1f - (2f * ((x * x) + (y * y))))));
 }
 
+fn scale_to_matX_naga_oil_mod_XNBSWY4DFOJZQX(scale: vec3<f32>) -> mat3x3<f32> {
+    return mat3x3<f32>(vec3<f32>(scale.x, 0f, 0f), vec3<f32>(0f, scale.y, 0f), vec3<f32>(0f, 0f, scale.z));
+}
+
 fn project_pix(fxfy: vec2<f32>, p_view: vec3<f32>, pp: vec2<f32>) -> vec2<f32> {
-    let p_proj = (p_view.xy / vec2((p_view.z + 0.000001f)));
-    let p_pix = ((p_proj.xy * fxfy.xy) + pp);
-    return p_pix;
+    let p_proj = (p_view.xy / vec2(max(p_view.z, 0.000001f)));
+    return ((p_proj * fxfy) + pp);
 }
 
 @compute @workgroup_size(128, 1, 1) 
-fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invocation_id) local_id: vec3<u32>, @builtin(workgroup_id) workgroup_id: vec3<u32>) {
+fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let idx = global_id.x;
     let info = info_array[0];
     let num_points = info.num_points;
     if (idx >= num_points) {
         return;
     }
-    let glob_scale = info.glob_scale;
     let viewmat = info.viewmat;
-    let intrins = info.intrins;
+    let focal = info.focal;
+    let pixel_center = info.pixel_center;
     let img_size = info.img_size;
     let tile_bounds_1 = info.tile_bounds;
     let block_width = info.block_width;
     let clip_thresh = info.clip_thresh;
-    radii[idx] = 0f;
+    radii[idx] = 0i;
     num_tiles_hit[idx] = 0i;
     let _e22 = means[idx];
     let mean = _e22.xyz;
@@ -562,24 +564,19 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     if (p_view_1.z <= clip_thresh) {
         return;
     }
-    let scale = scales[idx];
+    let _e39 = scales[idx];
+    let scale_1 = _e39.xyz;
     let quat_1 = quats[idx];
-    let _e43 = quat_to_rotmatX_naga_oil_mod_XNBSWY4DFOJZQX(quat_1);
-    let scale_total = (scale * glob_scale);
-    let S = mat3x3<f32>(vec3<f32>(scale_total.x, 0f, 0f), vec3<f32>(0f, scale_total.y, 0f), vec3<f32>(0f, 0f, scale_total.z));
-    let M = (_e43 * S);
+    let _e44 = quat_to_rotmatX_naga_oil_mod_XNBSWY4DFOJZQX(quat_1);
+    let _e45 = scale_to_matX_naga_oil_mod_XNBSWY4DFOJZQX(scale_1);
+    let M = (_e44 * _e45);
     let V = (M * transpose(M));
-    let fx = intrins.x;
-    let fy = intrins.y;
-    let cx = intrins.z;
-    let cy = intrins.w;
-    let tan_fovx = ((0.5f * f32(img_size.x)) / fx);
-    let tan_fovy = ((0.5f * f32(img_size.y)) / fy);
-    let lims = (1.3f * vec2<f32>(tan_fovx, tan_fovy));
+    let tan_fov = ((0.5f * vec2<f32>(img_size.xy)) / focal);
+    let lims = (1.3f * tan_fov);
     let t = (p_view_1.z * clamp((p_view_1.xy / vec2(p_view_1.z)), -(lims), lims));
     let rz = (1f / p_view_1.z);
     let rz2_ = (rz * rz);
-    let J = mat3x3<f32>(vec3<f32>((fx * rz), 0f, 0f), vec3<f32>(0f, (fy * rz), 0f), vec3<f32>(((-(fx) * t.x) * rz2_), ((-(fy) * t.y) * rz2_), 0f));
+    let J = mat3x3<f32>(vec3<f32>((focal.x * rz), 0f, 0f), vec3<f32>(0f, (focal.y * rz), 0f), vec3<f32>(((-(focal.x) * t.x) * rz2_), ((-(focal.y) * t.y) * rz2_), 0f));
     let T = (J * W);
     let cov = ((T * V) * transpose(T));
     let c00_ = cov[0].x;
@@ -587,24 +584,24 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     let c01_ = cov[0].y;
     let cov2d = vec3<f32>((c00_ + 0.3f), c01_, (c11_ + 0.3f));
     let det = ((cov2d.x * cov2d.z) - (cov2d.y * cov2d.y));
-    if (det == 0f) {
+    if (abs(det) < 0.000001f) {
         return;
     }
     let conic = (vec3<f32>(cov2d.z, -(cov2d.y), cov2d.x) / vec3(det));
     let b = (0.5f * (cov2d.x + cov2d.z));
     let v1_ = (b + sqrt(max(0.1f, ((b * b) - det))));
     let v2_ = (b - sqrt(max(0.1f, ((b * b) - det))));
-    let radius = ceil((3f * sqrt(max(0f, max(v1_, v2_)))));
-    let _e167 = project_pix(vec2<f32>(fx, fy), p_view_1.xyz, vec2<f32>(cx, cy));
-    let _e168 = get_tile_bboxX_naga_oil_mod_XNBSWY4DFOJZQX(_e167, radius, tile_bounds_1, block_width);
-    let tile_area = ((_e168.z - _e168.x) * (_e168.w - _e168.y));
+    let radius = i32(ceil((3f * sqrt(max(0f, max(v1_, v2_))))));
+    let _e148 = project_pix(focal, p_view_1, pixel_center);
+    let _e149 = get_tile_bboxX_naga_oil_mod_XNBSWY4DFOJZQX(_e148, radius, tile_bounds_1, block_width);
+    let tile_area = ((_e149.z - _e149.x) * (_e149.w - _e149.y));
     if (tile_area <= 0u) {
         return;
     }
     num_tiles_hit[idx] = i32(tile_area);
     depths[idx] = p_view_1.z;
     radii[idx] = radius;
-    xys[idx] = _e167;
+    xys[idx] = _e148;
     conics[idx] = vec4<f32>(conic, 1f);
     let det_orig = ((c00_ * c11_) - (c01_ * c01_));
     let det_blur = ((cov2d.x * cov2d.z) - (cov2d.y * cov2d.y));
@@ -684,16 +681,14 @@ pub mod map_gaussian_to_intersects {
         #[derive(Debug)]
         pub struct WgpuBindGroupLayout0<'a> {
             pub xys: wgpu::BufferBinding<'a>,
-            pub depths: wgpu::BufferBinding<'a>,
             pub radii: wgpu::BufferBinding<'a>,
             pub cum_tiles_hit: wgpu::BufferBinding<'a>,
             pub isect_ids: wgpu::BufferBinding<'a>,
-            pub isect_depths: wgpu::BufferBinding<'a>,
             pub gaussian_ids: wgpu::BufferBinding<'a>,
             pub info_array: wgpu::BufferBinding<'a>,
         }
         impl<'a> WgpuBindGroupLayout0<'a> {
-            pub fn entries(self) -> [wgpu::BindGroupEntry<'a>; 8] {
+            pub fn entries(self) -> [wgpu::BindGroupEntry<'a>; 6] {
                 [
                     wgpu::BindGroupEntry {
                         binding: 0,
@@ -701,30 +696,22 @@ pub mod map_gaussian_to_intersects {
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
-                        resource: wgpu::BindingResource::Buffer(self.depths),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
                         resource: wgpu::BindingResource::Buffer(self.radii),
                     },
                     wgpu::BindGroupEntry {
-                        binding: 3,
+                        binding: 2,
                         resource: wgpu::BindingResource::Buffer(self.cum_tiles_hit),
                     },
                     wgpu::BindGroupEntry {
-                        binding: 4,
+                        binding: 3,
                         resource: wgpu::BindingResource::Buffer(self.isect_ids),
                     },
                     wgpu::BindGroupEntry {
-                        binding: 5,
-                        resource: wgpu::BindingResource::Buffer(self.isect_depths),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 6,
+                        binding: 4,
                         resource: wgpu::BindingResource::Buffer(self.gaussian_ids),
                     },
                     wgpu::BindGroupEntry {
-                        binding: 7,
+                        binding: 5,
                         resource: wgpu::BindingResource::Buffer(self.info_array),
                     },
                 ]
@@ -777,7 +764,7 @@ pub mod map_gaussian_to_intersects {
                         visibility: wgpu::ShaderStages::COMPUTE,
                         ty: wgpu::BindingType::Buffer {
                             ty: wgpu::BufferBindingType::Storage {
-                                read_only: true,
+                                read_only: false,
                             },
                             has_dynamic_offset: false,
                             min_binding_size: None,
@@ -798,30 +785,6 @@ pub mod map_gaussian_to_intersects {
                     },
                     wgpu::BindGroupLayoutEntry {
                         binding: 5,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage {
-                                read_only: false,
-                            },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 6,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage {
-                                read_only: false,
-                            },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 7,
                         visibility: wgpu::ShaderStages::COMPUTE,
                         ty: wgpu::BindingType::Buffer {
                             ty: wgpu::BufferBindingType::Storage {
@@ -935,18 +898,14 @@ struct Uniforms {
 @group(0) @binding(0) 
 var<storage> xys: array<vec2<f32>>;
 @group(0) @binding(1) 
-var<storage> depths: array<f32>;
+var<storage> radii: array<i32>;
 @group(0) @binding(2) 
-var<storage> radii: array<f32>;
-@group(0) @binding(3) 
 var<storage> cum_tiles_hit: array<u32>;
-@group(0) @binding(4) 
+@group(0) @binding(3) 
 var<storage, read_write> isect_ids: array<u32>;
-@group(0) @binding(5) 
-var<storage, read_write> isect_depths: array<f32>;
-@group(0) @binding(6) 
+@group(0) @binding(4) 
 var<storage, read_write> gaussian_ids: array<u32>;
-@group(0) @binding(7) 
+@group(0) @binding(5) 
 var<storage> info_array: array<Uniforms>;
 
 fn get_bboxX_naga_oil_mod_XNBSWY4DFOJZQX(center: vec2<f32>, dims: vec2<f32>, bounds: vec2<u32>) -> vec4<u32> {
@@ -955,18 +914,18 @@ fn get_bboxX_naga_oil_mod_XNBSWY4DFOJZQX(center: vec2<f32>, dims: vec2<f32>, bou
     return vec4<u32>(min, max);
 }
 
-fn get_tile_bboxX_naga_oil_mod_XNBSWY4DFOJZQX(pix_center: vec2<f32>, pix_radius: f32, tile_bounds: vec2<u32>, block_size: u32) -> vec4<u32> {
+fn get_tile_bboxX_naga_oil_mod_XNBSWY4DFOJZQX(pix_center: vec2<f32>, pix_radius: i32, tile_bounds: vec2<u32>, block_size: u32) -> vec4<u32> {
     let tile_center = (pix_center / vec2(f32(block_size)));
-    let tile_radius = (vec2<f32>(pix_radius, pix_radius) / vec2(f32(block_size)));
-    let _e11 = get_bboxX_naga_oil_mod_XNBSWY4DFOJZQX(tile_center, tile_radius, tile_bounds);
+    let tile_radius = (f32(pix_radius) / f32(block_size));
+    let _e11 = get_bboxX_naga_oil_mod_XNBSWY4DFOJZQX(tile_center, vec2<f32>(tile_radius, tile_radius), tile_bounds);
     return _e11;
 }
 
 @compute @workgroup_size(128, 1, 1) 
-fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invocation_id) local_id: vec3<u32>, @builtin(workgroup_id) workgroup_id: vec3<u32>) {
-    var cur_idx: u32 = 0u;
-    var i: u32;
-    var j: u32;
+fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    var isect_idx: u32 = 0u;
+    var ty: u32;
+    var tx: u32;
 
     let idx = global_id.x;
     let info = info_array[0];
@@ -975,58 +934,54 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
         return;
     }
     let radius = radii[idx];
-    if (radius <= 0f) {
-        isect_ids[idx] = 123u;
+    if (radius <= 0i) {
         return;
     }
     let tile_bounds_1 = info.tile_bounds;
     let block_width = info.block_width;
     let center_1 = xys[idx];
-    let _e21 = get_tile_bboxX_naga_oil_mod_XNBSWY4DFOJZQX(center_1, radius, tile_bounds_1, block_width);
-    let tile_min = _e21.xy;
-    let tile_max = _e21.zw;
+    let _e18 = get_tile_bboxX_naga_oil_mod_XNBSWY4DFOJZQX(center_1, radius, tile_bounds_1, block_width);
+    let tile_min = _e18.xy;
+    let tile_max = _e18.zw;
     if (idx > 0u) {
-        let _e30 = cum_tiles_hit[(idx - 1u)];
-        cur_idx = _e30;
+        let _e27 = cum_tiles_hit[(idx - 1u)];
+        isect_idx = _e27;
     }
-    i = tile_min.y;
+    ty = tile_min.y;
     loop {
-        let _e34 = i;
-        if (_e34 < tile_max.y) {
+        let _e31 = ty;
+        if (_e31 < tile_max.y) {
         } else {
             break;
         }
         {
-            j = tile_min.x;
+            tx = tile_min.x;
             loop {
-                let _e39 = j;
-                if (_e39 < tile_max.x) {
+                let _e36 = tx;
+                if (_e36 < tile_max.x) {
                 } else {
                     break;
                 }
                 {
-                    let _e42 = i;
-                    let _e45 = j;
-                    let tile_id = ((_e42 * tile_bounds_1.x) + _e45);
-                    let _e48 = cur_idx;
-                    isect_ids[_e48] = tile_id;
-                    let _e51 = cur_idx;
-                    let _e55 = depths[idx];
-                    isect_depths[_e51] = _e55;
-                    let _e57 = cur_idx;
-                    gaussian_ids[_e57] = idx;
-                    let _e60 = cur_idx;
-                    cur_idx = (_e60 + 1u);
+                    let _e39 = tx;
+                    let _e40 = ty;
+                    let tile_id = (_e39 + (_e40 * tile_bounds_1.x));
+                    let _e45 = isect_idx;
+                    isect_ids[_e45] = tile_id;
+                    let _e48 = isect_idx;
+                    gaussian_ids[_e48] = idx;
+                    let _e51 = isect_idx;
+                    isect_idx = (_e51 + 1u);
                 }
                 continuing {
-                    let _e63 = j;
-                    j = (_e63 + 1u);
+                    let _e54 = tx;
+                    tx = (_e54 + 1u);
                 }
             }
         }
         continuing {
-            let _e66 = i;
-            i = (_e66 + 1u);
+            let _e57 = ty;
+            ty = (_e57 + 1u);
         }
     }
     return;
@@ -1219,7 +1174,7 @@ var<storage, read_write> tile_bins: array<vec2<u32>>;
 var<storage> info_array: array<Uniforms>;
 
 @compute @workgroup_size(128, 1, 1) 
-fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invocation_id) local_id: vec3<u32>, @builtin(workgroup_id) workgroup_id: vec3<u32>) {
+fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let info = info_array[0];
     let num_intersects = info.num_intersects;
     let idx = global_id.x;
@@ -1233,14 +1188,15 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     if (idx == 0u) {
         tile_bins[cur_tile_idx].x = 0u;
         return;
-    }
-    let prev_tile_idx = isect_ids_sorted[(idx - 1u)];
-    if (prev_tile_idx != cur_tile_idx) {
-        tile_bins[prev_tile_idx].y = idx;
-        tile_bins[cur_tile_idx].x = idx;
-        return;
     } else {
-        return;
+        let prev_tile_idx = isect_ids_sorted[(idx - 1u)];
+        if (prev_tile_idx != cur_tile_idx) {
+            tile_bins[prev_tile_idx].y = idx;
+            tile_bins[cur_tile_idx].x = idx;
+            return;
+        } else {
+            return;
+        }
     }
 }
 "#;
@@ -1592,6 +1548,7 @@ var<storage> info_array: array<Uniforms>;
 var<workgroup> id_batch: array<u32, 256>;
 var<workgroup> xy_batch: array<vec2<f32>, 256>;
 var<workgroup> opacity_batch: array<f32, 256>;
+var<workgroup> colors_batch: array<vec3<f32>, 256>;
 var<workgroup> conic_batch: array<vec4<f32>, 256>;
 
 @compute @workgroup_size(16, 16, 1) 
@@ -1637,77 +1594,80 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
                 xy_batch[local_idx] = _e64;
                 let _e69 = opacities[g_id];
                 opacity_batch[local_idx] = _e69;
-                let _e74 = conics[g_id];
-                conic_batch[local_idx] = _e74;
+                let _e74 = colors[g_id];
+                colors_batch[local_idx] = _e74.xyz;
+                let _e80 = conics[g_id];
+                conic_batch[local_idx] = _e80;
             }
             workgroupBarrier();
-            let _e76 = batch_start;
-            let remaining = min(BLOCK_SIZE, (range.y - _e76));
-            let _e80 = done;
-            if !(_e80) {
+            let _e82 = batch_start;
+            let remaining = min(BLOCK_SIZE, (range.y - _e82));
+            let _e86 = done;
+            if !(_e86) {
                 t = 0u;
                 loop {
-                    let _e84 = t;
-                    if (_e84 < remaining) {
+                    let _e90 = t;
+                    if (_e90 < remaining) {
                     } else {
                         break;
                     }
                     {
-                        let _e87 = t;
-                        let xy = xy_batch[_e87];
-                        let _e91 = t;
-                        let opac = opacity_batch[_e91];
-                        let _e95 = t;
-                        let conic = conic_batch[_e95];
+                        let _e93 = t;
+                        let xy = xy_batch[_e93];
+                        let _e97 = t;
+                        let opac = opacity_batch[_e97];
+                        let _e101 = t;
+                        let conic = conic_batch[_e101];
                         let delta = (xy - vec2<f32>(px, py));
                         sigma = ((0.5f * (((conic.x * delta.x) * delta.x) + ((conic.z * delta.y) * delta.y))) + ((conic.y * delta.x) * delta.y));
-                        let _e121 = sigma;
-                        alpha = min(0.999f, (opac * exp(-(_e121))));
                         let _e127 = sigma;
-                        let _e130 = alpha;
-                        if ((_e127 < 0f) || (_e130 < 0.003921569f)) {
+                        alpha = min(0.999f, (opac * exp(-(_e127))));
+                        let _e133 = sigma;
+                        let _e136 = alpha;
+                        if ((_e133 < 0f) || (_e136 < 0.003921569f)) {
                             continue;
                         }
-                        let _e135 = T;
-                        let _e136 = alpha;
-                        let next_T = (_e135 * (1f - _e136));
+                        let _e141 = T;
+                        let _e142 = alpha;
+                        let next_T = (_e141 * (1f - _e142));
                         if (next_T <= 0.0001f) {
                             done = true;
                             break;
                         }
-                        let _e144 = t;
-                        let g = id_batch[_e144];
-                        let _e147 = alpha;
-                        let _e148 = T;
-                        let vis = (_e147 * _e148);
+                        let _e150 = t;
+                        let g = id_batch[_e150];
+                        let _e153 = alpha;
+                        let _e154 = T;
+                        let vis = (_e153 * _e154);
                         T = next_T;
-                        let _e152 = colors[g];
-                        let c = _e152.xyz;
-                        let _e156 = pix_out;
-                        pix_out = (_e156 + (c * vis));
-                        let _e158 = batch_start;
-                        let _e159 = t;
-                        final_idx = (_e158 + _e159);
+                        let _e157 = t;
+                        let _e159 = colors_batch[_e157];
+                        let c = _e159.xyz;
+                        let _e163 = pix_out;
+                        pix_out = (_e163 + (c * vis));
+                        let _e165 = batch_start;
+                        let _e166 = t;
+                        final_idx = (_e165 + _e166);
                     }
                     continuing {
-                        let _e162 = t;
-                        t = (_e162 + 1u);
+                        let _e169 = t;
+                        t = (_e169 + 1u);
                     }
                 }
             }
         }
         continuing {
-            let _e165 = batch_start;
-            batch_start = (_e165 + BLOCK_SIZE);
+            let _e172 = batch_start;
+            batch_start = (_e172 + BLOCK_SIZE);
         }
     }
     if inside {
-        let _e169 = pix_out;
-        let _e170 = T;
-        let _e175 = T;
-        out_img[pix_id] = vec4<f32>((_e169 + ((1f - _e170) * background)), _e175);
-        let _e179 = final_idx;
-        final_index[pix_id] = _e179;
+        let _e176 = pix_out;
+        let _e177 = T;
+        let _e182 = T;
+        out_img[pix_id] = vec4<f32>((_e176 + ((1f - _e177) * background)), _e182);
+        let _e186 = final_idx;
+        final_index[pix_id] = _e186;
         return;
     } else {
         return;
@@ -1758,11 +1718,10 @@ pub mod rasterize_backwards {
             pub v_conic: wgpu::BufferBinding<'a>,
             pub v_xy: wgpu::BufferBinding<'a>,
             pub v_rgb: wgpu::BufferBinding<'a>,
-            pub locks: wgpu::BufferBinding<'a>,
             pub info_array: wgpu::BufferBinding<'a>,
         }
         impl<'a> WgpuBindGroupLayout0<'a> {
-            pub fn entries(self) -> [wgpu::BindGroupEntry<'a>; 15] {
+            pub fn entries(self) -> [wgpu::BindGroupEntry<'a>; 14] {
                 [
                     wgpu::BindGroupEntry {
                         binding: 0,
@@ -1818,10 +1777,6 @@ pub mod rasterize_backwards {
                     },
                     wgpu::BindGroupEntry {
                         binding: 13,
-                        resource: wgpu::BindingResource::Buffer(self.locks),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 14,
                         resource: wgpu::BindingResource::Buffer(self.info_array),
                     },
                 ]
@@ -1994,18 +1949,6 @@ pub mod rasterize_backwards {
                         visibility: wgpu::ShaderStages::COMPUTE,
                         ty: wgpu::BindingType::Buffer {
                             ty: wgpu::BufferBindingType::Storage {
-                                read_only: false,
-                            },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 14,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage {
                                 read_only: true,
                             },
                             has_dynamic_offset: false,
@@ -2143,8 +2086,6 @@ var<storage, read_write> v_xy: array<vec2<f32>>;
 @group(0) @binding(12) 
 var<storage, read_write> v_rgb: array<vec4<f32>>;
 @group(0) @binding(13) 
-var<storage, read_write> locks: array<atomic<u32>>;
-@group(0) @binding(14) 
 var<storage> info_array: array<Uniforms>;
 var<workgroup> id_batch: array<u32, 256>;
 var<workgroup> xy_batch: array<vec2<f32>, 256>;
@@ -2194,6 +2135,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
             let _e66 = bin_final;
             let _e69 = batch;
             let gauss_idx_start = ((_e66 - 1u) - (_e69 * BLOCK_SIZE));
+            workgroupBarrier();
             let gauss_idx = (gauss_idx_start - local_idx);
             if (gauss_idx >= range.x) {
                 let g_id = gaussian_ids_sorted[gauss_idx];
@@ -2268,7 +2210,6 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
                         let v_opacity_local = (vis * _e269);
                         let _e272 = t;
                         let g_id_1 = id_batch[_e272];
-                        workgroupBarrier();
                         let _e277 = v_opacity[g_id_1];
                         v_opacity[g_id_1] = (_e277 + v_opacity_local);
                         let _e281 = v_rgb[g_id_1];
@@ -2277,21 +2218,17 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
                         v_conic[g_id_1] = (_e287 + vec4<f32>(v_conic_local, 0f));
                         let _e291 = v_xy[g_id_1];
                         v_xy[g_id_1] = (_e291 + v_xy_local);
-                        atomicStore((&locks[g_id_1]), 0u);
                     }
                     continuing {
-                        let _e297 = t;
-                        t = (_e297 + 1u);
+                        let _e294 = t;
+                        t = (_e294 + 1u);
                     }
-                }
-                if (local_idx == 0u) {
-                    let g_id_2 = id_batch[0];
                 }
             }
         }
         continuing {
-            let _e305 = batch;
-            batch = (_e305 + 1u);
+            let _e297 = batch;
+            batch = (_e297 + 1u);
         }
     }
     return;
@@ -2305,33 +2242,27 @@ pub mod project_backwards {
     pub struct Uniforms {
         /// size: 4, offset: 0x0, type: `u32`
         pub num_points: u32,
-        /// size: 4, offset: 0x4, type: `f32`
-        pub glob_scale: f32,
-        pub _pad_glob_scale: [u8; 0xC - core::mem::size_of::<f32>()],
+        pub _pad_num_points: [u8; 0x10 - core::mem::size_of::<u32>()],
         /// size: 64, offset: 0x10, type: `mat4x4<f32>`
         pub viewmat: glam::Mat4,
-        /// size: 16, offset: 0x50, type: `vec4<f32>`
-        pub intrins: glam::Vec4,
-        /// size: 8, offset: 0x60, type: `vec2<u32>`
+        /// size: 8, offset: 0x50, type: `vec2<f32>`
+        pub focal: [f32; 2],
+        /// size: 8, offset: 0x58, type: `vec2<u32>`
         pub img_size: [u32; 2],
-        pub _pad_img_size: [u8; 0x10 - core::mem::size_of::<[u32; 2]>()],
     }
     impl Uniforms {
         pub const fn new(
             num_points: u32,
-            glob_scale: f32,
             viewmat: glam::Mat4,
-            intrins: glam::Vec4,
+            focal: [f32; 2],
             img_size: [u32; 2],
         ) -> Self {
             Self {
                 num_points,
-                glob_scale,
-                _pad_glob_scale: [0; 0xC - core::mem::size_of::<f32>()],
+                _pad_num_points: [0; 0x10 - core::mem::size_of::<u32>()],
                 viewmat,
-                intrins,
+                focal,
                 img_size,
-                _pad_img_size: [0; 0x10 - core::mem::size_of::<[u32; 2]>()],
             }
         }
     }
@@ -2339,21 +2270,18 @@ pub mod project_backwards {
     #[derive(Debug, PartialEq, Clone, Copy)]
     pub struct UniformsInit {
         pub num_points: u32,
-        pub glob_scale: f32,
         pub viewmat: glam::Mat4,
-        pub intrins: glam::Vec4,
+        pub focal: [f32; 2],
         pub img_size: [u32; 2],
     }
     impl UniformsInit {
         pub const fn build(&self) -> Uniforms {
             Uniforms {
                 num_points: self.num_points,
-                glob_scale: self.glob_scale,
-                _pad_glob_scale: [0; 0xC - core::mem::size_of::<f32>()],
+                _pad_num_points: [0; 0x10 - core::mem::size_of::<u32>()],
                 viewmat: self.viewmat,
-                intrins: self.intrins,
+                focal: self.focal,
                 img_size: self.img_size,
-                _pad_img_size: [0; 0x10 - core::mem::size_of::<[u32; 2]>()],
             }
         }
     }
@@ -2678,9 +2606,8 @@ pub mod project_backwards {
     pub const SHADER_STRING: &'static str = r#"
 struct Uniforms {
     num_points: u32,
-    glob_scale: f32,
     viewmat: mat4x4<f32>,
-    intrins: vec4<f32>,
+    focal: vec2<f32>,
     img_size: vec2<u32>,
 }
 
@@ -2691,7 +2618,7 @@ var<storage> scales: array<vec4<f32>>;
 @group(0) @binding(2) 
 var<storage> quats: array<vec4<f32>>;
 @group(0) @binding(3) 
-var<storage> radii: array<f32>;
+var<storage> radii: array<i32>;
 @group(0) @binding(4) 
 var<storage> conics: array<vec4<f32>>;
 @group(0) @binding(5) 
@@ -2716,6 +2643,10 @@ fn quat_to_rotmatX_naga_oil_mod_XNBSWY4DFOJZQX(quat: vec4<f32>) -> mat3x3<f32> {
     let y = quat_norm.z;
     let z = quat_norm.w;
     return mat3x3<f32>(vec3<f32>((1f - (2f * ((y * y) + (z * z)))), (2f * ((x * y) + (w * z))), (2f * ((x * z) - (w * y)))), vec3<f32>((2f * ((x * y) - (w * z))), (1f - (2f * ((x * x) + (z * z)))), (2f * ((y * z) + (w * x)))), vec3<f32>((2f * ((x * z) + (w * y))), (2f * ((y * z) - (w * x))), (1f - (2f * ((x * x) + (y * y))))));
+}
+
+fn scale_to_matX_naga_oil_mod_XNBSWY4DFOJZQX(scale: vec3<f32>) -> mat3x3<f32> {
+    return mat3x3<f32>(vec3<f32>(scale.x, 0f, 0f), vec3<f32>(0f, scale.y, 0f), vec3<f32>(0f, 0f, scale.z));
 }
 
 fn project_pix_vjp(fxfy: vec2<f32>, p_view: vec3<f32>, v_xy: vec2<f32>) -> vec3<f32> {
@@ -2748,40 +2679,35 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     let info = info_array[0];
     let num_points = info.num_points;
     let _e9 = radii[idx];
-    if ((idx >= num_points) || (_e9 <= 0f)) {
+    if ((idx >= num_points) || (_e9 <= 0i)) {
         return;
     }
-    let intrins = info.intrins;
     let viewmat = info.viewmat;
-    let glob_scale = info.glob_scale;
-    let _e18 = means[idx];
-    let mean = _e18.xyz;
+    let focal = info.focal;
+    let _e17 = means[idx];
+    let mean = _e17.xyz;
+    let _e21 = scales[idx];
+    let scale_1 = _e21.xyz;
     let quat_2 = quats[idx];
-    let scale = scales[idx];
-    let fx = intrins.x;
-    let fy = intrins.y;
-    let cx = intrins.z;
-    let cy = intrins.w;
     let W = mat3x3<f32>(viewmat[0].xyz, viewmat[1].xyz, viewmat[2].xyz);
     let p_view_1 = ((W * mean) + viewmat[3].xyz);
-    let _e44 = v_xy_1[idx];
-    let _e45 = project_pix_vjp(vec2<f32>(fx, fy), p_view_1, _e44);
-    v_mean = (transpose(W) * _e45);
-    let _e51 = conics[idx];
-    let conic_1 = _e51.xyz;
-    let _e55 = v_conic_1[idx];
-    let v_conic_2 = _e55.xyz;
-    let _e57 = cov2d_to_conic_vjp(conic_1, v_conic_2);
+    let _e39 = v_xy_1[idx];
+    let _e40 = project_pix_vjp(focal, p_view_1, _e39);
+    v_mean = (transpose(W) * _e40);
+    let _e46 = conics[idx];
+    let conic_1 = _e46.xyz;
+    let _e50 = v_conic_1[idx];
+    let v_conic_2 = _e50.xyz;
+    let _e52 = cov2d_to_conic_vjp(conic_1, v_conic_2);
     let comp = compensation[idx];
     let rz = (1f / p_view_1.z);
     let rz2_ = (rz * rz);
-    let J = mat3x3<f32>(vec3<f32>((fx * rz), 0f, 0f), vec3<f32>(0f, (fy * rz), 0f), vec3<f32>(((-(fx) * p_view_1.x) * rz2_), ((-(fy) * p_view_1.y) * rz2_), 0f));
-    let _e84 = quat_to_rotmatX_naga_oil_mod_XNBSWY4DFOJZQX(quat_2);
-    let scale_total = (scale * glob_scale);
-    let S = mat3x3<f32>(vec3<f32>(scale_total.x, 0f, 0f), vec3<f32>(0f, scale_total.y, 0f), vec3<f32>(0f, 0f, scale_total.z));
-    let M = (_e84 * S);
+    let J = mat3x3<f32>(vec3<f32>((focal.x * rz), 0f, 0f), vec3<f32>(0f, (focal.y * rz), 0f), vec3<f32>(((-(focal.x) * p_view_1.x) * rz2_), ((-(focal.y) * p_view_1.y) * rz2_), 0f));
+    let _e83 = quat_to_rotmatX_naga_oil_mod_XNBSWY4DFOJZQX(quat_2);
+    let _e84 = scale_to_matX_naga_oil_mod_XNBSWY4DFOJZQX(scale_1);
+    let M = (_e83 * _e84);
     let V = (M * transpose(M));
-    let v_cov = mat3x3<f32>(vec3<f32>(_e57.x, (0.5f * _e57.y), 0f), vec3<f32>((0.5f * _e57.y), _e57.z, 0f), vec3<f32>(0f, 0f, 0f));
+    let v_cov = mat3x3<f32>(vec3<f32>(_e52.x, (0.5f * _e52.y), 0f), vec3<f32>((0.5f * _e52.y), _e52.z, 0f), vec3<f32>(0f, 0f, 0f));
     let T = (J * W);
     let Tt = transpose(T);
     let Vt = transpose(V);
@@ -2795,22 +2721,22 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     let v_cov3d5_ = v_V[2].z;
     let v_J = (v_T * transpose(W));
     let rz3_ = (rz2_ * rz);
-    let v_t = vec3<f32>(((-(fx) * rz2_) * v_J[2].x), ((-(fy) * rz2_) * v_J[2].y), (((((-(fx) * rz2_) * v_J[0].x) + ((((2f * fx) * p_view_1.x) * rz3_) * v_J[2].x)) - ((fy * rz2_) * v_J[1].y)) + ((((2f * fy) * p_view_1.y) * rz3_) * v_J[2].y)));
-    let _e196 = v_mean.x;
-    v_mean.x = (_e196 + dot(v_t, W[0]));
-    let _e201 = v_mean.y;
-    v_mean.y = (_e201 + dot(v_t, W[1]));
-    let _e206 = v_mean.z;
-    v_mean.z = (_e206 + dot(v_t, W[2]));
+    let v_t = vec3<f32>(((-(focal.x) * rz2_) * v_J[2].x), ((-(focal.y) * rz2_) * v_J[2].y), (((((-(focal.x) * rz2_) * v_J[0].x) + ((((2f * focal.x) * p_view_1.x) * rz3_) * v_J[2].x)) - ((focal.y * rz2_) * v_J[1].y)) + ((((2f * focal.y) * p_view_1.y) * rz3_) * v_J[2].y)));
+    let _e188 = v_mean.x;
+    v_mean.x = (_e188 + dot(v_t, W[0]));
+    let _e193 = v_mean.y;
+    v_mean.y = (_e193 + dot(v_t, W[1]));
+    let _e198 = v_mean.z;
+    v_mean.z = (_e198 + dot(v_t, W[2]));
     let v_V_symm = mat3x3<f32>(vec3<f32>(v_cov3d0_, (0.5f * v_cov3d1_), (0.5f * v_cov3d2_)), vec3<f32>((0.5f * v_cov3d1_), v_cov3d3_, (0.5f * v_cov3d4_)), vec3<f32>((0.5f * v_cov3d2_), (0.5f * v_cov3d4_), v_cov3d5_));
     let v_M = ((2f * v_V_symm) * M);
-    let v_scale = vec3<f32>((dot(_e84[0], v_M[0]) * glob_scale), (dot(_e84[1], v_M[1]) * glob_scale), (dot(_e84[2], v_M[2]) * glob_scale));
-    let v_R_1 = (v_M * S);
-    let _e241 = quat_to_rotmat_vjp(quat_2, v_R_1);
-    v_quats[idx] = _e241;
+    let v_scale = vec3<f32>(dot(_e83[0], v_M[0]), dot(_e83[1], v_M[1]), dot(_e83[2], v_M[2]));
+    let v_R_1 = (v_M * _e84);
+    let _e230 = quat_to_rotmat_vjp(quat_2, v_R_1);
+    v_quats[idx] = _e230;
     v_scales[idx] = vec4<f32>(v_scale, 0f);
-    let _e250 = v_mean;
-    v_means[idx] = vec4<f32>(_e250, 0f);
+    let _e239 = v_mean;
+    v_means[idx] = vec4<f32>(_e239, 0f);
     return;
 }
 "#;

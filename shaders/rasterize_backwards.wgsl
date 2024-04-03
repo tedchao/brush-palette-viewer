@@ -16,11 +16,7 @@
 @group(0) @binding(11) var<storage, read_write> v_xy: array<vec2f>;
 @group(0) @binding(12) var<storage, read_write> v_rgb: array<vec4f>;
 
-@group(0) @binding(13) var<storage, read_write> locks: array<atomic<u32>>;
-
-@group(0) @binding(14) var<storage, read> info_array: array<Uniforms>;
-
-
+@group(0) @binding(13) var<storage, read> info_array: array<Uniforms>;
 
 const BLOCK_WIDTH: u32 = 16u;
 const BLOCK_SIZE: u32 = BLOCK_WIDTH * BLOCK_WIDTH;
@@ -92,7 +88,7 @@ fn main(
     for(var batch = 0u; batch < num_batches; batch++) {
         let gauss_idx_start = bin_final - 1 - batch * BLOCK_SIZE;
         // resync all threads before writing next batch of shared mem
-        // workgroupBarrier();
+        workgroupBarrier();
         
         // each thread fetch 1 gaussian from back to front
         // 0 index will be furthest back in batch
@@ -176,29 +172,12 @@ fn main(
                 // Between loading the lock and locking it, someone else might lock!!
                 // However, a 'correct' spin lock seems to crash quite a lot... gpus
                 // really don't like to busy wait :/
-                // let lock = &locks[g];
-                // while atomicLoad(lock) == 1u {
-                // }
                 let g_id = id_batch[t];
-
-                //while !atomicCompareExchangeWeak(&locks[g_id], 0u, 1u).exchanged {
-                //}
-                // atomicCompareExchangeWeak(lock, 0u, 1u);
 
                 v_opacity[g_id] += v_opacity_local;
                 v_rgb[g_id] += v_rgb_local;
                 v_conic[g_id] += vec4f(v_conic_local, 0.0f);
                 v_xy[g_id] += v_xy_local;
-
-                atomicStore(&locks[g_id], 0u);
-            }
-
-            // Sum up gradients for all pixels (which remember share the same gaussian list).
-
-            if local_idx == 0 {
-                // "atomic" add to gradients.
-                // TODO: Atomic float emulation seems hard :/
-                let g_id = id_batch[0];
             }
         }
     }

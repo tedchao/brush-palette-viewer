@@ -4,7 +4,7 @@
 @group(0) @binding(1) var<storage, read> scales: array<vec4f>;
 @group(0) @binding(2) var<storage, read> quats: array<vec4f>;
 
-@group(0) @binding(3) var<storage, read> radii: array<f32>;
+@group(0) @binding(3) var<storage, read> radii: array<i32>;
 @group(0) @binding(4) var<storage, read> conics: array<vec4f>;
 @group(0) @binding(5) var<storage, read> compensation: array<f32>;
 @group(0) @binding(6) var<storage, read> v_xy: array<vec2f>;
@@ -16,19 +16,16 @@
 
 @group(0) @binding(11) var<storage, read> info_array: array<Uniforms>;
 
-// TODO: Errrrr
-// I'm not sure where these gradients are meant to come from :/
+// TODO: Errrrr, I'm not sure where these gradients are meant to come from :/
 // @group(0) @binding(9) var<storage, read_write> v_compensation: array<f32>;
 // @group(0) @binding(7) var<storage, read> v_depth: array<f32>;
 
 struct Uniforms {
     // Number of splats that exist.
     num_points: u32,
-    glob_scale: f32,
     // View matrix transform world to view position.
     viewmat: mat4x4f,
-    // fx, fy, cx, cy
-    intrins: vec4f,
+    focal: vec2f,
     // Img resolution (w, h)
     img_size: vec2u,
 }
@@ -107,27 +104,21 @@ fn main(
     let info = info_array[0];
     let num_points = info.num_points;
 
-    if idx >= num_points || radii[idx] <= 0.0 {
+    if idx >= num_points || radii[idx] <= 0 {
         return;
     }
 
-    let intrins = info.intrins;
     let viewmat = info.viewmat;
-    let glob_scale = info.glob_scale;
+    let focal = info.focal;
 
     let mean = means[idx].xyz;
+    let scale = scales[idx].xyz;
     let quat = quats[idx];
-    let scale = scales[idx];
-
-    let fx = intrins.x;
-    let fy = intrins.y;
-    let cx = intrins.z;
-    let cy = intrins.w;
 
     let W = mat3x3f(viewmat[0].xyz, viewmat[1].xyz, viewmat[2].xyz);
     let p_view = W * mean + viewmat[3].xyz;
     
-    let pix_vjp = project_pix_vjp(vec2f(fx, fy), p_view, v_xy[idx]);
+    let pix_vjp = project_pix_vjp(focal, p_view, v_xy[idx]);
 
     var v_mean = transpose(W) * pix_vjp;
 
@@ -170,20 +161,13 @@ fn main(
     let rz2 = rz * rz;
 
     let J = mat3x3f(
-        vec3f(fx * rz, 0.0f, 0.0f),
-        vec3f(0.0f, fy * rz, 0.0f),
-        vec3f(-fx * p_view.x * rz2, -fy * p_view.y * rz2, 0.0f)
+        vec3f(focal.x * rz, 0.0f, 0.0f),
+        vec3f(0.0f, focal.y * rz, 0.0f),
+        vec3f(-focal.x * p_view.x * rz2, -focal.y * p_view.y * rz2, 0.0f)
     );
 
     let R = helpers::quat_to_rotmat(quat);
-
-    let scale_total = scale * glob_scale;
-    let S = mat3x3(
-        vec3f(scale_total.x, 0, 0),
-        vec3f(0, scale_total.y, 0), 
-        vec3f(0, 0, scale_total.z)
-    );
-
+    let S = helpers::scale_to_mat(scale);
     let M = R * S;
     let V = M * transpose(M);
 
@@ -218,10 +202,10 @@ fn main(
     let v_J = v_T * transpose(W);
     let rz3 = rz2 * rz;
     let v_t = vec3f(
-        -fx * rz2 * v_J[2][0],
-        -fy * rz2 * v_J[2][1],
-        -fx * rz2 * v_J[0][0] + 2.0f * fx * p_view.x * rz3 * v_J[2][0] -
-            fy * rz2 * v_J[1][1] + 2.0f * fy * p_view.y * rz3 * v_J[2][1]
+        -focal.x * rz2 * v_J[2][0],
+        -focal.y * rz2 * v_J[2][1],
+        -focal.x * rz2 * v_J[0][0] + 2.0f * focal.x * p_view.x * rz3 * v_J[2][0] -
+            focal.y * rz2 * v_J[1][1] + 2.0f * focal.y * p_view.y * rz3 * v_J[2][1]
     );
 
     v_mean.x += dot(v_t, W[0]);
@@ -250,9 +234,9 @@ fn main(
     let v_M = 2.0 * v_V_symm * M;
 
     let v_scale = vec3f(
-        dot(R[0], v_M[0]) * glob_scale,
-        dot(R[1], v_M[1]) * glob_scale,
-        dot(R[2], v_M[2]) * glob_scale,
+        dot(R[0], v_M[0]),
+        dot(R[1], v_M[1]),
+        dot(R[2], v_M[2]),
     );
 
     let v_R = v_M * S;

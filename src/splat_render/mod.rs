@@ -35,16 +35,6 @@ pub type IntTensor<B, const D: usize> =
 
 pub type HandleType<S> = Handle<S>;
 
-struct ProjectionOutput<B: Backend> {
-    covs3d: FloatTensor<B, 2>,
-    xys: FloatTensor<B, 2>,
-    depths: FloatTensor<B, 2>,
-    radii: FloatTensor<B, 2>,
-    conics: FloatTensor<B, 2>,
-    compensation: FloatTensor<B, 2>,
-    num_tiles_hit: FloatTensor<B, 2>,
-}
-
 /// We create our own Backend trait that extends the Burn backend trait.
 pub trait Backend: burn::tensor::backend::Backend {
     // Render splats

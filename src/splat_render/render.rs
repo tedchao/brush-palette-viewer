@@ -64,7 +64,7 @@ struct GaussianBackwardState {
     opacity: NodeID,
 
     // Calculated state.
-    radii: FloatTensor<BurnBack, 1>,
+    radii: IntTensor<BurnBack, 1>,
     compensation: FloatTensor<BurnBack, 1>,
 
     xys: FloatTensor<BurnBack, 2>,
@@ -141,32 +141,25 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
             camera.height.div_ceil(block_width),
         );
 
-        let intrins = glam::vec4(
-            camera.focal().x,
-            camera.focal().y,
-            camera.center().x,
-            camera.center().y,
-        );
-
         let client = means.client.clone();
         let device = means.device.clone();
 
-        let depths = create_buffer::<f32, 1>(&client, [num_points], BufferAlloc::Empty);
-        let xys = create_tensor(&client, &device, [num_points, 2], BufferAlloc::Empty);
-        let conics = create_tensor(&client, &device, [num_points, 4], BufferAlloc::Empty);
-        let radii = create_tensor(&client, &device, [num_points], BufferAlloc::Empty);
-        let compensation = create_tensor(&client, &device, [num_points], BufferAlloc::Empty);
-        let num_tiles_hit = create_buffer::<u32, 1>(&client, [num_points], BufferAlloc::Empty);
+        let depths = create_buffer::<f32, 1>(&client, [num_points], BufferAlloc::Zeros);
+        let xys = create_tensor(&client, &device, [num_points, 2], BufferAlloc::Zeros);
+        let conics = create_tensor(&client, &device, [num_points, 4], BufferAlloc::Zeros);
+        let radii = create_tensor(&client, &device, [num_points], BufferAlloc::Zeros);
+        let compensation = create_tensor(&client, &device, [num_points], BufferAlloc::Zeros);
+        let num_tiles_hit = create_buffer::<u32, 1>(&client, [num_points], BufferAlloc::Zeros);
 
         ProjectSplats::execute(
             &client,
             gen::project_forward::Uniforms::new(
                 num_points as u32,
                 camera.viewmatrix(),
-                intrins,
+                camera.focal().into(),
+                camera.center().into(),
                 img_size,
                 tile_bounds.into(),
-                1.0,
                 0.01,
                 block_width,
             ),
@@ -182,8 +175,7 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
             [num_points as u32, 1, 1],
         );
 
-        // TODO: CPU emulation for now. Investigate if we can do without a cumulative sum?
-
+        // TODO: Cumulative sum on GPU.
         // Read num tiles to CPU.
         let num_tiles_hit = read_buffer_to_u32(&client, &num_tiles_hit);
 
@@ -202,58 +194,55 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
 
         // Each intersection maps to a gaussian.
         let isect_ids_unsorted =
-            create_buffer::<u32, 1>(&client, [num_intersects], BufferAlloc::Empty);
-        let isect_depths_unsorted =
-            create_buffer::<f32, 1>(&client, [num_intersects], BufferAlloc::Empty);
+            create_buffer::<u32, 1>(&client, [num_intersects], BufferAlloc::Zeros);
         let gaussian_ids_unsorted =
-            create_buffer::<u32, 1>(&client, [num_intersects], BufferAlloc::Empty);
+            create_buffer::<u32, 1>(&client, [num_intersects], BufferAlloc::Zeros);
 
-        if num_intersects > 0 {
-            // Dispatch one thread per point.
-            MapGaussiansToIntersect::execute(
-                &client,
-                gen::map_gaussian_to_intersects::Uniforms::new(
-                    num_points as u32,
-                    tile_bounds.into(),
-                    block_width,
-                ),
-                &[&xys.handle, &depths, &radii.handle, &cum_tiles_hit],
-                &[
-                    &isect_ids_unsorted,
-                    &isect_depths_unsorted,
-                    &gaussian_ids_unsorted,
-                ],
-                [num_points as u32, 1, 1],
-            );
-        }
+        // Dispatch one thread per point.
+        MapGaussiansToIntersect::execute(
+            &client,
+            gen::map_gaussian_to_intersects::Uniforms::new(
+                num_points as u32,
+                tile_bounds.into(),
+                block_width,
+            ),
+            &[&xys.handle, &radii.handle, &cum_tiles_hit],
+            &[&isect_ids_unsorted, &gaussian_ids_unsorted],
+            [num_points as u32, 1, 1],
+        );
 
         // TODO: WGSL Radix sort.
         let isect_ids_unsorted = read_buffer_to_u32(&client, &isect_ids_unsorted);
-        let isect_depths_unsorted = read_buffer_to_f32(&client, &isect_depths_unsorted);
         let gaussian_ids_unsorted = read_buffer_to_u32(&client, &gaussian_ids_unsorted);
-        let sorted_indices = {
+        let depths_read = read_buffer_to_f32(&client, &depths);
+
+        let isect_sort_order = {
             let data = &isect_ids_unsorted;
             let mut indices = (0..data.len()).collect::<Vec<_>>();
             indices.sort_by(|&ai, &bi| {
-                let a = (isect_ids_unsorted[ai], isect_depths_unsorted[ai]);
-                let b = (isect_ids_unsorted[bi], isect_depths_unsorted[bi]);
+                let gauss_idxa = gaussian_ids_unsorted[ai];
+                let gauss_idxb = gaussian_ids_unsorted[bi];
+
+                let a = (isect_ids_unsorted[ai], depths_read[gauss_idxa as usize]);
+                let b = (isect_ids_unsorted[bi], depths_read[gauss_idxb as usize]);
                 a.0.cmp(&b.0).then(a.1.partial_cmp(&b.1).unwrap())
             });
             indices
         };
 
-        let isect_ids_sorted: Vec<_> = sorted_indices
+        let isect_ids_sorted: Vec<_> = isect_sort_order
             .iter()
             .copied()
             .map(|x| isect_ids_unsorted[x])
             .collect();
-        let gaussian_ids_sorted: Vec<_> = sorted_indices
+        let gaussian_ids_sorted: Vec<_> = isect_sort_order
             .iter()
             .copied()
             .map(|x| gaussian_ids_unsorted[x])
             .collect();
 
         let isect_ids_sorted = client.create(bytemuck::cast_slice::<u32, u8>(&isect_ids_sorted));
+
         let tile_bins = create_tensor(
             &client,
             &device,
@@ -368,13 +357,6 @@ impl Backward<BurnBack, 3, 5> for RenderBackwards {
         let client = v_output.client.clone();
         let device = v_output.device.clone();
 
-        let intrins = glam::vec4(
-            camera.focal().x,
-            camera.focal().y,
-            camera.center().x,
-            camera.center().y,
-        );
-
         let means = checkpointer.retrieve_node_output::<FloatTensor<BurnBack, 2>>(state.means);
         let quats = checkpointer.retrieve_node_output::<FloatTensor<BurnBack, 2>>(state.quats);
         let scales = checkpointer.retrieve_node_output::<FloatTensor<BurnBack, 2>>(state.scales);
@@ -387,7 +369,6 @@ impl Backward<BurnBack, 3, 5> for RenderBackwards {
         let v_colors = create_tensor(&client, &device, [num_points, 4], BufferAlloc::Zeros);
         let v_conic = create_buffer::<f32, 2>(&client, [num_points, 4], BufferAlloc::Zeros);
         let v_xy = create_buffer::<f32, 2>(&client, [num_points, 2], BufferAlloc::Zeros);
-        let locks = create_buffer::<u32, 1>(&client, [num_points], BufferAlloc::Zeros);
 
         RasterizeBackwards::execute(
             &client,
@@ -407,7 +388,7 @@ impl Backward<BurnBack, 3, 5> for RenderBackwards {
                 &state.out_img.handle,
                 &v_output.handle,
             ],
-            &[&v_opacity.handle, &v_conic, &v_xy, &v_colors.handle, &locks],
+            &[&v_opacity.handle, &v_conic, &v_xy, &v_colors.handle],
             [camera.height, camera.width, 1],
         );
 
@@ -419,9 +400,8 @@ impl Backward<BurnBack, 3, 5> for RenderBackwards {
             &client,
             gen::project_backwards::Uniforms::new(
                 num_points as u32,
-                1.0,
                 camera.viewmatrix(),
-                intrins,
+                camera.center().into(),
                 [camera.height, camera.width],
             ),
             &[

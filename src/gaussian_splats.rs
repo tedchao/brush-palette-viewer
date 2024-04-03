@@ -105,7 +105,8 @@ impl<B: Backend> Splats<B> {
             utils::inverse_sigmoid(Tensor::from_floats([0.1], device)).repeat(0, num_points);
 
         // TODO: Fancy KNN init.
-        let init_scale = Tensor::random([num_points, 4], Distribution::Uniform(-4.0, -2.0), device);
+        let init_scale =
+            Tensor::random([num_points, 1], Distribution::Uniform(-4.0, -2.0), device).repeat(1, 4);
 
         // Model parameters.
         Splats {
