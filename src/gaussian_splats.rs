@@ -1,6 +1,7 @@
 use burn::{
     config::Config,
     module::{Module, Param, ParamId},
+    nn::conv::Conv1d,
     tensor::Device,
 };
 use ndarray::Axis;
@@ -108,15 +109,16 @@ impl<B: Backend> Splats<B> {
         let init_scale =
             Tensor::random([num_points, 1], Distribution::Uniform(-4.0, -2.0), device).repeat(1, 4);
 
+        // TODO: Support lazy loading.
         // Model parameters.
         Splats {
             active_sh_degree,
             max_sh_degree,
-            means: Param::initialized(ParamId::new(), means),
-            colors: Param::initialized(ParamId::new(), colors),
-            rotation: Param::initialized(ParamId::new(), init_rotation),
-            opacity: Param::initialized(ParamId::new(), init_opacity),
-            scales: Param::initialized(ParamId::new(), init_scale),
+            means: Param::initialized(ParamId::new(), means.require_grad()),
+            colors: Param::initialized(ParamId::new(), colors.require_grad()),
+            rotation: Param::initialized(ParamId::new(), init_rotation.require_grad()),
+            opacity: Param::initialized(ParamId::new(), init_opacity.require_grad()),
+            scales: Param::initialized(ParamId::new(), init_scale.require_grad()),
             max_radii_2d: Tensor::zeros([num_points], device),
             xyz_gradient_accum: Tensor::zeros([num_points], device),
             denom: Tensor::zeros([num_points], device),
