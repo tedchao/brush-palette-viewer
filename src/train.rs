@@ -33,8 +33,10 @@ pub(crate) struct TrainConfig {
     pub min_lr: f64,
     #[config(default = 5)]
     pub visualize_every: u32,
-    #[config(default = 1024)]
+    #[config(default = 4096)]
     pub init_points: usize,
+    #[config(default = 2.0)]
+    pub init_aabb: f32,
     pub scene_path: String,
 }
 
@@ -161,7 +163,8 @@ where
     let mut rng = StdRng::from_seed([10; 32]);
     scene.visualize(&rec)?;
 
-    let mut splats: Splats<B> = SplatsConfig::new(config.init_points, 1.0, 0, 1.0).build(device);
+    let mut splats: Splats<B> =
+        SplatsConfig::new(config.init_points, config.init_aabb, 0, 1.0).build(device);
 
     // TODO: Original implementation has learning rates different for almost all params.
     let mut scheduler = burn::lr_scheduler::cosine::CosineAnnealingLrSchedulerConfig::new(
