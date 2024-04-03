@@ -1,6 +1,6 @@
 use burn::{
     config::Config,
-    module::{Module, Param},
+    module::{Module, Param, ParamId},
     tensor::Device,
 };
 use ndarray::Axis;
@@ -112,11 +112,11 @@ impl<B: Backend> Splats<B> {
         Splats {
             active_sh_degree,
             max_sh_degree,
-            means: means.into(),
-            colors: colors.into(),
-            rotation: init_rotation.into(),
-            opacity: init_opacity.into(),
-            scales: init_scale.into(),
+            means: Param::initialized(ParamId::new(), means),
+            colors: Param::initialized(ParamId::new(), colors),
+            rotation: Param::initialized(ParamId::new(), init_rotation),
+            opacity: Param::initialized(ParamId::new(), init_opacity),
+            scales: Param::initialized(ParamId::new(), init_scale),
             max_radii_2d: Tensor::zeros([num_points], device),
             xyz_gradient_accum: Tensor::zeros([num_points], device),
             denom: Tensor::zeros([num_points], device),
@@ -160,9 +160,8 @@ impl<B: Backend> Splats<B> {
 
     /// Resets all the opacities to 0.01.
     pub(crate) fn reset_opacity(&mut self) {
-        self.opacity =
-            utils::inverse_sigmoid(Tensor::zeros_like(&self.opacity.val()) + 0.01).into();
-
+        // self.opacity =
+        //     utils::inverse_sigmoid(Tensor::zeros_like(&self.opacity.val()) + 0.01).into();
         // TODO: Wtf.
         // Update optimizer with the new tensor
         //   optimizable_tensors = gs_adam_helpers.replace_tensor_to_optimizer(

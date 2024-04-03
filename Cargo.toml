@@ -13,23 +13,27 @@ burn-compute = { path = "../burn/crates/burn-compute" }
 burn-jit = { path = "../burn/crates/burn-jit" }
 burn-wgpu = { path = "../burn/crates/burn-wgpu" }
 
-bytemuck = "*"
-derive-new = "*"
-ndarray = "*"
-rerun = { version = "0.14.1" }
+bytemuck = "1.14.3"
+derive-new = "0.6.0"
+ndarray = "0.15.6"
+rerun = { version = "0.14.0", default-features = false, features = [
+    'sdk',
+    'glam',
+] }
+
 image = { version = "0.24", default-features = false, features = [
     'png',
     'webp',
 ] }
-serde = "*"
-serde_json = "*"
+
+serde = "1.0.197"
+serde_json = "1.0.114"
 rand = "0.8.5"
 anyhow = "1.0.81"
-wgpu = "0.19"
+wgpu = "*"
 
 [build-dependencies]
-wgsl_bindgen = { path = "../wgsl-bindgen/wgsl_bindgen" }
-
+wgsl_bindgen = "0.10.1"
 
 [profile.dev]
 opt-level = 1   # Make debug builds run faster
