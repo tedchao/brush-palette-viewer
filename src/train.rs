@@ -190,6 +190,7 @@ where
         splats = new_splats;
 
         if iter % config.visualize_every == 0 {
+            rec.set_time_sequence("iterations", iter);
             rec.log("stats/loss", &rerun::Scalar::new(stats.loss[[0]] as f64))?;
             rec.log("stats/lr", &rerun::Scalar::new(lr))?;
             rec.log(
