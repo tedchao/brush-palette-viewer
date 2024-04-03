@@ -1,7 +1,6 @@
 use burn::{
     config::Config,
     module::{Module, Param, ParamId},
-    nn::conv::Conv1d,
     tensor::{activation::sigmoid, Device},
 };
 use ndarray::Axis;

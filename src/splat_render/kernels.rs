@@ -1,3 +1,5 @@
+use std::mem::size_of;
+
 use burn::backend::wgpu::{DynamicKernel, DynamicKernelSource, SourceTemplate, WorkGroup};
 use burn_compute::{
     channel::ComputeChannel,
@@ -34,14 +36,18 @@ where
         .ceil()
         .as_uvec3();
         let workgroup = WorkGroup::new(execs.x, execs.y, execs.z);
+        let kernel = Box::new(DynamicKernel::new(Self::default(), workgroup));
 
-        let uniform_data = client.create(bytemuck::bytes_of(&uniforms));
-        let total_handles = [read_handles, write_handles, &[&uniform_data]].concat();
+        if size_of::<Self::Uniforms>() != 0 {
+            let uniform_data = client.create(bytemuck::bytes_of(&uniforms));
 
-        client.execute(
-            Box::new(DynamicKernel::new(Self::default(), workgroup)),
-            &total_handles,
-        );
+            client.execute(
+                kernel,
+                &[read_handles, write_handles, &[&uniform_data]].concat(),
+            );
+        } else {
+            client.execute(kernel, &[read_handles, write_handles].concat());
+        }
     }
 }
 
@@ -107,7 +113,7 @@ impl<S: ComputeServer<Kernel = Box<dyn Kernel>>, C: ComputeChannel<S>> SplatKern
 {
     const DIM_READ: usize = 1;
     const DIM_WRITE: usize = 1;
-    type Uniforms = gen::get_tile_bin_edges::Uniforms;
+    type Uniforms = ();
     const WORKGROUP_SIZE: [u32; 3] = gen::get_tile_bin_edges::compute::MAIN_WORKGROUP_SIZE;
 }
 

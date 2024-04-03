@@ -10,8 +10,6 @@
 @group(0) @binding(5) var<storage, read> info_array: array<Uniforms>;
 
 struct Uniforms {
-    // Number of splats that exist.
-    num_points: u32,
     // Total reachable pixels (w, h)
     tile_bounds: vec2u,
     // Width of blocks image is divided into.
@@ -24,10 +22,8 @@ struct Uniforms {
 @workgroup_size(128, 1, 1)
 fn main(@builtin(global_invocation_id) global_id: vec3u) {
     let idx = global_id.x;
-    let info = info_array[0];
-    let num_points = info.num_points;
 
-    if idx >= num_points {
+    if idx >= arrayLength(&radii) {
         return;
     }
 
@@ -38,6 +34,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
         return;
     }
 
+    let info = info_array[0];
     let tile_bounds = info.tile_bounds;
     let block_width = info.block_width;
 

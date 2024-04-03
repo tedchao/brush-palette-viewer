@@ -2,7 +2,7 @@
 //
 // ^ wgsl_bindgen version 0.10.1
 // Changes made to this file will not be saved.
-// SourceHash: 0a63799753547a1686384c5be40a8179396ff4e4e0693b3ad2572d9fa3cfd295
+// SourceHash: 745848f32ea88aa2aa5be7a2b62d685e97c6110454d8ccbf187ef7a1b2ac0dac
 
 #![allow(unused, non_snake_case, non_camel_case_types, non_upper_case_globals)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -69,31 +69,23 @@ pub mod layout_asserts {
         assert!(std::mem::align_of:: < glam::Mat4 > () == 16);
     };
     const PROJECT_FORWARD_UNIFORMS_ASSERTS: () = {
-        assert!(std::mem::offset_of!(project_forward::Uniforms, num_points) == 0);
-        assert!(std::mem::offset_of!(project_forward::Uniforms, viewmat) == 16);
-        assert!(std::mem::offset_of!(project_forward::Uniforms, focal) == 80);
-        assert!(std::mem::offset_of!(project_forward::Uniforms, pixel_center) == 88);
-        assert!(std::mem::offset_of!(project_forward::Uniforms, img_size) == 96);
-        assert!(std::mem::offset_of!(project_forward::Uniforms, tile_bounds) == 104);
-        assert!(std::mem::offset_of!(project_forward::Uniforms, clip_thresh) == 112);
-        assert!(std::mem::offset_of!(project_forward::Uniforms, block_width) == 116);
-        assert!(std::mem::size_of:: < project_forward::Uniforms > () == 128);
+        assert!(std::mem::offset_of!(project_forward::Uniforms, viewmat) == 0);
+        assert!(std::mem::offset_of!(project_forward::Uniforms, focal) == 64);
+        assert!(std::mem::offset_of!(project_forward::Uniforms, pixel_center) == 72);
+        assert!(std::mem::offset_of!(project_forward::Uniforms, img_size) == 80);
+        assert!(std::mem::offset_of!(project_forward::Uniforms, tile_bounds) == 88);
+        assert!(std::mem::offset_of!(project_forward::Uniforms, clip_thresh) == 96);
+        assert!(std::mem::offset_of!(project_forward::Uniforms, block_width) == 100);
+        assert!(std::mem::size_of:: < project_forward::Uniforms > () == 112);
     };
     const MAP_GAUSSIAN_TO_INTERSECTS_UNIFORMS_ASSERTS: () = {
         assert!(
-            std::mem::offset_of!(map_gaussian_to_intersects::Uniforms, num_points) == 0
+            std::mem::offset_of!(map_gaussian_to_intersects::Uniforms, tile_bounds) == 0
         );
         assert!(
-            std::mem::offset_of!(map_gaussian_to_intersects::Uniforms, tile_bounds) == 8
+            std::mem::offset_of!(map_gaussian_to_intersects::Uniforms, block_width) == 8
         );
-        assert!(
-            std::mem::offset_of!(map_gaussian_to_intersects::Uniforms, block_width) == 16
-        );
-        assert!(std::mem::size_of:: < map_gaussian_to_intersects::Uniforms > () == 24);
-    };
-    const GET_TILE_BIN_EDGES_UNIFORMS_ASSERTS: () = {
-        assert!(std::mem::offset_of!(get_tile_bin_edges::Uniforms, num_intersects) == 0);
-        assert!(std::mem::size_of:: < get_tile_bin_edges::Uniforms > () == 4);
+        assert!(std::mem::size_of:: < map_gaussian_to_intersects::Uniforms > () == 16);
     };
     const RASTERIZE_UNIFORMS_ASSERTS: () = {
         assert!(std::mem::offset_of!(rasterize::Uniforms, tile_bounds) == 0);
@@ -108,11 +100,10 @@ pub mod layout_asserts {
         assert!(std::mem::size_of:: < rasterize_backwards::Uniforms > () == 32);
     };
     const PROJECT_BACKWARDS_UNIFORMS_ASSERTS: () = {
-        assert!(std::mem::offset_of!(project_backwards::Uniforms, num_points) == 0);
-        assert!(std::mem::offset_of!(project_backwards::Uniforms, viewmat) == 16);
-        assert!(std::mem::offset_of!(project_backwards::Uniforms, focal) == 80);
-        assert!(std::mem::offset_of!(project_backwards::Uniforms, img_size) == 88);
-        assert!(std::mem::size_of:: < project_backwards::Uniforms > () == 96);
+        assert!(std::mem::offset_of!(project_backwards::Uniforms, viewmat) == 0);
+        assert!(std::mem::offset_of!(project_backwards::Uniforms, focal) == 64);
+        assert!(std::mem::offset_of!(project_backwards::Uniforms, img_size) == 72);
+        assert!(std::mem::size_of:: < project_backwards::Uniforms > () == 80);
     };
 }
 pub mod project_forward {
@@ -120,28 +111,24 @@ pub mod project_forward {
     #[repr(C, align(16))]
     #[derive(Debug, PartialEq, Clone, Copy)]
     pub struct Uniforms {
-        /// size: 4, offset: 0x0, type: `u32`
-        pub num_points: u32,
-        pub _pad_num_points: [u8; 0x10 - core::mem::size_of::<u32>()],
-        /// size: 64, offset: 0x10, type: `mat4x4<f32>`
+        /// size: 64, offset: 0x0, type: `mat4x4<f32>`
         pub viewmat: glam::Mat4,
-        /// size: 8, offset: 0x50, type: `vec2<f32>`
+        /// size: 8, offset: 0x40, type: `vec2<f32>`
         pub focal: [f32; 2],
-        /// size: 8, offset: 0x58, type: `vec2<f32>`
+        /// size: 8, offset: 0x48, type: `vec2<f32>`
         pub pixel_center: [f32; 2],
-        /// size: 8, offset: 0x60, type: `vec2<u32>`
+        /// size: 8, offset: 0x50, type: `vec2<u32>`
         pub img_size: [u32; 2],
-        /// size: 8, offset: 0x68, type: `vec2<u32>`
+        /// size: 8, offset: 0x58, type: `vec2<u32>`
         pub tile_bounds: [u32; 2],
-        /// size: 4, offset: 0x70, type: `f32`
+        /// size: 4, offset: 0x60, type: `f32`
         pub clip_thresh: f32,
-        /// size: 4, offset: 0x74, type: `u32`
+        /// size: 4, offset: 0x64, type: `u32`
         pub block_width: u32,
         pub _pad_block_width: [u8; 0xC - core::mem::size_of::<u32>()],
     }
     impl Uniforms {
         pub const fn new(
-            num_points: u32,
             viewmat: glam::Mat4,
             focal: [f32; 2],
             pixel_center: [f32; 2],
@@ -151,8 +138,6 @@ pub mod project_forward {
             block_width: u32,
         ) -> Self {
             Self {
-                num_points,
-                _pad_num_points: [0; 0x10 - core::mem::size_of::<u32>()],
                 viewmat,
                 focal,
                 pixel_center,
@@ -167,7 +152,6 @@ pub mod project_forward {
     #[repr(C)]
     #[derive(Debug, PartialEq, Clone, Copy)]
     pub struct UniformsInit {
-        pub num_points: u32,
         pub viewmat: glam::Mat4,
         pub focal: [f32; 2],
         pub pixel_center: [f32; 2],
@@ -179,8 +163,6 @@ pub mod project_forward {
     impl UniformsInit {
         pub const fn build(&self) -> Uniforms {
             Uniforms {
-                num_points: self.num_points,
-                _pad_num_points: [0; 0x10 - core::mem::size_of::<u32>()],
                 viewmat: self.viewmat,
                 focal: self.focal,
                 pixel_center: self.pixel_center,
@@ -478,7 +460,6 @@ pub mod project_forward {
     }
     pub const SHADER_STRING: &'static str = r#"
 struct Uniforms {
-    num_points: u32,
     viewmat: mat4x4<f32>,
     focal: vec2<f32>,
     pixel_center: vec2<f32>,
@@ -544,7 +525,7 @@ fn project_pix(fxfy: vec2<f32>, p_view: vec3<f32>, pp: vec2<f32>) -> vec2<f32> {
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let idx = global_id.x;
     let info = info_array[0];
-    let num_points = info.num_points;
+    let num_points = arrayLength((&means));
     if (idx >= num_points) {
         return;
     }
@@ -557,19 +538,19 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let clip_thresh = info.clip_thresh;
     radii[idx] = 0i;
     num_tiles_hit[idx] = 0i;
-    let _e22 = means[idx];
-    let mean = _e22.xyz;
+    let _e23 = means[idx];
+    let mean = _e23.xyz;
     let W = mat3x3<f32>(viewmat[0].xyz, viewmat[1].xyz, viewmat[2].xyz);
     let p_view_1 = ((W * mean) + viewmat[3].xyz);
     if (p_view_1.z <= clip_thresh) {
         return;
     }
-    let _e39 = scales[idx];
-    let scale_1 = _e39.xyz;
+    let _e40 = scales[idx];
+    let scale_1 = _e40.xyz;
     let quat_1 = quats[idx];
-    let _e44 = quat_to_rotmatX_naga_oil_mod_XNBSWY4DFOJZQX(quat_1);
-    let _e45 = scale_to_matX_naga_oil_mod_XNBSWY4DFOJZQX(scale_1);
-    let M = (_e44 * _e45);
+    let _e45 = quat_to_rotmatX_naga_oil_mod_XNBSWY4DFOJZQX(quat_1);
+    let _e46 = scale_to_matX_naga_oil_mod_XNBSWY4DFOJZQX(scale_1);
+    let M = (_e45 * _e46);
     let V = (M * transpose(M));
     let tan_fov = ((0.5f * vec2<f32>(img_size.xy)) / focal);
     let lims = (1.3f * tan_fov);
@@ -592,16 +573,16 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let v1_ = (b + sqrt(max(0.1f, ((b * b) - det))));
     let v2_ = (b - sqrt(max(0.1f, ((b * b) - det))));
     let radius = i32(ceil((3f * sqrt(max(0f, max(v1_, v2_))))));
-    let _e148 = project_pix(focal, p_view_1, pixel_center);
-    let _e149 = get_tile_bboxX_naga_oil_mod_XNBSWY4DFOJZQX(_e148, radius, tile_bounds_1, block_width);
-    let tile_area = ((_e149.z - _e149.x) * (_e149.w - _e149.y));
+    let _e149 = project_pix(focal, p_view_1, pixel_center);
+    let _e150 = get_tile_bboxX_naga_oil_mod_XNBSWY4DFOJZQX(_e149, radius, tile_bounds_1, block_width);
+    let tile_area = ((_e150.z - _e150.x) * (_e150.w - _e150.y));
     if (tile_area <= 0u) {
         return;
     }
     num_tiles_hit[idx] = i32(tile_area);
     depths[idx] = p_view_1.z;
     radii[idx] = radius;
-    xys[idx] = _e148;
+    xys[idx] = _e149;
     conics[idx] = vec4<f32>(conic, 1f);
     let det_orig = ((c00_ * c11_) - (c01_ * c01_));
     let det_blur = ((cov2d.x * cov2d.z) - (cov2d.y * cov2d.y));
@@ -616,8 +597,6 @@ pub mod bytemuck_impls {
     unsafe impl bytemuck::Pod for project_forward::Uniforms {}
     unsafe impl bytemuck::Zeroable for map_gaussian_to_intersects::Uniforms {}
     unsafe impl bytemuck::Pod for map_gaussian_to_intersects::Uniforms {}
-    unsafe impl bytemuck::Zeroable for get_tile_bin_edges::Uniforms {}
-    unsafe impl bytemuck::Pod for get_tile_bin_edges::Uniforms {}
     unsafe impl bytemuck::Zeroable for rasterize::Uniforms {}
     unsafe impl bytemuck::Pod for rasterize::Uniforms {}
     unsafe impl bytemuck::Zeroable for rasterize_backwards::Uniforms {}
@@ -630,24 +609,15 @@ pub mod map_gaussian_to_intersects {
     #[repr(C, align(8))]
     #[derive(Debug, PartialEq, Clone, Copy)]
     pub struct Uniforms {
-        /// size: 4, offset: 0x0, type: `u32`
-        pub num_points: u32,
-        pub _pad_num_points: [u8; 0x8 - core::mem::size_of::<u32>()],
-        /// size: 8, offset: 0x8, type: `vec2<u32>`
+        /// size: 8, offset: 0x0, type: `vec2<u32>`
         pub tile_bounds: [u32; 2],
-        /// size: 4, offset: 0x10, type: `u32`
+        /// size: 4, offset: 0x8, type: `u32`
         pub block_width: u32,
         pub _pad_block_width: [u8; 0x8 - core::mem::size_of::<u32>()],
     }
     impl Uniforms {
-        pub const fn new(
-            num_points: u32,
-            tile_bounds: [u32; 2],
-            block_width: u32,
-        ) -> Self {
+        pub const fn new(tile_bounds: [u32; 2], block_width: u32) -> Self {
             Self {
-                num_points,
-                _pad_num_points: [0; 0x8 - core::mem::size_of::<u32>()],
                 tile_bounds,
                 block_width,
                 _pad_block_width: [0; 0x8 - core::mem::size_of::<u32>()],
@@ -657,15 +627,12 @@ pub mod map_gaussian_to_intersects {
     #[repr(C)]
     #[derive(Debug, PartialEq, Clone, Copy)]
     pub struct UniformsInit {
-        pub num_points: u32,
         pub tile_bounds: [u32; 2],
         pub block_width: u32,
     }
     impl UniformsInit {
         pub const fn build(&self) -> Uniforms {
             Uniforms {
-                num_points: self.num_points,
-                _pad_num_points: [0; 0x8 - core::mem::size_of::<u32>()],
                 tile_bounds: self.tile_bounds,
                 block_width: self.block_width,
                 _pad_block_width: [0; 0x8 - core::mem::size_of::<u32>()],
@@ -890,7 +857,6 @@ pub mod map_gaussian_to_intersects {
     }
     pub const SHADER_STRING: &'static str = r#"
 struct Uniforms {
-    num_points: u32,
     tile_bounds: vec2<u32>,
     block_width: u32,
 }
@@ -928,60 +894,59 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     var tx: u32;
 
     let idx = global_id.x;
-    let info = info_array[0];
-    let num_points = info.num_points;
-    if (idx >= num_points) {
+    if (idx >= arrayLength((&radii))) {
         return;
     }
     let radius = radii[idx];
     if (radius <= 0i) {
         return;
     }
+    let info = info_array[0];
     let tile_bounds_1 = info.tile_bounds;
     let block_width = info.block_width;
     let center_1 = xys[idx];
-    let _e18 = get_tile_bboxX_naga_oil_mod_XNBSWY4DFOJZQX(center_1, radius, tile_bounds_1, block_width);
-    let tile_min = _e18.xy;
-    let tile_max = _e18.zw;
+    let _e19 = get_tile_bboxX_naga_oil_mod_XNBSWY4DFOJZQX(center_1, radius, tile_bounds_1, block_width);
+    let tile_min = _e19.xy;
+    let tile_max = _e19.zw;
     if (idx > 0u) {
-        let _e27 = cum_tiles_hit[(idx - 1u)];
-        isect_idx = _e27;
+        let _e28 = cum_tiles_hit[(idx - 1u)];
+        isect_idx = _e28;
     }
     ty = tile_min.y;
     loop {
-        let _e31 = ty;
-        if (_e31 < tile_max.y) {
+        let _e32 = ty;
+        if (_e32 < tile_max.y) {
         } else {
             break;
         }
         {
             tx = tile_min.x;
             loop {
-                let _e36 = tx;
-                if (_e36 < tile_max.x) {
+                let _e37 = tx;
+                if (_e37 < tile_max.x) {
                 } else {
                     break;
                 }
                 {
-                    let _e39 = tx;
-                    let _e40 = ty;
-                    let tile_id = (_e39 + (_e40 * tile_bounds_1.x));
-                    let _e45 = isect_idx;
-                    isect_ids[_e45] = tile_id;
-                    let _e48 = isect_idx;
-                    gaussian_ids[_e48] = idx;
-                    let _e51 = isect_idx;
-                    isect_idx = (_e51 + 1u);
+                    let _e40 = tx;
+                    let _e41 = ty;
+                    let tile_id = (_e40 + (_e41 * tile_bounds_1.x));
+                    let _e46 = isect_idx;
+                    isect_ids[_e46] = tile_id;
+                    let _e49 = isect_idx;
+                    gaussian_ids[_e49] = idx;
+                    let _e52 = isect_idx;
+                    isect_idx = (_e52 + 1u);
                 }
                 continuing {
-                    let _e54 = tx;
-                    tx = (_e54 + 1u);
+                    let _e55 = tx;
+                    tx = (_e55 + 1u);
                 }
             }
         }
         continuing {
-            let _e57 = ty;
-            ty = (_e57 + 1u);
+            let _e58 = ty;
+            ty = (_e58 + 1u);
         }
     }
     return;
@@ -990,26 +955,14 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 }
 pub mod get_tile_bin_edges {
     use super::{_root, _root::*};
-    #[repr(C, align(4))]
-    #[derive(Debug, PartialEq, Clone, Copy)]
-    pub struct Uniforms {
-        /// size: 4, offset: 0x0, type: `u32`
-        pub num_intersects: u32,
-    }
-    impl Uniforms {
-        pub const fn new(num_intersects: u32) -> Self {
-            Self { num_intersects }
-        }
-    }
     pub mod bind_groups {
         #[derive(Debug)]
         pub struct WgpuBindGroupLayout0<'a> {
             pub isect_ids_sorted: wgpu::BufferBinding<'a>,
             pub tile_bins: wgpu::BufferBinding<'a>,
-            pub info_array: wgpu::BufferBinding<'a>,
         }
         impl<'a> WgpuBindGroupLayout0<'a> {
-            pub fn entries(self) -> [wgpu::BindGroupEntry<'a>; 3] {
+            pub fn entries(self) -> [wgpu::BindGroupEntry<'a>; 2] {
                 [
                     wgpu::BindGroupEntry {
                         binding: 0,
@@ -1018,10 +971,6 @@ pub mod get_tile_bin_edges {
                     wgpu::BindGroupEntry {
                         binding: 1,
                         resource: wgpu::BindingResource::Buffer(self.tile_bins),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: wgpu::BindingResource::Buffer(self.info_array),
                     },
                 ]
             }
@@ -1050,18 +999,6 @@ pub mod get_tile_bin_edges {
                         ty: wgpu::BindingType::Buffer {
                             ty: wgpu::BufferBindingType::Storage {
                                 read_only: false,
-                            },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage {
-                                read_only: true,
                             },
                             has_dynamic_offset: false,
                             min_binding_size: None,
@@ -1162,22 +1099,15 @@ pub mod get_tile_bin_edges {
             })
     }
     pub const SHADER_STRING: &'static str = r#"
-struct Uniforms {
-    num_intersects: u32,
-}
-
 @group(0) @binding(0) 
 var<storage> isect_ids_sorted: array<u32>;
 @group(0) @binding(1) 
 var<storage, read_write> tile_bins: array<vec2<u32>>;
-@group(0) @binding(2) 
-var<storage> info_array: array<Uniforms>;
 
 @compute @workgroup_size(128, 1, 1) 
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
-    let info = info_array[0];
-    let num_intersects = info.num_intersects;
     let idx = global_id.x;
+    let num_intersects = arrayLength((&isect_ids_sorted));
     if (idx >= num_intersects) {
         return;
     }
@@ -2229,54 +2159,20 @@ pub mod project_backwards {
     #[repr(C, align(16))]
     #[derive(Debug, PartialEq, Clone, Copy)]
     pub struct Uniforms {
-        /// size: 4, offset: 0x0, type: `u32`
-        pub num_points: u32,
-        pub _pad_num_points: [u8; 0x10 - core::mem::size_of::<u32>()],
-        /// size: 64, offset: 0x10, type: `mat4x4<f32>`
+        /// size: 64, offset: 0x0, type: `mat4x4<f32>`
         pub viewmat: glam::Mat4,
-        /// size: 8, offset: 0x50, type: `vec2<f32>`
+        /// size: 8, offset: 0x40, type: `vec2<f32>`
         pub focal: [f32; 2],
-        /// size: 8, offset: 0x58, type: `vec2<u32>`
+        /// size: 8, offset: 0x48, type: `vec2<u32>`
         pub img_size: [u32; 2],
     }
     impl Uniforms {
         pub const fn new(
-            num_points: u32,
             viewmat: glam::Mat4,
             focal: [f32; 2],
             img_size: [u32; 2],
         ) -> Self {
-            Self {
-                num_points,
-                _pad_num_points: [0; 0x10 - core::mem::size_of::<u32>()],
-                viewmat,
-                focal,
-                img_size,
-            }
-        }
-    }
-    #[repr(C)]
-    #[derive(Debug, PartialEq, Clone, Copy)]
-    pub struct UniformsInit {
-        pub num_points: u32,
-        pub viewmat: glam::Mat4,
-        pub focal: [f32; 2],
-        pub img_size: [u32; 2],
-    }
-    impl UniformsInit {
-        pub const fn build(&self) -> Uniforms {
-            Uniforms {
-                num_points: self.num_points,
-                _pad_num_points: [0; 0x10 - core::mem::size_of::<u32>()],
-                viewmat: self.viewmat,
-                focal: self.focal,
-                img_size: self.img_size,
-            }
-        }
-    }
-    impl From<UniformsInit> for Uniforms {
-        fn from(data: UniformsInit) -> Self {
-            data.build()
+            Self { viewmat, focal, img_size }
         }
     }
     pub mod bind_groups {
@@ -2594,7 +2490,6 @@ pub mod project_backwards {
     }
     pub const SHADER_STRING: &'static str = r#"
 struct Uniforms {
-    num_points: u32,
     viewmat: mat4x4<f32>,
     focal: vec2<f32>,
     img_size: vec2<u32>,
@@ -2666,37 +2561,37 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
 
     let idx = global_id.x;
     let info = info_array[0];
-    let num_points = info.num_points;
-    let _e9 = radii[idx];
-    if ((idx >= num_points) || (_e9 <= 0i)) {
+    let num_points = arrayLength((&means));
+    let _e10 = radii[idx];
+    if ((idx >= num_points) || (_e10 <= 0i)) {
         return;
     }
     let viewmat = info.viewmat;
     let focal = info.focal;
-    let _e17 = means[idx];
-    let mean = _e17.xyz;
-    let _e21 = scales[idx];
-    let scale_1 = _e21.xyz;
+    let _e18 = means[idx];
+    let mean = _e18.xyz;
+    let _e22 = scales[idx];
+    let scale_1 = _e22.xyz;
     let quat_2 = quats[idx];
     let W = mat3x3<f32>(viewmat[0].xyz, viewmat[1].xyz, viewmat[2].xyz);
     let p_view_1 = ((W * mean) + viewmat[3].xyz);
-    let _e39 = v_xy_1[idx];
-    let _e40 = project_pix_vjp(focal, p_view_1, _e39);
-    v_mean = (transpose(W) * _e40);
-    let _e46 = conics[idx];
-    let conic_1 = _e46.xyz;
-    let _e50 = v_conic_1[idx];
-    let v_conic_2 = _e50.xyz;
-    let _e52 = cov2d_to_conic_vjp(conic_1, v_conic_2);
+    let _e40 = v_xy_1[idx];
+    let _e41 = project_pix_vjp(focal, p_view_1, _e40);
+    v_mean = (transpose(W) * _e41);
+    let _e47 = conics[idx];
+    let conic_1 = _e47.xyz;
+    let _e51 = v_conic_1[idx];
+    let v_conic_2 = _e51.xyz;
+    let _e53 = cov2d_to_conic_vjp(conic_1, v_conic_2);
     let comp = compensation[idx];
     let rz = (1f / p_view_1.z);
     let rz2_ = (rz * rz);
     let J = mat3x3<f32>(vec3<f32>((focal.x * rz), 0f, 0f), vec3<f32>(0f, (focal.y * rz), 0f), vec3<f32>(((-(focal.x) * p_view_1.x) * rz2_), ((-(focal.y) * p_view_1.y) * rz2_), 0f));
-    let _e83 = quat_to_rotmatX_naga_oil_mod_XNBSWY4DFOJZQX(quat_2);
-    let _e84 = scale_to_matX_naga_oil_mod_XNBSWY4DFOJZQX(scale_1);
-    let M = (_e83 * _e84);
+    let _e84 = quat_to_rotmatX_naga_oil_mod_XNBSWY4DFOJZQX(quat_2);
+    let _e85 = scale_to_matX_naga_oil_mod_XNBSWY4DFOJZQX(scale_1);
+    let M = (_e84 * _e85);
     let V = (M * transpose(M));
-    let v_cov = mat3x3<f32>(vec3<f32>(_e52.x, (0.5f * _e52.y), 0f), vec3<f32>((0.5f * _e52.y), _e52.z, 0f), vec3<f32>(0f, 0f, 0f));
+    let v_cov = mat3x3<f32>(vec3<f32>(_e53.x, (0.5f * _e53.y), 0f), vec3<f32>((0.5f * _e53.y), _e53.z, 0f), vec3<f32>(0f, 0f, 0f));
     let T = (J * W);
     let Tt = transpose(T);
     let Vt = transpose(V);
@@ -2711,17 +2606,17 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     let v_J = (v_T * transpose(W));
     let rz3_ = (rz2_ * rz);
     let v_t = vec3<f32>(((-(focal.x) * rz2_) * v_J[2].x), ((-(focal.y) * rz2_) * v_J[2].y), (((((-(focal.x) * rz2_) * v_J[0].x) + ((((2f * focal.x) * p_view_1.x) * rz3_) * v_J[2].x)) - ((focal.y * rz2_) * v_J[1].y)) + ((((2f * focal.y) * p_view_1.y) * rz3_) * v_J[2].y)));
-    let _e192 = v_mean;
-    v_mean = (_e192 + vec3<f32>(dot(v_t, W[0]), dot(v_t, W[1]), dot(v_t, W[2])));
+    let _e193 = v_mean;
+    v_mean = (_e193 + vec3<f32>(dot(v_t, W[0]), dot(v_t, W[1]), dot(v_t, W[2])));
     let v_V_symm = mat3x3<f32>(vec3<f32>(v_cov3d0_, (0.5f * v_cov3d1_), (0.5f * v_cov3d2_)), vec3<f32>((0.5f * v_cov3d1_), v_cov3d3_, (0.5f * v_cov3d4_)), vec3<f32>((0.5f * v_cov3d2_), (0.5f * v_cov3d4_), v_cov3d5_));
     let v_M = ((2f * v_V_symm) * M);
-    let v_scale = vec3<f32>(dot(_e83[0], v_M[0]), dot(_e83[1], v_M[1]), dot(_e83[2], v_M[2]));
-    let v_R_1 = (v_M * _e84);
-    let _e224 = quat_to_rotmat_vjp(quat_2, v_R_1);
-    v_quats[idx] = _e224;
+    let v_scale = vec3<f32>(dot(_e84[0], v_M[0]), dot(_e84[1], v_M[1]), dot(_e84[2], v_M[2]));
+    let v_R_1 = (v_M * _e85);
+    let _e225 = quat_to_rotmat_vjp(quat_2, v_R_1);
+    v_quats[idx] = _e225;
     v_scales[idx] = vec4<f32>(v_scale, 0f);
-    let _e233 = v_mean;
-    v_means[idx] = vec4<f32>(_e233, 0f);
+    let _e234 = v_mean;
+    v_means[idx] = vec4<f32>(_e234, 0f);
     return;
 }
 "#;

@@ -6,11 +6,8 @@ use crate::splat_render::kernels::{
     GetTileBinEdges, MapGaussiansToIntersect, ProjectBackwards, ProjectSplats, Rasterize,
     RasterizeBackwards,
 };
-use crate::splat_render::{
-    assert_buffer_is_finite, create_buffer, create_tensor, read_buffer_to_f32, read_buffer_to_u32,
-};
+use crate::splat_render::{create_buffer, create_tensor, read_buffer_to_f32, read_buffer_to_u32};
 use burn::backend::autodiff::NodeID;
-use burn::nn::loss::HuberLossConfig;
 use burn::tensor::ops::IntTensor;
 use burn::tensor::Tensor;
 
@@ -157,7 +154,6 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
         ProjectSplats::execute(
             &client,
             gen::project_forward::Uniforms::new(
-                num_points as u32,
                 camera.viewmatrix(),
                 camera.focal().into(),
                 camera.center().into(),
@@ -204,11 +200,7 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
         // Dispatch one thread per point.
         MapGaussiansToIntersect::execute(
             &client,
-            gen::map_gaussian_to_intersects::Uniforms::new(
-                num_points as u32,
-                tile_bounds.into(),
-                block_width,
-            ),
+            gen::map_gaussian_to_intersects::Uniforms::new(tile_bounds.into(), block_width),
             &[&xys.handle, &radii.handle, &cum_tiles_hit],
             &[&isect_ids_unsorted, &gaussian_ids_unsorted],
             [num_points as u32, 1, 1],
@@ -255,7 +247,7 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
 
         GetTileBinEdges::execute(
             &client,
-            gen::get_tile_bin_edges::Uniforms::new(num_intersects as u32),
+            (),
             &[&isect_ids_sorted],
             &[&tile_bins.handle],
             [num_intersects as u32, 1, 1],
@@ -402,7 +394,6 @@ impl Backward<BurnBack, 3, 5> for RenderBackwards {
         ProjectBackwards::execute(
             &client,
             gen::project_backwards::Uniforms::new(
-                num_points as u32,
                 camera.viewmatrix(),
                 camera.center().into(),
                 [camera.height, camera.width],

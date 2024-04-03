@@ -14,8 +14,6 @@
 @group(0) @binding(9) var<storage, read> info_array: array<Uniforms>;
 
 struct Uniforms {
-    // Number of splats that exist.
-    num_points: u32,
     // View matrix transform world to view position.
     viewmat: mat4x4f,
     focal: vec2f,
@@ -42,7 +40,7 @@ fn project_pix(fxfy: vec2f, p_view: vec3f, pp: vec2f) -> vec2f {
 fn main(@builtin(global_invocation_id) global_id: vec3u) {
     let idx = global_id.x;
     let info = info_array[0];
-    let num_points = info.num_points;
+    let num_points = arrayLength(&means);
 
     if idx >= num_points {
         return;

@@ -21,8 +21,6 @@
 // @group(0) @binding(7) var<storage, read> v_depth: array<f32>;
 
 struct Uniforms {
-    // Number of splats that exist.
-    num_points: u32,
     // View matrix transform world to view position.
     viewmat: mat4x4f,
     focal: vec2f,
@@ -102,7 +100,7 @@ fn main(
 
     // Until burn supports adding in uniforms we read these from a tensor.
     let info = info_array[0];
-    let num_points = info.num_points;
+    let num_points = arrayLength(&means);
 
     if idx >= num_points || radii[idx] <= 0 {
         return;
