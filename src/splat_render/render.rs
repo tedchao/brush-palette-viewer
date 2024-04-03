@@ -6,8 +6,11 @@ use crate::splat_render::kernels::{
     GetTileBinEdges, MapGaussiansToIntersect, ProjectBackwards, ProjectSplats, Rasterize,
     RasterizeBackwards,
 };
-use crate::splat_render::{create_buffer, create_tensor, read_buffer_to_f32, read_buffer_to_u32};
+use crate::splat_render::{
+    assert_buffer_is_finite, create_buffer, create_tensor, read_buffer_to_f32, read_buffer_to_u32,
+};
 use burn::backend::autodiff::NodeID;
+use burn::nn::loss::HuberLossConfig;
 use burn::tensor::ops::IntTensor;
 use burn::tensor::Tensor;
 

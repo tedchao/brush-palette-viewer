@@ -157,7 +157,7 @@ fn main(
     let v_cov2d = v_cov2d_base;
 
     // get v_cov3d (and v_mean3d contribution)
-    let rz = 1.0f / p_view.z;
+    let rz = 1.0 / p_view.z;
     let rz2 = rz * rz;
 
     let J = mat3x3f(
@@ -208,9 +208,7 @@ fn main(
             focal.y * rz2 * v_J[1][1] + 2.0f * focal.y * p_view.y * rz3 * v_J[2][1]
     );
 
-    v_mean.x += dot(v_t, W[0]);
-    v_mean.y += dot(v_t, W[1]);
-    v_mean.z += dot(v_t, W[2]);
+    v_mean += vec3f(dot(v_t, W[0]), dot(v_t, W[1]), dot(v_t, W[2]));
 
     // cov3d is upper triangular elements of matrix
     // off-diagonal elements count grads from both ij and ji elements,

@@ -116,3 +116,14 @@ fn read_buffer_to_f32<S: ComputeServer<Kernel = Box<dyn Kernel>>, C: ComputeChan
         .map(f32::from_le_bytes)
         .collect()
 }
+
+fn assert_buffer_is_finite<S: ComputeServer<Kernel = Box<dyn Kernel>>, C: ComputeChannel<S>>(
+    client: &ComputeClient<S, C>,
+    tensor: &Handle<S>,
+) {
+    for (i, elem) in read_buffer_to_f32(client, tensor).iter().enumerate() {
+        if !elem.is_finite() {
+            panic!("Elem {elem} at {i} is invalid!");
+        }
+    }
+}

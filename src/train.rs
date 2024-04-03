@@ -1,5 +1,6 @@
 use anyhow::Result;
 use burn::lr_scheduler::LrScheduler;
+use burn::nn::loss::{HuberLoss, HuberLossConfig};
 use burn::{
     config::Config,
     optim::{AdamConfig, GradientsParams, Optimizer},
@@ -12,7 +13,6 @@ use crate::splat_render::{self, AutodiffBackend, Backend};
 use crate::{
     dataset_readers,
     gaussian_splats::{Splats, SplatsConfig},
-    loss_utils,
     scene::Scene,
     utils,
 };
@@ -27,9 +27,9 @@ pub(crate) struct TrainConfig {
     pub(crate) train_steps: u32,
     #[config(default = false)]
     pub(crate) random_bck_color: bool,
-    #[config(default = 1e-2)]
+    #[config(default = 5e-2)]
     pub lr: f64,
-    #[config(default = 1e-2)]
+    #[config(default = 1e-3)]
     pub min_lr: f64,
     #[config(default = 5)]
     pub visualize_every: u32,
@@ -45,11 +45,6 @@ struct TrainStats {
     pred_image: Array3<f32>,
     gt_image: Array3<f32>,
     loss: Array1<f32>,
-}
-
-fn compute_loss<B: Backend>(this_image: Tensor<B, 3>, other_image: Tensor<B, 3>) -> Tensor<B, 1> {
-    // TODO: Restore ssim loss.
-    loss_utils::l1_loss(this_image, other_image)
 }
 
 // Consists of the following steps.
@@ -68,6 +63,7 @@ fn train_step<B: AutodiffBackend>(
     iteration: u32,
     cur_lr: f64,
     config: &TrainConfig,
+    loss: &HuberLoss<B>,
     optim: &mut impl Optimizer<Splats<B>, B>,
     rng: &mut StdRng,
     device: &B::Device,
@@ -116,8 +112,12 @@ where
             )
             .unsqueeze::<3>();
 
-    let loss = compute_loss(render_img.clone(), gt_image.clone());
-    let grads = loss.backward();
+    let loss_scalar = loss.forward(
+        render_img.clone(),
+        gt_image.clone(),
+        burn::nn::loss::Reduction::Auto,
+    );
+    let grads = loss_scalar.backward();
 
     // Gradients linked to each parameter of the model.
     let grads = GradientsParams::from_grads(grads, &splats);
@@ -134,7 +134,8 @@ where
         TrainStats {
             total_points: num_points,
             gt_image: viewpoint.view.image.clone(),
-            loss: Array::from_shape_vec(loss.dims(), loss.to_data().convert().value).unwrap(),
+            loss: Array::from_shape_vec(loss_scalar.dims(), loss_scalar.to_data().convert().value)
+                .unwrap(),
             pred_image: Array::from_shape_vec(
                 render_img.dims(),
                 render_img.to_data().convert().value,
@@ -176,11 +177,13 @@ where
 
     println!("Start training.");
 
+    let loss = HuberLossConfig::new(0.1).init(device);
+
     for iter in 0..config.train_steps + 1 {
         let lr = LrScheduler::<B>::step(&mut scheduler);
 
         let (new_splats, stats) = train_step(
-            &scene, splats, iter, lr, config, &mut optim, &mut rng, device,
+            &scene, splats, iter, lr, config, &loss, &mut optim, &mut rng, device,
         );
 
         // Replace current model.

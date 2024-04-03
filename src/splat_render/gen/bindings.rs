@@ -2,7 +2,7 @@
 //
 // ^ wgsl_bindgen version 0.10.1
 // Changes made to this file will not be saved.
-// SourceHash: 4ae0c29be50b94d1d9bd868e2b732ea4bd61b26fa0e2251a57cedf210b5ea4ac
+// SourceHash: 0a63799753547a1686384c5be40a8179396ff4e4e0693b3ad2572d9fa3cfd295
 
 #![allow(unused, non_snake_case, non_camel_case_types, non_upper_case_globals)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -2121,114 +2121,103 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
         let _e49 = final_index[pix_id];
         bin_final = _e49;
     }
-    let v_out = v_output[pix_id];
-    let _e53 = bin_final;
-    num_batches = ((((_e53 - bin_start) + BLOCK_SIZE) - 1u) / BLOCK_SIZE);
+    let _e52 = v_output[pix_id];
+    let v_out = _e52.xyz;
+    let _e54 = bin_final;
+    num_batches = ((((_e54 - bin_start) + BLOCK_SIZE) - 1u) / BLOCK_SIZE);
     loop {
-        let _e63 = batch;
-        let _e64 = num_batches;
-        if (_e63 < _e64) {
+        let _e64 = batch;
+        let _e65 = num_batches;
+        if (_e64 < _e65) {
         } else {
             break;
         }
         {
-            let _e66 = bin_final;
-            let _e69 = batch;
-            let gauss_idx_start = ((_e66 - 1u) - (_e69 * BLOCK_SIZE));
+            let _e67 = bin_final;
+            let _e70 = batch;
+            let gauss_idx_start = ((_e67 - 1u) - (_e70 * BLOCK_SIZE));
             workgroupBarrier();
             let gauss_idx = (gauss_idx_start - local_idx);
             if (gauss_idx >= range.x) {
                 let g_id = gaussian_ids_sorted[gauss_idx];
                 id_batch[local_idx] = g_id;
-                let _e86 = xys[g_id];
-                xy_batch[local_idx] = _e86;
-                let _e91 = conics[g_id];
-                conic_batch[local_idx] = _e91;
-                let _e96 = opacities[g_id];
-                opacity_batch[local_idx] = _e96;
-                let _e101 = colors[g_id];
-                rgbs_batch[local_idx] = _e101.xyz;
+                let _e87 = xys[g_id];
+                xy_batch[local_idx] = _e87;
+                let _e92 = conics[g_id];
+                conic_batch[local_idx] = _e92;
+                let _e97 = opacities[g_id];
+                opacity_batch[local_idx] = _e97;
+                let _e102 = colors[g_id];
+                rgbs_batch[local_idx] = _e102.xyz;
             }
             workgroupBarrier();
             let remaining = min(BLOCK_SIZE, ((gauss_idx_start + 1u) - range.x));
             if inside {
                 t = 0u;
                 loop {
-                    let _e111 = t;
-                    if (_e111 < remaining) {
+                    let _e112 = t;
+                    if (_e112 < remaining) {
                     } else {
                         break;
                     }
                     {
-                        let _e114 = t;
-                        let conic = conic_batch[_e114];
-                        let _e118 = t;
-                        let _e120 = xy_batch[_e118];
-                        let delta = (_e120 - vec2<f32>(px, py));
+                        let _e115 = t;
+                        let conic = conic_batch[_e115];
+                        let _e119 = t;
+                        let _e121 = xy_batch[_e119];
+                        let delta = (_e121 - vec2<f32>(px, py));
                         let sigma = ((0.5f * (((conic.x * delta.x) * delta.x) + ((conic.z * delta.y) * delta.y))) + ((conic.y * delta.x) * delta.y));
-                        let _e143 = t;
-                        let opac = opacity_batch[_e143];
+                        let _e144 = t;
+                        let opac = opacity_batch[_e144];
                         let vis = exp(-(sigma));
                         let alpha = min(0.99f, (opac * vis));
                         if ((sigma < 0f) || (alpha < 0.003921569f)) {
                             continue;
                         }
                         let ra = (1f / (1f - alpha));
-                        let _e160 = T;
-                        T = (_e160 * ra);
-                        let _e162 = T;
-                        let fac = (alpha * _e162);
+                        let _e161 = T;
+                        T = (_e161 * ra);
+                        let _e163 = T;
+                        let fac = (alpha * _e163);
                         let v_rgb_local = (fac * v_out);
                         v_alpha = 0f;
-                        let _e168 = t;
-                        let rgb = rgbs_batch[_e168];
+                        let _e169 = t;
+                        let rgb = rgbs_batch[_e169];
                         let _e173 = T;
-                        let _e176 = buffer.x;
-                        let _e181 = v_alpha;
-                        v_alpha = (_e181 + (((rgb.x * _e173) - (_e176 * ra)) * v_out.x));
-                        let _e184 = T;
-                        let _e187 = buffer.y;
-                        let _e192 = v_alpha;
-                        v_alpha = (_e192 + (((rgb.y * _e184) - (_e187 * ra)) * v_out.y));
-                        let _e195 = T;
-                        let _e198 = buffer.z;
-                        let _e203 = v_alpha;
-                        v_alpha = (_e203 + (((rgb.z * _e195) - (_e198 * ra)) * v_out.z));
-                        let _e211 = v_alpha;
-                        v_alpha = (_e211 + (((-(T_final) * ra) * background.x) * v_out.x));
-                        let _e219 = v_alpha;
-                        v_alpha = (_e219 + (((-(T_final) * ra) * background.y) * v_out.y));
-                        let _e227 = v_alpha;
-                        v_alpha = (_e227 + (((-(T_final) * ra) * background.z) * v_out.z));
-                        let _e230 = buffer;
-                        buffer = (_e230 + (rgb * fac));
-                        let _e234 = v_alpha;
-                        let v_sigma = ((-(opac) * vis) * _e234);
+                        let _e175 = buffer;
+                        let _e179 = v_alpha;
+                        v_alpha = (_e179 + dot(((rgb * _e173) - (_e175 * ra)), v_out));
+                        let _e184 = v_alpha;
+                        v_alpha = (_e184 - dot(((T_final * ra) * background), v_out));
+                        let _e187 = buffer;
+                        buffer = (_e187 + (rgb * fac));
+                        let _e191 = v_alpha;
+                        let v_sigma = ((-(opac) * vis) * _e191);
                         let v_conic_local = vec3<f32>((((0.5f * v_sigma) * delta.x) * delta.x), ((v_sigma * delta.x) * delta.y), (((0.5f * v_sigma) * delta.y) * delta.y));
                         let v_xy_local = (v_sigma * vec2<f32>(((conic.x * delta.x) + (conic.y * delta.y)), ((conic.y * delta.x) + (conic.z * delta.y))));
-                        let _e269 = v_alpha;
-                        let v_opacity_local = (vis * _e269);
-                        let _e272 = t;
-                        let g_id_1 = id_batch[_e272];
-                        let _e277 = v_opacity[g_id_1];
-                        v_opacity[g_id_1] = (_e277 + v_opacity_local);
-                        let _e281 = v_rgb[g_id_1];
-                        v_rgb[g_id_1] = (_e281 + v_rgb_local);
-                        let _e287 = v_conic[g_id_1];
-                        v_conic[g_id_1] = (_e287 + vec4<f32>(v_conic_local, 0f));
-                        let _e291 = v_xy[g_id_1];
-                        v_xy[g_id_1] = (_e291 + v_xy_local);
+                        let _e226 = v_alpha;
+                        let v_opacity_local = (vis * _e226);
+                        let _e229 = t;
+                        let g_id_1 = id_batch[_e229];
+                        let _e234 = v_opacity[g_id_1];
+                        v_opacity[g_id_1] = (_e234 + v_opacity_local);
+                        let _e240 = v_rgb[g_id_1];
+                        v_rgb[g_id_1] = (_e240 + vec4<f32>(v_rgb_local, 0f));
+                        let _e246 = v_conic[g_id_1];
+                        v_conic[g_id_1] = (_e246 + vec4<f32>(v_conic_local, 0f));
+                        let _e250 = v_xy[g_id_1];
+                        v_xy[g_id_1] = (_e250 + v_xy_local);
                     }
                     continuing {
-                        let _e294 = t;
-                        t = (_e294 + 1u);
+                        let _e253 = t;
+                        t = (_e253 + 1u);
                     }
                 }
             }
         }
         continuing {
-            let _e297 = batch;
-            batch = (_e297 + 1u);
+            let _e256 = batch;
+            batch = (_e256 + 1u);
         }
     }
     return;
@@ -2722,21 +2711,17 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     let v_J = (v_T * transpose(W));
     let rz3_ = (rz2_ * rz);
     let v_t = vec3<f32>(((-(focal.x) * rz2_) * v_J[2].x), ((-(focal.y) * rz2_) * v_J[2].y), (((((-(focal.x) * rz2_) * v_J[0].x) + ((((2f * focal.x) * p_view_1.x) * rz3_) * v_J[2].x)) - ((focal.y * rz2_) * v_J[1].y)) + ((((2f * focal.y) * p_view_1.y) * rz3_) * v_J[2].y)));
-    let _e188 = v_mean.x;
-    v_mean.x = (_e188 + dot(v_t, W[0]));
-    let _e193 = v_mean.y;
-    v_mean.y = (_e193 + dot(v_t, W[1]));
-    let _e198 = v_mean.z;
-    v_mean.z = (_e198 + dot(v_t, W[2]));
+    let _e192 = v_mean;
+    v_mean = (_e192 + vec3<f32>(dot(v_t, W[0]), dot(v_t, W[1]), dot(v_t, W[2])));
     let v_V_symm = mat3x3<f32>(vec3<f32>(v_cov3d0_, (0.5f * v_cov3d1_), (0.5f * v_cov3d2_)), vec3<f32>((0.5f * v_cov3d1_), v_cov3d3_, (0.5f * v_cov3d4_)), vec3<f32>((0.5f * v_cov3d2_), (0.5f * v_cov3d4_), v_cov3d5_));
     let v_M = ((2f * v_V_symm) * M);
     let v_scale = vec3<f32>(dot(_e83[0], v_M[0]), dot(_e83[1], v_M[1]), dot(_e83[2], v_M[2]));
     let v_R_1 = (v_M * _e84);
-    let _e230 = quat_to_rotmat_vjp(quat_2, v_R_1);
-    v_quats[idx] = _e230;
+    let _e224 = quat_to_rotmat_vjp(quat_2, v_R_1);
+    v_quats[idx] = _e224;
     v_scales[idx] = vec4<f32>(v_scale, 0f);
-    let _e239 = v_mean;
-    v_means[idx] = vec4<f32>(_e239, 0f);
+    let _e233 = v_mean;
+    v_means[idx] = vec4<f32>(_e233, 0f);
     return;
 }
 "#;

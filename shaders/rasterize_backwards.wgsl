@@ -78,7 +78,7 @@ fn main(
     }
 
     // df/d_out for this pixel
-    let v_out = v_output[pix_id];
+    let v_out = v_output[pix_id].xyz;
 
     // collect and process batches of gaussians
     // each thread loads one gaussian at a time before rasterizing
@@ -116,7 +116,7 @@ fn main(
         if inside {
             for (var t = 0u; t < remaining; t++) {
                 let conic = conic_batch[t];
-                let delta =  xy_batch[t] - vec2f(px, py);
+                let delta = xy_batch[t] - vec2f(px, py);
 
                 // TODO: Make this a function to share with the forward pass.
                 let sigma = 0.5f * (conic.x * delta.x * delta.x +
@@ -143,13 +143,10 @@ fn main(
 
                 let rgb = rgbs_batch[t];
                 // contribution from this pixel
-                v_alpha += (rgb.x * T - buffer.x * ra) * v_out.x;
-                v_alpha += (rgb.y * T - buffer.y * ra) * v_out.y;
-                v_alpha += (rgb.z * T - buffer.z * ra) * v_out.z;
+                v_alpha += dot(rgb * T - buffer * ra, v_out);
+
                 // contribution from background pixel
-                v_alpha += -T_final * ra * background.x * v_out.x;
-                v_alpha += -T_final * ra * background.y * v_out.y;
-                v_alpha += -T_final * ra * background.z * v_out.z;
+                v_alpha -= dot(T_final * ra * background, v_out);
 
                 // update the running sum
                 buffer += rgb * fac;
@@ -175,8 +172,8 @@ fn main(
                 let g_id = id_batch[t];
 
                 v_opacity[g_id] += v_opacity_local;
-                v_rgb[g_id] += v_rgb_local;
-                v_conic[g_id] += vec4f(v_conic_local, 0.0f);
+                v_rgb[g_id] += vec4f(v_rgb_local, 0.0);
+                v_conic[g_id] += vec4f(v_conic_local, 0.0);
                 v_xy[g_id] += v_xy_local;
             }
         }

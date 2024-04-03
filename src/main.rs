@@ -7,7 +7,6 @@ use std::error::Error;
 mod camera;
 mod dataset_readers;
 mod gaussian_splats;
-mod loss_utils;
 mod scene;
 mod spherical_harmonics;
 mod splat_render;
