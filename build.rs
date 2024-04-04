@@ -1,9 +1,8 @@
-use std::process::exit;
-
+use miette::{IntoDiagnostic, Result};
 use wgsl_bindgen::{GlamWgslTypeMap, WgslBindgenOptionBuilder, WgslTypeSerializeStrategy};
 
-fn main() {
-    let bindgen = WgslBindgenOptionBuilder::default()
+fn main() -> Result<()> {
+    WgslBindgenOptionBuilder::default()
         .serialization_strategy(WgslTypeSerializeStrategy::Bytemuck)
         .emit_rerun_if_change(true)
         .short_constructor(0)
@@ -16,14 +15,7 @@ fn main() {
         .add_entry_point("shaders/rasterize_backwards.wgsl")
         .add_entry_point("shaders/project_backwards.wgsl")
         .output("src/splat_render/gen/bindings.rs")
-        .build()
-        .unwrap();
-
-    match bindgen.generate() {
-        Ok(_) => println!("Sucesfully updated wgsl bindings."),
-        Err(e) => {
-            println!("cargo:error={e}");
-            exit(1);
-        }
-    }
+        .build()?
+        .generate()
+        .into_diagnostic()
 }
