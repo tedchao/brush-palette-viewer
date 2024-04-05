@@ -90,22 +90,13 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
         background: glam::Vec3,
     ) -> FloatTensor<Self, 3> {
         let prep_nodes = RenderBackwards
-            .prepare::<C>(
-                [
-                    means_diff.node.clone(),
-                    scales_diff.node.clone(),
-                    quats_diff.node.clone(),
-                    colors_diff.node.clone(),
-                    opacity_diff.node.clone(),
-                ],
-                [
-                    means_diff.graph.clone(),
-                    scales_diff.graph.clone(),
-                    quats_diff.graph.clone(),
-                    colors_diff.graph.clone(),
-                    opacity_diff.graph.clone(),
-                ],
-            )
+            .prepare::<C>([
+                means_diff.node.clone(),
+                scales_diff.node.clone(),
+                quats_diff.node.clone(),
+                colors_diff.node.clone(),
+                opacity_diff.node.clone(),
+            ])
             .compute_bound()
             .stateful();
 
@@ -413,23 +404,23 @@ impl Backward<BurnBack, 3, 5> for RenderBackwards {
         let [mean_parent, scales_parent, quats_parent, colors_parent, opacity_parent] = ops.parents;
 
         if let Some(node) = mean_parent {
-            grads.register::<BurnBack, 2>(node, v_means);
+            grads.register::<BurnBack, 2>(node.id, v_means);
         }
 
         if let Some(node) = scales_parent {
-            grads.register::<BurnBack, 2>(node, v_scales);
+            grads.register::<BurnBack, 2>(node.id, v_scales);
         }
 
         if let Some(node) = quats_parent {
-            grads.register::<BurnBack, 2>(node, v_quats);
+            grads.register::<BurnBack, 2>(node.id, v_quats);
         }
 
         if let Some(node) = colors_parent {
-            grads.register::<BurnBack, 2>(node, v_colors);
+            grads.register::<BurnBack, 2>(node.id, v_colors);
         }
 
         if let Some(node) = opacity_parent {
-            grads.register::<BurnBack, 1>(node, v_opacity);
+            grads.register::<BurnBack, 1>(node.id, v_opacity);
         }
     }
 }
