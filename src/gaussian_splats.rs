@@ -421,11 +421,16 @@ impl<B: Backend> Splats<B> {
     //     participated in the rendering.
     //   * radii: the maximum screenspace radius of each gaussian
     pub(crate) fn render(&self, camera: &Camera, bg_color: glam::Vec3) -> Tensor<B, 3> {
+        let cur_rot = self.rotation.val();
+
+        let norms = Tensor::sum_dim(cur_rot.clone() * cur_rot.clone(), 1).sqrt();
+        let norm_rot = cur_rot / Tensor::clamp_min(norms, 1e-6);
+
         splat_render::render::render(
             camera,
             self.means.val(),
             self.scales.val().exp(),
-            self.rotation.val(),
+            norm_rot,
             sigmoid(self.colors.val()),
             sigmoid(self.opacity.val()),
             bg_color,
