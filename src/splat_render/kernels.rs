@@ -31,10 +31,9 @@ where
         assert_eq!(read_handles.len(), Self::DIM_READ);
         assert_eq!(write_handles.len(), Self::DIM_WRITE);
 
-        let execs = (UVec3::from_array(executions).as_vec3()
-            / UVec3::from_array(Self::WORKGROUP_SIZE).as_vec3())
-        .ceil()
-        .as_uvec3();
+        let exec_vec = UVec3::from_array(executions);
+        let group_size = UVec3::from_array(Self::WORKGROUP_SIZE);
+        let execs = (exec_vec + group_size - 1) / group_size;
         let workgroup = WorkGroup::new(execs.x, execs.y, execs.z);
         let kernel = Box::new(DynamicKernel::new(Self::default(), workgroup));
 
