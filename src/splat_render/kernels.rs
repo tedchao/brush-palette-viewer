@@ -16,8 +16,7 @@ pub(crate) trait SplatKernel<S: ComputeServer<Kernel = Box<dyn Kernel>>, C: Comp
 where
     Self: Default + DynamicKernelSource + 'static,
 {
-    const DIM_READ: usize;
-    const DIM_WRITE: usize;
+    const BINDING_COUNT: usize;
     const WORKGROUP_SIZE: [u32; 3];
     type Uniforms: NoUninit;
 
@@ -28,9 +27,6 @@ where
         write_handles: &[&Handle<S>],
         executions: [u32; 3],
     ) {
-        assert_eq!(read_handles.len(), Self::DIM_READ);
-        assert_eq!(write_handles.len(), Self::DIM_WRITE);
-
         let exec_vec = UVec3::from_array(executions);
         let group_size = UVec3::from_array(Self::WORKGROUP_SIZE);
         let execs = (exec_vec + group_size - 1) / group_size;
@@ -39,13 +35,13 @@ where
 
         if size_of::<Self::Uniforms>() != 0 {
             let uniform_data = client.create(bytemuck::bytes_of(&uniforms));
-
-            client.execute(
-                kernel,
-                &[read_handles, write_handles, &[&uniform_data]].concat(),
-            );
+            let total_handles = [read_handles, write_handles, &[&uniform_data]].concat();
+            assert_eq!(total_handles.len(), Self::BINDING_COUNT);
+            client.execute(kernel, &total_handles);
         } else {
-            client.execute(kernel, &[read_handles, write_handles].concat());
+            let total_handles = [read_handles, write_handles].concat();
+            assert_eq!(total_handles.len(), Self::BINDING_COUNT);
+            client.execute(kernel, &total_handles);
         }
     }
 }
@@ -66,8 +62,10 @@ impl DynamicKernelSource for ProjectSplats {
 impl<S: ComputeServer<Kernel = Box<dyn Kernel>>, C: ComputeChannel<S>> SplatKernel<S, C>
     for ProjectSplats
 {
-    const DIM_READ: usize = 3;
-    const DIM_WRITE: usize = 6;
+    const BINDING_COUNT: usize =
+        gen::project_forward::bind_groups::WgpuBindGroup0::LAYOUT_DESCRIPTOR
+            .entries
+            .len();
     type Uniforms = gen::project_forward::Uniforms;
     const WORKGROUP_SIZE: [u32; 3] = gen::project_forward::compute::MAIN_WORKGROUP_SIZE;
 }
@@ -88,8 +86,10 @@ impl DynamicKernelSource for MapGaussiansToIntersect {
 impl<S: ComputeServer<Kernel = Box<dyn Kernel>>, C: ComputeChannel<S>> SplatKernel<S, C>
     for MapGaussiansToIntersect
 {
-    const DIM_READ: usize = 3;
-    const DIM_WRITE: usize = 2;
+    const BINDING_COUNT: usize =
+        gen::map_gaussian_to_intersects::bind_groups::WgpuBindGroup0::LAYOUT_DESCRIPTOR
+            .entries
+            .len();
     type Uniforms = gen::map_gaussian_to_intersects::Uniforms;
     const WORKGROUP_SIZE: [u32; 3] = gen::map_gaussian_to_intersects::compute::MAIN_WORKGROUP_SIZE;
 }
@@ -110,8 +110,10 @@ impl DynamicKernelSource for GetTileBinEdges {
 impl<S: ComputeServer<Kernel = Box<dyn Kernel>>, C: ComputeChannel<S>> SplatKernel<S, C>
     for GetTileBinEdges
 {
-    const DIM_READ: usize = 1;
-    const DIM_WRITE: usize = 1;
+    const BINDING_COUNT: usize =
+        gen::get_tile_bin_edges::bind_groups::WgpuBindGroup0::LAYOUT_DESCRIPTOR
+            .entries
+            .len();
     type Uniforms = ();
     const WORKGROUP_SIZE: [u32; 3] = gen::get_tile_bin_edges::compute::MAIN_WORKGROUP_SIZE;
 }
@@ -131,8 +133,9 @@ impl DynamicKernelSource for Rasterize {
 impl<S: ComputeServer<Kernel = Box<dyn Kernel>>, C: ComputeChannel<S>> SplatKernel<S, C>
     for Rasterize
 {
-    const DIM_READ: usize = 6;
-    const DIM_WRITE: usize = 2;
+    const BINDING_COUNT: usize = gen::rasterize::bind_groups::WgpuBindGroup0::LAYOUT_DESCRIPTOR
+        .entries
+        .len();
     type Uniforms = gen::rasterize::Uniforms;
     const WORKGROUP_SIZE: [u32; 3] = gen::rasterize::compute::MAIN_WORKGROUP_SIZE;
 }
@@ -152,8 +155,10 @@ impl DynamicKernelSource for RasterizeBackwards {
 impl<S: ComputeServer<Kernel = Box<dyn Kernel>>, C: ComputeChannel<S>> SplatKernel<S, C>
     for RasterizeBackwards
 {
-    const DIM_READ: usize = 9;
-    const DIM_WRITE: usize = 4;
+    const BINDING_COUNT: usize =
+        gen::rasterize_backwards::bind_groups::WgpuBindGroup0::LAYOUT_DESCRIPTOR
+            .entries
+            .len();
     type Uniforms = gen::rasterize_backwards::Uniforms;
     const WORKGROUP_SIZE: [u32; 3] = gen::rasterize_backwards::compute::MAIN_WORKGROUP_SIZE;
 }
@@ -173,8 +178,10 @@ impl DynamicKernelSource for ProjectBackwards {
 impl<S: ComputeServer<Kernel = Box<dyn Kernel>>, C: ComputeChannel<S>> SplatKernel<S, C>
     for ProjectBackwards
 {
-    const DIM_READ: usize = 8;
-    const DIM_WRITE: usize = 3;
+    const BINDING_COUNT: usize =
+        gen::project_backwards::bind_groups::WgpuBindGroup0::LAYOUT_DESCRIPTOR
+            .entries
+            .len();
     type Uniforms = gen::project_backwards::Uniforms;
     const WORKGROUP_SIZE: [u32; 3] = gen::project_backwards::compute::MAIN_WORKGROUP_SIZE;
 }
