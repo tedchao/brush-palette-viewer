@@ -30,11 +30,11 @@ serde = "1.0.197"
 serde_json = "1.0.114"
 rand = "0.8.5"
 anyhow = "1.0.81"
-wgpu = "*"
+wgpu = "0.18"
 miette = "7.2.0"
 
 [build-dependencies]
-wgsl_bindgen = "0.10.1"
+wgsl_bindgen = { path = "../wgsl-bindgen/wgsl_bindgen" }
 miette = { version = "7.2.0", features = ["fancy"] }
 
 [profile.dev]
