@@ -1,6 +1,6 @@
 use anyhow::Result;
 use burn::lr_scheduler::LrScheduler;
-use burn::nn::loss::{HuberLoss, HuberLossConfig};
+use burn::nn::loss::MseLoss;
 use burn::{
     config::Config,
     optim::{AdamConfig, GradientsParams, Optimizer},
@@ -33,7 +33,7 @@ pub(crate) struct TrainConfig {
     pub min_lr: f64,
     #[config(default = 5)]
     pub visualize_every: u32,
-    #[config(default = 4096)]
+    #[config(default = 1024)]
     pub init_points: usize,
     #[config(default = 2.0)]
     pub init_aabb: f32,
@@ -63,7 +63,7 @@ fn train_step<B: AutodiffBackend>(
     iteration: u32,
     cur_lr: f64,
     config: &TrainConfig,
-    loss: &HuberLoss<B>,
+    loss: &MseLoss<B>,
     optim: &mut impl Optimizer<Splats<B>, B>,
     rng: &mut StdRng,
     device: &B::Device,
@@ -156,7 +156,7 @@ where
     let rec = rerun::RecordingStreamBuilder::new("visualize training").spawn()?;
 
     println!("Loading dataset.");
-    let scene = dataset_readers::read_scene(&config.scene_path, None, false);
+    let scene = dataset_readers::read_scene(&config.scene_path, Some(1), false);
     let config_optimizer = AdamConfig::new();
     let mut optim = config_optimizer.init::<B, Splats<B>>();
 
@@ -177,7 +177,7 @@ where
 
     println!("Start training.");
 
-    let loss = HuberLossConfig::new(0.05).init(device);
+    let loss = MseLoss::new();
 
     for iter in 0..config.train_steps + 1 {
         let lr = LrScheduler::<B>::step(&mut scheduler);

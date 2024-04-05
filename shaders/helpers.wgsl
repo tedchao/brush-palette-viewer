@@ -53,3 +53,18 @@ fn scale_to_mat(scale: vec3f) -> mat3x3f {
         vec3f(0, 0, scale.z)
     );
 }
+
+fn cov2d_to_conic(cov2d: vec3f) -> vec3f {
+    let det = cov2d.x * cov2d.z - cov2d.y * cov2d.y;
+    return vec3f(cov2d.z, -cov2d.y, cov2d.x) / det;
+}
+
+// TODO: Is this 0.3 good? Make it configurable?
+const COV_BLUR: f32 = 0.3;
+
+fn cov_compensation(cov2d: vec3f) -> f32 {
+    let cov_orig = cov2d - vec3f(COV_BLUR, 0.0, COV_BLUR);
+    let det_orig = cov_orig.x * cov_orig.z - cov_orig.y * cov_orig.y;
+    let det = cov2d.x * cov2d.z - cov2d.y * cov2d.y;
+    return sqrt(max(0.0, det_orig / det));
+}

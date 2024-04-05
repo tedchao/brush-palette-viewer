@@ -3,7 +3,7 @@
 @group(0) @binding(0) var<storage, read> gaussian_ids_sorted: array<u32>;
 @group(0) @binding(1) var<storage, read> tile_bins: array<vec2u>;
 @group(0) @binding(2) var<storage, read> xys: array<vec2f>;
-@group(0) @binding(3) var<storage, read> conics: array<vec4f>;
+@group(0) @binding(3) var<storage, read> cov2ds: array<vec4f>;
 @group(0) @binding(4) var<storage, read> colors: array<vec4f>;
 @group(0) @binding(5) var<storage, read> opacities: array<f32>;
 
@@ -20,7 +20,7 @@ var<workgroup> id_batch: array<u32, BLOCK_SIZE>;
 var<workgroup> xy_batch: array<vec2f, BLOCK_SIZE>;
 var<workgroup> opacity_batch: array<f32, BLOCK_SIZE>;
 var<workgroup> colors_batch: array<vec4f, BLOCK_SIZE>;
-var<workgroup> conic_batch: array<vec4f, BLOCK_SIZE>;
+var<workgroup> cov2d_batch: array<vec4f, BLOCK_SIZE>;
 
 // Keep track of how many threads are done in this workgroup.
 // var<workgroup> count_done: atomic<u32>;
@@ -107,7 +107,7 @@ fn main(
             xy_batch[local_idx] = xys[g_id];
             opacity_batch[local_idx] = opacities[g_id];
             colors_batch[local_idx] = colors[g_id];
-            conic_batch[local_idx] = conics[g_id];
+            cov2d_batch[local_idx] = cov2ds[g_id];
         }
 
         // wait for other threads to collect the gaussians in batch
@@ -118,12 +118,15 @@ fn main(
         
         if !done {
             for (var t = 0u; t < remaining; t++) {
-                let conic = conic_batch[t].xyz;
+                let cov2d = cov2d_batch[t].xyz;
+                let conic =  helpers::cov2d_to_conic(cov2d);
+                // Apply compensation for the blurring of 2D covariances.
+                let compensation = helpers::cov_compensation(cov2d);
                 let xy = xy_batch[t];
                 let opac = opacity_batch[t];
                 let delta = xy - pixel_coord;
                 let sigma = 0.5f * (conic.x * delta.x * delta.x + conic.z * delta.y * delta.y) + conic.y * delta.x * delta.y;
-                let alpha = min(0.99f, opac * exp(-sigma));
+                let alpha = min(0.99f, opac * compensation * exp(-sigma));
 
                 if sigma < 0.0 || alpha < 1.0 / 255.0 {
                     continue;

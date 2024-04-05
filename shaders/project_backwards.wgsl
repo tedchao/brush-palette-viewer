@@ -5,10 +5,10 @@
 @group(0) @binding(2) var<storage, read> quats: array<vec4f>;
 
 @group(0) @binding(3) var<storage, read> radii: array<i32>;
-@group(0) @binding(4) var<storage, read> conics: array<vec4f>;
-@group(0) @binding(5) var<storage, read> compensation: array<f32>;
-@group(0) @binding(6) var<storage, read> v_xy: array<vec2f>;
-@group(0) @binding(7) var<storage, read> v_conic: array<vec4f>;
+@group(0) @binding(4) var<storage, read> cov2ds: array<vec4f>;
+@group(0) @binding(5) var<storage, read> v_xy: array<vec2f>;
+@group(0) @binding(6) var<storage, read> v_conic: array<vec4f>;
+@group(0) @binding(7) var<storage, read> v_opacity: array<f32>;
 
 @group(0) @binding(8) var<storage, read_write> v_means: array<vec4f>;
 @group(0) @binding(9) var<storage, read_write> v_scales: array<vec4f>;
@@ -16,9 +16,8 @@
 
 @group(0) @binding(11) var<storage, read> info_array: array<Uniforms>;
 
-// TODO: Errrrr, I'm not sure where these gradients are meant to come from :/
-// @group(0) @binding(9) var<storage, read_write> v_compensation: array<f32>;
-// @group(0) @binding(7) var<storage, read> v_depth: array<f32>;
+// TODO: presumably this is only relevant when supervising depths?
+// @group(0) @binding(11) var<storage, read> v_depth: array<f32>;
 
 struct Uniforms {
     // View matrix transform world to view position.
@@ -131,27 +130,28 @@ fn main(
     // compute vjp from df/d_conic to df/c_cov2d
     // conic = inverse cov2d
     // df/d_cov2d = -conic * df/d_conic * conic
-    let conic = conics[idx].xyz;
+    let cov2d = cov2ds[idx].xyz;
+    let compensation = helpers::cov_compensation(cov2d);
+    let conic = helpers::cov2d_to_conic(cov2d);
     let v_conic = v_conic[idx].xyz;
-    let v_cov2d_base = cov2d_to_conic_vjp(conic, v_conic);
+    var v_cov2d = cov2d_to_conic_vjp(conic, v_conic);
     
-    // TODO: Where does v_compensation come from exactly...
-    let comp = compensation[idx];
-    // let v_compensation = 0.0;
+    // Compensation is applied as opac * comp
+    // so deriv is v_opac.
+    let v_compensation = v_opacity[idx];
+
     // comp = sqrt(det(cov2d - 0.3 I) / det(cov2d))
     // conic = inverse(cov2d)
     // df / d_cov2d = df / d comp * 0.5 / comp * [ d comp^2 / d cov2d ]
     // d comp^2 / d cov2d = (1 - comp^2) * conic - 0.3 I * det(conic)
-    // let inv_det = conic.x * conic.z - conic.y * conic.y;
-    // let one_minus_sqr_comp = 1.0 - comp * comp;
-    // let v_sqr_comp = v_compensation * 0.5 / (comp + 1e-6);
-    // let v_cov_comp = vec3f(
-    //     v_sqr_comp * (one_minus_sqr_comp * conic.x - 0.3 * inv_det),
-    //     2 * v_sqr_comp * (one_minus_sqr_comp * conic.y),
-    //     v_sqr_comp * (one_minus_sqr_comp * conic.z - 0.3 * inv_det)
-    // );
-    // let v_cov2d = v_cov_conic + v_cov_comp;
-    let v_cov2d = v_cov2d_base;
+    let inv_det = conic.x * conic.z - conic.y * conic.y;
+    let one_minus_sqr_comp = 1.0 - compensation * compensation;
+    let v_sqr_comp = v_compensation * 0.5 / (compensation + 1e-6);
+    v_cov2d += vec3f(
+        v_sqr_comp * (one_minus_sqr_comp * conic.x - helpers::COV_BLUR * inv_det),
+        2.0 * v_sqr_comp * (one_minus_sqr_comp * conic.y),
+        v_sqr_comp * (one_minus_sqr_comp * conic.z - helpers::COV_BLUR * inv_det)
+    );
 
     // get v_cov3d (and v_mean3d contribution)
     let rz = 1.0 / p_view.z;

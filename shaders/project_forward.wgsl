@@ -7,11 +7,10 @@
 @group(0) @binding(3) var<storage, read_write> xys: array<vec2f>;
 @group(0) @binding(4) var<storage, read_write> depths: array<f32>;
 @group(0) @binding(5) var<storage, read_write> radii: array<u32>;
-@group(0) @binding(6) var<storage, read_write> conics: array<vec4f>;
-@group(0) @binding(7) var<storage, read_write> compensation: array<f32>;
-@group(0) @binding(8) var<storage, read_write> num_tiles_hit: array<u32>;
+@group(0) @binding(6) var<storage, read_write> cov2ds: array<vec4f>;
+@group(0) @binding(7) var<storage, read_write> num_tiles_hit: array<u32>;
 
-@group(0) @binding(9) var<storage, read> info_array: array<Uniforms>;
+@group(0) @binding(8) var<storage, read> info_array: array<Uniforms>;
 
 struct Uniforms {
     // View matrix transform world to view position.
@@ -98,52 +97,34 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
     let c01 = cov[0][1];
 
     // add a little blur along axes and save upper triangular elements
-    // and compute the density compensation factor due to the blurs
-
-
-    // TODO: Is this 0.3 good? Make it configurable?
-    let blur_det_comp = 0.3f;
-    let cov2d = vec3f(c00 + blur_det_comp, c01, c11 + blur_det_comp);
-
-    let det_orig = c00 * c11 - c01 * c01;
+    let cov2d = vec3f(c00 + helpers::COV_BLUR, c01, c11 + helpers::COV_BLUR);
     let det = cov2d.x * cov2d.z - cov2d.y * cov2d.y;
 
-    if abs(det) < 1e-6 {
-        // Cull this gaussian (leaves radii as 0).
-        return;
-    }
-
-    let comp = sqrt(max(0.0, det_orig / det));
-
     // inverse of 2x2 cov2d matrix
-    let conic = vec3f(cov2d.z, -cov2d.y, cov2d.x) / det;
     let b = 0.5 * (cov2d.x + cov2d.z);
     let v1 = b + sqrt(max(0.1f, b * b - det));
     let v2 = b - sqrt(max(0.1f, b * b - det));
 
     // Render 3 sigma of covariance.
     // TODO: Make this a setting? Could save a good amount of pixels
-    // Touched. Or even better: pick gaussians that REALLY clip to 0.
-    // TODO: Is rounding down better?
+    // that need to be rendered. Also: pick gaussians that REALLY clip to 0.
+    // TODO: Is rounding down better? Eg. for gaussians <pixel size, just skip?
     let radius = u32(ceil(3.0 * sqrt(max(0.0, max(v1, v2)))));
+
+    if radius == 0 {
+        // point bbox outside of bounds.
+        return;
+    }
 
     // compute the projected mean
     let center = project_pix(focal, p_view, pixel_center);
     let tile_minmax = helpers::get_tile_bbox(center, radius, tile_bounds, block_width);
     let tile_area = (tile_minmax.z - tile_minmax.x) * (tile_minmax.w - tile_minmax.y);
 
-    // TODO: If radius is >0 at all, then tile_area > 0 right?
-    // What is this check for?
-    if tile_area <= 0 {
-        // point bbox outside of bounds.
-        return;
-    }
-
     // Now write all the data to the buffers.
     num_tiles_hit[idx] = tile_area;
     depths[idx] = p_view.z;
     radii[idx] = radius;
     xys[idx] = center;
-    compensation[idx] = comp;
-    conics[idx] = vec4f(conic, 1.0);
+    cov2ds[idx] = vec4f(cov2d, 1.0);
 }

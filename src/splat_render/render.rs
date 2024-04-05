@@ -65,10 +65,9 @@ struct GaussianBackwardState {
 
     // Calculated state.
     radii: IntTensor<BurnBack, 1>,
-    compensation: FloatTensor<BurnBack, 1>,
 
     xys: FloatTensor<BurnBack, 2>,
-    conics: FloatTensor<BurnBack, 2>,
+    cov2ds: FloatTensor<BurnBack, 2>,
     out_img: FloatTensor<BurnBack, 3>,
 
     gaussian_ids_sorted: IntTensor<BurnBack, 1>,
@@ -130,9 +129,8 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
 
         let depths = create_buffer::<f32, 1>(&client, [num_points], BufferAlloc::Zeros);
         let xys = create_tensor(&client, &device, [num_points, 2], BufferAlloc::Zeros);
-        let conics = create_tensor(&client, &device, [num_points, 4], BufferAlloc::Zeros);
+        let cov2ds = create_tensor(&client, &device, [num_points, 4], BufferAlloc::Zeros);
         let radii = create_tensor(&client, &device, [num_points], BufferAlloc::Zeros);
-        let compensation = create_tensor(&client, &device, [num_points], BufferAlloc::Zeros);
         let num_tiles_hit = create_buffer::<u32, 1>(&client, [num_points], BufferAlloc::Zeros);
 
         ProjectSplats::execute(
@@ -151,8 +149,7 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
                 &xys.handle,
                 &depths,
                 &radii.handle,
-                &conics.handle,
-                &compensation.handle,
+                &cov2ds.handle,
                 &num_tiles_hit,
             ],
             [num_points as u32, 1, 1],
@@ -264,7 +261,7 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
                 &gaussian_ids_sorted.handle,
                 &tile_bins.handle,
                 &xys.handle,
-                &conics.handle,
+                &cov2ds.handle,
                 &colors.handle,
                 &opacity.handle,
             ],
@@ -285,14 +282,13 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
                     colors: prep.checkpoint(&colors_diff),
                     opacity: prep.checkpoint(&opacity_diff),
                     radii,
-                    compensation,
                     cam: camera.clone(),
                     background,
                     out_img: out_img.clone(),
                     gaussian_ids_sorted,
                     tile_bins,
                     xys,
-                    conics,
+                    cov2ds,
                     final_index,
                 };
 
@@ -356,7 +352,7 @@ impl Backward<BurnBack, 3, 5> for RenderBackwards {
                 &state.gaussian_ids_sorted.handle,
                 &state.tile_bins.handle,
                 &state.xys.handle,
-                &state.conics.handle,
+                &state.cov2ds.handle,
                 &colors.handle,
                 &opacity.handle,
                 &state.final_index.handle,
@@ -383,10 +379,10 @@ impl Backward<BurnBack, 3, 5> for RenderBackwards {
                 &scales.handle,
                 &quats.handle,
                 &state.radii.handle,
-                &state.conics.handle,
-                &state.compensation.handle,
+                &state.cov2ds.handle,
                 &v_xy,
                 &v_conic,
+                &v_opacity.handle,
             ],
             &[&v_means.handle, &v_scales.handle, &v_quats.handle],
             [num_points as u32, 1, 1],
