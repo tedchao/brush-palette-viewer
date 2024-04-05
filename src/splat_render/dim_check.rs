@@ -47,6 +47,18 @@ impl From<usize> for DimBound {
     }
 }
 
+impl From<u32> for DimBound {
+    fn from(value: u32) -> Self {
+        DimBound::Exact(value as usize)
+    }
+}
+
+impl From<i32> for DimBound {
+    fn from(value: i32) -> Self {
+        DimBound::Exact(value as usize)
+    }
+}
+
 impl From<&'static str> for DimBound {
     fn from(value: &'static str) -> Self {
         match value {
