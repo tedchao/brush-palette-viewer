@@ -108,13 +108,6 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
             into_contiguous(opacity_diff.clone().primitive),
         );
 
-        assert!(
-            means.device == scales.device
-                && means.device == quats.device
-                && means.device == colors.device
-                && means.device == opacity.device
-        );
-
         DimCheck::new()
             .check_dims(&means, ["D".into(), 4.into()])
             .check_dims(&scales, ["D".into(), 4.into()])

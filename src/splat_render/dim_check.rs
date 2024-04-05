@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use super::{BurnBack, FloatTensor};
+use super::{BurnBack, BurnRuntime, FloatTensor};
 
 #[derive(Clone, Copy)]
 pub enum DimBound {
@@ -9,23 +9,30 @@ pub enum DimBound {
     Matching(&'static str),
 }
 
-pub struct DimCheck {
-    bound: HashMap<&'static str, usize>,
+pub struct DimCheck<'a> {
+    bound: HashMap<&'a str, usize>,
+    device: Option<&'a <BurnRuntime as burn_jit::Runtime>::Device>,
 }
 
-impl DimCheck {
+impl<'a> DimCheck<'a> {
     pub fn new() -> Self {
         DimCheck {
             bound: HashMap::new(),
+            device: None,
         }
     }
 
     pub fn check_dims<const D: usize>(
         mut self,
-        tensor: &FloatTensor<BurnBack, D>,
+        tensor: &'a FloatTensor<BurnBack, D>,
         bounds: [DimBound; D],
     ) -> Self {
         let dims = tensor.shape.dims;
+
+        match self.device {
+            None => self.device = Some(&tensor.device),
+            Some(d) => assert_eq!(d, &tensor.device),
+        }
 
         for (cur_dim, bound) in dims.into_iter().zip(bounds) {
             match bound {
