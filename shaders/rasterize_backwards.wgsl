@@ -121,15 +121,16 @@ fn main(
             workgroupBarrier();
 
             if inside {
-                let conic = helpers::cov2d_to_conic(cov2d_batch[t].xyz);
+                let cov2d = cov2d_batch[t].xyz;
+                let conic = helpers::cov2d_to_conic(cov2d);
                 let xy = xy_batch[t];
-                let opac = opacity_batch[t];
+                let opac = opacity_batch[t] * helpers::cov_compensation(cov2d);
                 let delta = xy - pixel_coord;
                 var sigma = 0.5f * (conic.x * delta.x * delta.x + conic.z * delta.y * delta.y) + conic.y * delta.x * delta.y;
 
                 let alpha = min(0.99f, opac * exp(-sigma));
 
-                if (sigma > 0.0) {
+                if (sigma > 0.0 && alpha > 1.0 / 255.0) {
                     let vis = exp(-sigma);
 
                     // compute the current T for this gaussian

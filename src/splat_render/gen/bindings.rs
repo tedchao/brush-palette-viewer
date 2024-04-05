@@ -2,7 +2,7 @@
 //
 // ^ wgsl_bindgen version 0.10.0
 // Changes made to this file will not be saved.
-// SourceHash: a13ab93554e774d3628fbeed4b456cb8b17ba67851fec1ee0e1f0ebcb958473c
+// SourceHash: c9a2ce39a60bba54a4eabd08ab43d0dc4ec3e4d96f2c5f58778ea0af3645ba9f
 
 #![allow(unused, non_snake_case, non_camel_case_types, non_upper_case_globals)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -2019,6 +2019,13 @@ fn cov2d_to_conicX_naga_oil_mod_XNBSWY4DFOJZQX(cov2d: vec3<f32>) -> vec3<f32> {
     return (vec3<f32>(cov2d.z, -(cov2d.y), cov2d.x) / vec3(det));
 }
 
+fn cov_compensationX_naga_oil_mod_XNBSWY4DFOJZQX(cov2d_1: vec3<f32>) -> f32 {
+    let cov_orig = (cov2d_1 - vec3<f32>(0.3f, 0f, 0.3f));
+    let det_orig = ((cov_orig.x * cov_orig.z) - (cov_orig.y * cov_orig.y));
+    let det_1 = ((cov2d_1.x * cov2d_1.z) - (cov2d_1.y * cov2d_1.y));
+    return sqrt(max(0f, (det_orig / det_1)));
+}
+
 fn bitAddFloat(cur: u32, add: f32) -> u32 {
     return bitcast<u32>((bitcast<f32>(cur) + add));
 }
@@ -2102,45 +2109,48 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
                     if inside {
                         let _e121 = t;
                         let _e123 = cov2d_batch[_e121];
-                        let _e125 = cov2d_to_conicX_naga_oil_mod_XNBSWY4DFOJZQX(_e123.xyz);
+                        let cov2d_2 = _e123.xyz;
+                        let _e125 = cov2d_to_conicX_naga_oil_mod_XNBSWY4DFOJZQX(cov2d_2);
                         let _e127 = t;
                         let xy = xy_batch[_e127];
                         let _e131 = t;
-                        let opac = opacity_batch[_e131];
+                        let _e133 = opacity_batch[_e131];
+                        let _e134 = cov_compensationX_naga_oil_mod_XNBSWY4DFOJZQX(cov2d_2);
+                        let opac = (_e133 * _e134);
                         let delta = (xy - pixel_coord);
                         sigma = ((0.5f * (((_e125.x * delta.x) * delta.x) + ((_e125.z * delta.y) * delta.y))) + ((_e125.y * delta.x) * delta.y));
-                        let _e156 = sigma;
-                        let alpha = min(0.99f, (opac * exp(-(_e156))));
-                        let _e161 = sigma;
-                        if (_e161 > 0f) {
-                            let _e164 = sigma;
-                            let vis = exp(-(_e164));
+                        let _e158 = sigma;
+                        let alpha = min(0.99f, (opac * exp(-(_e158))));
+                        let _e163 = sigma;
+                        if ((_e163 > 0f) && (alpha > 0.003921569f)) {
+                            let _e169 = sigma;
+                            let vis = exp(-(_e169));
                             let ra = (1f / (1f - alpha));
-                            let _e171 = T;
-                            T = (_e171 * ra);
-                            let _e173 = T;
-                            let fac = (alpha * _e173);
+                            let _e176 = T;
+                            T = (_e176 * ra);
+                            let _e178 = T;
+                            let fac = (alpha * _e178);
                             v_colors_local[local_idx] = (fac * v_out.xyz);
                             v_alpha = 0f;
-                            let _e182 = t;
-                            let _e184 = color_batch[_e182];
-                            let color = _e184.xyz;
-                            let _e187 = T;
-                            let _e189 = buffer;
-                            let _e194 = v_alpha;
-                            v_alpha = (_e194 + dot(((color * _e187) - (_e189 * ra)), v_out.xyz));
+                            let _e187 = t;
+                            let _e189 = color_batch[_e187];
+                            let color = _e189.xyz;
+                            let _e192 = T;
+                            let _e194 = buffer;
                             let _e199 = v_alpha;
-                            v_alpha = (_e199 + ((T_final * ra) * v_out.w));
-                            let _e205 = v_alpha;
-                            v_alpha = (_e205 - dot(((T_final * ra) * background), v_out.xyz));
-                            let _e208 = buffer;
-                            buffer = (_e208 + (color * fac));
-                            let _e212 = v_alpha;
-                            let v_sigma = ((-(opac) * vis) * _e212);
+                            v_alpha = (_e199 + dot(((color * _e192) - (_e194 * ra)), v_out.xyz));
+                            let _e204 = v_alpha;
+                            v_alpha = (_e204 + ((T_final * ra) * v_out.w));
+                            let _e210 = v_alpha;
+                            v_alpha = (_e210 - dot(((T_final * ra) * background), v_out.xyz));
+                            let _e213 = buffer;
+                            buffer = (_e213 + (color * fac));
+                            let _e217 = v_alpha;
+                            let v_sigma = ((-(opac) * vis) * _e217);
                             v_conic_local[local_idx] = vec3<f32>((((0.5f * v_sigma) * delta.x) * delta.x), ((v_sigma * delta.x) * delta.y), (((0.5f * v_sigma) * delta.y) * delta.y));
                             v_xy_local[local_idx] = (v_sigma * vec2<f32>(((_e125.x * delta.x) + (_e125.y * delta.y)), ((_e125.y * delta.x) + (_e125.z * delta.y))));
-                            let _e253 = v_alpha;
-                            v_opacity_local[local_idx] = (vis * _e253);
+                            let _e258 = v_alpha;
+                            v_opacity_local[local_idx] = (vis * _e258);
                         }
                     }
                     workgroupBarrier();
@@ -2154,126 +2164,126 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
                         v_opacity_sum = 0f;
                         i = 0u;
                         loop {
-                            let _e271 = i;
-                            if (_e271 < BLOCK_SIZE) {
+                            let _e276 = i;
+                            if (_e276 < BLOCK_SIZE) {
                             } else {
                                 break;
                             }
                             {
-                                let _e275 = i;
-                                let _e277 = v_colors_local[_e275];
-                                let _e278 = v_colors_sum;
-                                v_colors_sum = (_e278 + _e277);
-                                let _e281 = i;
-                                let _e283 = v_conic_local[_e281];
-                                let _e284 = v_conic_sum;
-                                v_conic_sum = (_e284 + _e283);
-                                let _e287 = i;
-                                let _e289 = v_xy_local[_e287];
-                                let _e290 = v_xy_sum;
-                                v_xy_sum = (_e290 + _e289);
-                                let _e293 = i;
-                                let _e295 = v_opacity_local[_e293];
-                                let _e296 = v_opacity_sum;
-                                v_opacity_sum = (_e296 + _e295);
+                                let _e280 = i;
+                                let _e282 = v_colors_local[_e280];
+                                let _e283 = v_colors_sum;
+                                v_colors_sum = (_e283 + _e282);
+                                let _e286 = i;
+                                let _e288 = v_conic_local[_e286];
+                                let _e289 = v_conic_sum;
+                                v_conic_sum = (_e289 + _e288);
+                                let _e292 = i;
+                                let _e294 = v_xy_local[_e292];
+                                let _e295 = v_xy_sum;
+                                v_xy_sum = (_e295 + _e294);
+                                let _e298 = i;
+                                let _e300 = v_opacity_local[_e298];
+                                let _e301 = v_opacity_sum;
+                                v_opacity_sum = (_e301 + _e300);
                             }
                             continuing {
-                                let _e299 = i;
-                                i = (_e299 + 1u);
+                                let _e304 = i;
+                                i = (_e304 + 1u);
                             }
                         }
                         loop {
                             let old = atomicLoad((&v_colors[((g_id_1 * 4u) + 0u)]));
-                            let _e315 = v_colors_sum.x;
-                            let _e316 = bitAddFloat(old, _e315);
-                            let _e317 = atomicCompareExchangeWeak((&v_colors[((g_id_1 * 4u) + 0u)]), old, _e316);
-                            if _e317.exchanged {
+                            let _e320 = v_colors_sum.x;
+                            let _e321 = bitAddFloat(old, _e320);
+                            let _e322 = atomicCompareExchangeWeak((&v_colors[((g_id_1 * 4u) + 0u)]), old, _e321);
+                            if _e322.exchanged {
                                 break;
                             }
                         }
                         loop {
                             let old_1 = atomicLoad((&v_colors[((g_id_1 * 4u) + 1u)]));
-                            let _e333 = v_colors_sum.y;
-                            let _e334 = bitAddFloat(old_1, _e333);
-                            let _e335 = atomicCompareExchangeWeak((&v_colors[((g_id_1 * 4u) + 1u)]), old_1, _e334);
-                            if _e335.exchanged {
+                            let _e338 = v_colors_sum.y;
+                            let _e339 = bitAddFloat(old_1, _e338);
+                            let _e340 = atomicCompareExchangeWeak((&v_colors[((g_id_1 * 4u) + 1u)]), old_1, _e339);
+                            if _e340.exchanged {
                                 break;
                             }
                         }
                         loop {
                             let old_2 = atomicLoad((&v_colors[((g_id_1 * 4u) + 2u)]));
-                            let _e351 = v_colors_sum.z;
-                            let _e352 = bitAddFloat(old_2, _e351);
-                            let _e353 = atomicCompareExchangeWeak((&v_colors[((g_id_1 * 4u) + 2u)]), old_2, _e352);
-                            if _e353.exchanged {
+                            let _e356 = v_colors_sum.z;
+                            let _e357 = bitAddFloat(old_2, _e356);
+                            let _e358 = atomicCompareExchangeWeak((&v_colors[((g_id_1 * 4u) + 2u)]), old_2, _e357);
+                            if _e358.exchanged {
                                 break;
                             }
                         }
                         loop {
                             let old_3 = atomicLoad((&v_conic[((g_id_1 * 4u) + 0u)]));
-                            let _e369 = v_conic_sum.x;
-                            let _e370 = bitAddFloat(old_3, _e369);
-                            let _e371 = atomicCompareExchangeWeak((&v_conic[((g_id_1 * 4u) + 0u)]), old_3, _e370);
-                            if _e371.exchanged {
+                            let _e374 = v_conic_sum.x;
+                            let _e375 = bitAddFloat(old_3, _e374);
+                            let _e376 = atomicCompareExchangeWeak((&v_conic[((g_id_1 * 4u) + 0u)]), old_3, _e375);
+                            if _e376.exchanged {
                                 break;
                             }
                         }
                         loop {
                             let old_4 = atomicLoad((&v_conic[((g_id_1 * 4u) + 1u)]));
-                            let _e387 = v_conic_sum.y;
-                            let _e388 = bitAddFloat(old_4, _e387);
-                            let _e389 = atomicCompareExchangeWeak((&v_conic[((g_id_1 * 4u) + 1u)]), old_4, _e388);
-                            if _e389.exchanged {
+                            let _e392 = v_conic_sum.y;
+                            let _e393 = bitAddFloat(old_4, _e392);
+                            let _e394 = atomicCompareExchangeWeak((&v_conic[((g_id_1 * 4u) + 1u)]), old_4, _e393);
+                            if _e394.exchanged {
                                 break;
                             }
                         }
                         loop {
                             let old_5 = atomicLoad((&v_conic[((g_id_1 * 4u) + 2u)]));
-                            let _e405 = v_conic_sum.z;
-                            let _e406 = bitAddFloat(old_5, _e405);
-                            let _e407 = atomicCompareExchangeWeak((&v_conic[((g_id_1 * 4u) + 2u)]), old_5, _e406);
-                            if _e407.exchanged {
+                            let _e410 = v_conic_sum.z;
+                            let _e411 = bitAddFloat(old_5, _e410);
+                            let _e412 = atomicCompareExchangeWeak((&v_conic[((g_id_1 * 4u) + 2u)]), old_5, _e411);
+                            if _e412.exchanged {
                                 break;
                             }
                         }
                         loop {
                             let old_6 = atomicLoad((&v_xy[((g_id_1 * 2u) + 0u)]));
-                            let _e423 = v_xy_sum.x;
-                            let _e424 = bitAddFloat(old_6, _e423);
-                            let _e425 = atomicCompareExchangeWeak((&v_xy[((g_id_1 * 2u) + 0u)]), old_6, _e424);
-                            if _e425.exchanged {
+                            let _e428 = v_xy_sum.x;
+                            let _e429 = bitAddFloat(old_6, _e428);
+                            let _e430 = atomicCompareExchangeWeak((&v_xy[((g_id_1 * 2u) + 0u)]), old_6, _e429);
+                            if _e430.exchanged {
                                 break;
                             }
                         }
                         loop {
                             let old_7 = atomicLoad((&v_xy[((g_id_1 * 2u) + 1u)]));
-                            let _e441 = v_xy_sum.y;
-                            let _e442 = bitAddFloat(old_7, _e441);
-                            let _e443 = atomicCompareExchangeWeak((&v_xy[((g_id_1 * 2u) + 1u)]), old_7, _e442);
-                            if _e443.exchanged {
+                            let _e446 = v_xy_sum.y;
+                            let _e447 = bitAddFloat(old_7, _e446);
+                            let _e448 = atomicCompareExchangeWeak((&v_xy[((g_id_1 * 2u) + 1u)]), old_7, _e447);
+                            if _e448.exchanged {
                                 break;
                             }
                         }
                         loop {
                             let old_8 = atomicLoad((&v_opacity[g_id_1]));
-                            let _e450 = v_opacity_sum;
-                            let _e451 = bitAddFloat(old_8, _e450);
-                            let _e452 = atomicCompareExchangeWeak((&v_opacity[g_id_1]), old_8, _e451);
-                            if _e452.exchanged {
+                            let _e455 = v_opacity_sum;
+                            let _e456 = bitAddFloat(old_8, _e455);
+                            let _e457 = atomicCompareExchangeWeak((&v_opacity[g_id_1]), old_8, _e456);
+                            if _e457.exchanged {
                                 break;
                             }
                         }
                     }
                 }
                 continuing {
-                    let _e455 = t;
-                    t = (_e455 + 1u);
+                    let _e460 = t;
+                    t = (_e460 + 1u);
                 }
             }
         }
         continuing {
-            let _e458 = batch;
-            batch = (_e458 + 1u);
+            let _e463 = batch;
+            batch = (_e463 + 1u);
         }
     }
     return;
