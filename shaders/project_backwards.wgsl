@@ -23,6 +23,7 @@
 struct Uniforms {
     // View matrix transform world to view position.
     viewmat: mat4x4f,
+    // Focal of camera (fx, fy)
     focal: vec2f,
     // Img resolution (w, h)
     img_size: vec2u,
@@ -35,7 +36,7 @@ fn project_pix_vjp(fxfy: vec2f, p_view: vec3f, v_xy: vec2f) -> vec3f {
 }
 
 fn quat_to_rotmat_vjp(quat: vec4f, v_R: mat3x3f) -> vec4f {
-    let quat_norm = normalize(quat + 1e-6);
+    let quat_norm = normalize(quat);
 
     let w = quat_norm.x;
     let x = quat_norm.y;
@@ -99,13 +100,14 @@ fn main(
     let idx = global_id.x;
 
     // Until burn supports adding in uniforms we read these from a tensor.
-    let info = info_array[0];
+
     let num_points = arrayLength(&means);
 
-    if idx >= num_points || radii[idx] <= 0 {
+    if idx >= num_points || radii[idx] == 0 {
         return;
     }
 
+    let info = info_array[0];
     let viewmat = info.viewmat;
     let focal = info.focal;
 
@@ -115,10 +117,7 @@ fn main(
 
     let W = mat3x3f(viewmat[0].xyz, viewmat[1].xyz, viewmat[2].xyz);
     let p_view = W * mean + viewmat[3].xyz;
-    
-    let pix_vjp = project_pix_vjp(focal, p_view, v_xy[idx]);
-
-    var v_mean = transpose(W) * pix_vjp;
+    var v_mean = transpose(W) * project_pix_vjp(focal, p_view, v_xy[idx]);
 
     // get v_mean3d from v_xy
     // get z gradient contribution to mean3d gradient
@@ -202,8 +201,8 @@ fn main(
     let v_t = vec3f(
         -focal.x * rz2 * v_J[2][0],
         -focal.y * rz2 * v_J[2][1],
-        -focal.x * rz2 * v_J[0][0] + 2.0f * focal.x * p_view.x * rz3 * v_J[2][0] -
-            focal.y * rz2 * v_J[1][1] + 2.0f * focal.y * p_view.y * rz3 * v_J[2][1]
+        -focal.x * rz2 * v_J[0][0] + 2.0 * focal.x * p_view.x * rz3 * v_J[2][0] -
+            focal.y * rz2 * v_J[1][1] + 2.0 * focal.y * p_view.y * rz3 * v_J[2][1]
     );
 
     v_mean += vec3f(dot(v_t, W[0]), dot(v_t, W[1]), dot(v_t, W[2]));
@@ -213,15 +212,21 @@ fn main(
     // must halve when expanding back into symmetric matrix
     // TODO: Is this definitely the same as above?
     let v_V_symm = mat3x3f(
-        v_cov3d0,
-        0.5 * v_cov3d1,
-        0.5 * v_cov3d2,
-        0.5 * v_cov3d1,
-        v_cov3d3,
-        0.5 * v_cov3d4,
-        0.5 * v_cov3d2,
-        0.5 * v_cov3d4,
-        v_cov3d5
+        vec3f(
+            v_cov3d0,
+            0.5 * v_cov3d1,
+            0.5 * v_cov3d2,
+        ),
+        vec3f(
+            0.5 * v_cov3d1,
+            v_cov3d3,
+            0.5 * v_cov3d4,
+        ),
+        vec3f(
+            0.5 * v_cov3d2,
+            0.5 * v_cov3d4,
+            v_cov3d5
+        )
     );
 
     // https://math.stackexchange.com/a/3850121
