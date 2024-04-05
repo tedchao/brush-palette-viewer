@@ -6,26 +6,28 @@
 
 @group(0) @binding(3) var<storage, read_write> xys: array<vec2f>;
 @group(0) @binding(4) var<storage, read_write> depths: array<f32>;
-@group(0) @binding(5) var<storage, read_write> radii: array<i32>;
+@group(0) @binding(5) var<storage, read_write> radii: array<u32>;
 @group(0) @binding(6) var<storage, read_write> conics: array<vec4f>;
 @group(0) @binding(7) var<storage, read_write> compensation: array<f32>;
-@group(0) @binding(8) var<storage, read_write> num_tiles_hit: array<i32>;
+@group(0) @binding(8) var<storage, read_write> num_tiles_hit: array<u32>;
 
 @group(0) @binding(9) var<storage, read> info_array: array<Uniforms>;
 
 struct Uniforms {
     // View matrix transform world to view position.
     viewmat: mat4x4f,
+    // Focal (fx, fy).
     focal: vec2f,
+    // Camera center (cx, cy).
     pixel_center: vec2f,
     // Img resolution (w, h)
     img_size: vec2u,
     // Total reachable pixels (w, h)
     tile_bounds: vec2u,
-    // Near clip threshold.
-    clip_thresh: f32,
     // Width of blocks image is divided into.
     block_width: u32,
+    // Near clip threshold.
+    clip_thresh: f32,
 }
 
 fn project_pix(fxfy: vec2f, p_view: vec3f, pp: vec2f) -> vec2f {
@@ -55,14 +57,11 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
     let block_width = info.block_width;
     let clip_thresh = info.clip_thresh;
 
-    radii[idx] = 0;
-    num_tiles_hit[idx] = 0;
-
     // Project world space to camera space.
-    let mean = means[idx].xyz;
+    let p_world = means[idx].xyz;
+
     let W = mat3x3f(viewmat[0].xyz, viewmat[1].xyz, viewmat[2].xyz);
-    
-    let p_view = W * mean + viewmat[3].xyz;
+    let p_view = W * p_world + viewmat[3].xyz;
 
     if p_view.z <= clip_thresh {
         return;
@@ -98,22 +97,23 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
     let c11 = cov[1][1];
     let c01 = cov[0][1];
 
-    // find eigenvalues of 2d covariance matrix
-    // expects upper triangular values of cov matrix as float3
-    // then compute the radius and conic dimensions
-    // the conic is the inverse cov2d matrix, represented here with upper
-    // triangular values.
+    // add a little blur along axes and save upper triangular elements
+    // and compute the density compensation factor due to the blurs
 
-    // Blur the 2D covariance a bit to prevent blowup for small
-    // gaussians.
+
     // TODO: Is this 0.3 good? Make it configurable?
-    let cov2d = vec3f(c00 + 0.3f, c01, c11 + 0.3f);
+    let blur_det_comp = 0.3f;
+    let cov2d = vec3f(c00 + blur_det_comp, c01, c11 + blur_det_comp);
+
+    let det_orig = c00 * c11 - c01 * c01;
     let det = cov2d.x * cov2d.z - cov2d.y * cov2d.y;
 
     if abs(det) < 1e-6 {
         // Cull this gaussian (leaves radii as 0).
         return;
     }
+
+    let comp = sqrt(max(0.0, det_orig / det));
 
     // inverse of 2x2 cov2d matrix
     let conic = vec3f(cov2d.z, -cov2d.y, cov2d.x) / det;
@@ -125,7 +125,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
     // TODO: Make this a setting? Could save a good amount of pixels
     // Touched. Or even better: pick gaussians that REALLY clip to 0.
     // TODO: Is rounding down better?
-    let radius = i32(ceil(3.0 * sqrt(max(0.0, max(v1, v2)))));
+    let radius = u32(ceil(3.0 * sqrt(max(0.0, max(v1, v2)))));
 
     // compute the projected mean
     let center = project_pix(focal, p_view, pixel_center);
@@ -135,20 +135,15 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
     // TODO: If radius is >0 at all, then tile_area > 0 right?
     // What is this check for?
     if tile_area <= 0 {
+        // point bbox outside of bounds.
         return;
     }
 
     // Now write all the data to the buffers.
-    num_tiles_hit[idx] = i32(tile_area);
+    num_tiles_hit[idx] = tile_area;
     depths[idx] = p_view.z;
     radii[idx] = radius;
     xys[idx] = center;
-
+    compensation[idx] = comp;
     conics[idx] = vec4f(conic, 1.0);
-
-    // Add a little blur along axes and save upper triangular elements
-    // and compute the density compensation factor due to the blurs.
-    let det_orig = c00 * c11 - c01 * c01;
-    let det_blur = cov2d.x * cov2d.z - cov2d.y * cov2d.y;
-    compensation[idx] = sqrt(max(0.0, det_orig / det_blur));
 }

@@ -159,8 +159,8 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
                 camera.center().into(),
                 img_size,
                 tile_bounds.into(),
-                0.01,
                 block_width,
+                0.01,
             ),
             &[&means.handle, &scales.handle, &quats.handle],
             &[
@@ -275,7 +275,7 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
 
         Rasterize::execute(
             &client,
-            gen::rasterize::Uniforms::new(tile_bounds.into(), background.into(), img_size),
+            gen::rasterize::Uniforms::new(img_size, background.into()),
             &[
                 &gaussian_ids_sorted.handle,
                 &tile_bins.handle,
@@ -337,17 +337,14 @@ impl Backward<BurnBack, 3, 5> for RenderBackwards {
         checkpointer: &mut Checkpointer,
     ) {
         // // Get the nodes of each variable.
-        let block_size = 16;
-
         let state = ops.state;
         let v_output = grads.consume::<BurnBack, 3>(&ops.node);
         let camera = state.cam;
-        let tile_bounds = uvec2(
-            camera.height.div_ceil(block_size),
-            camera.height.div_ceil(block_size),
-        );
 
-        assert!(v_output.shape.dims == [camera.height as usize, camera.width as usize, 4]);
+        DimCheck::new().check_dims(
+            &v_output,
+            [camera.height.into(), camera.width.into(), 4.into()],
+        );
 
         let client = v_output.client.clone();
         let device = v_output.device.clone();
@@ -360,16 +357,15 @@ impl Backward<BurnBack, 3, 5> for RenderBackwards {
 
         let num_points = means.shape.dims[0];
 
-        let v_opacity = create_tensor(&client, &device, [num_points], BufferAlloc::Zeros);
-        let v_colors = create_tensor(&client, &device, [num_points, 4], BufferAlloc::Zeros);
-        let v_conic = create_buffer::<f32, 2>(&client, [num_points, 4], BufferAlloc::Zeros);
         let v_xy = create_buffer::<f32, 2>(&client, [num_points, 2], BufferAlloc::Zeros);
+        let v_conic = create_buffer::<f32, 2>(&client, [num_points, 4], BufferAlloc::Zeros);
+        let v_colors = create_tensor(&client, &device, [num_points, 4], BufferAlloc::Zeros);
+        let v_opacity = create_tensor(&client, &device, [num_points], BufferAlloc::Zeros);
 
         RasterizeBackwards::execute(
             &client,
             gen::rasterize_backwards::Uniforms::new(
                 [camera.height, camera.width],
-                tile_bounds.into(),
                 state.background.into(),
             ),
             &[
@@ -383,7 +379,7 @@ impl Backward<BurnBack, 3, 5> for RenderBackwards {
                 &state.out_img.handle,
                 &v_output.handle,
             ],
-            &[&v_opacity.handle, &v_conic, &v_xy, &v_colors.handle],
+            &[&v_xy, &v_conic, &v_colors.handle, &v_opacity.handle],
             [camera.height, camera.width, 1],
         );
 

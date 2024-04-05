@@ -10,11 +10,11 @@
 @group(0) @binding(7) var<storage, read> output: array<vec4f>;
 @group(0) @binding(8) var<storage, read> v_output: array<vec4f>;
 
-// TODO: These all need to be atomic :/
-@group(0) @binding(9) var<storage, read_write> v_opacity: array<f32>;
-@group(0) @binding(10) var<storage, read_write> v_conic: array<vec4f>;
-@group(0) @binding(11) var<storage, read_write> v_xy: array<vec2f>;
-@group(0) @binding(12) var<storage, read_write> v_rgb: array<vec4f>;
+@group(0) @binding(9) var<storage, read_write> v_xy: array<atomic<u32>>;
+@group(0) @binding(10) var<storage, read_write> v_conic: array<atomic<u32>>;
+@group(0) @binding(11) var<storage, read_write> v_colors: array<atomic<u32>>;
+@group(0) @binding(12) var<storage, read_write> v_opacity: array<atomic<u32>>;
+
 
 @group(0) @binding(13) var<storage, read> info_array: array<Uniforms>;
 
@@ -24,18 +24,23 @@ const BLOCK_SIZE: u32 = BLOCK_WIDTH * BLOCK_WIDTH;
 var<workgroup> id_batch: array<u32, BLOCK_SIZE>;
 var<workgroup> xy_batch: array<vec2f, BLOCK_SIZE>;
 var<workgroup> opacity_batch: array<f32, BLOCK_SIZE>;
+var<workgroup> colors_batch: array<vec4f, BLOCK_SIZE>;
 var<workgroup> conic_batch: array<vec4f, BLOCK_SIZE>;
-var<workgroup> rgbs_batch: array<vec3f, BLOCK_SIZE>;
+
+var<workgroup> v_opacity_local: array<f32, BLOCK_SIZE>;
+var<workgroup> v_conic_local: array<vec3f, BLOCK_SIZE>;
+var<workgroup> v_xy_local: array<vec2f, BLOCK_SIZE>;
+var<workgroup> v_colors_local: array<vec3f, BLOCK_SIZE>;
 
 struct Uniforms {
     // Img resolution (w, h)
     img_size: vec2u,
-
-    // Total reachable pixels (w, h)
-    tile_bounds: vec2u,
-
     // Background color behind the splats.
     background: vec3f,
+}
+
+fn bitAddFloat(cur: u32, add: f32) -> u32 {
+    return bitcast<u32>(bitcast<f32>(cur) + add);
 }
 
 @compute
@@ -46,15 +51,14 @@ fn main(
     @builtin(workgroup_id) workgroup_id: vec3u,
 ) {
     let info = info_array[0];
-    let tile_bounds = info.tile_bounds;
     let background = info.background;
     let img_size = info.img_size;
 
-    // TODO: Make a function to share this with the forward pass.
-    let tile_id = workgroup_id.x + workgroup_id.y * tile_bounds.x;
-    let px = f32(global_id.x) + 0.5;
-    let py = f32(global_id.y) + 0.5;
+    let tiles_xx = (img_size.x + BLOCK_WIDTH - 1) / BLOCK_WIDTH;
+    let tile_id = workgroup_id.x + workgroup_id.y * tiles_xx;
+
     let pix_id = global_id.x + global_id.y * img_size.x;
+    let pixel_coord = vec2f(global_id.xy);
 
     // return if out of bounds
     // keep not rasterizing threads around for reading data
@@ -62,6 +66,7 @@ fn main(
 
     // this is the T AFTER the last gaussian in this pixel
     let T_final = output[pix_id].w;
+    
     var T = T_final;
     // the contribution from gaussians behind the current one
     var buffer = vec3f(0.0, 0.0, 0.0);
@@ -69,24 +74,20 @@ fn main(
     // have all threads in tile process the same gaussians in batches
     // first collect gaussians between bin_start and bin_final in batches
     // which gaussians to look through in this tile
-    let range = tile_bins[tile_id];
-
-    let bin_start = range.x;
-    var bin_final = range.y;
+    var range = tile_bins[tile_id];
     if inside {
-        bin_final = final_index[pix_id];
+        range.y = final_index[pix_id];
     }
 
     // df/d_out for this pixel
-    let v_out = v_output[pix_id].xyz;
+    let v_out = v_output[pix_id];
 
     // collect and process batches of gaussians
     // each thread loads one gaussian at a time before rasterizing
-    var num_batches = (bin_final - bin_start + BLOCK_SIZE - 1) / BLOCK_SIZE;
-    // num_batches = min(3u, num_batches);
+    var num_batches = (range.y - range.x + BLOCK_SIZE - 1) / BLOCK_SIZE;
 
     for(var batch = 0u; batch < num_batches; batch++) {
-        let gauss_idx_start = bin_final - 1 - batch * BLOCK_SIZE;
+        let gauss_idx_start = range.y - 1 - batch * BLOCK_SIZE;
         // resync all threads before writing next batch of shared mem
         workgroupBarrier();
         
@@ -94,16 +95,15 @@ fn main(
         // 0 index will be furthest back in batch
         // index of gaussian to load
         // batch end is the index of the last gaussian in the batch
-        let gauss_idx = gauss_idx_start - local_idx;
+        let idx = gauss_idx_start - local_idx;
 
-        if gauss_idx >= range.x {
-            let g_id = gaussian_ids_sorted[gauss_idx];
-            
+        if idx >= range.x {
+            let g_id = gaussian_ids_sorted[idx];
             id_batch[local_idx] = g_id;
             xy_batch[local_idx] = xys[g_id];
-            conic_batch[local_idx] = conics[g_id];
             opacity_batch[local_idx] = opacities[g_id];
-            rgbs_batch[local_idx] = colors[g_id].xyz;
+            colors_batch[local_idx] = colors[g_id];
+            conic_batch[local_idx] = conics[g_id];
         }
     
         // wait for other threads to collect the gaussians in batch
@@ -113,68 +113,167 @@ fn main(
         // than needed. Might be some other ways to reduce it?
         let remaining = min(BLOCK_SIZE, gauss_idx_start + 1 - range.x);
 
-        if inside {
-            for (var t = 0u; t < remaining; t++) {
-                let conic = conic_batch[t];
-                let delta = xy_batch[t] - vec2f(px, py);
+        // reset local accumulations.
+        for (var t = 0u; t < remaining; t++) {
+            let g_id = id_batch[t];
+            
 
-                // TODO: Make this a function to share with the forward pass.
-                let sigma = 0.5f * (conic.x * delta.x * delta.x +
-                                            conic.z * delta.y * delta.y) +
-                                    conic.y * delta.x * delta.y;
+            // Don't overwrite data before it's all been scattered to the gaussians.
+            workgroupBarrier();
 
+            if inside {
+                let conic = conic_batch[t].xyz;
+                let xy = xy_batch[t];
                 let opac = opacity_batch[t];
-                let vis = exp(-sigma);
-                let alpha = min(0.99f, opac * vis);
+                let delta = xy - pixel_coord;
+                var sigma = 0.5f * (conic.x * delta.x * delta.x + conic.z * delta.y * delta.y) + conic.y * delta.x * delta.y;
 
-                if (sigma < 0.0f || alpha < 1.0f / 255.f) {
-                    continue;
+                let alpha = min(0.99f, opac * exp(-sigma));
+
+                if (sigma > 0.0) {
+                    let vis = exp(-sigma);
+
+                    // compute the current T for this gaussian
+                    let ra = 1.0 / (1.0 - alpha);
+                    T *= ra;
+
+                    // update v_colors for this gaussian
+                    let fac = alpha * T;
+                    v_colors_local[local_idx] = fac * v_out.xyz;
+
+                    var v_alpha = 0.0;
+
+                    let color = colors_batch[t].xyz;
+                    // contribution from this pixel
+                    v_alpha += dot(color * T - buffer * ra, v_out.xyz);
+                    v_alpha += T_final * ra * v_out.w;
+                    // contribution from background pixel
+                    v_alpha -= dot(T_final * ra * background, v_out.xyz);
+
+                    // update the running sum
+                    buffer += color * fac;
+
+                    let v_sigma = -opac * vis * v_alpha;
+
+                    v_conic_local[local_idx] = vec3f(0.5f * v_sigma * delta.x * delta.x, 
+                                                    v_sigma * delta.x * delta.y,
+                                                    0.5f * v_sigma * delta.y * delta.y);
+                    
+                    v_xy_local[local_idx] = v_sigma * vec2f(
+                        conic.x * delta.x + conic.y * delta.y, 
+                        conic.y * delta.x + conic.z * delta.y
+                    );
+
+                    v_opacity_local[local_idx] = vis * v_alpha;
+                }
+            }
+
+            // Make sure all threads have calculated their gradient.
+            // This needs to be on a uniform path so can't be in the if above.
+            workgroupBarrier();
+
+            if !inside {
+                continue;
+            }
+
+            if local_idx == 0 {
+                // Gather workgroup sums.
+                var v_colors_sum = vec3f(0.0);
+                var v_conic_sum = vec3f(0.0);
+                var v_xy_sum = vec2f(0.0);
+                var v_opacity_sum = 0.0;
+                
+                for(var i = 0u; i < BLOCK_SIZE; i++) {
+                    v_colors_sum += v_colors_local[i];
+                    v_conic_sum += v_conic_local[i];
+                    v_xy_sum += v_xy_local[i];
+                    v_opacity_sum += v_opacity_local[i];
                 }
 
-                // compute the current T for this gaussian
-                let ra = 1.0f / (1.0f - alpha);
-                T *= ra;
+                // Write out results atomically. This is... truly awful :)
+                // The basic problem is that WGSL doesn't have atomic floats. We need
+                // to scatter gradients to the various gaussians. Some options were tried and 
+                // didn't work out:
+                // * Implement some kind of locking mechanism with atomic u32. This just seems to fundamentally
+                //   not work, perhaps correctly if I understand the WGSL spec. While the lock can be 'consistent'
+                //   between workgroups, the lock release can still be put before the write, as there are no memory
+                //   guarantees between these.
+                // * Transpose the problem, launch a thread per gaussian, and render all tiles for said gaussian in one
+                //   thread. While I suspect this could work - it could have horrendous performance cliffs. Each gaussian 
+                //   would need to load v_out (maybe once per workgroup to be fair), which could be the entire screen. It would also
+                //   possibly involve a compaction pass.
+                // In the end, "software emuation" of atomic floats seems easiest. It's somewhat TBD whether the performance of this is viable.
+                // Code wise, it would be less awful if more of this could be functions, but as far as I can see I can't make a WGSL function
+                // that takes a ptr<storage, atomic<u32>> sucesfully. I think calling with functions with pointers with storage
+                // adress spaces is an extension or not yet properly supported anyway.
+                // There is a lot of oppurtunity for optimization here still.
 
-                // update v_rgb for this gaussian
-                let fac = alpha * T;
-                let v_rgb_local = fac * v_out;
+                // v_colors.
+                loop {
+                    let old = v_colors[g_id * 4 + 0];
+                    if atomicCompareExchangeWeak(&v_colors[g_id * 4 + 0], old, bitAddFloat(old, v_colors_sum.x)).exchanged {
+                        break;
+                    }
+                }
 
-                var v_alpha = 0.0;
+                loop {
+                    let old = v_colors[g_id * 4 + 1];
+                    if atomicCompareExchangeWeak(&v_colors[g_id * 4 + 1], old, bitAddFloat(old, v_colors_sum.y)).exchanged {
+                        break;
+                    }
+                }
 
-                let rgb = rgbs_batch[t];
-                // contribution from this pixel
-                v_alpha += dot(rgb * T - buffer * ra, v_out);
+                loop {
+                    let old = v_colors[g_id * 4 + 2];
+                    if atomicCompareExchangeWeak(&v_colors[g_id * 4 + 2], old, bitAddFloat(old, v_colors_sum.z)).exchanged {
+                        break;
+                    }
+                }
 
-                // contribution from background pixel
-                v_alpha -= dot(T_final * ra * background, v_out);
+                // v_conic.
+                loop {
+                    let old = v_conic[g_id * 4 + 0];
+                    if atomicCompareExchangeWeak(&v_conic[g_id * 4 + 0], old, bitAddFloat(old, v_conic_sum.x)).exchanged {
+                        break;
+                    }
+                }
 
-                // update the running sum
-                buffer += rgb * fac;
+                loop {
+                    let old = v_conic[g_id * 4 + 1];
+                    if atomicCompareExchangeWeak(&v_conic[g_id * 4 + 1], old, bitAddFloat(old, v_conic_sum.y)).exchanged {
+                        break;
+                    }
+                }
 
-                // TODO: With WGSL lacking atomic floats (urgh), maybe we could
-                // take a lock here for one gaussian, do all the writes, release the lock.
-                let v_sigma = -opac * vis * v_alpha;
+                loop {
+                    let old = v_conic[g_id * 4 + 2];
+                    if atomicCompareExchangeWeak(&v_conic[g_id * 4 + 2], old, bitAddFloat(old, v_conic_sum.z)).exchanged {
+                        break;
+                    }
+                }
 
-                let v_conic_local = vec3f(0.5f * v_sigma * delta.x * delta.x, 
-                                    v_sigma * delta.x * delta.y,
-                                    0.5f * v_sigma * delta.y * delta.y);
+                // v_xy.
+                loop {
+                    let old = v_xy[g_id * 2 + 0];
+                    if atomicCompareExchangeWeak(&v_xy[g_id * 2 + 0], old, bitAddFloat(old, v_xy_sum.x)).exchanged {
+                        break;
+                    }
+                }
 
-                let v_xy_local = v_sigma * vec2f(
-                    conic.x * delta.x + conic.y * delta.y, 
-                    conic.y * delta.x + conic.z * delta.y
-                );
-                let v_opacity_local = vis * v_alpha;
+                loop {
+                    let old = v_xy[g_id * 2 + 1];
+                    if atomicCompareExchangeWeak(&v_xy[g_id * 2 + 1], old, bitAddFloat(old, v_xy_sum.y)).exchanged {
+                        break;
+                    }
+                }
 
-                // This is NOT a correct spin lock, but a lossy one.
-                // Between loading the lock and locking it, someone else might lock!!
-                // However, a 'correct' spin lock seems to crash quite a lot... gpus
-                // really don't like to busy wait :/
-                let g_id = id_batch[t];
-
-                v_opacity[g_id] += v_opacity_local;
-                v_rgb[g_id] += vec4f(v_rgb_local, 0.0);
-                v_conic[g_id] += vec4f(v_conic_local, 0.0);
-                v_xy[g_id] += v_xy_local;
+                // v_opacity
+                loop {
+                    let old = v_opacity[g_id];
+                    if atomicCompareExchangeWeak(&v_opacity[g_id], old, bitAddFloat(old, v_opacity_sum)).exchanged {
+                        break;
+                    }
+                }
             }
         }
     }

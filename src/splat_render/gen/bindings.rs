@@ -2,7 +2,7 @@
 //
 // ^ wgsl_bindgen version 0.10.1
 // Changes made to this file will not be saved.
-// SourceHash: 745848f32ea88aa2aa5be7a2b62d685e97c6110454d8ccbf187ef7a1b2ac0dac
+// SourceHash: 584730f288f6d6cfa61266689580d40f0a6f9206e45f3dd7a03aeedebb44328e
 
 #![allow(unused, non_snake_case, non_camel_case_types, non_upper_case_globals)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -74,8 +74,8 @@ pub mod layout_asserts {
         assert!(std::mem::offset_of!(project_forward::Uniforms, pixel_center) == 72);
         assert!(std::mem::offset_of!(project_forward::Uniforms, img_size) == 80);
         assert!(std::mem::offset_of!(project_forward::Uniforms, tile_bounds) == 88);
-        assert!(std::mem::offset_of!(project_forward::Uniforms, clip_thresh) == 96);
-        assert!(std::mem::offset_of!(project_forward::Uniforms, block_width) == 100);
+        assert!(std::mem::offset_of!(project_forward::Uniforms, block_width) == 96);
+        assert!(std::mem::offset_of!(project_forward::Uniforms, clip_thresh) == 100);
         assert!(std::mem::size_of:: < project_forward::Uniforms > () == 112);
     };
     const MAP_GAUSSIAN_TO_INTERSECTS_UNIFORMS_ASSERTS: () = {
@@ -88,14 +88,12 @@ pub mod layout_asserts {
         assert!(std::mem::size_of:: < map_gaussian_to_intersects::Uniforms > () == 16);
     };
     const RASTERIZE_UNIFORMS_ASSERTS: () = {
-        assert!(std::mem::offset_of!(rasterize::Uniforms, tile_bounds) == 0);
+        assert!(std::mem::offset_of!(rasterize::Uniforms, img_size) == 0);
         assert!(std::mem::offset_of!(rasterize::Uniforms, background) == 16);
-        assert!(std::mem::offset_of!(rasterize::Uniforms, img_size) == 32);
-        assert!(std::mem::size_of:: < rasterize::Uniforms > () == 48);
+        assert!(std::mem::size_of:: < rasterize::Uniforms > () == 32);
     };
     const RASTERIZE_BACKWARDS_UNIFORMS_ASSERTS: () = {
         assert!(std::mem::offset_of!(rasterize_backwards::Uniforms, img_size) == 0);
-        assert!(std::mem::offset_of!(rasterize_backwards::Uniforms, tile_bounds) == 8);
         assert!(std::mem::offset_of!(rasterize_backwards::Uniforms, background) == 16);
         assert!(std::mem::size_of:: < rasterize_backwards::Uniforms > () == 32);
     };
@@ -121,11 +119,11 @@ pub mod project_forward {
         pub img_size: [u32; 2],
         /// size: 8, offset: 0x58, type: `vec2<u32>`
         pub tile_bounds: [u32; 2],
-        /// size: 4, offset: 0x60, type: `f32`
-        pub clip_thresh: f32,
-        /// size: 4, offset: 0x64, type: `u32`
+        /// size: 4, offset: 0x60, type: `u32`
         pub block_width: u32,
-        pub _pad_block_width: [u8; 0xC - core::mem::size_of::<u32>()],
+        /// size: 4, offset: 0x64, type: `f32`
+        pub clip_thresh: f32,
+        pub _pad_clip_thresh: [u8; 0xC - core::mem::size_of::<f32>()],
     }
     impl Uniforms {
         pub const fn new(
@@ -134,8 +132,8 @@ pub mod project_forward {
             pixel_center: [f32; 2],
             img_size: [u32; 2],
             tile_bounds: [u32; 2],
-            clip_thresh: f32,
             block_width: u32,
+            clip_thresh: f32,
         ) -> Self {
             Self {
                 viewmat,
@@ -143,9 +141,9 @@ pub mod project_forward {
                 pixel_center,
                 img_size,
                 tile_bounds,
-                clip_thresh,
                 block_width,
-                _pad_block_width: [0; 0xC - core::mem::size_of::<u32>()],
+                clip_thresh,
+                _pad_clip_thresh: [0; 0xC - core::mem::size_of::<f32>()],
             }
         }
     }
@@ -157,8 +155,8 @@ pub mod project_forward {
         pub pixel_center: [f32; 2],
         pub img_size: [u32; 2],
         pub tile_bounds: [u32; 2],
-        pub clip_thresh: f32,
         pub block_width: u32,
+        pub clip_thresh: f32,
     }
     impl UniformsInit {
         pub const fn build(&self) -> Uniforms {
@@ -168,9 +166,9 @@ pub mod project_forward {
                 pixel_center: self.pixel_center,
                 img_size: self.img_size,
                 tile_bounds: self.tile_bounds,
-                clip_thresh: self.clip_thresh,
                 block_width: self.block_width,
-                _pad_block_width: [0; 0xC - core::mem::size_of::<u32>()],
+                clip_thresh: self.clip_thresh,
+                _pad_clip_thresh: [0; 0xC - core::mem::size_of::<f32>()],
             }
         }
     }
@@ -465,8 +463,8 @@ struct Uniforms {
     pixel_center: vec2<f32>,
     img_size: vec2<u32>,
     tile_bounds: vec2<u32>,
-    clip_thresh: f32,
     block_width: u32,
+    clip_thresh: f32,
 }
 
 @group(0) @binding(0) 
@@ -480,13 +478,13 @@ var<storage, read_write> xys: array<vec2<f32>>;
 @group(0) @binding(4) 
 var<storage, read_write> depths: array<f32>;
 @group(0) @binding(5) 
-var<storage, read_write> radii: array<i32>;
+var<storage, read_write> radii: array<u32>;
 @group(0) @binding(6) 
 var<storage, read_write> conics: array<vec4<f32>>;
 @group(0) @binding(7) 
 var<storage, read_write> compensation: array<f32>;
 @group(0) @binding(8) 
-var<storage, read_write> num_tiles_hit: array<i32>;
+var<storage, read_write> num_tiles_hit: array<u32>;
 @group(0) @binding(9) 
 var<storage> info_array: array<Uniforms>;
 
@@ -496,7 +494,7 @@ fn get_bboxX_naga_oil_mod_XNBSWY4DFOJZQX(center: vec2<f32>, dims: vec2<f32>, bou
     return vec4<u32>(min, max);
 }
 
-fn get_tile_bboxX_naga_oil_mod_XNBSWY4DFOJZQX(pix_center: vec2<f32>, pix_radius: i32, tile_bounds: vec2<u32>, block_size: u32) -> vec4<u32> {
+fn get_tile_bboxX_naga_oil_mod_XNBSWY4DFOJZQX(pix_center: vec2<f32>, pix_radius: u32, tile_bounds: vec2<u32>, block_size: u32) -> vec4<u32> {
     let tile_center = (pix_center / vec2(f32(block_size)));
     let tile_radius = (f32(pix_radius) / f32(block_size));
     let _e11 = get_bboxX_naga_oil_mod_XNBSWY4DFOJZQX(tile_center, vec2<f32>(tile_radius, tile_radius), tile_bounds);
@@ -504,7 +502,7 @@ fn get_tile_bboxX_naga_oil_mod_XNBSWY4DFOJZQX(pix_center: vec2<f32>, pix_radius:
 }
 
 fn quat_to_rotmatX_naga_oil_mod_XNBSWY4DFOJZQX(quat: vec4<f32>) -> mat3x3<f32> {
-    let quat_norm = normalize((quat + vec4(0.000001f)));
+    let quat_norm = normalize(quat);
     let w = quat_norm.x;
     let x = quat_norm.y;
     let y = quat_norm.z;
@@ -536,21 +534,19 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let tile_bounds_1 = info.tile_bounds;
     let block_width = info.block_width;
     let clip_thresh = info.clip_thresh;
-    radii[idx] = 0i;
-    num_tiles_hit[idx] = 0i;
-    let _e23 = means[idx];
-    let mean = _e23.xyz;
+    let _e17 = means[idx];
+    let p_world = _e17.xyz;
     let W = mat3x3<f32>(viewmat[0].xyz, viewmat[1].xyz, viewmat[2].xyz);
-    let p_view_1 = ((W * mean) + viewmat[3].xyz);
+    let p_view_1 = ((W * p_world) + viewmat[3].xyz);
     if (p_view_1.z <= clip_thresh) {
         return;
     }
-    let _e40 = scales[idx];
-    let scale_1 = _e40.xyz;
+    let _e34 = scales[idx];
+    let scale_1 = _e34.xyz;
     let quat_1 = quats[idx];
-    let _e45 = quat_to_rotmatX_naga_oil_mod_XNBSWY4DFOJZQX(quat_1);
-    let _e46 = scale_to_matX_naga_oil_mod_XNBSWY4DFOJZQX(scale_1);
-    let M = (_e45 * _e46);
+    let _e39 = quat_to_rotmatX_naga_oil_mod_XNBSWY4DFOJZQX(quat_1);
+    let _e40 = scale_to_matX_naga_oil_mod_XNBSWY4DFOJZQX(scale_1);
+    let M = (_e39 * _e40);
     let V = (M * transpose(M));
     let tan_fov = ((0.5f * vec2<f32>(img_size.xy)) / focal);
     let lims = (1.3f * tan_fov);
@@ -564,29 +560,29 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let c11_ = cov[1].y;
     let c01_ = cov[0].y;
     let cov2d = vec3<f32>((c00_ + 0.3f), c01_, (c11_ + 0.3f));
+    let det_orig = ((c00_ * c11_) - (c01_ * c01_));
     let det = ((cov2d.x * cov2d.z) - (cov2d.y * cov2d.y));
     if (abs(det) < 0.000001f) {
         return;
     }
+    let comp = sqrt(max(0f, (det_orig / det)));
     let conic = (vec3<f32>(cov2d.z, -(cov2d.y), cov2d.x) / vec3(det));
     let b = (0.5f * (cov2d.x + cov2d.z));
     let v1_ = (b + sqrt(max(0.1f, ((b * b) - det))));
     let v2_ = (b - sqrt(max(0.1f, ((b * b) - det))));
-    let radius = i32(ceil((3f * sqrt(max(0f, max(v1_, v2_))))));
+    let radius = u32(ceil((3f * sqrt(max(0f, max(v1_, v2_))))));
     let _e149 = project_pix(focal, p_view_1, pixel_center);
     let _e150 = get_tile_bboxX_naga_oil_mod_XNBSWY4DFOJZQX(_e149, radius, tile_bounds_1, block_width);
     let tile_area = ((_e150.z - _e150.x) * (_e150.w - _e150.y));
     if (tile_area <= 0u) {
         return;
     }
-    num_tiles_hit[idx] = i32(tile_area);
+    num_tiles_hit[idx] = tile_area;
     depths[idx] = p_view_1.z;
     radii[idx] = radius;
     xys[idx] = _e149;
+    compensation[idx] = comp;
     conics[idx] = vec4<f32>(conic, 1f);
-    let det_orig = ((c00_ * c11_) - (c01_ * c01_));
-    let det_blur = ((cov2d.x * cov2d.z) - (cov2d.y * cov2d.y));
-    compensation[idx] = sqrt(max(0f, (det_orig / det_blur)));
     return;
 }
 "#;
@@ -864,7 +860,7 @@ struct Uniforms {
 @group(0) @binding(0) 
 var<storage> xys: array<vec2<f32>>;
 @group(0) @binding(1) 
-var<storage> radii: array<i32>;
+var<storage> radii: array<u32>;
 @group(0) @binding(2) 
 var<storage> cum_tiles_hit: array<u32>;
 @group(0) @binding(3) 
@@ -880,7 +876,7 @@ fn get_bboxX_naga_oil_mod_XNBSWY4DFOJZQX(center: vec2<f32>, dims: vec2<f32>, bou
     return vec4<u32>(min, max);
 }
 
-fn get_tile_bboxX_naga_oil_mod_XNBSWY4DFOJZQX(pix_center: vec2<f32>, pix_radius: i32, tile_bounds: vec2<u32>, block_size: u32) -> vec4<u32> {
+fn get_tile_bboxX_naga_oil_mod_XNBSWY4DFOJZQX(pix_center: vec2<f32>, pix_radius: u32, tile_bounds: vec2<u32>, block_size: u32) -> vec4<u32> {
     let tile_center = (pix_center / vec2(f32(block_size)));
     let tile_radius = (f32(pix_radius) / f32(block_size));
     let _e11 = get_bboxX_naga_oil_mod_XNBSWY4DFOJZQX(tile_center, vec2<f32>(tile_radius, tile_radius), tile_bounds);
@@ -889,7 +885,7 @@ fn get_tile_bboxX_naga_oil_mod_XNBSWY4DFOJZQX(pix_center: vec2<f32>, pix_radius:
 
 @compute @workgroup_size(128, 1, 1) 
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
-    var isect_idx: u32 = 0u;
+    var cur_idx: u32 = 0u;
     var ty: u32;
     var tx: u32;
 
@@ -898,7 +894,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         return;
     }
     let radius = radii[idx];
-    if (radius <= 0i) {
+    if (radius == 0u) {
         return;
     }
     let info = info_array[0];
@@ -910,7 +906,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let tile_max = _e19.zw;
     if (idx > 0u) {
         let _e28 = cum_tiles_hit[(idx - 1u)];
-        isect_idx = _e28;
+        cur_idx = _e28;
     }
     ty = tile_min.y;
     loop {
@@ -931,12 +927,12 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
                     let _e40 = tx;
                     let _e41 = ty;
                     let tile_id = (_e40 + (_e41 * tile_bounds_1.x));
-                    let _e46 = isect_idx;
+                    let _e46 = cur_idx;
                     isect_ids[_e46] = tile_id;
-                    let _e49 = isect_idx;
+                    let _e49 = cur_idx;
                     gaussian_ids[_e49] = idx;
-                    let _e52 = isect_idx;
-                    isect_idx = (_e52 + 1u);
+                    let _e52 = cur_idx;
+                    cur_idx = (_e52 + 1u);
                 }
                 continuing {
                     let _e55 = tx;
@@ -1137,44 +1133,32 @@ pub mod rasterize {
     #[derive(Debug, PartialEq, Clone, Copy)]
     pub struct Uniforms {
         /// size: 8, offset: 0x0, type: `vec2<u32>`
-        pub tile_bounds: [u32; 2],
-        pub _pad_tile_bounds: [u8; 0x10 - core::mem::size_of::<[u32; 2]>()],
-        /// size: 12, offset: 0x10, type: `vec3<f32>`
-        pub background: glam::Vec3A,
-        /// size: 8, offset: 0x20, type: `vec2<u32>`
         pub img_size: [u32; 2],
         pub _pad_img_size: [u8; 0x10 - core::mem::size_of::<[u32; 2]>()],
+        /// size: 12, offset: 0x10, type: `vec3<f32>`
+        pub background: glam::Vec3A,
     }
     impl Uniforms {
-        pub const fn new(
-            tile_bounds: [u32; 2],
-            background: glam::Vec3A,
-            img_size: [u32; 2],
-        ) -> Self {
+        pub const fn new(img_size: [u32; 2], background: glam::Vec3A) -> Self {
             Self {
-                tile_bounds,
-                _pad_tile_bounds: [0; 0x10 - core::mem::size_of::<[u32; 2]>()],
-                background,
                 img_size,
                 _pad_img_size: [0; 0x10 - core::mem::size_of::<[u32; 2]>()],
+                background,
             }
         }
     }
     #[repr(C)]
     #[derive(Debug, PartialEq, Clone, Copy)]
     pub struct UniformsInit {
-        pub tile_bounds: [u32; 2],
-        pub background: glam::Vec3A,
         pub img_size: [u32; 2],
+        pub background: glam::Vec3A,
     }
     impl UniformsInit {
         pub const fn build(&self) -> Uniforms {
             Uniforms {
-                tile_bounds: self.tile_bounds,
-                _pad_tile_bounds: [0; 0x10 - core::mem::size_of::<[u32; 2]>()],
-                background: self.background,
                 img_size: self.img_size,
                 _pad_img_size: [0; 0x10 - core::mem::size_of::<[u32; 2]>()],
+                background: self.background,
             }
         }
     }
@@ -1449,9 +1433,8 @@ pub mod rasterize {
     }
     pub const SHADER_STRING: &'static str = r#"
 struct Uniforms {
-    tile_bounds: vec2<u32>,
-    background: vec3<f32>,
     img_size: vec2<u32>,
+    background: vec3<f32>,
 }
 
 const BLOCK_WIDTH: u32 = 16u;
@@ -1478,7 +1461,7 @@ var<storage> info_array: array<Uniforms>;
 var<workgroup> id_batch: array<u32, 256>;
 var<workgroup> xy_batch: array<vec2<f32>, 256>;
 var<workgroup> opacity_batch: array<f32, 256>;
-var<workgroup> colors_batch: array<vec3<f32>, 256>;
+var<workgroup> colors_batch: array<vec4<f32>, 256>;
 var<workgroup> conic_batch: array<vec4<f32>, 256>;
 
 @compute @workgroup_size(16, 16, 1) 
@@ -1487,117 +1470,108 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     var T: f32 = 1f;
     var pix_out: vec3<f32> = vec3(0f);
     var final_idx: u32;
-    var batch_start: u32;
+    var b: u32 = 0u;
     var t: u32;
-    var sigma: f32;
-    var alpha: f32;
 
     let info = info_array[0];
-    let tile_bounds = info.tile_bounds;
     let background = info.background;
     let img_size = info.img_size;
-    let tile_id = (workgroup_id.x + (workgroup_id.y * tile_bounds.x));
-    let px = (f32(global_id.x) + 0.5f);
-    let py = (f32(global_id.y) + 0.5f);
+    let tiles_xx = (((img_size.x + BLOCK_WIDTH) - 1u) / BLOCK_WIDTH);
+    let tile_id = (workgroup_id.x + (workgroup_id.y * tiles_xx));
     let pix_id = (global_id.x + (global_id.y * img_size.x));
+    let pixel_coord = vec2<f32>(global_id.xy);
     let inside = ((global_id.x < img_size.x) && (global_id.y < img_size.y));
     if !(inside) {
         done = true;
     }
     let range = tile_bins[tile_id];
+    let num_batches = ((((range.y - range.x) + BLOCK_SIZE) - 1u) / BLOCK_SIZE);
     final_idx = range.y;
-    batch_start = range.x;
     loop {
-        let _e47 = batch_start;
-        if (_e47 < range.y) {
+        let _e55 = b;
+        if (_e55 < num_batches) {
         } else {
             break;
         }
         {
             workgroupBarrier();
-            let _e51 = batch_start;
-            let idx = (_e51 + local_idx);
+            let _e58 = b;
+            let batch_start = (range.x + (_e58 * BLOCK_SIZE));
+            let idx = (batch_start + local_idx);
             if (idx < range.y) {
                 let g_id = gaussian_ids_sorted[idx];
                 id_batch[local_idx] = g_id;
-                let _e64 = xys[g_id];
-                xy_batch[local_idx] = _e64;
-                let _e69 = opacities[g_id];
-                opacity_batch[local_idx] = _e69;
-                let _e74 = colors[g_id];
-                colors_batch[local_idx] = _e74.xyz;
-                let _e80 = conics[g_id];
-                conic_batch[local_idx] = _e80;
+                let _e75 = xys[g_id];
+                xy_batch[local_idx] = _e75;
+                let _e80 = opacities[g_id];
+                opacity_batch[local_idx] = _e80;
+                let _e85 = colors[g_id];
+                colors_batch[local_idx] = _e85;
+                let _e90 = conics[g_id];
+                conic_batch[local_idx] = _e90;
             }
             workgroupBarrier();
-            let _e82 = batch_start;
-            let remaining = min(BLOCK_SIZE, (range.y - _e82));
-            let _e86 = done;
-            if !(_e86) {
+            let remaining = min(BLOCK_SIZE, (range.y - batch_start));
+            let _e95 = done;
+            if !(_e95) {
                 t = 0u;
                 loop {
-                    let _e90 = t;
-                    if (_e90 < remaining) {
+                    let _e99 = t;
+                    if (_e99 < remaining) {
                     } else {
                         break;
                     }
                     {
-                        let _e93 = t;
-                        let xy = xy_batch[_e93];
-                        let _e97 = t;
-                        let opac = opacity_batch[_e97];
-                        let _e101 = t;
-                        let conic = conic_batch[_e101];
-                        let delta = (xy - vec2<f32>(px, py));
-                        sigma = ((0.5f * (((conic.x * delta.x) * delta.x) + ((conic.z * delta.y) * delta.y))) + ((conic.y * delta.x) * delta.y));
-                        let _e127 = sigma;
-                        alpha = min(0.999f, (opac * exp(-(_e127))));
-                        let _e133 = sigma;
-                        let _e136 = alpha;
-                        if ((_e133 < 0f) || (_e136 < 0.003921569f)) {
+                        let _e102 = t;
+                        let _e104 = conic_batch[_e102];
+                        let conic = _e104.xyz;
+                        let _e107 = t;
+                        let xy = xy_batch[_e107];
+                        let _e111 = t;
+                        let opac = opacity_batch[_e111];
+                        let delta = (xy - pixel_coord);
+                        let sigma = ((0.5f * (((conic.x * delta.x) * delta.x) + ((conic.z * delta.y) * delta.y))) + ((conic.y * delta.x) * delta.y));
+                        let alpha = min(0.99f, (opac * exp(-(sigma))));
+                        if ((sigma < 0f) || (alpha < 0.003921569f)) {
                             continue;
                         }
-                        let _e141 = T;
-                        let _e142 = alpha;
-                        let next_T = (_e141 * (1f - _e142));
+                        let _e145 = T;
+                        let next_T = (_e145 * (1f - alpha));
                         if (next_T <= 0.0001f) {
                             done = true;
                             break;
                         }
-                        let _e150 = t;
-                        let g = id_batch[_e150];
-                        let _e153 = alpha;
-                        let _e154 = T;
-                        let vis = (_e153 * _e154);
+                        let _e152 = T;
+                        let vis = (alpha * _e152);
+                        let _e155 = t;
+                        let _e157 = colors_batch[_e155];
+                        let c = _e157.xyz;
+                        let _e161 = pix_out;
+                        pix_out = (_e161 + (c * vis));
                         T = next_T;
-                        let _e157 = t;
-                        let _e159 = colors_batch[_e157];
-                        let c = _e159.xyz;
-                        let _e163 = pix_out;
-                        pix_out = (_e163 + (c * vis));
-                        let _e165 = batch_start;
-                        let _e166 = t;
-                        final_idx = (_e165 + _e166);
+                        let _e163 = t;
+                        final_idx = (batch_start + _e163);
                     }
                     continuing {
-                        let _e169 = t;
-                        t = (_e169 + 1u);
+                        let _e166 = t;
+                        t = (_e166 + 1u);
                     }
                 }
             }
         }
         continuing {
-            let _e172 = batch_start;
-            batch_start = (_e172 + BLOCK_SIZE);
+            let _e169 = b;
+            b = (_e169 + 1u);
         }
     }
     if inside {
-        let _e176 = pix_out;
-        let _e177 = T;
-        let _e182 = T;
-        out_img[pix_id] = vec4<f32>((_e176 + ((1f - _e177) * background)), _e182);
-        let _e186 = final_idx;
-        final_index[pix_id] = _e186;
+        let _e173 = final_idx;
+        final_index[pix_id] = _e173;
+        let _e174 = pix_out;
+        let _e175 = T;
+        let final_color = (_e174 + (_e175 * background));
+        let _e180 = T;
+        out_img[pix_id] = vec4<f32>(final_color, _e180);
         return;
     } else {
         return;
@@ -1612,22 +1586,37 @@ pub mod rasterize_backwards {
     pub struct Uniforms {
         /// size: 8, offset: 0x0, type: `vec2<u32>`
         pub img_size: [u32; 2],
-        /// size: 8, offset: 0x8, type: `vec2<u32>`
-        pub tile_bounds: [u32; 2],
+        pub _pad_img_size: [u8; 0x10 - core::mem::size_of::<[u32; 2]>()],
         /// size: 12, offset: 0x10, type: `vec3<f32>`
         pub background: glam::Vec3A,
     }
     impl Uniforms {
-        pub const fn new(
-            img_size: [u32; 2],
-            tile_bounds: [u32; 2],
-            background: glam::Vec3A,
-        ) -> Self {
+        pub const fn new(img_size: [u32; 2], background: glam::Vec3A) -> Self {
             Self {
                 img_size,
-                tile_bounds,
+                _pad_img_size: [0; 0x10 - core::mem::size_of::<[u32; 2]>()],
                 background,
             }
+        }
+    }
+    #[repr(C)]
+    #[derive(Debug, PartialEq, Clone, Copy)]
+    pub struct UniformsInit {
+        pub img_size: [u32; 2],
+        pub background: glam::Vec3A,
+    }
+    impl UniformsInit {
+        pub const fn build(&self) -> Uniforms {
+            Uniforms {
+                img_size: self.img_size,
+                _pad_img_size: [0; 0x10 - core::mem::size_of::<[u32; 2]>()],
+                background: self.background,
+            }
+        }
+    }
+    impl From<UniformsInit> for Uniforms {
+        fn from(data: UniformsInit) -> Self {
+            data.build()
         }
     }
     pub const BLOCK_WIDTH: u32 = 16u32;
@@ -1644,10 +1633,10 @@ pub mod rasterize_backwards {
             pub final_index: wgpu::BufferBinding<'a>,
             pub output: wgpu::BufferBinding<'a>,
             pub v_output: wgpu::BufferBinding<'a>,
-            pub v_opacity: wgpu::BufferBinding<'a>,
-            pub v_conic: wgpu::BufferBinding<'a>,
             pub v_xy: wgpu::BufferBinding<'a>,
-            pub v_rgb: wgpu::BufferBinding<'a>,
+            pub v_conic: wgpu::BufferBinding<'a>,
+            pub v_colors: wgpu::BufferBinding<'a>,
+            pub v_opacity: wgpu::BufferBinding<'a>,
             pub info_array: wgpu::BufferBinding<'a>,
         }
         impl<'a> WgpuBindGroupLayout0<'a> {
@@ -1691,7 +1680,7 @@ pub mod rasterize_backwards {
                     },
                     wgpu::BindGroupEntry {
                         binding: 9,
-                        resource: wgpu::BindingResource::Buffer(self.v_opacity),
+                        resource: wgpu::BindingResource::Buffer(self.v_xy),
                     },
                     wgpu::BindGroupEntry {
                         binding: 10,
@@ -1699,11 +1688,11 @@ pub mod rasterize_backwards {
                     },
                     wgpu::BindGroupEntry {
                         binding: 11,
-                        resource: wgpu::BindingResource::Buffer(self.v_xy),
+                        resource: wgpu::BindingResource::Buffer(self.v_colors),
                     },
                     wgpu::BindGroupEntry {
                         binding: 12,
-                        resource: wgpu::BindingResource::Buffer(self.v_rgb),
+                        resource: wgpu::BindingResource::Buffer(self.v_opacity),
                     },
                     wgpu::BindGroupEntry {
                         binding: 13,
@@ -1982,8 +1971,12 @@ pub mod rasterize_backwards {
     pub const SHADER_STRING: &'static str = r#"
 struct Uniforms {
     img_size: vec2<u32>,
-    tile_bounds: vec2<u32>,
     background: vec3<f32>,
+}
+
+struct _atomic_compare_exchange_resultUint4_ {
+    old_value: u32,
+    exchanged: bool,
 }
 
 const BLOCK_WIDTH: u32 = 16u;
@@ -2008,53 +2001,65 @@ var<storage> output: array<vec4<f32>>;
 @group(0) @binding(8) 
 var<storage> v_output: array<vec4<f32>>;
 @group(0) @binding(9) 
-var<storage, read_write> v_opacity: array<f32>;
+var<storage, read_write> v_xy: array<atomic<u32>>;
 @group(0) @binding(10) 
-var<storage, read_write> v_conic: array<vec4<f32>>;
+var<storage, read_write> v_conic: array<atomic<u32>>;
 @group(0) @binding(11) 
-var<storage, read_write> v_xy: array<vec2<f32>>;
+var<storage, read_write> v_colors: array<atomic<u32>>;
 @group(0) @binding(12) 
-var<storage, read_write> v_rgb: array<vec4<f32>>;
+var<storage, read_write> v_opacity: array<atomic<u32>>;
 @group(0) @binding(13) 
 var<storage> info_array: array<Uniforms>;
 var<workgroup> id_batch: array<u32, 256>;
 var<workgroup> xy_batch: array<vec2<f32>, 256>;
 var<workgroup> opacity_batch: array<f32, 256>;
+var<workgroup> colors_batch: array<vec4<f32>, 256>;
 var<workgroup> conic_batch: array<vec4<f32>, 256>;
-var<workgroup> rgbs_batch: array<vec3<f32>, 256>;
+var<workgroup> v_opacity_local: array<f32, 256>;
+var<workgroup> v_conic_local: array<vec3<f32>, 256>;
+var<workgroup> v_xy_local: array<vec2<f32>, 256>;
+var<workgroup> v_colors_local: array<vec3<f32>, 256>;
+
+fn bitAddFloat(cur: u32, add: f32) -> u32 {
+    return bitcast<u32>((bitcast<f32>(cur) + add));
+}
 
 @compute @workgroup_size(16, 16, 1) 
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invocation_index) local_idx: u32, @builtin(workgroup_id) workgroup_id: vec3<u32>) {
     var T: f32;
     var buffer: vec3<f32> = vec3<f32>(0f, 0f, 0f);
-    var bin_final: u32;
+    var range: vec2<u32>;
     var num_batches: u32;
     var batch: u32 = 0u;
     var t: u32;
+    var sigma: f32;
     var v_alpha: f32;
+    var v_colors_sum: vec3<f32>;
+    var v_conic_sum: vec3<f32>;
+    var v_xy_sum: vec2<f32>;
+    var v_opacity_sum: f32;
+    var i: u32;
 
     let info = info_array[0];
-    let tile_bounds = info.tile_bounds;
     let background = info.background;
     let img_size = info.img_size;
-    let tile_id = (workgroup_id.x + (workgroup_id.y * tile_bounds.x));
-    let px = (f32(global_id.x) + 0.5f);
-    let py = (f32(global_id.y) + 0.5f);
+    let tiles_xx = (((img_size.x + BLOCK_WIDTH) - 1u) / BLOCK_WIDTH);
+    let tile_id = (workgroup_id.x + (workgroup_id.y * tiles_xx));
     let pix_id = (global_id.x + (global_id.y * img_size.x));
+    let pixel_coord = vec2<f32>(global_id.xy);
     let inside = ((global_id.x < img_size.x) && (global_id.y < img_size.y));
     let T_final = output[pix_id].w;
     T = T_final;
-    let range = tile_bins[tile_id];
-    let bin_start = range.x;
-    bin_final = range.y;
+    let _e42 = tile_bins[tile_id];
+    range = _e42;
     if inside {
-        let _e49 = final_index[pix_id];
-        bin_final = _e49;
+        let _e47 = final_index[pix_id];
+        range.y = _e47;
     }
-    let _e52 = v_output[pix_id];
-    let v_out = _e52.xyz;
-    let _e54 = bin_final;
-    num_batches = ((((_e54 - bin_start) + BLOCK_SIZE) - 1u) / BLOCK_SIZE);
+    let v_out = v_output[pix_id];
+    let _e52 = range.y;
+    let _e54 = range.x;
+    num_batches = ((((_e52 - _e54) + BLOCK_SIZE) - 1u) / BLOCK_SIZE);
     loop {
         let _e64 = batch;
         let _e65 = num_batches;
@@ -2063,91 +2068,213 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
             break;
         }
         {
-            let _e67 = bin_final;
-            let _e70 = batch;
-            let gauss_idx_start = ((_e67 - 1u) - (_e70 * BLOCK_SIZE));
+            let _e68 = range.y;
+            let _e71 = batch;
+            let gauss_idx_start = ((_e68 - 1u) - (_e71 * BLOCK_SIZE));
             workgroupBarrier();
-            let gauss_idx = (gauss_idx_start - local_idx);
-            if (gauss_idx >= range.x) {
-                let g_id = gaussian_ids_sorted[gauss_idx];
+            let idx = (gauss_idx_start - local_idx);
+            let _e78 = range.x;
+            if (idx >= _e78) {
+                let g_id = gaussian_ids_sorted[idx];
                 id_batch[local_idx] = g_id;
-                let _e87 = xys[g_id];
-                xy_batch[local_idx] = _e87;
-                let _e92 = conics[g_id];
-                conic_batch[local_idx] = _e92;
-                let _e97 = opacities[g_id];
-                opacity_batch[local_idx] = _e97;
-                let _e102 = colors[g_id];
-                rgbs_batch[local_idx] = _e102.xyz;
+                let _e89 = xys[g_id];
+                xy_batch[local_idx] = _e89;
+                let _e94 = opacities[g_id];
+                opacity_batch[local_idx] = _e94;
+                let _e99 = colors[g_id];
+                colors_batch[local_idx] = _e99;
+                let _e104 = conics[g_id];
+                conic_batch[local_idx] = _e104;
             }
             workgroupBarrier();
-            let remaining = min(BLOCK_SIZE, ((gauss_idx_start + 1u) - range.x));
-            if inside {
-                t = 0u;
-                loop {
-                    let _e112 = t;
-                    if (_e112 < remaining) {
-                    } else {
-                        break;
-                    }
-                    {
-                        let _e115 = t;
-                        let conic = conic_batch[_e115];
-                        let _e119 = t;
-                        let _e121 = xy_batch[_e119];
-                        let delta = (_e121 - vec2<f32>(px, py));
-                        let sigma = ((0.5f * (((conic.x * delta.x) * delta.x) + ((conic.z * delta.y) * delta.y))) + ((conic.y * delta.x) * delta.y));
-                        let _e144 = t;
-                        let opac = opacity_batch[_e144];
-                        let vis = exp(-(sigma));
-                        let alpha = min(0.99f, (opac * vis));
-                        if ((sigma < 0f) || (alpha < 0.003921569f)) {
-                            continue;
+            let _e108 = range.x;
+            let remaining = min(BLOCK_SIZE, ((gauss_idx_start + 1u) - _e108));
+            t = 0u;
+            loop {
+                let _e114 = t;
+                if (_e114 < remaining) {
+                } else {
+                    break;
+                }
+                {
+                    let _e117 = t;
+                    let g_id_1 = id_batch[_e117];
+                    workgroupBarrier();
+                    if inside {
+                        let _e121 = t;
+                        let _e123 = conic_batch[_e121];
+                        let conic = _e123.xyz;
+                        let _e126 = t;
+                        let xy = xy_batch[_e126];
+                        let _e130 = t;
+                        let opac = opacity_batch[_e130];
+                        let delta = (xy - pixel_coord);
+                        sigma = ((0.5f * (((conic.x * delta.x) * delta.x) + ((conic.z * delta.y) * delta.y))) + ((conic.y * delta.x) * delta.y));
+                        let _e155 = sigma;
+                        let alpha = min(0.99f, (opac * exp(-(_e155))));
+                        let _e160 = sigma;
+                        if (_e160 > 0f) {
+                            let _e163 = sigma;
+                            let vis = exp(-(_e163));
+                            let ra = (1f / (1f - alpha));
+                            let _e170 = T;
+                            T = (_e170 * ra);
+                            let _e172 = T;
+                            let fac = (alpha * _e172);
+                            v_colors_local[local_idx] = (fac * v_out.xyz);
+                            v_alpha = 0f;
+                            let _e181 = t;
+                            let _e183 = colors_batch[_e181];
+                            let color = _e183.xyz;
+                            let _e186 = T;
+                            let _e188 = buffer;
+                            let _e193 = v_alpha;
+                            v_alpha = (_e193 + dot(((color * _e186) - (_e188 * ra)), v_out.xyz));
+                            let _e198 = v_alpha;
+                            v_alpha = (_e198 + ((T_final * ra) * v_out.w));
+                            let _e204 = v_alpha;
+                            v_alpha = (_e204 - dot(((T_final * ra) * background), v_out.xyz));
+                            let _e207 = buffer;
+                            buffer = (_e207 + (color * fac));
+                            let _e211 = v_alpha;
+                            let v_sigma = ((-(opac) * vis) * _e211);
+                            v_conic_local[local_idx] = vec3<f32>((((0.5f * v_sigma) * delta.x) * delta.x), ((v_sigma * delta.x) * delta.y), (((0.5f * v_sigma) * delta.y) * delta.y));
+                            v_xy_local[local_idx] = (v_sigma * vec2<f32>(((conic.x * delta.x) + (conic.y * delta.y)), ((conic.y * delta.x) + (conic.z * delta.y))));
+                            let _e252 = v_alpha;
+                            v_opacity_local[local_idx] = (vis * _e252);
                         }
-                        let ra = (1f / (1f - alpha));
-                        let _e161 = T;
-                        T = (_e161 * ra);
-                        let _e163 = T;
-                        let fac = (alpha * _e163);
-                        let v_rgb_local = (fac * v_out);
-                        v_alpha = 0f;
-                        let _e169 = t;
-                        let rgb = rgbs_batch[_e169];
-                        let _e173 = T;
-                        let _e175 = buffer;
-                        let _e179 = v_alpha;
-                        v_alpha = (_e179 + dot(((rgb * _e173) - (_e175 * ra)), v_out));
-                        let _e184 = v_alpha;
-                        v_alpha = (_e184 - dot(((T_final * ra) * background), v_out));
-                        let _e187 = buffer;
-                        buffer = (_e187 + (rgb * fac));
-                        let _e191 = v_alpha;
-                        let v_sigma = ((-(opac) * vis) * _e191);
-                        let v_conic_local = vec3<f32>((((0.5f * v_sigma) * delta.x) * delta.x), ((v_sigma * delta.x) * delta.y), (((0.5f * v_sigma) * delta.y) * delta.y));
-                        let v_xy_local = (v_sigma * vec2<f32>(((conic.x * delta.x) + (conic.y * delta.y)), ((conic.y * delta.x) + (conic.z * delta.y))));
-                        let _e226 = v_alpha;
-                        let v_opacity_local = (vis * _e226);
-                        let _e229 = t;
-                        let g_id_1 = id_batch[_e229];
-                        let _e234 = v_opacity[g_id_1];
-                        v_opacity[g_id_1] = (_e234 + v_opacity_local);
-                        let _e240 = v_rgb[g_id_1];
-                        v_rgb[g_id_1] = (_e240 + vec4<f32>(v_rgb_local, 0f));
-                        let _e246 = v_conic[g_id_1];
-                        v_conic[g_id_1] = (_e246 + vec4<f32>(v_conic_local, 0f));
-                        let _e250 = v_xy[g_id_1];
-                        v_xy[g_id_1] = (_e250 + v_xy_local);
                     }
-                    continuing {
-                        let _e253 = t;
-                        t = (_e253 + 1u);
+                    workgroupBarrier();
+                    if !(inside) {
+                        continue;
                     }
+                    if (local_idx == 0u) {
+                        v_colors_sum = vec3(0f);
+                        v_conic_sum = vec3(0f);
+                        v_xy_sum = vec2(0f);
+                        v_opacity_sum = 0f;
+                        i = 0u;
+                        loop {
+                            let _e270 = i;
+                            if (_e270 < BLOCK_SIZE) {
+                            } else {
+                                break;
+                            }
+                            {
+                                let _e274 = i;
+                                let _e276 = v_colors_local[_e274];
+                                let _e277 = v_colors_sum;
+                                v_colors_sum = (_e277 + _e276);
+                                let _e280 = i;
+                                let _e282 = v_conic_local[_e280];
+                                let _e283 = v_conic_sum;
+                                v_conic_sum = (_e283 + _e282);
+                                let _e286 = i;
+                                let _e288 = v_xy_local[_e286];
+                                let _e289 = v_xy_sum;
+                                v_xy_sum = (_e289 + _e288);
+                                let _e292 = i;
+                                let _e294 = v_opacity_local[_e292];
+                                let _e295 = v_opacity_sum;
+                                v_opacity_sum = (_e295 + _e294);
+                            }
+                            continuing {
+                                let _e298 = i;
+                                i = (_e298 + 1u);
+                            }
+                        }
+                        loop {
+                            let old = atomicLoad((&v_colors[((g_id_1 * 4u) + 0u)]));
+                            let _e314 = v_colors_sum.x;
+                            let _e315 = bitAddFloat(old, _e314);
+                            let _e316 = atomicCompareExchangeWeak((&v_colors[((g_id_1 * 4u) + 0u)]), old, _e315);
+                            if _e316.exchanged {
+                                break;
+                            }
+                        }
+                        loop {
+                            let old_1 = atomicLoad((&v_colors[((g_id_1 * 4u) + 1u)]));
+                            let _e332 = v_colors_sum.y;
+                            let _e333 = bitAddFloat(old_1, _e332);
+                            let _e334 = atomicCompareExchangeWeak((&v_colors[((g_id_1 * 4u) + 1u)]), old_1, _e333);
+                            if _e334.exchanged {
+                                break;
+                            }
+                        }
+                        loop {
+                            let old_2 = atomicLoad((&v_colors[((g_id_1 * 4u) + 2u)]));
+                            let _e350 = v_colors_sum.z;
+                            let _e351 = bitAddFloat(old_2, _e350);
+                            let _e352 = atomicCompareExchangeWeak((&v_colors[((g_id_1 * 4u) + 2u)]), old_2, _e351);
+                            if _e352.exchanged {
+                                break;
+                            }
+                        }
+                        loop {
+                            let old_3 = atomicLoad((&v_conic[((g_id_1 * 4u) + 0u)]));
+                            let _e368 = v_conic_sum.x;
+                            let _e369 = bitAddFloat(old_3, _e368);
+                            let _e370 = atomicCompareExchangeWeak((&v_conic[((g_id_1 * 4u) + 0u)]), old_3, _e369);
+                            if _e370.exchanged {
+                                break;
+                            }
+                        }
+                        loop {
+                            let old_4 = atomicLoad((&v_conic[((g_id_1 * 4u) + 1u)]));
+                            let _e386 = v_conic_sum.y;
+                            let _e387 = bitAddFloat(old_4, _e386);
+                            let _e388 = atomicCompareExchangeWeak((&v_conic[((g_id_1 * 4u) + 1u)]), old_4, _e387);
+                            if _e388.exchanged {
+                                break;
+                            }
+                        }
+                        loop {
+                            let old_5 = atomicLoad((&v_conic[((g_id_1 * 4u) + 2u)]));
+                            let _e404 = v_conic_sum.z;
+                            let _e405 = bitAddFloat(old_5, _e404);
+                            let _e406 = atomicCompareExchangeWeak((&v_conic[((g_id_1 * 4u) + 2u)]), old_5, _e405);
+                            if _e406.exchanged {
+                                break;
+                            }
+                        }
+                        loop {
+                            let old_6 = atomicLoad((&v_xy[((g_id_1 * 2u) + 0u)]));
+                            let _e422 = v_xy_sum.x;
+                            let _e423 = bitAddFloat(old_6, _e422);
+                            let _e424 = atomicCompareExchangeWeak((&v_xy[((g_id_1 * 2u) + 0u)]), old_6, _e423);
+                            if _e424.exchanged {
+                                break;
+                            }
+                        }
+                        loop {
+                            let old_7 = atomicLoad((&v_xy[((g_id_1 * 2u) + 1u)]));
+                            let _e440 = v_xy_sum.y;
+                            let _e441 = bitAddFloat(old_7, _e440);
+                            let _e442 = atomicCompareExchangeWeak((&v_xy[((g_id_1 * 2u) + 1u)]), old_7, _e441);
+                            if _e442.exchanged {
+                                break;
+                            }
+                        }
+                        loop {
+                            let old_8 = atomicLoad((&v_opacity[g_id_1]));
+                            let _e449 = v_opacity_sum;
+                            let _e450 = bitAddFloat(old_8, _e449);
+                            let _e451 = atomicCompareExchangeWeak((&v_opacity[g_id_1]), old_8, _e450);
+                            if _e451.exchanged {
+                                break;
+                            }
+                        }
+                    }
+                }
+                continuing {
+                    let _e454 = t;
+                    t = (_e454 + 1u);
                 }
             }
         }
         continuing {
-            let _e256 = batch;
-            batch = (_e256 + 1u);
+            let _e457 = batch;
+            batch = (_e457 + 1u);
         }
     }
     return;
@@ -2521,7 +2648,7 @@ var<storage, read_write> v_quats: array<vec4<f32>>;
 var<storage> info_array: array<Uniforms>;
 
 fn quat_to_rotmatX_naga_oil_mod_XNBSWY4DFOJZQX(quat: vec4<f32>) -> mat3x3<f32> {
-    let quat_norm = normalize((quat + vec4(0.000001f)));
+    let quat_norm = normalize(quat);
     let w = quat_norm.x;
     let x = quat_norm.y;
     let y = quat_norm.z;
@@ -2540,7 +2667,7 @@ fn project_pix_vjp(fxfy: vec2<f32>, p_view: vec3<f32>, v_xy: vec2<f32>) -> vec3<
 }
 
 fn quat_to_rotmat_vjp(quat_1: vec4<f32>, v_R: mat3x3<f32>) -> vec4<f32> {
-    let quat_norm_1 = normalize((quat_1 + vec4(0.000001f)));
+    let quat_norm_1 = normalize(quat_1);
     let w_1 = quat_norm_1.x;
     let x_1 = quat_norm_1.y;
     let y_1 = quat_norm_1.z;
@@ -2560,12 +2687,12 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     var v_mean: vec3<f32>;
 
     let idx = global_id.x;
-    let info = info_array[0];
     let num_points = arrayLength((&means));
-    let _e10 = radii[idx];
-    if ((idx >= num_points) || (_e10 <= 0i)) {
+    let _e7 = radii[idx];
+    if ((idx >= num_points) || (_e7 == 0i)) {
         return;
     }
+    let info = info_array[0];
     let viewmat = info.viewmat;
     let focal = info.focal;
     let _e18 = means[idx];
@@ -2575,9 +2702,9 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     let quat_2 = quats[idx];
     let W = mat3x3<f32>(viewmat[0].xyz, viewmat[1].xyz, viewmat[2].xyz);
     let p_view_1 = ((W * mean) + viewmat[3].xyz);
-    let _e40 = v_xy_1[idx];
-    let _e41 = project_pix_vjp(focal, p_view_1, _e40);
-    v_mean = (transpose(W) * _e41);
+    let _e41 = v_xy_1[idx];
+    let _e42 = project_pix_vjp(focal, p_view_1, _e41);
+    v_mean = (transpose(W) * _e42);
     let _e47 = conics[idx];
     let conic_1 = _e47.xyz;
     let _e51 = v_conic_1[idx];

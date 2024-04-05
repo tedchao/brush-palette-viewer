@@ -1,7 +1,7 @@
 #import helpers;
 
 @group(0) @binding(0) var<storage, read> xys: array<vec2f>;
-@group(0) @binding(1) var<storage, read> radii: array<i32>;
+@group(0) @binding(1) var<storage, read> radii: array<u32>;
 @group(0) @binding(2) var<storage, read> cum_tiles_hit: array<u32>;
 
 @group(0) @binding(3) var<storage, read_write> isect_ids: array<u32>;
@@ -30,7 +30,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
     // Check if gaussian is visible.
     let radius = radii[idx];
 
-    if radius <= 0 {
+    if radius == 0 {
         return;
     }
 
@@ -45,18 +45,18 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
     let tile_max = tile_minmax.zw;
 
     // update the intersection info for all tiles this gaussian hits
-    var isect_idx = 0u;
+    var cur_idx = 0u;
     if idx > 0 {
-        isect_idx = cum_tiles_hit[idx - 1];
+        cur_idx = cum_tiles_hit[idx - 1];
     }
 
     for (var ty = tile_min.y; ty < tile_max.y; ty++) {
         for (var tx = tile_min.x; tx < tile_max.x; tx++) {
             let tile_id = tx + ty * tile_bounds.x; // tile within image
+            isect_ids[cur_idx] = tile_id;
+            gaussian_ids[cur_idx] = idx; // 3D gaussian id
+            cur_idx++; // handles gaussians that hit more than one tile
 
-            isect_ids[isect_idx] = tile_id;
-            gaussian_ids[isect_idx] = idx;
-            isect_idx++; // handles gaussians that hit more than one tile
         }
     }
 }

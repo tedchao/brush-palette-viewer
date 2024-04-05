@@ -7,7 +7,7 @@ fn get_bbox(center: vec2f, dims: vec2f, bounds: vec2u) -> vec4u {
     return vec4u(min, max);
 }
 
-fn get_tile_bbox(pix_center: vec2f, pix_radius: i32, tile_bounds: vec2u, block_size: u32) -> vec4u {
+fn get_tile_bbox(pix_center: vec2f, pix_radius: u32, tile_bounds: vec2u, block_size: u32) -> vec4u {
     // gets gaussian dimensions in tile space, i.e. the span of a gaussian in
     // tile_grid (image divided into tiles)
     let tile_center = pix_center / f32(block_size);
@@ -19,7 +19,7 @@ fn get_tile_bbox(pix_center: vec2f, pix_radius: i32, tile_bounds: vec2u, block_s
 // device helper to get 3D covariance from scale and quat parameters
 fn quat_to_rotmat(quat: vec4f) -> mat3x3f {
     // quat to rotation matrix
-    let quat_norm = normalize(quat + 1e-6);
+    let quat_norm = normalize(quat);
 
     let w = quat_norm.x;
     let x = quat_norm.y;

@@ -19,26 +19,24 @@ const BLOCK_SIZE: u32 = BLOCK_WIDTH * BLOCK_WIDTH;
 var<workgroup> id_batch: array<u32, BLOCK_SIZE>;
 var<workgroup> xy_batch: array<vec2f, BLOCK_SIZE>;
 var<workgroup> opacity_batch: array<f32, BLOCK_SIZE>;
-var<workgroup> colors_batch: array<vec3f, BLOCK_SIZE>;
+var<workgroup> colors_batch: array<vec4f, BLOCK_SIZE>;
 var<workgroup> conic_batch: array<vec4f, BLOCK_SIZE>;
 
 // Keep track of how many threads are done in this workgroup.
 // var<workgroup> count_done: atomic<u32>;
 
 struct Uniforms {
-    // Total reachable pixels (w, h)
-    tile_bounds: vec2u,
-    // Background color behind splats.
-    background: vec3f,
     // Img resolution (w, h)
     img_size: vec2u,
+    // Background color behind splats.
+    background: vec3f,
 }
 
 // kernel function for rasterizing each tile
 // each thread treats a single pixel
 // each thread group uses the same gaussian data in a tile
 
-// TODO: Is this workgroup the size of block_width and co?
+
 @compute
 @workgroup_size(BLOCK_WIDTH, BLOCK_WIDTH, 1)
 fn main(
@@ -48,7 +46,6 @@ fn main(
     @builtin(workgroup_id) workgroup_id: vec3u,
 ) {
     let info = info_array[0];
-    let tile_bounds = info.tile_bounds;
     let background = info.background;
     let img_size = info.img_size;
 
@@ -56,11 +53,11 @@ fn main(
     // shared tile
 
     // Get index of tile being drawn.
-    let tile_id = workgroup_id.x + workgroup_id.y * tile_bounds.x;
+    let tiles_xx = (img_size.x + BLOCK_WIDTH - 1) / BLOCK_WIDTH;
+    let tile_id = workgroup_id.x + workgroup_id.y * tiles_xx;
 
-    let px = f32(global_id.x) + 0.5;
-    let py = f32(global_id.y) + 0.5;
     let pix_id = global_id.x + global_id.y * img_size.x;
+    let pixel_coord = vec2f(global_id.xy);
 
     // return if out of bounds
     // keep not rasterizing threads around for reading data
@@ -77,10 +74,7 @@ fn main(
     // first collect gaussians between range.x and range.y in batches
     // which gaussians to look through in this tile
     let range = tile_bins[tile_id];
-
-    // collect and process batches of gaussians
-    // each thread loads one gaussian at a time before rasterizing its
-    // designated pixel
+    let num_batches = (range.y - range.x + BLOCK_SIZE - 1) / BLOCK_SIZE;
 
     // current visibility left to render
     var T = 1.0;
@@ -89,8 +83,12 @@ fn main(
     var pix_out = vec3f(0.0);
     var final_idx = range.y;
 
-    for (var batch_start = range.x; batch_start < range.y; batch_start += BLOCK_SIZE) {
+    // collect and process batches of gaussians
+    // each thread loads one gaussian at a time before rasterizing its
+    // designated pixel
+    for (var b = 0u; b < num_batches; b++) {
         // resync all threads before beginning next batch
+        // end early out if entire tile is done
         workgroupBarrier();
 
         // end early out if entire tile is done
@@ -100,6 +98,7 @@ fn main(
 
         // each thread fetch 1 gaussian from front to back
         // index of gaussian to load
+        let batch_start = range.x + b * BLOCK_SIZE;
         let idx = batch_start + local_idx;
 
         if idx < range.y {
@@ -107,7 +106,7 @@ fn main(
             id_batch[local_idx] = g_id;
             xy_batch[local_idx] = xys[g_id];
             opacity_batch[local_idx] = opacities[g_id];
-            colors_batch[local_idx] = colors[g_id].xyz;
+            colors_batch[local_idx] = colors[g_id];
             conic_batch[local_idx] = conics[g_id];
         }
 
@@ -119,14 +118,13 @@ fn main(
         
         if !done {
             for (var t = 0u; t < remaining; t++) {
+                let conic = conic_batch[t].xyz;
                 let xy = xy_batch[t];
                 let opac = opacity_batch[t];
-                let conic = conic_batch[t];
+                let delta = xy - pixel_coord;
+                let sigma = 0.5f * (conic.x * delta.x * delta.x + conic.z * delta.y * delta.y) + conic.y * delta.x * delta.y;
+                let alpha = min(0.99f, opac * exp(-sigma));
 
-                let delta = xy - vec2f(px, py);
-                var sigma = 0.5f * (conic.x * delta.x * delta.x + conic.z * delta.y * delta.y) + conic.y * delta.x * delta.y;
-                var alpha = min(0.999f, opac * exp(-sigma));
-                
                 if sigma < 0.0 || alpha < 1.0 / 255.0 {
                     continue;
                 }
@@ -142,13 +140,11 @@ fn main(
                     break;
                 }
 
-                let g = id_batch[t];
                 let vis = alpha * T;
-                T = next_T;
 
                 let c = colors_batch[t].xyz;
                 pix_out += c * vis;
-
+                T = next_T;
                 final_idx = batch_start + t;
             }
         }
@@ -156,7 +152,9 @@ fn main(
 
     if inside {
         // add background
-        out_img[pix_id] = vec4f(pix_out + (1.0 - T) * background, T);
+
         final_index[pix_id] = final_idx; // index of in bin of last gaussian in this pixel
+        let final_color = pix_out + T * background;
+        out_img[pix_id] = vec4f(final_color, T);
     }
 }

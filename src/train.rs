@@ -27,9 +27,9 @@ pub(crate) struct TrainConfig {
     pub(crate) train_steps: u32,
     #[config(default = false)]
     pub(crate) random_bck_color: bool,
-    #[config(default = 5e-2)]
+    #[config(default = 8e-3)]
     pub lr: f64,
-    #[config(default = 1e-3)]
+    #[config(default = 8e-3)]
     pub min_lr: f64,
     #[config(default = 5)]
     pub visualize_every: u32,
@@ -177,7 +177,7 @@ where
 
     println!("Start training.");
 
-    let loss = HuberLossConfig::new(0.1).init(device);
+    let loss = HuberLossConfig::new(0.05).init(device);
 
     for iter in 0..config.train_steps + 1 {
         let lr = LrScheduler::<B>::step(&mut scheduler);
