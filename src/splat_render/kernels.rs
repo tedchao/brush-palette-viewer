@@ -13,7 +13,7 @@ use burn::backend::wgpu::{
 use bytemuck::NoUninit;
 use glam::UVec3;
 
-use super::gen;
+use super::generated_bindings;
 
 pub(crate) trait SplatKernel<S: ComputeServer<Kernel = Kernel>, C: ComputeChannel<S>>
 where
@@ -57,17 +57,18 @@ pub(crate) struct ProjectSplats {}
 
 impl KernelSource for ProjectSplats {
     fn source(&self) -> SourceTemplate {
-        SourceTemplate::new(gen::project_forward::SHADER_STRING)
+        SourceTemplate::new(generated_bindings::project_forward::SHADER_STRING)
     }
 }
 
 impl<S: ComputeServer<Kernel = Kernel>, C: ComputeChannel<S>> SplatKernel<S, C> for ProjectSplats {
     const BINDING_COUNT: usize =
-        gen::project_forward::bind_groups::WgpuBindGroup0::LAYOUT_DESCRIPTOR
+        generated_bindings::project_forward::bind_groups::WgpuBindGroup0::LAYOUT_DESCRIPTOR
             .entries
             .len();
-    type Uniforms = gen::project_forward::Uniforms;
-    const WORKGROUP_SIZE: [u32; 3] = gen::project_forward::compute::MAIN_WORKGROUP_SIZE;
+    type Uniforms = generated_bindings::project_forward::Uniforms;
+    const WORKGROUP_SIZE: [u32; 3] =
+        generated_bindings::project_forward::compute::MAIN_WORKGROUP_SIZE;
 }
 
 #[derive(Default, Debug)]
@@ -75,7 +76,7 @@ pub(crate) struct MapGaussiansToIntersect {}
 
 impl KernelSource for MapGaussiansToIntersect {
     fn source(&self) -> SourceTemplate {
-        SourceTemplate::new(gen::map_gaussian_to_intersects::SHADER_STRING)
+        SourceTemplate::new(generated_bindings::map_gaussian_to_intersects::SHADER_STRING)
     }
 }
 
@@ -83,11 +84,12 @@ impl<S: ComputeServer<Kernel = Kernel>, C: ComputeChannel<S>> SplatKernel<S, C>
     for MapGaussiansToIntersect
 {
     const BINDING_COUNT: usize =
-        gen::map_gaussian_to_intersects::bind_groups::WgpuBindGroup0::LAYOUT_DESCRIPTOR
+    generated_bindings::map_gaussian_to_intersects::bind_groups::WgpuBindGroup0::LAYOUT_DESCRIPTOR
             .entries
             .len();
-    type Uniforms = gen::map_gaussian_to_intersects::Uniforms;
-    const WORKGROUP_SIZE: [u32; 3] = gen::map_gaussian_to_intersects::compute::MAIN_WORKGROUP_SIZE;
+    type Uniforms = generated_bindings::map_gaussian_to_intersects::Uniforms;
+    const WORKGROUP_SIZE: [u32; 3] =
+        generated_bindings::map_gaussian_to_intersects::compute::MAIN_WORKGROUP_SIZE;
 }
 
 #[derive(Default, Debug)]
@@ -95,7 +97,7 @@ pub(crate) struct GetTileBinEdges {}
 
 impl KernelSource for GetTileBinEdges {
     fn source(&self) -> SourceTemplate {
-        SourceTemplate::new(gen::get_tile_bin_edges::SHADER_STRING)
+        SourceTemplate::new(generated_bindings::get_tile_bin_edges::SHADER_STRING)
     }
 }
 
@@ -103,28 +105,34 @@ impl<S: ComputeServer<Kernel = Kernel>, C: ComputeChannel<S>> SplatKernel<S, C>
     for GetTileBinEdges
 {
     const BINDING_COUNT: usize =
-        gen::get_tile_bin_edges::bind_groups::WgpuBindGroup0::LAYOUT_DESCRIPTOR
+        generated_bindings::get_tile_bin_edges::bind_groups::WgpuBindGroup0::LAYOUT_DESCRIPTOR
             .entries
             .len();
     type Uniforms = ();
-    const WORKGROUP_SIZE: [u32; 3] = gen::get_tile_bin_edges::compute::MAIN_WORKGROUP_SIZE;
+    const WORKGROUP_SIZE: [u32; 3] =
+        generated_bindings::get_tile_bin_edges::compute::MAIN_WORKGROUP_SIZE;
 }
 
 #[derive(Default, Debug)]
 pub(crate) struct Rasterize {}
 
+impl Rasterize {
+    pub const BLOCK_WIDTH: u32 = generated_bindings::rasterize::BLOCK_WIDTH;
+}
+
 impl KernelSource for Rasterize {
     fn source(&self) -> SourceTemplate {
-        SourceTemplate::new(gen::rasterize::SHADER_STRING)
+        SourceTemplate::new(generated_bindings::rasterize::SHADER_STRING)
     }
 }
 
 impl<S: ComputeServer<Kernel = Kernel>, C: ComputeChannel<S>> SplatKernel<S, C> for Rasterize {
-    const BINDING_COUNT: usize = gen::rasterize::bind_groups::WgpuBindGroup0::LAYOUT_DESCRIPTOR
-        .entries
-        .len();
-    type Uniforms = gen::rasterize::Uniforms;
-    const WORKGROUP_SIZE: [u32; 3] = gen::rasterize::compute::MAIN_WORKGROUP_SIZE;
+    const BINDING_COUNT: usize =
+        generated_bindings::rasterize::bind_groups::WgpuBindGroup0::LAYOUT_DESCRIPTOR
+            .entries
+            .len();
+    type Uniforms = generated_bindings::rasterize::Uniforms;
+    const WORKGROUP_SIZE: [u32; 3] = generated_bindings::rasterize::compute::MAIN_WORKGROUP_SIZE;
 }
 
 #[derive(Default, Debug)]
@@ -132,7 +140,7 @@ pub(crate) struct RasterizeBackwards {}
 
 impl KernelSource for RasterizeBackwards {
     fn source(&self) -> SourceTemplate {
-        SourceTemplate::new(gen::rasterize_backwards::SHADER_STRING)
+        SourceTemplate::new(generated_bindings::rasterize_backwards::SHADER_STRING)
     }
 }
 
@@ -140,11 +148,12 @@ impl<S: ComputeServer<Kernel = Kernel>, C: ComputeChannel<S>> SplatKernel<S, C>
     for RasterizeBackwards
 {
     const BINDING_COUNT: usize =
-        gen::rasterize_backwards::bind_groups::WgpuBindGroup0::LAYOUT_DESCRIPTOR
+        generated_bindings::rasterize_backwards::bind_groups::WgpuBindGroup0::LAYOUT_DESCRIPTOR
             .entries
             .len();
-    type Uniforms = gen::rasterize_backwards::Uniforms;
-    const WORKGROUP_SIZE: [u32; 3] = gen::rasterize_backwards::compute::MAIN_WORKGROUP_SIZE;
+    type Uniforms = generated_bindings::rasterize_backwards::Uniforms;
+    const WORKGROUP_SIZE: [u32; 3] =
+        generated_bindings::rasterize_backwards::compute::MAIN_WORKGROUP_SIZE;
 }
 
 #[derive(Default, Debug)]
@@ -152,7 +161,7 @@ pub(crate) struct ProjectBackwards {}
 
 impl KernelSource for ProjectBackwards {
     fn source(&self) -> SourceTemplate {
-        SourceTemplate::new(gen::project_backwards::SHADER_STRING)
+        SourceTemplate::new(generated_bindings::project_backwards::SHADER_STRING)
     }
 }
 
@@ -160,9 +169,10 @@ impl<S: ComputeServer<Kernel = Kernel>, C: ComputeChannel<S>> SplatKernel<S, C>
     for ProjectBackwards
 {
     const BINDING_COUNT: usize =
-        gen::project_backwards::bind_groups::WgpuBindGroup0::LAYOUT_DESCRIPTOR
+        generated_bindings::project_backwards::bind_groups::WgpuBindGroup0::LAYOUT_DESCRIPTOR
             .entries
             .len();
-    type Uniforms = gen::project_backwards::Uniforms;
-    const WORKGROUP_SIZE: [u32; 3] = gen::project_backwards::compute::MAIN_WORKGROUP_SIZE;
+    type Uniforms = generated_bindings::project_backwards::Uniforms;
+    const WORKGROUP_SIZE: [u32; 3] =
+        generated_bindings::project_backwards::compute::MAIN_WORKGROUP_SIZE;
 }

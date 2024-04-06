@@ -16,8 +16,9 @@ use burn_wgpu::JitTensor;
 use crate::camera::Camera;
 
 mod dim_check;
-mod gen;
+mod generated_bindings;
 mod kernels;
+
 pub mod render;
 
 type BurnRuntime = WgpuRuntime<AutoGraphicsApi, f32, i32>;

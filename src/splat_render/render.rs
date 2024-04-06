@@ -1,7 +1,6 @@
 use super::kernels::SplatKernel;
 use crate::camera::Camera;
 use crate::splat_render::dim_check::DimCheck;
-use crate::splat_render::gen::rasterize;
 use crate::splat_render::kernels::{
     GetTileBinEdges, MapGaussiansToIntersect, ProjectBackwards, ProjectSplats, Rasterize,
     RasterizeBackwards,
@@ -11,7 +10,7 @@ use burn::backend::autodiff::NodeID;
 use burn::tensor::ops::IntTensor;
 use burn::tensor::Tensor;
 
-use super::{gen, Backend, BurnBack, FloatTensor};
+use super::{generated_bindings, Backend, BurnBack, FloatTensor};
 use crate::splat_render::BufferAlloc;
 use burn::{
     backend::{
@@ -117,7 +116,7 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
         let num_points = means.shape.dims[0];
 
         // Divide screen into blocks.
-        let block_width = rasterize::BLOCK_WIDTH;
+        let block_width = Rasterize::BLOCK_WIDTH;
         let img_size = [camera.width, camera.height];
         let tile_bounds = uvec2(
             camera.height.div_ceil(block_width),
@@ -135,7 +134,7 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
 
         ProjectSplats::execute(
             &client,
-            gen::project_forward::Uniforms::new(
+            generated_bindings::project_forward::Uniforms::new(
                 camera.viewmatrix(),
                 camera.focal().into(),
                 camera.center().into(),
@@ -181,7 +180,10 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
         // Dispatch one thread per point.
         MapGaussiansToIntersect::execute(
             &client,
-            gen::map_gaussian_to_intersects::Uniforms::new(tile_bounds.into(), block_width),
+            generated_bindings::map_gaussian_to_intersects::Uniforms::new(
+                tile_bounds.into(),
+                block_width,
+            ),
             &[&xys.handle, &radii.handle, &cum_tiles_hit],
             &[&isect_ids_unsorted, &gaussian_ids_unsorted],
             [num_points as u32, 1, 1],
@@ -256,7 +258,7 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
 
         Rasterize::execute(
             &client,
-            gen::rasterize::Uniforms::new(img_size, background.into()),
+            generated_bindings::rasterize::Uniforms::new(img_size, background.into()),
             &[
                 &gaussian_ids_sorted.handle,
                 &tile_bins.handle,
@@ -344,7 +346,7 @@ impl Backward<BurnBack, 3, 5> for RenderBackwards {
 
         RasterizeBackwards::execute(
             &client,
-            gen::rasterize_backwards::Uniforms::new(
+            generated_bindings::rasterize_backwards::Uniforms::new(
                 [camera.height, camera.width],
                 state.background.into(),
             ),
@@ -369,7 +371,7 @@ impl Backward<BurnBack, 3, 5> for RenderBackwards {
 
         ProjectBackwards::execute(
             &client,
-            gen::project_backwards::Uniforms::new(
+            generated_bindings::project_backwards::Uniforms::new(
                 camera.viewmatrix(),
                 camera.center().into(),
                 [camera.height, camera.width],
