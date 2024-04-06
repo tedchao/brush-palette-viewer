@@ -8,7 +8,11 @@ edition = "2021"
 [dependencies]
 glam = "0.22"
 
-burn = { path = "../burn/crates/burn", features = ['wgpu', 'autodiff'] }
+burn = { path = "../burn/crates/burn", features = [
+    'wgpu',
+    'autodiff',
+    'template',
+] }
 burn-compute = { path = "../burn/crates/burn-compute" }
 burn-jit = { path = "../burn/crates/burn-jit" }
 burn-wgpu = { path = "../burn/crates/burn-wgpu" }

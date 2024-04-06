@@ -10,7 +10,7 @@ use burn_compute::{
     client::ComputeClient,
     server::{ComputeServer, Handle},
 };
-use burn_jit::{compute::Kernel, JitElement, Runtime};
+use burn_jit::{JitElement, Runtime};
 use burn_wgpu::JitTensor;
 
 use crate::camera::Camera;
@@ -95,7 +95,7 @@ fn create_tensor<E: JitElement, const D: usize>(
     )
 }
 
-fn read_buffer_to_u32<S: ComputeServer<Kernel = Box<dyn Kernel>>, C: ComputeChannel<S>>(
+fn read_buffer_to_u32<S: ComputeServer, C: ComputeChannel<S>>(
     client: &ComputeClient<S, C>,
     tensor: &Handle<S>,
 ) -> Vec<u32> {
@@ -106,7 +106,7 @@ fn read_buffer_to_u32<S: ComputeServer<Kernel = Box<dyn Kernel>>, C: ComputeChan
         .collect()
 }
 
-fn read_buffer_to_f32<S: ComputeServer<Kernel = Box<dyn Kernel>>, C: ComputeChannel<S>>(
+fn read_buffer_to_f32<S: ComputeServer, C: ComputeChannel<S>>(
     client: &ComputeClient<S, C>,
     tensor: &Handle<S>,
 ) -> Vec<f32> {
@@ -117,7 +117,7 @@ fn read_buffer_to_f32<S: ComputeServer<Kernel = Box<dyn Kernel>>, C: ComputeChan
         .collect()
 }
 
-fn assert_buffer_is_finite<S: ComputeServer<Kernel = Box<dyn Kernel>>, C: ComputeChannel<S>>(
+fn assert_buffer_is_finite<S: ComputeServer, C: ComputeChannel<S>>(
     client: &ComputeClient<S, C>,
     tensor: &Handle<S>,
 ) {
