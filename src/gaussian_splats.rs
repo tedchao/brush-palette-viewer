@@ -100,10 +100,10 @@ impl<B: Backend> Splats<B> {
             .unsqueeze::<2>()
             .repeat(0, num_points);
 
-        let init_opacity = Tensor::random([num_points], Distribution::Uniform(-4.0, -2.0), device);
+        let init_opacity = Tensor::random([num_points], Distribution::Uniform(0.0, 0.0), device);
 
         // TODO: Fancy KNN init.
-        let init_scale = Tensor::random([num_points, 4], Distribution::Uniform(-4.0, -2.0), device);
+        let init_scale = Tensor::random([num_points, 4], Distribution::Uniform(-3.0, -3.0), device);
 
         // TODO: Support lazy loading.
         // Model parameters.
@@ -424,13 +424,13 @@ impl<B: Backend> Splats<B> {
         let cur_rot = self.rotation.val();
 
         let norms = Tensor::sum_dim(cur_rot.clone() * cur_rot.clone(), 1).sqrt();
-        let norm_rot = cur_rot / Tensor::clamp_min(norms, 1e-6);
+        let norm_rotation = cur_rot / Tensor::clamp_min(norms, 1e-6);
 
         splat_render::render::render(
             camera,
             self.means.val(),
             self.scales.val().exp(),
-            norm_rot,
+            norm_rotation,
             sigmoid(self.colors.val()),
             sigmoid(self.opacity.val()),
             bg_color,

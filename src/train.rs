@@ -23,7 +23,7 @@ use rand::seq::SliceRandom;
 pub(crate) struct TrainConfig {
     #[config(default = 42)]
     pub(crate) seed: u64,
-    #[config(default = 2500)]
+    #[config(default = 15000)]
     pub(crate) train_steps: u32,
     #[config(default = false)]
     pub(crate) random_bck_color: bool,
@@ -33,7 +33,7 @@ pub(crate) struct TrainConfig {
     pub min_lr: f64,
     #[config(default = 5)]
     pub visualize_every: u32,
-    #[config(default = 1024)]
+    #[config(default = 4096)]
     pub init_points: usize,
     #[config(default = 2.0)]
     pub init_aabb: f32,
