@@ -1464,6 +1464,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     var final_idx: u32;
     var b: u32 = 0u;
     var t: u32;
+    var c: vec3<f32>;
 
     let info = info_array[0];
     let background = info.background;
@@ -1539,33 +1540,36 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
                         let vis = (alpha * _e155);
                         let _e158 = t;
                         let _e160 = colors_batch[_e158];
-                        let c = _e160.xyz;
-                        let _e164 = pix_out;
-                        pix_out = (_e164 + (c * vis));
+                        c = _e160.xyz;
+                        let _e163 = c;
+                        c = clamp(_e163, vec3(0f), vec3(1f));
+                        let _e170 = c;
+                        let _e172 = pix_out;
+                        pix_out = (_e172 + (_e170 * vis));
                         T = next_T;
-                        let _e166 = t;
-                        final_idx = (batch_start + _e166);
+                        let _e174 = t;
+                        final_idx = (batch_start + _e174);
                     }
                     continuing {
-                        let _e169 = t;
-                        t = (_e169 + 1u);
+                        let _e177 = t;
+                        t = (_e177 + 1u);
                     }
                 }
             }
         }
         continuing {
-            let _e172 = b;
-            b = (_e172 + 1u);
+            let _e180 = b;
+            b = (_e180 + 1u);
         }
     }
     if inside {
-        let _e176 = final_idx;
-        final_index[pix_id] = _e176;
-        let _e177 = pix_out;
-        let _e178 = T;
-        let final_color = (_e177 + (_e178 * background));
-        let _e183 = T;
-        out_img[pix_id] = vec4<f32>(final_color, _e183);
+        let _e184 = final_idx;
+        final_index[pix_id] = _e184;
+        let _e185 = pix_out;
+        let _e186 = T;
+        let final_color = (_e185 + (_e186 * background));
+        let _e191 = T;
+        out_img[pix_id] = vec4<f32>(final_color, _e191);
         return;
     } else {
         return;
@@ -2036,6 +2040,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     var buffer: vec3<f32> = vec3<f32>(0f, 0f, 0f);
     var range: vec2<u32>;
     var final_bin: u32 = 0u;
+    var final_bin: u32 = 0u;
     var num_batches: u32;
     var batch: u32 = 0u;
     var t: u32;
@@ -2060,6 +2065,8 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     let _e42 = tile_bins[tile_id];
     range = _e42;
     if inside {
+        let _e46 = final_index[pix_id];
+        final_bin = _e46;
         let _e46 = final_index[pix_id];
         final_bin = _e46;
     }
@@ -2096,9 +2103,11 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
             workgroupBarrier();
             let _e108 = range.x;
             let batch_count = min(BLOCK_SIZE, ((gauss_idx_start + 1u) - _e108));
+            let batch_count = min(BLOCK_SIZE, ((gauss_idx_start + 1u) - _e108));
             t = 0u;
             loop {
                 let _e114 = t;
+                if (_e114 < batch_count) {
                 if (_e114 < batch_count) {
                 } else {
                     break;
