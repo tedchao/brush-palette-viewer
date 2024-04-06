@@ -74,8 +74,9 @@ fn main(
     // first collect gaussians between bin_start and bin_final in batches
     // which gaussians to look through in this tile
     var range = tile_bins[tile_id];
+    var final_bin = 0u;
     if inside {
-        range.y = final_index[pix_id];
+        final_bin = final_index[pix_id];
     }
 
     // df/d_out for this pixel
@@ -110,17 +111,21 @@ fn main(
 
         // TODO: WGSL lacks warp intrinsics, quite a bit more contention here
         // than needed. Might be some other ways to reduce it?
-        let remaining = min(BLOCK_SIZE, gauss_idx_start + 1 - range.x);
+        let batch_count = min(BLOCK_SIZE, gauss_idx_start + 1 - range.x);
 
         // reset local accumulations.
-        for (var t = 0u; t < remaining; t++) {
+        for (var t = 0u; t < batch_count; t++) {
             let g_id = id_batch[t];
             
-
-            // Don't overwrite data before it's all been scattered to the gaussians.
+            // Don't overwrite data before all the gradients have been scattered to the gaussians.
             workgroupBarrier();
 
-            if inside {
+            v_opacity_local[local_idx] = 0.0;
+            v_xy_local[local_idx] = vec2f(0.0);
+            v_conic_local[local_idx] = vec3f(0.0);
+            v_colors_local[local_idx] = vec3f(0.0);
+
+            if inside && idx <= final_bin {
                 let cov2d = cov2d_batch[t].xyz;
                 let conic = helpers::cov2d_to_conic(cov2d);
                 let xy = xy_batch[t];
@@ -171,10 +176,6 @@ fn main(
             // Make sure all threads have calculated their gradient.
             // This needs to be on a uniform path so can't be in the if above.
             workgroupBarrier();
-
-            if !inside {
-                continue;
-            }
 
             if local_idx == 0 {
                 // Gather workgroup sums.
