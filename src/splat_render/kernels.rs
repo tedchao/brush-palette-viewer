@@ -116,10 +116,6 @@ impl<S: ComputeServer<Kernel = Kernel>, C: ComputeChannel<S>> SplatKernel<S, C>
 #[derive(Default, Debug)]
 pub(crate) struct Rasterize {}
 
-impl Rasterize {
-    pub const BLOCK_WIDTH: u32 = generated_bindings::rasterize::BLOCK_WIDTH;
-}
-
 impl KernelSource for Rasterize {
     fn source(&self) -> SourceTemplate {
         SourceTemplate::new(generated_bindings::rasterize::SHADER_STRING)

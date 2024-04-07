@@ -94,16 +94,16 @@ impl<B: Backend> Splats<B> {
             Distribution::Uniform(-extent, extent),
             device,
         );
-        let colors = Tensor::random([num_points, 4], Distribution::Uniform(-4.0, 4.0), device);
+        let colors = Tensor::random([num_points, 4], Distribution::Uniform(-2.0, 2.0), device);
 
         let init_rotation = Tensor::from_floats([1.0, 0.0, 0.0, 0.0], device)
             .unsqueeze::<2>()
             .repeat(0, num_points);
 
-        let init_opacity = Tensor::random([num_points], Distribution::Uniform(0.0, 0.0), device);
+        let init_opacity = Tensor::random([num_points], Distribution::Uniform(-4.0, -2.0), device);
 
         // TODO: Fancy KNN init.
-        let init_scale = Tensor::random([num_points, 4], Distribution::Uniform(-3.0, -3.0), device);
+        let init_scale = Tensor::random([num_points, 4], Distribution::Uniform(-5.0, -3.0), device);
 
         // TODO: Support lazy loading.
         // Model parameters.

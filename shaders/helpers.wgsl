@@ -1,3 +1,8 @@
+const SPLATS_PER_GROUP: u32 = 256;
+
+const TILE_WIDTH: u32 = 14u;
+const TILE_SIZE: u32 = TILE_WIDTH * TILE_WIDTH;
+
 fn get_bbox(center: vec2f, dims: vec2f, bounds: vec2u) -> vec4u {
     // get bounding box with center and dims, within bounds
     // bounding box coords returned in tile coords, inclusive min, exclusive max
@@ -7,11 +12,11 @@ fn get_bbox(center: vec2f, dims: vec2f, bounds: vec2u) -> vec4u {
     return vec4u(min, max);
 }
 
-fn get_tile_bbox(pix_center: vec2f, pix_radius: u32, tile_bounds: vec2u, block_size: u32) -> vec4u {
+fn get_tile_bbox(pix_center: vec2f, pix_radius: u32, tile_bounds: vec2u) -> vec4u {
     // gets gaussian dimensions in tile space, i.e. the span of a gaussian in
     // tile_grid (image divided into tiles)
-    let tile_center = pix_center / f32(block_size);
-    let tile_radius = f32(pix_radius) / f32(block_size);
+    let tile_center = pix_center / f32(TILE_WIDTH);
+    let tile_radius = f32(pix_radius) / f32(TILE_WIDTH);
 
     return get_bbox(tile_center, vec2f(tile_radius, tile_radius), tile_bounds);
 }

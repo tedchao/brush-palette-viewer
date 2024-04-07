@@ -7,7 +7,7 @@
 // expect that intersection IDs are sorted by increasing tile ID
 // i.e. intersections of a tile are in contiguous chunks
 @compute
-@workgroup_size(128, 1, 1)
+@workgroup_size(helpers::SPLATS_PER_GROUP, 1, 1)
 fn main(@builtin(global_invocation_id) global_id: vec3u) {
     let idx = global_id.x;
     let num_intersects = arrayLength(&isect_ids_sorted);

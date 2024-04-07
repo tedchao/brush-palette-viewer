@@ -12,15 +12,12 @@
 
 @group(0) @binding(8) var<storage, read> info_array: array<Uniforms>;
 
-const BLOCK_WIDTH: u32 = 16u;
-const BLOCK_SIZE: u32 = BLOCK_WIDTH * BLOCK_WIDTH;
-
 // Workgroup variables.
-var<workgroup> id_batch: array<u32, BLOCK_SIZE>;
-var<workgroup> xy_batch: array<vec2f, BLOCK_SIZE>;
-var<workgroup> opacity_batch: array<f32, BLOCK_SIZE>;
-var<workgroup> colors_batch: array<vec4f, BLOCK_SIZE>;
-var<workgroup> cov2d_batch: array<vec4f, BLOCK_SIZE>;
+var<workgroup> id_batch: array<u32, helpers::TILE_SIZE>;
+var<workgroup> xy_batch: array<vec2f, helpers::TILE_SIZE>;
+var<workgroup> opacity_batch: array<f32, helpers::TILE_SIZE>;
+var<workgroup> colors_batch: array<vec4f, helpers::TILE_SIZE>;
+var<workgroup> cov2d_batch: array<vec4f, helpers::TILE_SIZE>;
 
 // Keep track of how many threads are done in this workgroup.
 var<workgroup> count_done: atomic<u32>;
@@ -35,10 +32,8 @@ struct Uniforms {
 // kernel function for rasterizing each tile
 // each thread treats a single pixel
 // each thread group uses the same gaussian data in a tile
-
-
 @compute
-@workgroup_size(BLOCK_WIDTH, BLOCK_WIDTH, 1)
+@workgroup_size(helpers::TILE_WIDTH, helpers::TILE_WIDTH, 1)
 fn main(
     @builtin(global_invocation_id) global_id: vec3u,
     @builtin(local_invocation_id) local_id: vec3u,
@@ -53,7 +48,7 @@ fn main(
     // shared tile
 
     // Get index of tile being drawn.
-    let tiles_xx = (img_size.x + BLOCK_WIDTH - 1) / BLOCK_WIDTH;
+    let tiles_xx = (img_size.x + helpers::TILE_WIDTH - 1) / helpers::TILE_WIDTH;
     let tile_id = workgroup_id.x + workgroup_id.y * tiles_xx;
 
     let pix_id = global_id.x + global_id.y * img_size.x;
@@ -74,7 +69,7 @@ fn main(
     // first collect gaussians between range.x and range.y in batches
     // which gaussians to look through in this tile
     let range = tile_bins[tile_id];
-    let num_batches = (range.y - range.x + BLOCK_SIZE - 1) / BLOCK_SIZE;
+    let num_batches = (range.y - range.x + helpers::TILE_SIZE - 1) / helpers::TILE_SIZE;
 
     // current visibility left to render
     var T = 1.0;
@@ -92,13 +87,13 @@ fn main(
         workgroupBarrier();
 
         // end early out if entire tile is done
-        if count_done >= BLOCK_SIZE {
+        if count_done >= helpers::TILE_SIZE {
             break;
         }
 
         // each thread fetch 1 gaussian from front to back
         // index of gaussian to load
-        let batch_start = range.x + b * BLOCK_SIZE;
+        let batch_start = range.x + b * helpers::TILE_SIZE;
         let idx = batch_start + local_idx;
 
         if idx < range.y {
@@ -114,42 +109,40 @@ fn main(
         workgroupBarrier();
 
         // process gaussians in the current batch for this pixel
-        let remaining = min(BLOCK_SIZE, range.y - batch_start);
-        
-        if !done {
-            for (var t = 0u; t < remaining; t++) {
-                let cov2d = cov2d_batch[t].xyz;
-                let conic =  helpers::cov2d_to_conic(cov2d);
-                // Apply compensation for the blurring of 2D covariances.
-                let compensation = helpers::cov_compensation(cov2d);
-                let xy = xy_batch[t];
-                let opac = opacity_batch[t];
-                let delta = xy - pixel_coord;
-                let sigma = 0.5f * (conic.x * delta.x * delta.x + conic.z * delta.y * delta.y) + conic.y * delta.x * delta.y;
-                let alpha = min(0.99f, opac * compensation * exp(-sigma));
+        let remaining = min(helpers::TILE_SIZE, range.y - batch_start);
+    
+        for (var t = 0u; t < remaining && !done; t++) {
+            let cov2d = cov2d_batch[t].xyz;
+            let conic =  helpers::cov2d_to_conic(cov2d);
+            // Apply compensation for the blurring of 2D covariances.
+            let compensation = helpers::cov_compensation(cov2d);
+            let xy = xy_batch[t];
+            let opac = opacity_batch[t];
+            let delta = xy - pixel_coord;
+            let sigma = 0.5f * (conic.x * delta.x * delta.x + conic.z * delta.y * delta.y) + conic.y * delta.x * delta.y;
+            let alpha = min(0.99f, opac * compensation * exp(-sigma));
 
-                if sigma < 0.0 || alpha < 1.0 / 255.0 {
-                    continue;
-                }
-
-                let next_T = T * (1.0 - alpha);
-
-                if next_T <= 1e-4f { 
-                    // this pixel is done
-                    // we want to render the last gaussian that contributes and note
-                    // that here idx > range.x so we don't underflow
-                    atomicAdd(&count_done, 1u);
-                    done = true;
-                    break;
-                }
-
-                let vis = alpha * T;
-
-                let c = colors_batch[t].xyz;
-                pix_out += c * vis;
-                T = next_T;
-                final_idx = batch_start + t;
+            if sigma < 0.0 || alpha < 1.0 / 255.0 {
+                continue;
             }
+
+            let next_T = T * (1.0 - alpha);
+
+            if next_T <= 1e-4f { 
+                // this pixel is done
+                // we want to render the last gaussian that contributes and note
+                // that here idx > range.x so we don't underflow
+                atomicAdd(&count_done, 1u);
+                done = true;
+                break;
+            }
+
+            let vis = alpha * T;
+
+            let c = colors_batch[t].xyz;
+            pix_out += c * vis;
+            T = next_T;
+            final_idx = batch_start + t;
         }
     }
 

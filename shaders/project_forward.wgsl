@@ -34,10 +34,10 @@ fn project_pix(fxfy: vec2f, p_view: vec3f, pp: vec2f) -> vec2f {
     return p_proj * fxfy + pp;
 }
 
-// kernel function for projecting each gaussian on device
-// each thread processes one gaussian
+// Kernel function for projecting gaussians.
+// Each thread processes one gaussian
 @compute
-@workgroup_size(128, 1, 1)
+@workgroup_size(helpers::SPLATS_PER_GROUP, 1, 1)
 fn main(@builtin(global_invocation_id) global_id: vec3u) {
     let idx = global_id.x;
     let info = info_array[0];
@@ -56,7 +56,6 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
 
     let img_size = info.img_size;
     let tile_bounds = info.tile_bounds;
-    let block_width = info.block_width;
     let clip_thresh = info.clip_thresh;
 
     // Project world space to camera space.
@@ -121,7 +120,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
 
     // compute the projected mean
     let center = project_pix(focal, p_view, pixel_center);
-    let tile_minmax = helpers::get_tile_bbox(center, radius, tile_bounds, block_width);
+    let tile_minmax = helpers::get_tile_bbox(center, radius, tile_bounds);
     let tile_area = (tile_minmax.z - tile_minmax.x) * (tile_minmax.w - tile_minmax.y);
 
     // Now write all the data to the buffers.

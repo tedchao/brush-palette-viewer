@@ -88,17 +88,15 @@ fn cov2d_to_conic_vjp(conic: vec3f, v_conic: vec3f) -> vec3f {
     );
 }
 
-// output space: 2D covariance, input space: cov3d
+
 @compute
-@workgroup_size(128, 1, 1)
+@workgroup_size(helpers::SPLATS_PER_GROUP, 1, 1)
 fn main(
     @builtin(global_invocation_id) global_id: vec3u,
     @builtin(local_invocation_id) local_id: vec3u,
     @builtin(workgroup_id) workgroup_id: vec3u,
 ) {
     let idx = global_id.x;
-
-    // Until burn supports adding in uniforms we read these from a tensor.
 
     let num_points = arrayLength(&means);
 

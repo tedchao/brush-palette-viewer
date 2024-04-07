@@ -117,11 +117,11 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
         let num_points = means.shape.dims[0];
 
         // Divide screen into blocks.
-        let block_width = Rasterize::BLOCK_WIDTH;
+        let tile_width = generated_bindings::helpers::TILE_WIDTH;
         let img_size = [camera.width, camera.height];
         let tile_bounds = uvec2(
-            camera.height.div_ceil(block_width),
-            camera.height.div_ceil(block_width),
+            camera.height.div_ceil(tile_width),
+            camera.height.div_ceil(tile_width),
         );
 
         let client = means.client.clone();
@@ -141,7 +141,7 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
                 camera.center().into(),
                 img_size,
                 tile_bounds.into(),
-                block_width,
+                tile_width,
                 0.01,
             ),
             &[&means.handle, &scales.handle, &quats.handle],
@@ -179,10 +179,7 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
         // Dispatch one thread per point.
         MapGaussiansToIntersect::execute(
             &client,
-            generated_bindings::map_gaussian_to_intersects::Uniforms::new(
-                tile_bounds.into(),
-                block_width,
-            ),
+            generated_bindings::map_gaussian_to_intersects::Uniforms::new(tile_bounds.into()),
             &[&xys.handle, &radii.handle, &cum_tiles_hit],
             &[&isect_ids_unsorted, &gaussian_ids_unsorted],
             [num_points as u32, 1, 1],

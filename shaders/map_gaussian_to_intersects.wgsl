@@ -12,14 +12,12 @@
 struct Uniforms {
     // Total reachable pixels (w, h)
     tile_bounds: vec2u,
-    // Width of blocks image is divided into.
-    block_width: u32,
 }
 
 // kernel to map each intersection from tile ID and depth to a gaussian
 // writes output to isect_ids and gaussian_ids
 @compute
-@workgroup_size(128, 1, 1)
+@workgroup_size(helpers::SPLATS_PER_GROUP, 1, 1)
 fn main(@builtin(global_invocation_id) global_id: vec3u) {
     let idx = global_id.x;
 
@@ -36,11 +34,10 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
 
     let info = info_array[0];
     let tile_bounds = info.tile_bounds;
-    let block_width = info.block_width;
 
     // get the tile bbox for gaussian
     let center = xys[idx];
-    let tile_minmax = helpers::get_tile_bbox(center, radius, tile_bounds, block_width);
+    let tile_minmax = helpers::get_tile_bbox(center, radius, tile_bounds);
     let tile_min = tile_minmax.xy;
     let tile_max = tile_minmax.zw;
 

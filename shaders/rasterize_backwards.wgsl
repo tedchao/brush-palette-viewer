@@ -17,19 +17,17 @@
 
 @group(0) @binding(13) var<storage, read> info_array: array<Uniforms>;
 
-const BLOCK_WIDTH: u32 = 16u;
-const BLOCK_SIZE: u32 = BLOCK_WIDTH * BLOCK_WIDTH;
 
-var<workgroup> id_batch: array<u32, BLOCK_SIZE>;
-var<workgroup> xy_batch: array<vec2f, BLOCK_SIZE>;
-var<workgroup> opacity_batch: array<f32, BLOCK_SIZE>;
-var<workgroup> color_batch: array<vec4f, BLOCK_SIZE>;
-var<workgroup> cov2d_batch: array<vec4f, BLOCK_SIZE>;
+var<workgroup> id_batch: array<u32, helpers::TILE_SIZE>;
+var<workgroup> xy_batch: array<vec2f, helpers::TILE_SIZE>;
+var<workgroup> opacity_batch: array<f32, helpers::TILE_SIZE>;
+var<workgroup> color_batch: array<vec4f, helpers::TILE_SIZE>;
+var<workgroup> cov2d_batch: array<vec4f, helpers::TILE_SIZE>;
 
-var<workgroup> v_opacity_local: array<f32, BLOCK_SIZE>;
-var<workgroup> v_conic_local: array<vec3f, BLOCK_SIZE>;
-var<workgroup> v_xy_local: array<vec2f, BLOCK_SIZE>;
-var<workgroup> v_colors_local: array<vec3f, BLOCK_SIZE>;
+var<workgroup> v_opacity_local: array<f32, helpers::TILE_SIZE>;
+var<workgroup> v_conic_local: array<vec3f, helpers::TILE_SIZE>;
+var<workgroup> v_xy_local: array<vec2f, helpers::TILE_SIZE>;
+var<workgroup> v_colors_local: array<vec3f, helpers::TILE_SIZE>;
 
 struct Uniforms {
     // Img resolution (w, h)
@@ -43,7 +41,7 @@ fn bitAddFloat(cur: u32, add: f32) -> u32 {
 }
 
 @compute
-@workgroup_size(BLOCK_WIDTH, BLOCK_WIDTH, 1)
+@workgroup_size(helpers::TILE_WIDTH, helpers::TILE_WIDTH, 1)
 fn main(
     @builtin(global_invocation_id) global_id: vec3u,
     @builtin(local_invocation_index) local_idx: u32,
@@ -53,7 +51,7 @@ fn main(
     let background = info.background;
     let img_size = info.img_size;
 
-    let tiles_xx = (img_size.x + BLOCK_WIDTH - 1) / BLOCK_WIDTH;
+    let tiles_xx = (img_size.x + helpers::TILE_WIDTH - 1) / helpers::TILE_WIDTH;
     let tile_id = workgroup_id.x + workgroup_id.y * tiles_xx;
 
     let pix_id = global_id.x + global_id.y * img_size.x;
@@ -84,10 +82,10 @@ fn main(
 
     // collect and process batches of gaussians
     // each thread loads one gaussian at a time before rasterizing
-    var num_batches = (range.y - range.x + BLOCK_SIZE - 1) / BLOCK_SIZE;
+    var num_batches = (range.y - range.x + helpers::TILE_SIZE - 1) / helpers::TILE_SIZE;
 
     for(var batch = 0u; batch < num_batches; batch++) {
-        let batch_end  = range.y - 1 - batch * BLOCK_SIZE;
+        let batch_end  = range.y - 1 - batch * helpers::TILE_SIZE;
 
         // resync all threads before writing next batch of shared mem
         workgroupBarrier();
@@ -112,7 +110,7 @@ fn main(
 
         // TODO: WGSL lacks warp intrinsics, quite a bit more contention here
         // than needed. Might be some other ways to reduce it?
-        let batch_size = min(BLOCK_SIZE, batch_end + 1 - range.x);
+        let batch_size = min(helpers::TILE_SIZE, batch_end + 1 - range.x);
 
         // reset local accumulations.
         for (var t = 0u; t < batch_size; t++) {
@@ -186,7 +184,7 @@ fn main(
                 var v_xy_sum = vec2f(0.0);
                 var v_opacity_sum = 0.0;
                 
-                for(var i = 0u; i < BLOCK_SIZE; i++) {
+                for(var i = 0u; i < helpers::TILE_SIZE; i++) {
                     v_colors_sum += v_colors_local[i];
                     v_conic_sum += v_conic_local[i];
                     v_xy_sum += v_xy_local[i];
