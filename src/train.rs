@@ -27,13 +27,13 @@ pub(crate) struct TrainConfig {
     pub(crate) train_steps: u32,
     #[config(default = false)]
     pub(crate) random_bck_color: bool,
-    #[config(default = 8e-3)]
+    #[config(default = 2e-2)]
     pub lr: f64,
-    #[config(default = 8e-3)]
+    #[config(default = 1e-2)]
     pub min_lr: f64,
     #[config(default = 5)]
     pub visualize_every: u32,
-    #[config(default = 4096)]
+    #[config(default = 2048)]
     pub init_points: usize,
     #[config(default = 2.0)]
     pub init_aabb: f32,

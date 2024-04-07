@@ -74,9 +74,9 @@ fn main(
     // first collect gaussians between bin_start and bin_final in batches
     // which gaussians to look through in this tile
     var range = tile_bins[tile_id];
-    var final_bin = 0u;
+    var bin_final = 0u;
     if inside {
-        final_bin = final_index[pix_id];
+        bin_final = final_index[pix_id];
     }
 
     // df/d_out for this pixel
@@ -87,7 +87,8 @@ fn main(
     var num_batches = (range.y - range.x + BLOCK_SIZE - 1) / BLOCK_SIZE;
 
     for(var batch = 0u; batch < num_batches; batch++) {
-        let gauss_idx_start = range.y - 1 - batch * BLOCK_SIZE;
+        let batch_end  = range.y - 1 - batch * BLOCK_SIZE;
+
         // resync all threads before writing next batch of shared mem
         workgroupBarrier();
         
@@ -95,7 +96,7 @@ fn main(
         // 0 index will be furthest back in batch
         // index of gaussian to load
         // batch end is the index of the last gaussian in the batch
-        let idx = gauss_idx_start - local_idx;
+        let idx = batch_end - local_idx;
 
         if idx >= range.x {
             let g_id = gaussian_ids_sorted[idx];
@@ -111,10 +112,10 @@ fn main(
 
         // TODO: WGSL lacks warp intrinsics, quite a bit more contention here
         // than needed. Might be some other ways to reduce it?
-        let batch_count = min(BLOCK_SIZE, gauss_idx_start + 1 - range.x);
+        let batch_size = min(BLOCK_SIZE, batch_end + 1 - range.x);
 
         // reset local accumulations.
-        for (var t = 0u; t < batch_count; t++) {
+        for (var t = 0u; t < batch_size; t++) {
             let g_id = id_batch[t];
             
             // Don't overwrite data before all the gradients have been scattered to the gaussians.
@@ -125,19 +126,20 @@ fn main(
             v_conic_local[local_idx] = vec3f(0.0);
             v_colors_local[local_idx] = vec3f(0.0);
 
-            if inside && idx <= final_bin {
+            let batch_idx = batch_end - t;
+
+            if inside && batch_idx >= range.x && batch_idx <= bin_final {
                 let cov2d = cov2d_batch[t].xyz;
                 let conic = helpers::cov2d_to_conic(cov2d);
                 let xy = xy_batch[t];
                 let opac = opacity_batch[t] * helpers::cov_compensation(cov2d);
                 let delta = xy - pixel_coord;
                 var sigma = 0.5f * (conic.x * delta.x * delta.x + conic.z * delta.y * delta.y) + conic.y * delta.x * delta.y;
+                let vis = exp(-sigma);
 
-                let alpha = min(0.99f, opac * exp(-sigma));
+                let alpha = min(0.99f, opac * vis);
 
                 if (sigma > 0.0 && alpha > 1.0 / 255.0) {
-                    let vis = exp(-sigma);
-
                     // compute the current T for this gaussian
                     let ra = 1.0 / (1.0 - alpha);
                     T *= ra;
