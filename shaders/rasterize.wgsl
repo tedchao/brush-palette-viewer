@@ -23,7 +23,7 @@ var<workgroup> colors_batch: array<vec4f, BLOCK_SIZE>;
 var<workgroup> cov2d_batch: array<vec4f, BLOCK_SIZE>;
 
 // Keep track of how many threads are done in this workgroup.
-// var<workgroup> count_done: atomic<u32>;
+var<workgroup> count_done: atomic<u32>;
 
 struct Uniforms {
     // Img resolution (w, h)
@@ -66,7 +66,7 @@ fn main(
     var done = false;
     if !inside {
         // this pixel is done
-        // atomicAdd(&count_done, 1u);
+        atomicAdd(&count_done, 1u);
         done = true;
     }
 
@@ -92,9 +92,9 @@ fn main(
         workgroupBarrier();
 
         // end early out if entire tile is done
-        // if count_done >= BLOCK_SIZE {
-        //     break;
-        // }
+        if count_done >= BLOCK_SIZE {
+            break;
+        }
 
         // each thread fetch 1 gaussian from front to back
         // index of gaussian to load
@@ -138,7 +138,7 @@ fn main(
                     // this pixel is done
                     // we want to render the last gaussian that contributes and note
                     // that here idx > range.x so we don't underflow
-                    // atomicAdd(&count_done, 1u);
+                    atomicAdd(&count_done, 1u);
                     done = true;
                     break;
                 }
@@ -155,7 +155,6 @@ fn main(
 
     if inside {
         // add background
-
         final_index[pix_id] = final_idx; // index of in bin of last gaussian in this pixel
         let final_color = pix_out + T * background;
         out_img[pix_id] = vec4f(final_color, T);
