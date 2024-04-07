@@ -59,40 +59,25 @@ pub trait Backend: burn::tensor::backend::Backend {
 pub trait AutodiffBackend: Backend + burn::tensor::backend::AutodiffBackend {}
 impl AutodiffBackend for Autodiff<BurnBack> {}
 
-enum BufferAlloc {
-    Empty,
-    Zeros,
-}
-
 fn create_buffer<E: JitElement, const D: usize>(
     client: &BurnClient,
     shape: [usize; D],
-    alloc: BufferAlloc,
 ) -> BufferHandle {
     let shape = Shape::new(shape);
     let bufsize = shape.num_elements() * core::mem::size_of::<E>();
-    match alloc {
-        BufferAlloc::Empty => client.empty(bufsize),
-        BufferAlloc::Zeros => {
-            // TODO: Does burn not have a fast path for zero allocating a buffer?
-            // Or are buffers zero allocated in the first place?
-            let zeros = vec![0; bufsize];
-            client.create(&zeros)
-        }
-    }
+    client.empty(bufsize)
 }
 
 fn create_tensor<E: JitElement, const D: usize>(
     client: &BurnClient,
     device: &<BurnRuntime as Runtime>::Device,
     shape: [usize; D],
-    alloc: BufferAlloc,
 ) -> JitTensor<BurnRuntime, E, D> {
     JitTensor::new(
         client.clone(),
         device.clone(),
         Shape::new(shape),
-        create_buffer::<E, D>(client, shape, alloc),
+        create_buffer::<E, D>(client, shape),
     )
 }
 

@@ -47,6 +47,9 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
         return;
     }
 
+    // 0 buffer to mark gaussian as not visible.
+    radii[idx] = 0u;
+
     let viewmat = info.viewmat;
     let focal = info.focal;
     let pixel_center = info.pixel_center;

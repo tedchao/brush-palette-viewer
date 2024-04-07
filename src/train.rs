@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use anyhow::Result;
 use burn::lr_scheduler::LrScheduler;
 use burn::nn::loss::MseLoss;
@@ -8,6 +10,7 @@ use burn::{
 };
 use ndarray::{Array, Array1, Array3};
 use rand::{rngs::StdRng, SeedableRng};
+use running_average::RealTimeRunningAverage;
 
 use crate::splat_render::{self, AutodiffBackend, Backend};
 use crate::{
@@ -33,7 +36,7 @@ pub(crate) struct TrainConfig {
     pub min_lr: f64,
     #[config(default = 5)]
     pub visualize_every: u32,
-    #[config(default = 2048)]
+    #[config(default = 4096)]
     pub init_points: usize,
     #[config(default = 2.0)]
     pub init_aabb: f32,
@@ -179,6 +182,9 @@ where
 
     let loss = MseLoss::new();
 
+    // By default use 8 second window with 16 accumulators
+    let mut tw = RealTimeRunningAverage::new(Duration::new(2, 0));
+
     for iter in 0..config.train_steps + 1 {
         let lr = LrScheduler::<B>::step(&mut scheduler);
 
@@ -208,6 +214,9 @@ where
 
             splats.visualize(&rec)?;
         }
+
+        tw.insert(1);
+        println!("{}", tw.measurement());
     }
     Ok(())
 }

@@ -7,11 +7,12 @@ use crate::splat_render::kernels::{
 };
 use crate::splat_render::{create_buffer, create_tensor, read_buffer_to_f32, read_buffer_to_u32};
 use burn::backend::autodiff::NodeID;
+use burn::tensor::ops::FloatTensorOps;
 use burn::tensor::ops::IntTensor;
+use burn::tensor::ops::IntTensorOps;
 use burn::tensor::Tensor;
 
 use super::{generated_bindings, Backend, BurnBack, FloatTensor};
-use crate::splat_render::BufferAlloc;
 use burn::{
     backend::{
         autodiff::{
@@ -126,11 +127,11 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
         let client = means.client.clone();
         let device = means.device.clone();
 
-        let depths = create_buffer::<f32, 1>(&client, [num_points], BufferAlloc::Zeros);
-        let xys = create_tensor(&client, &device, [num_points, 2], BufferAlloc::Zeros);
-        let cov2ds = create_tensor(&client, &device, [num_points, 4], BufferAlloc::Zeros);
-        let radii = create_tensor(&client, &device, [num_points], BufferAlloc::Zeros);
-        let num_tiles_hit = create_buffer::<u32, 1>(&client, [num_points], BufferAlloc::Zeros);
+        let radii = create_tensor(&client, &device, [num_points]);
+        let depths = create_buffer::<f32, 1>(&client, [num_points]);
+        let xys = create_tensor(&client, &device, [num_points, 2]);
+        let cov2ds = create_tensor(&client, &device, [num_points, 4]);
+        let num_tiles_hit = create_buffer::<u32, 1>(&client, [num_points]);
 
         ProjectSplats::execute(
             &client,
@@ -172,10 +173,8 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
         let cum_tiles_hit = client.create(bytemuck::cast_slice::<u32, u8>(&cum_tiles_hit));
 
         // Each intersection maps to a gaussian.
-        let isect_ids_unsorted =
-            create_buffer::<u32, 1>(&client, [num_intersects], BufferAlloc::Zeros);
-        let gaussian_ids_unsorted =
-            create_buffer::<u32, 1>(&client, [num_intersects], BufferAlloc::Zeros);
+        let isect_ids_unsorted = create_buffer::<u32, 1>(&client, [num_intersects]);
+        let gaussian_ids_unsorted = create_buffer::<u32, 1>(&client, [num_intersects]);
 
         // Dispatch one thread per point.
         MapGaussiansToIntersect::execute(
@@ -197,7 +196,7 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
         let isect_sort_order = {
             let data = &isect_ids_unsorted;
             let mut indices = (0..data.len()).collect::<Vec<_>>();
-            indices.sort_by(|&ai, &bi| {
+            indices.sort_unstable_by(|&ai, &bi| {
                 let gauss_idxa = gaussian_ids_unsorted[ai];
                 let gauss_idxb = gaussian_ids_unsorted[bi];
 
@@ -221,11 +220,9 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
 
         let isect_ids_sorted = client.create(bytemuck::cast_slice::<u32, u8>(&isect_ids_sorted));
 
-        let tile_bins = create_tensor(
-            &client,
+        let tile_bins = BurnBack::int_zeros(
+            Shape::new([(tile_bounds[0] * tile_bounds[1]) as usize, 2]),
             &device,
-            [(tile_bounds[0] * tile_bounds[1]) as usize, 2],
-            BufferAlloc::Zeros,
         );
 
         GetTileBinEdges::execute(
@@ -240,13 +237,12 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
             &client,
             &device,
             [camera.height as usize, camera.width as usize, 4],
-            BufferAlloc::Zeros,
         );
+
         let final_index = create_tensor(
             &client,
             &device,
             [camera.height as usize, camera.width as usize],
-            BufferAlloc::Zeros,
         );
 
         let gaussian_ids_sorted = JitTensor::new(
@@ -339,10 +335,11 @@ impl Backward<BurnBack, 3, 5> for RenderBackwards {
 
         let num_points = means.shape.dims[0];
 
-        let v_xy = create_buffer::<f32, 2>(&client, [num_points, 2], BufferAlloc::Zeros);
-        let v_conic = create_buffer::<f32, 2>(&client, [num_points, 4], BufferAlloc::Zeros);
-        let v_colors = create_tensor(&client, &device, [num_points, 4], BufferAlloc::Zeros);
-        let v_opacity = create_tensor(&client, &device, [num_points], BufferAlloc::Zeros);
+        // TODO: Can't this be done for just visible points
+        let v_xy = BurnBack::float_zeros(Shape::new([num_points, 2]), &device);
+        let v_conic = BurnBack::float_zeros(Shape::new([num_points, 4]), &device);
+        let v_colors = BurnBack::float_zeros(Shape::new([num_points, 4]), &device);
+        let v_opacity = BurnBack::float_zeros(Shape::new([num_points]), &device);
 
         RasterizeBackwards::execute(
             &client,
@@ -361,13 +358,19 @@ impl Backward<BurnBack, 3, 5> for RenderBackwards {
                 &state.out_img.handle,
                 &v_output.handle,
             ],
-            &[&v_xy, &v_conic, &v_colors.handle, &v_opacity.handle],
+            &[
+                &v_xy.handle,
+                &v_conic.handle,
+                &v_colors.handle,
+                &v_opacity.handle,
+            ],
             [camera.height, camera.width, 1],
         );
 
-        let v_means = create_tensor(&client, &device, [num_points, 4], BufferAlloc::Zeros);
-        let v_scales = create_tensor(&client, &device, [num_points, 4], BufferAlloc::Zeros);
-        let v_quats = create_tensor(&client, &device, [num_points, 4], BufferAlloc::Zeros);
+        // TODO: Can't this be done for just visible points
+        let v_means = BurnBack::float_zeros(Shape::new([num_points, 4]), &device);
+        let v_scales = BurnBack::float_zeros(Shape::new([num_points, 4]), &device);
+        let v_quats = BurnBack::float_zeros(Shape::new([num_points, 4]), &device);
 
         ProjectBackwards::execute(
             &client,
@@ -382,8 +385,8 @@ impl Backward<BurnBack, 3, 5> for RenderBackwards {
                 &quats.handle,
                 &state.radii.handle,
                 &state.cov2ds.handle,
-                &v_xy,
-                &v_conic,
+                &v_xy.handle,
+                &v_conic.handle,
                 &v_opacity.handle,
             ],
             &[&v_means.handle, &v_scales.handle, &v_quats.handle],

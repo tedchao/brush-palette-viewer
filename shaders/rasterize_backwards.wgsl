@@ -96,10 +96,10 @@ fn main(
         // 0 index will be furthest back in batch
         // index of gaussian to load
         // batch end is the index of the last gaussian in the batch
-        let idx = batch_end - local_idx;
+        let fetch_idx = batch_end - local_idx;
 
-        if idx >= range.x {
-            let g_id = gaussian_ids_sorted[idx];
+        if fetch_idx >= range.x {
+            let g_id = gaussian_ids_sorted[fetch_idx];
             id_batch[local_idx] = g_id;
             xy_batch[local_idx] = xys[g_id];
             opacity_batch[local_idx] = opacities[g_id];

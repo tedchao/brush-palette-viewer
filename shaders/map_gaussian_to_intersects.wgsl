@@ -56,7 +56,6 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
             isect_ids[cur_idx] = tile_id;
             gaussian_ids[cur_idx] = idx; // 3D gaussian id
             cur_idx++; // handles gaussians that hit more than one tile
-
         }
     }
 }

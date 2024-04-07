@@ -36,6 +36,7 @@ rand = "0.8.5"
 anyhow = "1.0.81"
 wgpu = "0.18"
 miette = "7.2.0"
+running-average = "0.1.0"
 
 [build-dependencies]
 wgsl_bindgen = { path = "../wgsl-bindgen/wgsl_bindgen" }
