@@ -1,4 +1,5 @@
 use super::kernels::SplatKernel;
+use super::prefix_sum::prefix_sum;
 use crate::camera::Camera;
 use crate::splat_render::dim_check::DimCheck;
 use crate::splat_render::kernels::{
@@ -131,7 +132,7 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
         let depths = create_buffer::<f32, 1>(&client, [num_points]);
         let xys = create_tensor(&client, &device, [num_points, 2]);
         let cov2ds = create_tensor(&client, &device, [num_points, 4]);
-        let num_tiles_hit = create_buffer::<u32, 1>(&client, [num_points]);
+        let num_tiles_hit = create_tensor::<i32, 1>(&client, &device, [num_points]);
 
         ProjectSplats::execute(
             &client,
@@ -150,27 +151,20 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
                 &depths,
                 &radii.handle,
                 &cov2ds.handle,
-                &num_tiles_hit,
+                &num_tiles_hit.handle,
             ],
             [num_points as u32, 1, 1],
         );
 
-        // TODO: Cumulative sum on GPU.
-        // Read num tiles to CPU.
-        let num_tiles_hit = read_buffer_to_u32(&client, &num_tiles_hit);
+        let cum_tiles_hit = prefix_sum(&client, &num_tiles_hit);
 
-        // Calculate cumulative sum.
-        let cum_tiles_hit: Vec<u32> = num_tiles_hit
-            .into_iter()
-            .scan(0, |acc, x| {
-                *acc += x;
-                Some(*acc)
-            })
-            .collect();
-        let num_intersects = *cum_tiles_hit.last().unwrap() as usize;
+        // TODO: This is the only real CPU <-> GPU bottleneck, get around this somehow?
+        #[allow(clippy::single_range_in_vec_init)]
+        let last_elem = BurnBack::int_slice(cum_tiles_hit.clone(), [num_points - 1..num_points]);
 
-        // Reupload to GPU.
-        let cum_tiles_hit = client.create(bytemuck::cast_slice::<u32, u8>(&cum_tiles_hit));
+        let num_intersects = *read_buffer_to_u32(&client, &last_elem.handle)
+            .last()
+            .unwrap() as usize;
 
         // Each intersection maps to a gaussian.
         let isect_ids_unsorted = create_buffer::<u32, 1>(&client, [num_intersects]);
@@ -180,7 +174,7 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
         MapGaussiansToIntersect::execute(
             &client,
             generated_bindings::map_gaussian_to_intersects::Uniforms::new(tile_bounds.into()),
-            &[&xys.handle, &radii.handle, &cum_tiles_hit],
+            &[&xys.handle, &radii.handle, &cum_tiles_hit.handle],
             &[&isect_ids_unsorted, &gaussian_ids_unsorted],
             [num_points as u32, 1, 1],
         );
