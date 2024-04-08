@@ -91,11 +91,7 @@ fn cov2d_to_conic_vjp(conic: vec3f, v_conic: vec3f) -> vec3f {
 
 @compute
 @workgroup_size(helpers::SPLATS_PER_GROUP, 1, 1)
-fn main(
-    @builtin(global_invocation_id) global_id: vec3u,
-    @builtin(local_invocation_id) local_id: vec3u,
-    @builtin(workgroup_id) workgroup_id: vec3u,
-) {
+fn main(@builtin(global_invocation_id) global_id: vec3u) {
     let idx = global_id.x;
 
     let num_points = arrayLength(&means);
