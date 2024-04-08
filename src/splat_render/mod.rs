@@ -18,6 +18,7 @@ use crate::camera::Camera;
 mod dim_check;
 mod generated_bindings;
 mod kernels;
+mod prefix_sum;
 
 pub mod render;
 

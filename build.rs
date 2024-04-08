@@ -14,6 +14,7 @@ fn main() -> Result<()> {
         .add_entry_point("shaders/rasterize.wgsl")
         .add_entry_point("shaders/rasterize_backwards.wgsl")
         .add_entry_point("shaders/project_backwards.wgsl")
+        .add_entry_point("shaders/prefix_sum.wgsl")
         .output("src/splat_render/generated_bindings.rs")
         .build()?
         .generate()
