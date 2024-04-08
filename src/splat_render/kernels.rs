@@ -172,3 +172,64 @@ impl<S: ComputeServer<Kernel = Kernel>, C: ComputeChannel<S>> SplatKernel<S, C>
     const WORKGROUP_SIZE: [u32; 3] =
         generated_bindings::project_backwards::compute::MAIN_WORKGROUP_SIZE;
 }
+
+#[derive(Default, Debug)]
+pub(crate) struct PrefixSumScan {}
+
+impl KernelSource for PrefixSumScan {
+    fn source(&self) -> SourceTemplate {
+        SourceTemplate::new(generated_bindings::prefix_sum_scan::SHADER_STRING)
+    }
+}
+
+impl<S: ComputeServer<Kernel = Kernel>, C: ComputeChannel<S>> SplatKernel<S, C> for PrefixSumScan {
+    const BINDING_COUNT: usize =
+        generated_bindings::prefix_sum_scan::bind_groups::WgpuBindGroup0::LAYOUT_DESCRIPTOR
+            .entries
+            .len();
+    type Uniforms = ();
+    const WORKGROUP_SIZE: [u32; 3] =
+        generated_bindings::prefix_sum_scan::compute::MAIN_WORKGROUP_SIZE;
+}
+
+#[derive(Default, Debug)]
+pub(crate) struct PrefixSumScanSums {}
+
+impl KernelSource for PrefixSumScanSums {
+    fn source(&self) -> SourceTemplate {
+        SourceTemplate::new(generated_bindings::prefix_sum_scan_sums::SHADER_STRING)
+    }
+}
+
+impl<S: ComputeServer<Kernel = Kernel>, C: ComputeChannel<S>> SplatKernel<S, C>
+    for PrefixSumScanSums
+{
+    const BINDING_COUNT: usize =
+        generated_bindings::prefix_sum_scan_sums::bind_groups::WgpuBindGroup0::LAYOUT_DESCRIPTOR
+            .entries
+            .len();
+    type Uniforms = ();
+    const WORKGROUP_SIZE: [u32; 3] =
+        generated_bindings::prefix_sum_scan_sums::compute::MAIN_WORKGROUP_SIZE;
+}
+
+#[derive(Default, Debug)]
+pub(crate) struct PrefixSumAddScannedSums {}
+
+impl KernelSource for PrefixSumAddScannedSums {
+    fn source(&self) -> SourceTemplate {
+        SourceTemplate::new(generated_bindings::prefix_sum_add_scanned_sums::SHADER_STRING)
+    }
+}
+
+impl<S: ComputeServer<Kernel = Kernel>, C: ComputeChannel<S>> SplatKernel<S, C>
+    for PrefixSumAddScannedSums
+{
+    const BINDING_COUNT: usize =
+        generated_bindings::prefix_sum_add_scanned_sums::bind_groups::WgpuBindGroup0::LAYOUT_DESCRIPTOR
+            .entries
+            .len();
+    type Uniforms = ();
+    const WORKGROUP_SIZE: [u32; 3] =
+        generated_bindings::prefix_sum_add_scanned_sums::compute::MAIN_WORKGROUP_SIZE;
+}

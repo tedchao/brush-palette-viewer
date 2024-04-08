@@ -1,80 +1,89 @@
-// use burn_compute::server::Handle;
+use burn_jit::JitElement;
+use burn_wgpu::JitTensor;
 
-// fn prefix_sum(client: Client, input: &Handle<>) -> Handle<> {
-//     let work_size = vec![];
-//     let threads_per_group = generated_bindings::prefix_sum::THREADS_PER_GROUP;
-// }
+use super::{
+    create_tensor, generated_bindings,
+    kernels::{PrefixSumAddScannedSums, PrefixSumScan, PrefixSumScanSums, SplatKernel},
+    BurnClient, BurnRuntime,
+};
 
-// pub fn inclusive_scan(client: Client, input: &Handle<>)
-// {
-//     let group_buffers = vec![];
+fn num_groups(work_size: u32, per_group: u32) -> u32 {
+    (work_size + per_group - 1) / per_group
+}
 
-//     if (this.size < alloc_sz)
-//     {
-//         this.Release();
-//         this.size = (int)(alloc_sz * 1.5);
-//         this.group_buffer = new List<ComputeBuffer>();
-//         this.work_size = new List<int>();
+pub fn prefix_sum<E: JitElement>(
+    client: &BurnClient,
+    input: &JitTensor<BurnRuntime, E, 1>,
+) -> JitTensor<BurnRuntime, E, 1> {
+    let threads_per_group = generated_bindings::prefix_sum_helpers::THREADS_PER_GROUP;
+    let num = input.shape.dims[0] as u32;
+    let outputs = create_tensor(client, &input.device, input.shape.dims);
 
-//         int work_sz = this.size;
-//         while (work_sz > threadsPerGroup)
-//         {
-//             work_sz = NUM_GROUPS(work_sz, threadsPerGroup);
-//             this.group_buffer.Add(new ComputeBuffer(work_sz, sizeof(uint)));
-//             this.work_size.Add(work_sz);
-//         }
-//     }
+    // 1. Per group scan
+    // N = num.
+    PrefixSumScan::execute(
+        client,
+        (),
+        &[&input.handle],
+        &[&outputs.handle],
+        [num, 1, 1],
+    );
 
-//     // 1. Per group scan
-//     int kernelScan = scanOperations.FindKernel("ScanInGroupsInclusive");
-//     scanOperations.SetInt("N", num);
-//     scanOperations.SetBuffer(kernelScan, "InputBufR", inputs);
-//     scanOperations.SetBuffer(kernelScan, "OutputBufW", outputs);
-//     scanOperations.Dispatch(kernelScan, NUM_GROUPS(num, threadsPerGroup), 1, 1);
+    if num < threads_per_group {
+        return outputs;
+    }
 
-//     if (num < threadsPerGroup)
-//         return;
+    let mut group_buffer = vec![];
+    let mut work_sz = num;
 
-//     int kernelScanSums = scanOperations.FindKernel("ScanSums");
-//     int kernelAdd = scanOperations.FindKernel("AddScannedSums");
+    while work_sz > threads_per_group {
+        work_sz = num_groups(work_sz, threads_per_group);
+        group_buffer.push(create_tensor::<E, 1>(
+            client,
+            &input.device,
+            [work_sz as usize],
+        ));
+    }
 
-//     // 2. Scan per group sum
-//     scanOperations.SetInt("N", num);
-//     scanOperations.SetBuffer(kernelScanSums, "InputBufR", outputs);
-//     scanOperations.SetBuffer(kernelScanSums, "OutputBufW", this.group_buffer[0]);
-//     scanOperations.Dispatch(kernelScanSums, NUM_GROUPS(this.work_size[0], threadsPerGroup), 1, 1);
+    PrefixSumScanSums::execute(
+        client,
+        (),
+        &[&outputs.handle],
+        &[&group_buffer[0].handle],
+        [group_buffer[0].shape.dims[0] as u32, 1, 1],
+    );
 
-//     // Continue down the pyramid
-//     for (int l = 0; l < this.group_buffer.Count - 1; ++l)
-//     {
-//         int work_sz = this.work_size[l];
-//         // 2. Scan per group sum
-//         scanOperations.SetInt("N", work_sz);
-//         scanOperations.SetBuffer(kernelScanSums, "InputBufR", this.group_buffer[l]);
-//         scanOperations.SetBuffer(kernelScanSums, "OutputBufW", this.group_buffer[l+1]);
-//         scanOperations.Dispatch(kernelScanSums, NUM_GROUPS(this.work_size[l+1], threadsPerGroup), 1, 1);
-//     }
+    // Continue down the pyramid
+    for l in 0..(group_buffer.len() - 1) {
+        let ouput = &group_buffer[l + 1];
+        PrefixSumScanSums::execute(
+            client,
+            (),
+            &[&group_buffer[l].handle],
+            &[&ouput.handle],
+            [ouput.shape.dims[0] as u32, 1, 1],
+        );
+    }
 
-//     for (int l = this.group_buffer.Count - 1; l > 0; --l)
-//     {
-//         int work_sz = this.work_size[l - 1];
-//         // 3. Add scanned group sum
-//         scanOperations.SetInt("N", work_sz);
-//         scanOperations.SetBuffer(kernelAdd, "InputBufR", this.group_buffer[l]);
-//         scanOperations.SetBuffer(kernelAdd, "OutputBufW", this.group_buffer[l - 1]);
-//         scanOperations.Dispatch(kernelAdd, NUM_GROUPS(work_sz, threadsPerGroup), 1, 1);
-//     }
+    for l in (0..(group_buffer.len() - 1)).rev() {
+        let ouput = &group_buffer[l - 1];
 
-//     // 3. Add scanned group sum
-//     scanOperations.SetInt("N", num);
-//     scanOperations.SetBuffer(kernelAdd, "InputBufR", this.group_buffer[0]);
-//     scanOperations.SetBuffer(kernelAdd, "OutputBufW", outputs);
-//     scanOperations.Dispatch(kernelAdd, this.work_size[0], 1, 1);
-// }
+        PrefixSumAddScannedSums::execute(
+            client,
+            (),
+            &[&group_buffer[l].handle],
+            &[&ouput.handle],
+            [ouput.shape.dims[0] as u32, 1, 1],
+        );
+    }
 
+    PrefixSumAddScannedSums::execute(
+        client,
+        (),
+        &[&group_buffer[0].handle],
+        &[&outputs.handle],
+        [num, 1, 1],
+    );
 
-
-// [SerializeField] ComputeShader scanOperations;
-// ScanHelper mScanHelper;
-
-// mScanHelper.InclusiveScan(N, scanOperations, inputs, outputs);
+    outputs
+}
