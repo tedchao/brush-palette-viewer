@@ -52,184 +52,43 @@ where
     }
 }
 
-#[derive(Default, Debug)]
-pub(crate) struct ProjectSplats {}
+#[macro_export]
+macro_rules! kernel_source_gen {
+    ($struct_name:ident, $module:ident) => {
+        kernel_source_gen!($struct_name, $module, generated_bindings::$module::Uniforms);
+    };
 
-impl KernelSource for ProjectSplats {
-    fn source(&self) -> SourceTemplate {
-        SourceTemplate::new(generated_bindings::project_forward::SHADER_STRING)
-    }
+    ($struct_name:ident, $module:ident, $uniforms:ty) => {
+        #[derive(Default, Debug)]
+        pub(crate) struct $struct_name {}
+
+        impl KernelSource for $struct_name {
+            fn source(&self) -> SourceTemplate {
+                SourceTemplate::new(generated_bindings::$module::SHADER_STRING)
+            }
+        }
+
+        impl<S: ComputeServer<Kernel = Kernel>, C: ComputeChannel<S>> SplatKernel<S, C>
+            for $struct_name
+        {
+            const BINDING_COUNT: usize =
+                generated_bindings::$module::bind_groups::WgpuBindGroup0::LAYOUT_DESCRIPTOR
+                    .entries
+                    .len();
+            type Uniforms = $uniforms;
+            const WORKGROUP_SIZE: [u32; 3] =
+                generated_bindings::$module::compute::MAIN_WORKGROUP_SIZE;
+        }
+    };
 }
 
-impl<S: ComputeServer<Kernel = Kernel>, C: ComputeChannel<S>> SplatKernel<S, C> for ProjectSplats {
-    const BINDING_COUNT: usize =
-        generated_bindings::project_forward::bind_groups::WgpuBindGroup0::LAYOUT_DESCRIPTOR
-            .entries
-            .len();
-    type Uniforms = generated_bindings::project_forward::Uniforms;
-    const WORKGROUP_SIZE: [u32; 3] =
-        generated_bindings::project_forward::compute::MAIN_WORKGROUP_SIZE;
-}
+kernel_source_gen!(ProjectSplats, project_forward);
+kernel_source_gen!(MapGaussiansToIntersect, map_gaussian_to_intersects);
+kernel_source_gen!(GetTileBinEdges, get_tile_bin_edges, ());
+kernel_source_gen!(Rasterize, rasterize);
+kernel_source_gen!(RasterizeBackwards, rasterize_backwards);
+kernel_source_gen!(ProjectBackwards, project_backwards);
 
-#[derive(Default, Debug)]
-pub(crate) struct MapGaussiansToIntersect {}
-
-impl KernelSource for MapGaussiansToIntersect {
-    fn source(&self) -> SourceTemplate {
-        SourceTemplate::new(generated_bindings::map_gaussian_to_intersects::SHADER_STRING)
-    }
-}
-
-impl<S: ComputeServer<Kernel = Kernel>, C: ComputeChannel<S>> SplatKernel<S, C>
-    for MapGaussiansToIntersect
-{
-    const BINDING_COUNT: usize =
-    generated_bindings::map_gaussian_to_intersects::bind_groups::WgpuBindGroup0::LAYOUT_DESCRIPTOR
-            .entries
-            .len();
-    type Uniforms = generated_bindings::map_gaussian_to_intersects::Uniforms;
-    const WORKGROUP_SIZE: [u32; 3] =
-        generated_bindings::map_gaussian_to_intersects::compute::MAIN_WORKGROUP_SIZE;
-}
-
-#[derive(Default, Debug)]
-pub(crate) struct GetTileBinEdges {}
-
-impl KernelSource for GetTileBinEdges {
-    fn source(&self) -> SourceTemplate {
-        SourceTemplate::new(generated_bindings::get_tile_bin_edges::SHADER_STRING)
-    }
-}
-
-impl<S: ComputeServer<Kernel = Kernel>, C: ComputeChannel<S>> SplatKernel<S, C>
-    for GetTileBinEdges
-{
-    const BINDING_COUNT: usize =
-        generated_bindings::get_tile_bin_edges::bind_groups::WgpuBindGroup0::LAYOUT_DESCRIPTOR
-            .entries
-            .len();
-    type Uniforms = ();
-    const WORKGROUP_SIZE: [u32; 3] =
-        generated_bindings::get_tile_bin_edges::compute::MAIN_WORKGROUP_SIZE;
-}
-
-#[derive(Default, Debug)]
-pub(crate) struct Rasterize {}
-
-impl KernelSource for Rasterize {
-    fn source(&self) -> SourceTemplate {
-        SourceTemplate::new(generated_bindings::rasterize::SHADER_STRING)
-    }
-}
-
-impl<S: ComputeServer<Kernel = Kernel>, C: ComputeChannel<S>> SplatKernel<S, C> for Rasterize {
-    const BINDING_COUNT: usize =
-        generated_bindings::rasterize::bind_groups::WgpuBindGroup0::LAYOUT_DESCRIPTOR
-            .entries
-            .len();
-    type Uniforms = generated_bindings::rasterize::Uniforms;
-    const WORKGROUP_SIZE: [u32; 3] = generated_bindings::rasterize::compute::MAIN_WORKGROUP_SIZE;
-}
-
-#[derive(Default, Debug)]
-pub(crate) struct RasterizeBackwards {}
-
-impl KernelSource for RasterizeBackwards {
-    fn source(&self) -> SourceTemplate {
-        SourceTemplate::new(generated_bindings::rasterize_backwards::SHADER_STRING)
-    }
-}
-
-impl<S: ComputeServer<Kernel = Kernel>, C: ComputeChannel<S>> SplatKernel<S, C>
-    for RasterizeBackwards
-{
-    const BINDING_COUNT: usize =
-        generated_bindings::rasterize_backwards::bind_groups::WgpuBindGroup0::LAYOUT_DESCRIPTOR
-            .entries
-            .len();
-    type Uniforms = generated_bindings::rasterize_backwards::Uniforms;
-    const WORKGROUP_SIZE: [u32; 3] =
-        generated_bindings::rasterize_backwards::compute::MAIN_WORKGROUP_SIZE;
-}
-
-#[derive(Default, Debug)]
-pub(crate) struct ProjectBackwards {}
-
-impl KernelSource for ProjectBackwards {
-    fn source(&self) -> SourceTemplate {
-        SourceTemplate::new(generated_bindings::project_backwards::SHADER_STRING)
-    }
-}
-
-impl<S: ComputeServer<Kernel = Kernel>, C: ComputeChannel<S>> SplatKernel<S, C>
-    for ProjectBackwards
-{
-    const BINDING_COUNT: usize =
-        generated_bindings::project_backwards::bind_groups::WgpuBindGroup0::LAYOUT_DESCRIPTOR
-            .entries
-            .len();
-    type Uniforms = generated_bindings::project_backwards::Uniforms;
-    const WORKGROUP_SIZE: [u32; 3] =
-        generated_bindings::project_backwards::compute::MAIN_WORKGROUP_SIZE;
-}
-
-#[derive(Default, Debug)]
-pub(crate) struct PrefixSumScan {}
-
-impl KernelSource for PrefixSumScan {
-    fn source(&self) -> SourceTemplate {
-        SourceTemplate::new(generated_bindings::prefix_sum_scan::SHADER_STRING)
-    }
-}
-
-impl<S: ComputeServer<Kernel = Kernel>, C: ComputeChannel<S>> SplatKernel<S, C> for PrefixSumScan {
-    const BINDING_COUNT: usize =
-        generated_bindings::prefix_sum_scan::bind_groups::WgpuBindGroup0::LAYOUT_DESCRIPTOR
-            .entries
-            .len();
-    type Uniforms = ();
-    const WORKGROUP_SIZE: [u32; 3] =
-        generated_bindings::prefix_sum_scan::compute::MAIN_WORKGROUP_SIZE;
-}
-
-#[derive(Default, Debug)]
-pub(crate) struct PrefixSumScanSums {}
-
-impl KernelSource for PrefixSumScanSums {
-    fn source(&self) -> SourceTemplate {
-        SourceTemplate::new(generated_bindings::prefix_sum_scan_sums::SHADER_STRING)
-    }
-}
-
-impl<S: ComputeServer<Kernel = Kernel>, C: ComputeChannel<S>> SplatKernel<S, C>
-    for PrefixSumScanSums
-{
-    const BINDING_COUNT: usize =
-        generated_bindings::prefix_sum_scan_sums::bind_groups::WgpuBindGroup0::LAYOUT_DESCRIPTOR
-            .entries
-            .len();
-    type Uniforms = ();
-    const WORKGROUP_SIZE: [u32; 3] =
-        generated_bindings::prefix_sum_scan_sums::compute::MAIN_WORKGROUP_SIZE;
-}
-
-#[derive(Default, Debug)]
-pub(crate) struct PrefixSumAddScannedSums {}
-
-impl KernelSource for PrefixSumAddScannedSums {
-    fn source(&self) -> SourceTemplate {
-        SourceTemplate::new(generated_bindings::prefix_sum_add_scanned_sums::SHADER_STRING)
-    }
-}
-
-impl<S: ComputeServer<Kernel = Kernel>, C: ComputeChannel<S>> SplatKernel<S, C>
-    for PrefixSumAddScannedSums
-{
-    const BINDING_COUNT: usize =
-        generated_bindings::prefix_sum_add_scanned_sums::bind_groups::WgpuBindGroup0::LAYOUT_DESCRIPTOR
-            .entries
-            .len();
-    type Uniforms = ();
-    const WORKGROUP_SIZE: [u32; 3] =
-        generated_bindings::prefix_sum_add_scanned_sums::compute::MAIN_WORKGROUP_SIZE;
-}
+kernel_source_gen!(PrefixSumScan, prefix_sum_scan, ());
+kernel_source_gen!(PrefixSumScanSums, prefix_sum_scan_sums, ());
+kernel_source_gen!(PrefixSumAddScannedSums, prefix_sum_add_scanned_sums, ());
