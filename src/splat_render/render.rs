@@ -1,5 +1,6 @@
 use super::kernels::SplatKernel;
 use super::prefix_sum::prefix_sum;
+use super::radix_sort::radix_argsort;
 use crate::camera::Camera;
 use crate::splat_render::dim_check::DimCheck;
 use crate::splat_render::kernels::{
@@ -125,17 +126,17 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
             camera.height.div_ceil(tile_width),
         );
 
-        let client = means.client.clone();
-        let device = means.device.clone();
+        let client = &means.client;
+        let device = &means.device;
 
-        let radii = create_tensor(&client, &device, [num_points]);
-        let depths = create_buffer::<f32, 1>(&client, [num_points]);
-        let xys = create_tensor(&client, &device, [num_points, 2]);
-        let cov2ds = create_tensor(&client, &device, [num_points, 4]);
-        let num_tiles_hit = create_tensor::<i32, 1>(&client, &device, [num_points]);
+        let radii = create_tensor(client, device, [num_points]);
+        let depths = create_buffer::<f32, 1>(client, [num_points]);
+        let xys = create_tensor(client, device, [num_points, 2]);
+        let cov2ds = create_tensor(client, device, [num_points, 4]);
+        let num_tiles_hit = create_tensor::<i32, 1>(client, device, [num_points]);
 
         ProjectSplats::execute(
-            &client,
+            client,
             generated_bindings::project_forward::Uniforms::new(
                 camera.viewmatrix(),
                 camera.focal().into(),
@@ -156,33 +157,59 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
             [num_points as u32, 1, 1],
         );
 
-        let cum_tiles_hit = prefix_sum(&client, &num_tiles_hit);
+        let cum_tiles_hit = prefix_sum(client, &num_tiles_hit);
 
         // TODO: This is the only real CPU <-> GPU bottleneck, get around this somehow?
         #[allow(clippy::single_range_in_vec_init)]
         let last_elem = BurnBack::int_slice(cum_tiles_hit.clone(), [num_points - 1..num_points]);
 
-        let num_intersects = *read_buffer_to_u32(&client, &last_elem.handle)
+        let num_intersects = *read_buffer_to_u32(client, &last_elem.handle)
             .last()
             .unwrap() as usize;
 
         // Each intersection maps to a gaussian.
-        let isect_ids_unsorted = create_buffer::<u32, 1>(&client, [num_intersects]);
-        let gaussian_ids_unsorted = create_buffer::<u32, 1>(&client, [num_intersects]);
+        let isect_ids_unsorted = create_tensor::<u32, 1>(client, device, [num_intersects]);
+        let gaussian_ids_unsorted = create_tensor::<u32, 1>(client, device, [num_intersects]);
 
         // Dispatch one thread per point.
         MapGaussiansToIntersect::execute(
-            &client,
+            client,
             generated_bindings::map_gaussian_to_intersects::Uniforms::new(tile_bounds.into()),
             &[&xys.handle, &radii.handle, &cum_tiles_hit.handle],
-            &[&isect_ids_unsorted, &gaussian_ids_unsorted],
+            &[&isect_ids_unsorted.handle, &gaussian_ids_unsorted.handle],
             [num_points as u32, 1, 1],
         );
 
+        // let isect_keys = (0..(isect_ids_unsorted.shape.dims[0] as u32)).collect::<Vec<_>>();
+        // let isect_keys_tensor = JitTensor::new(
+        //     client.clone(),
+        //     device.clone(),
+        //     Shape::new([num_intersects]),
+        //     client.create(bytemuck::cast_slice::<u32, u8>(&isect_keys)),
+        // );
+
+        let (depths_sort_index, depths_sort_pay) =
+            radix_argsort(client, &isect_ids_unsorted, &isect_ids_unsorted);
+        let depths_sort_index = read_buffer_to_u32(client, &depths_sort_index.handle);
+        let depths_sort_pay = read_buffer_to_u32(client, &depths_sort_pay.handle);
+        let mut isect_ids_unsorted = read_buffer_to_u32(client, &isect_ids_unsorted.handle);
+
+        isect_ids_unsorted.reverse();
+
+        println!("unsorted {:?}", isect_ids_unsorted);
+        println!("keys {:?}", depths_sort_index);
+        println!("vals {:?}", depths_sort_pay);
+        let mut gt = isect_ids_unsorted.clone();
+        gt.sort();
+        println!("gt {:?}", gt);
+
+        for (val, val_gt) in depths_sort_index.into_iter().zip(gt) {
+            assert!(val == val_gt);
+        }
+
         // TODO: WGSL Radix sort.
-        let isect_ids_unsorted = read_buffer_to_u32(&client, &isect_ids_unsorted);
-        let gaussian_ids_unsorted = read_buffer_to_u32(&client, &gaussian_ids_unsorted);
-        let depths_read = read_buffer_to_f32(&client, &depths);
+        let gaussian_ids_unsorted = read_buffer_to_u32(client, &gaussian_ids_unsorted.handle);
+        let depths_read = read_buffer_to_f32(client, &depths);
 
         let isect_sort_order = {
             let data = &isect_ids_unsorted;
@@ -213,11 +240,11 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
 
         let tile_bins = BurnBack::int_zeros(
             Shape::new([(tile_bounds[0] * tile_bounds[1]) as usize, 2]),
-            &device,
+            device,
         );
 
         GetTileBinEdges::execute(
-            &client,
+            client,
             (),
             &[&isect_ids_sorted],
             &[&tile_bins.handle],
@@ -225,14 +252,14 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
         );
 
         let out_img = create_tensor(
-            &client,
-            &device,
+            client,
+            device,
             [camera.height as usize, camera.width as usize, 4],
         );
 
         let final_index = create_tensor(
-            &client,
-            &device,
+            client,
+            device,
             [camera.height as usize, camera.width as usize],
         );
 
@@ -244,7 +271,7 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
         );
 
         Rasterize::execute(
-            &client,
+            client,
             generated_bindings::rasterize::Uniforms::new(img_size, background.into()),
             &[
                 &gaussian_ids_sorted.handle,
@@ -315,8 +342,8 @@ impl Backward<BurnBack, 3, 5> for RenderBackwards {
             [camera.height.into(), camera.width.into(), 4.into()],
         );
 
-        let client = v_output.client.clone();
-        let device = v_output.device.clone();
+        let client = &v_output.client;
+        let device = &v_output.device;
 
         let means = checkpointer.retrieve_node_output::<FloatTensor<BurnBack, 2>>(state.means);
         let quats = checkpointer.retrieve_node_output::<FloatTensor<BurnBack, 2>>(state.quats);
@@ -327,13 +354,13 @@ impl Backward<BurnBack, 3, 5> for RenderBackwards {
         let num_points = means.shape.dims[0];
 
         // TODO: Can't this be done for just visible points
-        let v_xy = BurnBack::float_zeros(Shape::new([num_points, 2]), &device);
-        let v_conic = BurnBack::float_zeros(Shape::new([num_points, 4]), &device);
-        let v_colors = BurnBack::float_zeros(Shape::new([num_points, 4]), &device);
-        let v_opacity = BurnBack::float_zeros(Shape::new([num_points]), &device);
+        let v_xy = BurnBack::float_zeros(Shape::new([num_points, 2]), device);
+        let v_conic = BurnBack::float_zeros(Shape::new([num_points, 4]), device);
+        let v_colors = BurnBack::float_zeros(Shape::new([num_points, 4]), device);
+        let v_opacity = BurnBack::float_zeros(Shape::new([num_points]), device);
 
         RasterizeBackwards::execute(
-            &client,
+            client,
             generated_bindings::rasterize_backwards::Uniforms::new(
                 [camera.height, camera.width],
                 state.background.into(),
@@ -359,12 +386,12 @@ impl Backward<BurnBack, 3, 5> for RenderBackwards {
         );
 
         // TODO: Can't this be done for just visible points
-        let v_means = BurnBack::float_zeros(Shape::new([num_points, 4]), &device);
-        let v_scales = BurnBack::float_zeros(Shape::new([num_points, 4]), &device);
-        let v_quats = BurnBack::float_zeros(Shape::new([num_points, 4]), &device);
+        let v_means = BurnBack::float_zeros(Shape::new([num_points, 4]), device);
+        let v_scales = BurnBack::float_zeros(Shape::new([num_points, 4]), device);
+        let v_quats = BurnBack::float_zeros(Shape::new([num_points, 4]), device);
 
         ProjectBackwards::execute(
-            &client,
+            client,
             generated_bindings::project_backwards::Uniforms::new(
                 camera.viewmatrix(),
                 camera.center().into(),

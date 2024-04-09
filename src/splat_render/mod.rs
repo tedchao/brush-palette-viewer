@@ -19,6 +19,7 @@ mod dim_check;
 mod generated_bindings;
 mod kernels;
 mod prefix_sum;
+mod radix_sort;
 
 pub mod render;
 
@@ -113,4 +114,8 @@ fn assert_buffer_is_finite<S: ComputeServer, C: ComputeChannel<S>>(
             panic!("Elem {elem} at {i} is invalid!");
         }
     }
+}
+
+fn div_round_up(x: usize, y: usize) -> usize {
+    (x + y - 1) / y
 }

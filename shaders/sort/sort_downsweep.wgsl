@@ -30,19 +30,24 @@ const DS_KEYS_PER_THREAD: u32 = 15u;     //The number of keys per thread in a Do
 const MAX_DS_SMEM: u32 = 4096u;   //shared memory for downsweep kernel
 const MASK_FULL: u32 = 4294967295;
 
-@group(0) @binding(0) var<storage, read> b_sort: array<u32>;              //buffer to be sorted      
+struct Uniforms {
+    radixShift: u32,
+}
 
-@group(0) @binding(1) var<storage, read_write> b_alt: array<u32>;               //payload buffer
-@group(0) @binding(2) var<storage, read_write> b_sortPayload: array<u32>;       //double buffer
-@group(0) @binding(3) var<storage, read_write> b_altPayload: array<u32>;        //double buffer payload
-@group(0) @binding(4) var<storage, read_write> b_globalHist: array<atomic<u32>>;        //buffer holding global device level offsets  for each digit during a binning pass
-@group(0) @binding(5) var<storage, read_write> b_passHist: array<u32>;          //buffer used to store device level offsets for 
+@group(0) @binding(0) var<storage, read> b_sort: array<u32>;              //buffer to be sorted      
+@group(0) @binding(1) var<storage, read> b_sortPayload: array<u32>;       //double buffer
+
+@group(0) @binding(2) var<storage, read> b_globalHist: array<u32>;        //buffer holding global device level offsets  for each digit during a binning pass
+@group(0) @binding(3) var<storage, read_write> b_passHist: array<u32>;          //buffer used to store device level offsets for 
+
+@group(0) @binding(4) var<storage, read_write> b_alt: array<u32>;               //payload buffer
+@group(0) @binding(5) var<storage, read_write> b_altPayload: array<u32>;        //double buffer payload
+@group(0) @binding(6) var<storage, read> info: array<Uniforms>;    
                                                                                 //each partition tile for each digit during a binning pass
-@group(0) @binding(6) var<storage, read> info: array<sorting::Uniforms>;              //buffer to be sorted      
 
 var<workgroup> g_ds: array<u32, MAX_DS_SMEM>;         //Shared memory for the downsweep kernel
 
-fn SubPartSizeWGE16()  -> u32 {
+fn SubPartSizeWGE16() -> u32 {
     return DS_KEYS_PER_THREAD * wave::WaveGetLaneCount();
 }
 
@@ -54,31 +59,33 @@ fn DeviceOffsetWGE16(gtid: u32, gid: u32)  -> u32 {
     return SharedOffsetWGE16(gtid) + gid * sorting::PART_SIZE;
 }
 
-fn WaveHistsSizeWGE16()   -> u32 {
-    return DS_DIM / wave::WaveGetLaneCount() * sorting::RADIX;
+fn WaveHistsSizeWGE16() -> u32 {
+    return (DS_DIM / wave::WaveGetLaneCount()) * sorting::RADIX;
 }
 
 @compute
 @workgroup_size(DS_DIM, 1, 1)
-fn Downsweep(@builtin(local_invocation_id) gtid: vec3u, @builtin(workgroup_id) gid: vec3u) {
+fn main(@builtin(local_invocation_id) gtid: vec3u, @builtin(workgroup_id) gid: vec3u) {
     let info = info[0];
-    let radixShift = info.radixShift;
+    let e_radixShift = info.radixShift;
     wave::init(gtid.x);
 
     let e_numKeys: u32 = arrayLength(&b_sort);
     let e_threadBlocks: u32 = (e_numKeys + sorting::PART_SIZE - 1) / sorting::PART_SIZE;
 
-    if (gid.x < e_threadBlocks - 1) {
+    if (gid.x < e_threadBlocks - 1)
+    {
         var keys = array<u32, DS_KEYS_PER_THREAD>();
         var offsets = array<u32, DS_KEYS_PER_THREAD>();
-        
-        //Load keys into registers
-        var t = DeviceOffsetWGE16(gtid.x, gid.x);
 
-        for (var i = 0u; i < DS_KEYS_PER_THREAD; i++)
+        //Load keys into registers
         {
-            keys[i] = b_sort[t];
-            t += wave::WaveGetLaneCount();
+            var t = DeviceOffsetWGE16(gtid.x, gid.x);
+            for (var i = 0u; i < DS_KEYS_PER_THREAD; i++)
+            {
+                keys[i] = b_sort[t];
+                t += wave::WaveGetLaneCount();
+            }
         }
         
         //Clear histogram memory
@@ -88,27 +95,26 @@ fn Downsweep(@builtin(local_invocation_id) gtid: vec3u, @builtin(workgroup_id) g
         workgroupBarrier();
 
         //Warp Level Multisplit
-        let waveParts = 1;
-
         for (var i = 0u; i < DS_KEYS_PER_THREAD; i++)
         {
-            var waveFlags = MASK_FULL;
+            var waveFlags = sorting::ternary((wave::WaveGetLaneCount() & 31) > 0,
+                    (1u << wave::WaveGetLaneCount()) - 1u, MASK_FULL);
 
             for (var k = 0u; k < sorting::RADIX_LOG; k++)
             {
-                let t = (keys[i] >> (k + radixShift)) & 1u;
+                let t = (keys[i] >> (k + e_radixShift)) & 1u;
                 let ballot = wave::WaveActiveBallot(t > 0);
                 waveFlags &= sorting::ternary(t > 0, 0u, MASK_FULL) ^ ballot;
             }
+
+            var bits = 0u;
+            let ltMask = (1u << (wave::WaveGetLaneIndex() & 31)) - 1u;
+            bits += countOneBits(waveFlags & ltMask);
                 
-            let bits = countOneBits(waveFlags);
-                
-            let index = sorting::ExtractDigit(keys[i], radixShift) + (wave::getWaveIndex(gtid.x) * sorting::RADIX);
+            let index = sorting::ExtractDigit(keys[i], e_radixShift) + (wave::getWaveIndex(gtid.x) * sorting::RADIX);
             offsets[i] = g_ds[index] + bits;
-                
             workgroupBarrier();
-            if (bits == 0)
-            {
+            if (bits == 0) {
                 g_ds[index] += countOneBits(waveFlags);
             }
             workgroupBarrier();
@@ -139,7 +145,6 @@ fn Downsweep(@builtin(local_invocation_id) gtid: vec3u, @builtin(workgroup_id) g
         if (wave::WaveGetLaneIndex() > 0) {
             g_ds[gtid.x] += wave::WaveReadLaneAt(g_ds[gtid.x - 1u], 1u);
         }
-
         workgroupBarrier();
     
         //Update offsets
@@ -148,14 +153,14 @@ fn Downsweep(@builtin(local_invocation_id) gtid: vec3u, @builtin(workgroup_id) g
             let t = wave::getWaveIndex(gtid.x) * sorting::RADIX;
             for (var i = 0u; i < DS_KEYS_PER_THREAD; i++)
             {
-                let t2 = sorting::ExtractDigit(keys[i], radixShift);
+                let t2 = sorting::ExtractDigit(keys[i], e_radixShift);
                 offsets[i] += g_ds[t2 + t] + g_ds[t2];
             }
         }
         else
         {
             for (var i = 0u; i < DS_KEYS_PER_THREAD; i++) {
-                offsets[i] += g_ds[sorting::ExtractDigit(keys[i], radixShift)];
+                offsets[i] += g_ds[sorting::ExtractDigit(keys[i], e_radixShift)];
             }
         }
         
@@ -167,80 +172,87 @@ fn Downsweep(@builtin(local_invocation_id) gtid: vec3u, @builtin(workgroup_id) g
         for (var i = 0u; i < DS_KEYS_PER_THREAD; i++) {
             g_ds[offsets[i]] = keys[i];
         }
-    
-        g_ds[gtid.x + sorting::PART_SIZE] = b_globalHist[gtid.x + sorting::GlobalHistOffset(radixShift)] +
+
+        g_ds[gtid.x + sorting::PART_SIZE] = b_globalHist[gtid.x + sorting::GlobalHistOffset(e_radixShift)] +
                 b_passHist[gtid.x * e_threadBlocks + gid.x] - exclusiveWaveReduction;
         workgroupBarrier();
         
-        t = SharedOffsetWGE16(gtid.x);
-        for (var i = 0u; i < DS_KEYS_PER_THREAD; i++) {
-            keys[i] = g_ds[sorting::ExtractDigit(g_ds[t], radixShift) + sorting::PART_SIZE] + t;
-            b_alt[keys[i]] = g_ds[t];
-            t += wave::WaveGetLaneCount();
-        }
-        workgroupBarrier();
-            
-        t = DeviceOffsetWGE16(gtid.x, gid.x);
-        for (var i = 0u; i < DS_KEYS_PER_THREAD; i++)
         {
-            g_ds[offsets[i]] = b_sortPayload[t];
-            t += wave::WaveGetLaneCount();
+            var t = SharedOffsetWGE16(gtid.x);
+            for (var i = 0u; i < DS_KEYS_PER_THREAD; i++) {
+                keys[i] = g_ds[sorting::ExtractDigit(g_ds[t], e_radixShift) + sorting::PART_SIZE] + t;
+                b_alt[keys[i]] = g_ds[t];
+                t += wave::WaveGetLaneCount();
+            }
         }
         workgroupBarrier();
         
-        t = SharedOffsetWGE16(gtid.x);
-        for (var i = 0u; i < DS_KEYS_PER_THREAD; i++)
         {
-            b_altPayload[keys[i]] = g_ds[t];
-            t += wave::WaveGetLaneCount();
+            var t = DeviceOffsetWGE16(gtid.x, gid.x);
+            for (var i = 0u; i < DS_KEYS_PER_THREAD; i++) {
+                g_ds[offsets[i]] = b_sortPayload[t];
+                t += wave::WaveGetLaneCount();
+            }
+            workgroupBarrier();
+        }
+        
+        {
+            var t = SharedOffsetWGE16(gtid.x);
+            for (var i = 0u; i < DS_KEYS_PER_THREAD; i++)
+            {
+                b_altPayload[keys[i]] = g_ds[t];
+                t += wave::WaveGetLaneCount();
+            }
         }
     }
-    
-    //perform the sort on the final partition slightly differently 
-    //to handle input sizes not perfect multiples of the partition
-    if (gid.x == e_threadBlocks - 1)
+    else
     {
+        //perform the sort on the final partition slightly differently 
+        //to handle input sizes not perfect multiples of the partition
+
         //load the global and pass histogram values into shared memory
         if (gtid.x < sorting::RADIX)
         {
-            g_ds[gtid.x] = b_globalHist[gtid.x + sorting::GlobalHistOffset(radixShift)] +
+            g_ds[gtid.x] = b_globalHist[gtid.x + sorting::GlobalHistOffset(e_radixShift)] +
                 b_passHist[gtid.x * e_threadBlocks + gid.x];
         }
         workgroupBarrier();
         
-        let waveParts = (wave::WaveGetLaneCount() + 31) / 32;
-        let partEnd = (e_numKeys + DS_DIM - 1) / DS_DIM * DS_DIM;
+        let partEnd = ((e_numKeys + DS_DIM - 1) / DS_DIM) * DS_DIM;
         for (var i = gtid.x + gid.x * sorting::PART_SIZE; i < partEnd; i += DS_DIM)
         {
             var key = 0u;
             if (i < e_numKeys) {
                 key = b_sort[i];
             }
-
+            
             var waveFlags = MASK_FULL;
             var offset = 0u;
             var bits = 0u;
-
+            
             if (i < e_numKeys)
             {
                 for (var k = 0u; k < sorting::RADIX_LOG; k++)
                 {
-                    let t = key >> (k + radixShift) & 1u;
+                    let t = (key >> (k + e_radixShift)) & 1u;
                     let ballot = wave::WaveActiveBallot(t > 0);
                     waveFlags &= sorting::ternary(t > 0, 0u, MASK_FULL) ^ ballot;
                 }
-            }
             
+                let ltMask = (1u << (wave::WaveGetLaneIndex() & 31)) - 1;
+                bits += countOneBits(waveFlags & ltMask);
+            }
+
             for (var k = 0u; k < DS_DIM / wave::WaveGetLaneCount(); k++)
             {
                 if (wave::getWaveIndex(gtid.x) == k && i < e_numKeys) {
-                    offset = g_ds[sorting::ExtractDigit(key, radixShift)] + bits;
+                    offset = g_ds[sorting::ExtractDigit(key, e_radixShift)] + bits;
                 }
                 workgroupBarrier();
                 
                 if (wave::getWaveIndex(gtid.x) == k && i < e_numKeys && bits == 0)
                 {
-                    g_ds[sorting::ExtractDigit(key, radixShift)] += countOneBits(waveFlags);
+                    g_ds[sorting::ExtractDigit(key, e_radixShift)] += countOneBits(waveFlags);
                 }
                 workgroupBarrier();
             }

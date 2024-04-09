@@ -28,50 +28,56 @@
 const SCAN_DIM: u32 = 128u;        //The number of threads in a Scan threadblock
 @group(0) @binding(0) var<storage, read> b_sort: array<u32>;                    //buffer to be sorted      
 @group(0) @binding(1) var<storage, read_write> b_passHist: array<u32>;          //buffer used to store device level offsets for 
-                                                                                //each partition tile for each digit during a binning pass
-@group(0) @binding(2) var<storage, read> info: array<sorting::Uniforms>;        //buffer to be sorted      
 
 var<workgroup> g_scan: array<u32, SCAN_DIM>;          //Shared memory for the scan kernel
 
 //Scan along the spine of the upsweep
 @compute
 @workgroup_size(SCAN_DIM, 1, 1)
-fn Scan(@builtin(local_invocation_id) gtid: vec3u, @builtin(workgroup_id) gid: vec3u) {
+fn main(@builtin(local_invocation_id) gtid: vec3u, @builtin(workgroup_id) gid: vec3u) {
     wave::init(gtid.x);
 
-    let info = info[0];
-    let radixShift = info.radixShift;
-
-    let e_numKeys: u32 = arrayLength(&b_sort);
-    let e_threadBlocks: u32 = (e_numKeys + sorting::PART_SIZE - 1) / sorting::PART_SIZE;
+    let e_numKeys = arrayLength(&b_sort);
+    let e_threadBlocks = (e_numKeys + sorting::PART_SIZE - 1) / sorting::PART_SIZE;
 
     var aggregate = 0u;
     let laneMask = wave::WaveGetLaneCount() - 1u;
-    let circularLaneShift = wave::WaveGetLaneIndex() + 1u & laneMask;
+    let circularLaneShift = (wave::WaveGetLaneIndex() + 1) & laneMask;
     let partionsEnd = e_threadBlocks / SCAN_DIM * SCAN_DIM;
     let offset = gid.x * e_threadBlocks;
-
     var i = gtid.x;
     for (; i < partionsEnd; i += SCAN_DIM)
     {
         g_scan[gtid.x] = b_passHist[i + offset];
         g_scan[gtid.x] += wave::WavePrefixSum(g_scan[gtid.x]);
         workgroupBarrier();
+        storageBarrier();
         
         if (gtid.x < SCAN_DIM / wave::WaveGetLaneCount())
         {
             g_scan[(gtid.x + 1) * wave::WaveGetLaneCount() - 1] +=
-                wave::WavePrefixSum(g_scan[(gtid.x + 1) * wave::WaveGetLaneCount() - 1u]);
+                wave::WavePrefixSum(g_scan[(gtid.x + 1) * wave::WaveGetLaneCount() - 1]);
         }
         workgroupBarrier();
+        storageBarrier();
+
         
-        b_passHist[circularLaneShift + (i & ~laneMask) + offset] =
-            sorting::ternary(wave::WaveGetLaneIndex() != laneMask, g_scan[gtid.x], 0u) +
-            sorting::ternary(gtid.x >= wave::WaveGetLaneCount(), wave::WaveReadLaneAt(g_scan[gtid.x - 1], 0u), 0u) +
-            aggregate;
+        var passHist = aggregate;
+
+        if wave::WaveGetLaneIndex() != laneMask {
+            passHist += g_scan[gtid.x];
+        }
+
+        if gtid.x >= wave::WaveGetLaneCount() {
+            passHist += wave::WaveReadLaneAt(g_scan[gtid.x - 1], 0u);
+        }
+
+        b_passHist[circularLaneShift + (i & ~laneMask) + offset] = passHist;
 
         aggregate += g_scan[SCAN_DIM - 1];
         workgroupBarrier();
+        storageBarrier();
+
     }
     
     //partial
@@ -80,6 +86,7 @@ fn Scan(@builtin(local_invocation_id) gtid: vec3u, @builtin(workgroup_id) gid: v
     }
     g_scan[gtid.x] += wave::WavePrefixSum(g_scan[gtid.x]);
     workgroupBarrier();
+    storageBarrier();
         
     if (gtid.x < SCAN_DIM / wave::WaveGetLaneCount())
     {
@@ -87,11 +94,21 @@ fn Scan(@builtin(local_invocation_id) gtid: vec3u, @builtin(workgroup_id) gid: v
             wave::WavePrefixSum(g_scan[(gtid.x + 1) * wave::WaveGetLaneCount() - 1]);
     }
     workgroupBarrier();
+    storageBarrier();
     
     let index = circularLaneShift + (i & ~laneMask);
     if (index < e_threadBlocks)
     {
-        b_passHist[index + offset] = sorting::ternary(wave::WaveGetLaneIndex() != laneMask, g_scan[gtid.x], 0u) +
-            sorting::ternary(gtid.x >= wave::WaveGetLaneCount(), g_scan[(gtid.x & ~laneMask) - 1u], 0u) + aggregate;
+        var passHist = aggregate;
+
+        if wave::WaveGetLaneIndex() != laneMask {
+            passHist += g_scan[gtid.x];
+        }
+
+        if gtid.x >= wave::WaveGetLaneCount() {
+            passHist += g_scan[(gtid.x & ~laneMask) - 1];
+        }
+
+        b_passHist[index + offset] = passHist;
     }
 }

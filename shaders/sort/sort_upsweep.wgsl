@@ -26,71 +26,85 @@
 #import sorting
 #import wave
 
+struct Uniforms {
+    radixShift: u32,
+}
+
 @group(0) @binding(0) var<storage, read> b_sort: array<u32>;                            //buffer to be sorted      
-@group(0) @binding(4) var<storage, read_write> b_globalHist: array<atomic<u32>>;        //buffer holding global device level offsets  for each digit during a binning pass
-@group(0) @binding(5) var<storage, read_write> b_passHist: array<u32>;                  //buffer used to store device level offsets for 
+@group(0) @binding(1) var<storage, read_write> b_globalHist: array<atomic<u32>>;        //buffer holding global device level offsets  for each digit during a binning pass
+@group(0) @binding(2) var<storage, read_write> b_passHist: array<u32>;                  //buffer used to store device level offsets for 
+@group(0) @binding(3) var<storage, read> info: array<Uniforms>;                //buffer to be sorted      
                                                                                         //each partition tile for each digit during a binning pass
-@group(0) @binding(6) var<storage, read> info: array<sorting::Uniforms>;                //buffer to be sorted      
 
-var<workgroup> g_us: array<atomic<u32>, sorting::RADIX_2>;           //Shared memory for upsweep kernel
-
+const RADIX_2: u32 = sorting::RADIX * 2;
+var<workgroup> g_us: array<atomic<u32>, RADIX_2>;           //Shared memory for upsweep kernel
 const US_DIM: u32 = 128u;        //The number of threads in a Upsweep threadblock
+
 
 @compute
 @workgroup_size(US_DIM, 1, 1)
-fn Upsweep(@builtin(local_invocation_id) gtid: vec3u, @builtin(workgroup_id) gid: vec3u) {
+fn main(@builtin(local_invocation_id) gtid: vec3u, @builtin(workgroup_id) gid: vec3u) {
     let info = info[0];
     let radixShift = info.radixShift;
 
     wave::init(gtid.x);
-    let e_numKeys: u32 = arrayLength(&b_sort);
-    let e_threadBlocks: u32 = (e_numKeys + sorting::PART_SIZE - 1) / sorting::PART_SIZE;
+    let e_numKeys = arrayLength(&b_sort);
+    let e_threadBlocks = (e_numKeys + sorting::PART_SIZE - 1) / sorting::PART_SIZE;
 
     // Clear shared memory.
     // TODO: Not needed in WGSL - specced as 0 init?
     let histsEnd: u32 = sorting::RADIX * 2;
     for (var i = gtid.x; i < histsEnd; i += US_DIM) {
-        g_us[i] = 0u;
+        atomicStore(&g_us[i], 0u);
     }
     workgroupBarrier();
 
     //histogram, 64 threads to a histogram
     let histOffset = gtid.x / 64 * sorting::RADIX;
-
     let partitionEnd = sorting::ternary(gid.x == e_threadBlocks - 1, e_numKeys, (gid.x + 1) * sorting::PART_SIZE);
-
     for (var i = gtid.x + gid.x * sorting::PART_SIZE; i < partitionEnd; i += US_DIM) {
         atomicAdd(&g_us[sorting::ExtractDigit(b_sort[i], radixShift) + histOffset], 1u);
     }
     workgroupBarrier();
     
     //reduce and pass to tile histogram
-    for (var i = gtid.x; i < sorting::RADIX; i += US_DIM)
-    {
+    for (var i = gtid.x; i < sorting::RADIX; i += US_DIM) {
         g_us[i] += g_us[i + sorting::RADIX];
         b_passHist[i * e_threadBlocks + gid.x] = g_us[i];
     }
     
+    //Larger 16 or greater can perform a more elegant scan because 16 * 16 = 256
     for (var i = gtid.x; i < sorting::RADIX; i += US_DIM) {
         g_us[i] += wave::WavePrefixSum(g_us[i]);
     }
     workgroupBarrier();
     
     if (gtid.x < (sorting::RADIX / wave::WaveGetLaneCount())) {
-        g_us[(gtid.x + 1) * wave::WaveGetLaneCount() - 1] += wave::WavePrefixSum(g_us[(gtid.x + 1u) * wave::WaveGetLaneCount() - 1u]);
+        g_us[(gtid.x + 1) * wave::WaveGetLaneCount() - 1] +=
+            wave::WavePrefixSum(g_us[(gtid.x + 1) * wave::WaveGetLaneCount() - 1]);
     }
     workgroupBarrier();
-
+    
     //atomically add to global histogram
     let globalHistOffset = sorting::GlobalHistOffset(radixShift);
     let laneMask = wave::WaveGetLaneCount() - 1;
-    let circularLaneShift = wave::WaveGetLaneIndex() + 1 & laneMask;
+    let circularLaneShift = (wave::WaveGetLaneIndex() + 1) & laneMask;
 
     for (var i = gtid.x; i < sorting::RADIX; i += US_DIM) {
+        var add = 0u;
         let index = circularLaneShift + (i & ~laneMask);
-        atomicAdd(&b_globalHist[index + globalHistOffset],
-            sorting::ternary(wave::WaveGetLaneIndex() != laneMask, g_us[i], 0u) +
-            sorting::ternary(i >= wave::WaveGetLaneCount(), wave::WaveReadLaneAt(g_us[i - 1], 0u), 0u)
-        );
+
+        if wave::WaveGetLaneIndex() != laneMask {
+            add += g_us[i];
+        }
+        workgroupBarrier();
+
+        if i >= wave::WaveGetLaneCount() {
+            let firstWaveIndex = i - (gtid.x - wave::getWaveIndex(gtid.x) * wave::WaveGetLaneCount());
+            add += atomicLoad(&g_us[firstWaveIndex - 1]);
+        }
+        workgroupBarrier();
+
+        atomicAdd(&b_globalHist[index + globalHistOffset], add);
     }
 }
