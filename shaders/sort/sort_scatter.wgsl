@@ -2,9 +2,11 @@
 
 
 @group(0) @binding(0) var<storage> src: array<u32>;
-@group(0) @binding(1) var<storage> counts: array<u32>;
-@group(0) @binding(2) var<storage, read_write> out: array<u32>;
-@group(0) @binding(3) var<storage> config: sorting::Config;
+@group(0) @binding(1) var<storage> values: array<u32>;
+@group(0) @binding(2) var<storage> counts: array<u32>;
+@group(0) @binding(3) var<storage, read_write> out: array<u32>;
+@group(0) @binding(4) var<storage, read_write> out_values: array<u32>;
+@group(0) @binding(5) var<storage> config: sorting::Config;
 
 var<workgroup> sums: array<u32, sorting::WG>;
 var<workgroup> bin_offset_cache: array<u32, sorting::WG>;
@@ -31,9 +33,13 @@ fn main(
                 local_histogram[local_id.x] = 0u;
             }
             var local_key = ~0u;
+            var local_value = 0u;
+
             if data_index < config.num_keys {
                 local_key = src[data_index];
+                local_value = values[data_index];
             }
+
             for (var bit_shift = 0u; bit_shift < sorting::BITS_PER_PASS; bit_shift += 2u) {
                 let key_index = (local_key >> config.shift) & 0xfu;
                 let bit_key = (key_index >> bit_shift) & 3u;
@@ -60,7 +66,10 @@ fn main(
                 sums[key_offset] = local_key;
                 workgroupBarrier();
                 local_key = sums[local_id.x];
-                // TODO: handle value here (if we had it)
+
+                sums[key_offset] = local_value;
+                workgroupBarrier();
+                local_value = sums[local_id.x];
                 workgroupBarrier();
             }
             let key_index = (local_key >> config.shift) & 0xfu;
@@ -94,6 +103,7 @@ fn main(
             let total_offset = global_offset + local_offset;
             if total_offset < config.num_keys {
                 out[total_offset] = local_key;
+                out_values[total_offset] = local_value;
             }
             if local_id.x < sorting::BIN_COUNT {
                 bin_offset_cache[local_id.x] += local_histogram[local_id.x];

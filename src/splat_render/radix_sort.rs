@@ -19,7 +19,8 @@ const BIN_COUNT: u32 = 16;
 pub fn radix_argsort<E: JitElement>(
     client: &BurnClient,
     input_keys: &JitTensor<BurnRuntime, E, 1>,
-) -> JitTensor<BurnRuntime, E, 1> {
+    input_values: &JitTensor<BurnRuntime, E, 1>,
+) -> (JitTensor<BurnRuntime, E, 1>, JitTensor<BurnRuntime, E, 1>) {
     let n = input_keys.shape.dims[0] as u32;
 
     // compute buffer and dispatch sizes
@@ -45,8 +46,11 @@ pub fn radix_argsort<E: JitElement>(
     let count_buf = BurnBack::int_zeros(Shape::new([num_blocks * 16]), device);
     let reduced_buf = BurnBack::int_zeros(Shape::new([BLOCK_SIZE as usize]), device);
 
-    let output_buf = create_buffer::<E, 1>(client, [n as usize]);
-    let output_buf_2 = create_buffer::<E, 1>(client, [n as usize]);
+    let output_keys = create_buffer::<E, 1>(client, [n as usize]);
+    let output_values = create_buffer::<E, 1>(client, [n as usize]);
+
+    let output_keys_swap = create_buffer::<E, 1>(client, [n as usize]);
+    let output_values_swap = create_buffer::<E, 1>(client, [n as usize]);
 
     let mut config = generated_bindings::sorting::Config {
         num_keys: n,
@@ -61,12 +65,21 @@ pub fn radix_argsort<E: JitElement>(
     const N_PASSES: u32 = 8;
 
     for pass in 0..N_PASSES {
-        let (from, to) = if pass == 0 {
-            (&input_keys.handle, &output_buf)
+        let ((from, to), (from_val, to_val)) = if pass == 0 {
+            (
+                (&input_keys.handle, &output_keys_swap),
+                (&input_values.handle, &output_values_swap),
+            )
         } else if pass % 2 == 0 {
-            (&output_buf_2, &output_buf)
+            (
+                (&output_keys, &output_keys_swap),
+                (&output_values, &output_values_swap),
+            )
         } else {
-            (&output_buf, &output_buf_2)
+            (
+                (&output_keys_swap, &output_keys),
+                (&output_values_swap, &output_values),
+            )
         };
 
         // The most straightforward way to update the shift amount would be
@@ -107,16 +120,24 @@ pub fn radix_argsort<E: JitElement>(
         SortScatter::execute(
             client,
             config,
-            &[from, &count_buf.handle],
-            &[to],
+            &[from, from_val, &count_buf.handle],
+            &[to, to_val],
             [config.num_wgs * wg, 1, 1],
         );
     }
-    JitTensor::new(
-        client.clone(),
-        device.clone(),
-        Shape::new([n as usize]),
-        output_buf_2.clone(),
+    (
+        JitTensor::new(
+            client.clone(),
+            device.clone(),
+            Shape::new([n as usize]),
+            output_keys.clone(),
+        ),
+        JitTensor::new(
+            client.clone(),
+            device.clone(),
+            Shape::new([n as usize]),
+            output_values.clone(),
+        ),
     )
 }
 
@@ -148,10 +169,15 @@ mod tests {
             type Backend = BurnBack;
             let device = Default::default();
             let keys = Tensor::<Backend, 1, Int>::from_ints(data, &device).into_primitive();
-            let ret_keys = radix_argsort(&keys.client, &keys);
+            let values = Tensor::<Backend, 1, Int>::from_ints(data, &device).into_primitive();
+
+            let (ret_keys, ret_values) = radix_argsort(&keys.client, &keys, &values);
             let ret_keys = read_buffer_to_u32(&ret_keys.client, &ret_keys.handle);
+            let ret_values = read_buffer_to_u32(&ret_values.client, &ret_values.handle);
             let mut sorted = data.to_vec();
             sorted.sort();
+
+            println!("{:?}", ret_values);
 
             for (val, sort_val) in ret_keys.into_iter().zip(sorted) {
                 assert_eq!(val, sort_val as u32)
