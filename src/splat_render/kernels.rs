@@ -93,6 +93,6 @@ kernel_source_gen!(PrefixSumScan, prefix_sum_scan, ());
 kernel_source_gen!(PrefixSumScanSums, prefix_sum_scan_sums, ());
 kernel_source_gen!(PrefixSumAddScannedSums, prefix_sum_add_scanned_sums, ());
 
-kernel_source_gen!(SortUpsweep, sort_upsweep);
+kernel_source_gen!(SortUpsweep, sort_upsweep, ());
 kernel_source_gen!(SortScan, sort_scan, ());
-kernel_source_gen!(SortDownsweep, sort_downsweep);
+kernel_source_gen!(SortDownsweep, sort_downsweep, ());

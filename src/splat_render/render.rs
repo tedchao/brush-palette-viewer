@@ -179,27 +179,18 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
             &[&isect_ids_unsorted.handle, &gaussian_ids_unsorted.handle],
             [num_points as u32, 1, 1],
         );
-
-        // let isect_keys = (0..(isect_ids_unsorted.shape.dims[0] as u32)).collect::<Vec<_>>();
-        // let isect_keys_tensor = JitTensor::new(
-        //     client.clone(),
-        //     device.clone(),
-        //     Shape::new([num_intersects]),
-        //     client.create(bytemuck::cast_slice::<u32, u8>(&isect_keys)),
-        // );
+        let isect_ids_unsorted_before = read_buffer_to_u32(client, &isect_ids_unsorted.handle);
 
         let (depths_sort_index, depths_sort_pay) =
             radix_argsort(client, &isect_ids_unsorted, &isect_ids_unsorted);
         let depths_sort_index = read_buffer_to_u32(client, &depths_sort_index.handle);
         let depths_sort_pay = read_buffer_to_u32(client, &depths_sort_pay.handle);
-        let mut isect_ids_unsorted = read_buffer_to_u32(client, &isect_ids_unsorted.handle);
+        let isect_ids_unsorted = read_buffer_to_u32(client, &isect_ids_unsorted.handle);
 
-        isect_ids_unsorted.reverse();
-
-        println!("unsorted {:?}", isect_ids_unsorted);
+        println!("unsorted {:?}", isect_ids_unsorted_before);
         println!("keys {:?}", depths_sort_index);
         println!("vals {:?}", depths_sort_pay);
-        let mut gt = isect_ids_unsorted.clone();
+        let mut gt = isect_ids_unsorted_before.clone();
         gt.sort();
         println!("gt {:?}", gt);
 
