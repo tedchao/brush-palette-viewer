@@ -1,127 +1,161 @@
 use burn::tensor::Shape;
+use burn_jit::JitElement;
 use burn_wgpu::JitTensor;
 
 use burn::tensor::ops::IntTensorOps;
 
+use crate::splat_render::create_buffer;
+use crate::splat_render::kernels::{SortCount, SortReduce, SortScanAdd, SortScatter};
+
 use super::kernels::SplatKernel;
-use super::{
-    create_tensor, generated_bindings,
-    kernels::{SortDownsweep, SortScan, SortUpsweep},
-    BurnBack, BurnClient, BurnRuntime,
-};
-use super::{div_round_up, read_buffer_to_u32};
+use super::{generated_bindings, kernels::SortScan, BurnBack, BurnClient, BurnRuntime};
 
-//The size of our radix in bits
-const DEVICE_RADIX_SORT_BITS: usize = 8;
+// TODO: Get from bindings
+const WG: u32 = 256;
+const ELEMENTS_PER_THREAD: u32 = 4;
+const BLOCK_SIZE: u32 = WG * ELEMENTS_PER_THREAD;
+const BIN_COUNT: u32 = 16;
 
-//Number of digits in our radix.
-const DEVICE_RADIX_SORT_RADIX: usize = 256;
-
-//Number of sorting passes required to sort a 32bit key, KEY_BITS / DEVICE_RADIX_SORT_BITS
-const DEVICE_RADIX_SORT_PASSES: usize = 32 / DEVICE_RADIX_SORT_BITS;
-
-//The size of a threadblock partition in the sort
-const DEVICE_RADIX_SORT_PARTITION_SIZE: usize = generated_bindings::sorting::PART_SIZE as usize;
-
-pub fn radix_argsort(
+pub fn radix_argsort<E: JitElement>(
     client: &BurnClient,
-    input_keys: &JitTensor<BurnRuntime, u32, 1>,
-    input_values: &JitTensor<BurnRuntime, u32, 1>,
-) -> (
-    JitTensor<BurnRuntime, u32, 1>,
-    JitTensor<BurnRuntime, u32, 1>,
-) {
-    let count = input_keys.shape.dims[0];
+    input_keys: &JitTensor<BurnRuntime, E, 1>,
+) -> JitTensor<BurnRuntime, E, 1> {
+    let n = input_keys.shape.dims[0] as u32;
 
-    let thread_blocks = div_round_up(count, DEVICE_RADIX_SORT_PARTITION_SIZE) as u32;
-    println!("thread blocks {thread_blocks}");
+    // compute buffer and dispatch sizes
+    let num_blocks = (n + (BLOCK_SIZE - 1)) / BLOCK_SIZE;
 
-    let scratch_buffer_size = (thread_blocks as usize) * DEVICE_RADIX_SORT_RADIX;
-    let reduced_scratch_buffer_size = DEVICE_RADIX_SORT_RADIX * DEVICE_RADIX_SORT_PASSES;
+    let num_wgs = num_blocks;
+    let num_blocks_per_wg = num_blocks / num_wgs;
+    let num_wgs_with_additional_blocks = num_blocks % num_wgs;
 
-    println!("count {count}");
+    // I think the else always has the same value, but fix later.
+    let num_reduce_wgs = BIN_COUNT
+        * if BLOCK_SIZE > num_wgs {
+            1
+        } else {
+            (num_wgs + BLOCK_SIZE - 1) / BLOCK_SIZE
+        };
+
+    let num_reduce_wg_per_bin = num_reduce_wgs / BIN_COUNT;
+
     let device = &input_keys.device;
-    let alt_buffer = create_tensor(client, device, [count]);
-    let alt_payload_buffer = create_tensor(client, device, [count]);
 
-    let pass_hist_buffer = BurnBack::int_zeros(Shape::new([scratch_buffer_size]), device);
-    let global_hist_buffer = BurnBack::int_zeros(Shape::new([reduced_scratch_buffer_size]), device);
+    let num_blocks = num_blocks as usize;
+    let count_buf = BurnBack::int_zeros(Shape::new([num_blocks * 16]), device);
+    let reduced_buf = BurnBack::int_zeros(Shape::new([BLOCK_SIZE as usize]), device);
 
-    // Execute the sort algorithm in 8-bit increments
+    let output_buf = create_buffer::<E, 1>(client, [n as usize]);
+    let output_buf_2 = create_buffer::<E, 1>(client, [n as usize]);
 
-    let (mut src_key_buffer, mut src_payload_buffer) = (input_keys, input_values);
-    let (mut dst_key_buffer, mut dst_payload_buffer) = (&alt_buffer, &alt_payload_buffer);
+    let mut config = generated_bindings::sorting::Config {
+        num_keys: n,
+        num_blocks_per_wg,
+        num_wgs,
+        num_wgs_with_additional_blocks,
+        num_reduce_wg_per_bin,
+        num_scan_values: num_reduce_wgs,
+        shift: 0,
+    };
 
-    for radix_shift in (0..8).step_by(DEVICE_RADIX_SORT_BITS) {
-        let keys = read_buffer_to_u32(client, &src_key_buffer.handle);
+    const N_PASSES: u32 = 8;
 
-        if radix_shift == 0 {
-            println!("At step {radix_shift} before {:?}", keys);
-        }
+    for pass in 0..N_PASSES {
+        let (from, to) = if pass == 0 {
+            (&input_keys.handle, &output_buf)
+        } else if pass % 2 == 0 {
+            (&output_buf_2, &output_buf)
+        } else {
+            (&output_buf, &output_buf_2)
+        };
 
-        //Upsweep
-        SortUpsweep::execute(
+        // The most straightforward way to update the shift amount would be
+        // queue.buffer_write, but that has performance problems, so we copy
+        // from a pre-initialized buffer.
+        // TODO: set config based on pass
+        config.shift = pass * 4;
+
+        let wg = generated_bindings::sorting::WG;
+
+        SortCount::execute(
             client,
-            (),
-            &[&src_key_buffer.handle],
-            &[&pass_hist_buffer.handle, &global_hist_buffer.handle],
-            [thread_blocks * generated_bindings::sorting::US_DIM, 1, 1],
+            config,
+            &[from],
+            &[&count_buf.handle],
+            [config.num_wgs * wg, 1, 1],
         );
 
-        if radix_shift == 0 {
-            println!(
-                "Upsweep {radix_shift} global hist {:?} pass hist {:?}",
-                read_buffer_to_u32(client, &global_hist_buffer.handle),
-                read_buffer_to_u32(client, &pass_hist_buffer.handle)
-            );
-        }
-
-        // Scan
-        SortScan::execute(
+        // Todo: in -> out -> out2
+        SortReduce::execute(
             client,
-            (),
-            &[&src_key_buffer.handle],
-            &[&pass_hist_buffer.handle],
-            [
-                (DEVICE_RADIX_SORT_RADIX as u32) * generated_bindings::sorting::SCAN_DIM,
-                1,
-                1,
-            ],
+            config,
+            &[&count_buf.handle],
+            &[&reduced_buf.handle],
+            [num_reduce_wgs * wg, 1, 1],
         );
 
-        if radix_shift == 0 {
-            println!(
-                "Scan {radix_shift} pass hist {:?}",
-                read_buffer_to_u32(client, &pass_hist_buffer.handle)
-            );
-        }
+        SortScan::execute(client, config, &[], &[&reduced_buf.handle], [1, 1, 1]);
 
-        // Downsweep
-        SortDownsweep::execute(
+        SortScanAdd::execute(
             client,
-            (),
-            &[
-                &src_key_buffer.handle,
-                &pass_hist_buffer.handle,
-                &global_hist_buffer.handle,
-                &src_payload_buffer.handle,
-            ],
-            &[&dst_key_buffer.handle, &dst_payload_buffer.handle],
-            [thread_blocks * generated_bindings::sorting::DS_DIM, 1, 1],
+            config,
+            &[&reduced_buf.handle],
+            &[&count_buf.handle],
+            [num_reduce_wgs * wg, 1, 1],
         );
 
-        if radix_shift == 0 {
-            println!(
-                "At step {radix_shift} after {:?} {:?}",
-                read_buffer_to_u32(client, &dst_key_buffer.handle),
-                read_buffer_to_u32(client, &dst_payload_buffer.handle)
-            );
-        }
-
-        // // Swap if not last pass.
-        // (src_key_buffer, dst_key_buffer) = (dst_key_buffer, src_key_buffer);
-        // (src_payload_buffer, dst_payload_buffer) = (dst_payload_buffer, src_payload_buffer);
+        SortScatter::execute(
+            client,
+            config,
+            &[from, &count_buf.handle],
+            &[to],
+            [config.num_wgs * wg, 1, 1],
+        );
     }
+    JitTensor::new(
+        client.clone(),
+        device.clone(),
+        Shape::new([n as usize]),
+        output_buf_2.clone(),
+    )
+}
 
-    (dst_key_buffer.clone(), dst_payload_buffer.clone())
+mod tests {
+    use crate::splat_render::{radix_sort::radix_argsort, read_buffer_to_u32, BurnBack};
+    use burn::tensor::{Int, Tensor};
+
+    #[test]
+    fn test_sorting() {
+        for i in 0..128 {
+            // Look i'm not going to say this is the most sophisticated test :)
+            let data = [
+                5 + i * 4,
+                i,
+                6,
+                123,
+                74657,
+                123,
+                999,
+                2i32.pow(30) + 123,
+                6,
+                7,
+                8,
+                0,
+                i * 2,
+                16 + i,
+                128 * i,
+            ];
+            type Backend = BurnBack;
+            let device = Default::default();
+            let keys = Tensor::<Backend, 1, Int>::from_ints(data, &device).into_primitive();
+            let ret_keys = radix_argsort(&keys.client, &keys);
+            let ret_keys = read_buffer_to_u32(&ret_keys.client, &ret_keys.handle);
+            let mut sorted = data.to_vec();
+            sorted.sort();
+
+            for (val, sort_val) in ret_keys.into_iter().zip(sorted) {
+                assert_eq!(val, sort_val as u32)
+            }
+        }
+    }
 }

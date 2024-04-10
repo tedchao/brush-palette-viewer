@@ -13,7 +13,7 @@ use burn::backend::wgpu::{
 use bytemuck::NoUninit;
 use glam::UVec3;
 
-use super::generated_bindings;
+use super::generated_bindings::{self, sorting};
 
 pub(crate) trait SplatKernel<S: ComputeServer<Kernel = Kernel>, C: ComputeChannel<S>>
 where
@@ -93,6 +93,9 @@ kernel_source_gen!(PrefixSumScan, prefix_sum_scan, ());
 kernel_source_gen!(PrefixSumScanSums, prefix_sum_scan_sums, ());
 kernel_source_gen!(PrefixSumAddScannedSums, prefix_sum_add_scanned_sums, ());
 
-kernel_source_gen!(SortUpsweep, sort_upsweep, ());
-kernel_source_gen!(SortScan, sort_scan, ());
-kernel_source_gen!(SortDownsweep, sort_downsweep, ());
+kernel_source_gen!(SortCount, sort_count, sorting::Config);
+kernel_source_gen!(SortMultiSplit, sort_multisplit, sorting::Config);
+kernel_source_gen!(SortReduce, sort_reduce, sorting::Config);
+kernel_source_gen!(SortScanAdd, sort_scan_add, sorting::Config);
+kernel_source_gen!(SortScan, sort_scan, sorting::Config);
+kernel_source_gen!(SortScatter, sort_scatter, sorting::Config);
