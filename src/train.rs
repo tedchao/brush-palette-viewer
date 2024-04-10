@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use burn::lr_scheduler::LrScheduler;
@@ -36,7 +36,7 @@ pub(crate) struct TrainConfig {
     pub min_lr: f64,
     #[config(default = 5)]
     pub visualize_every: u32,
-    #[config(default = 2)]
+    #[config(default = 8192)]
     pub init_points: usize,
     #[config(default = 2.0)]
     pub init_aabb: f32,
@@ -159,7 +159,7 @@ where
     let rec = rerun::RecordingStreamBuilder::new("visualize training").spawn()?;
 
     println!("Loading dataset.");
-    let scene = dataset_readers::read_scene(&config.scene_path, Some(1), false);
+    let scene = dataset_readers::read_scene(&config.scene_path, None, false);
     let config_optimizer = AdamConfig::new();
     let mut optim = config_optimizer.init::<B, Splats<B>>();
 
@@ -183,9 +183,9 @@ where
     let loss = MseLoss::new();
 
     // By default use 8 second window with 16 accumulators
-    let mut tw = RealTimeRunningAverage::new(Duration::new(2, 0));
-
     for iter in 0..config.train_steps + 1 {
+        let start_time = Instant::now();
+
         let lr = LrScheduler::<B>::step(&mut scheduler);
 
         let (new_splats, stats) = train_step(
@@ -197,10 +197,18 @@ where
 
         if iter % config.visualize_every == 0 {
             rec.set_time_sequence("iterations", iter);
-            rec.log("stats/loss", &rerun::Scalar::new(stats.loss[[0]] as f64))?;
-            rec.log("stats/lr", &rerun::Scalar::new(lr))?;
+            rec.log("losses/main", &rerun::Scalar::new(stats.loss[[0]] as f64))?;
+            rec.log("lr/current", &rerun::Scalar::new(lr))?;
+            if iter > 5 {
+                rec.log(
+                    "performance/ms",
+                    &rerun::Scalar::new(
+                        (Instant::now() - start_time).as_secs_f32() as f64 * 1000.0,
+                    ),
+                )?;
+            }
             rec.log(
-                "stats/total points",
+                "points/total",
                 &rerun::Scalar::new(stats.total_points as f64),
             )?;
             rec.log(
@@ -214,9 +222,6 @@ where
 
             splats.visualize(&rec)?;
         }
-
-        tw.insert(1);
-        println!("{}", tw.measurement());
     }
     Ok(())
 }

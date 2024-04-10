@@ -171,8 +171,6 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
         let isect_ids_unsorted = create_tensor::<u32, 1>(client, device, [num_intersects]);
         let gaussian_ids_unsorted = create_tensor::<u32, 1>(client, device, [num_intersects]);
 
-        let buf_like = isect_ids_unsorted.copy();
-
         // Dispatch one thread per point.
         MapGaussiansToIntersect::execute(
             client,
@@ -181,22 +179,7 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
             &[&isect_ids_unsorted.handle, &gaussian_ids_unsorted.handle],
             [num_points as u32, 1, 1],
         );
-        // let isect_ids_unsorted_before = read_buffer_to_u32(client, &isect_ids_unsorted.handle);
-        // let (depths_sort_index, depths_sort_pay) =
-        //     radix_argsort(client, &isect_ids_unsorted, &buf_like);
-        // let depths_sort_index = read_buffer_to_u32(client, &depths_sort_index.handle);
-        // let depths_sort_pay = read_buffer_to_u32(client, &depths_sort_pay.handle);
         let isect_ids_unsorted = read_buffer_to_u32(client, &isect_ids_unsorted.handle);
-
-        // println!("unsorted {:?}", isect_ids_unsorted_before);
-        // println!("keys {:?}", depths_sort_index);
-        // println!("vals {:?}", depths_sort_pay);
-        // let mut gt = isect_ids_unsorted_before.clone();
-        // gt.sort();
-        // println!("gt {:?}", gt);
-        // for (val, val_gt) in depths_sort_index.into_iter().zip(gt) {
-        //     assert!(val == val_gt);
-        // }
 
         // TODO: WGSL Radix sort.
         let gaussian_ids_unsorted = read_buffer_to_u32(client, &gaussian_ids_unsorted.handle);
