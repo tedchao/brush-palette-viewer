@@ -172,10 +172,11 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
         let gaussian_ids_unsorted = create_tensor::<u32, 1>(client, device, [num_intersects]);
 
         // Dispatch one thread per point.
+
         MapGaussiansToIntersect::execute(
             client,
             generated_bindings::map_gaussian_to_intersects::Uniforms::new(tile_bounds.into()),
-            &[&xys.handle, &radii.handle, &cum_tiles_hit.handle],
+            &[&xys.handle, &radii.handle, &cum_tiles_hit.handle, &depths],
             &[&isect_ids_unsorted.handle, &gaussian_ids_unsorted.handle],
             [num_points as u32, 1, 1],
         );

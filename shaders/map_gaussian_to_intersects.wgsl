@@ -3,11 +3,12 @@
 @group(0) @binding(0) var<storage, read> xys: array<vec2f>;
 @group(0) @binding(1) var<storage, read> radii: array<u32>;
 @group(0) @binding(2) var<storage, read> cum_tiles_hit: array<u32>;
+@group(0) @binding(3) var<storage, read> depths: array<f32>;
 
-@group(0) @binding(3) var<storage, read_write> isect_ids: array<u32>;
-@group(0) @binding(4) var<storage, read_write> gaussian_ids: array<u32>;
+@group(0) @binding(4) var<storage, read_write> isect_ids: array<u32>;
+@group(0) @binding(5) var<storage, read_write> gaussian_ids: array<u32>;
 
-@group(0) @binding(5) var<storage, read> info_array: array<Uniforms>;
+@group(0) @binding(6) var<storage, read> info_array: array<Uniforms>;
 
 struct Uniforms {
     // Total reachable pixels (w, h)
@@ -40,6 +41,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
     let tile_minmax = helpers::get_tile_bbox(center, radius, tile_bounds);
     let tile_min = tile_minmax.xy;
     let tile_max = tile_minmax.zw;
+    let depth = depths[idx];
 
     // update the intersection info for all tiles this gaussian hits
     var cur_idx = 0u;
@@ -49,8 +51,19 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
 
     for (var ty = tile_min.y; ty < tile_max.y; ty++) {
         for (var tx = tile_min.x; tx < tile_max.x; tx++) {
+            // assume tile_id is less than 65K (just about works out for a 4k screen).
             let tile_id = tx + ty * tile_bounds.x; // tile within image
-            isect_ids[cur_idx] = tile_id;
+
+            // Sort by, unfortunately low precision, depth.
+            // Nb: Radix sort on floats is only correct if the sign is positive
+            // but depths are known to be.
+            
+            // sign | 8 bit exp | 23 bits mantissa.
+            // assume sign is 0. Then we have space for 8 bits mantiassa, so,
+            // remove 15 bits.
+            let depth_id = bitcast<u32>(depth) >> 15;
+            let packed_val = (tile_id << 16) | depth_id;
+            isect_ids[cur_idx] = packed_val;
             gaussian_ids[cur_idx] = idx; // 3D gaussian id
             cur_idx++; // handles gaussians that hit more than one tile
         }
