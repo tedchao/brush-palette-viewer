@@ -65,7 +65,7 @@ pub fn prefix_sum<E: JitElement>(
         );
     }
 
-    for l in (0..(group_buffer.len() - 1)).rev() {
+    for l in (1..group_buffer.len()).rev() {
         let ouput = &group_buffer[l - 1];
 
         PrefixSumAddScannedSums::execute(
