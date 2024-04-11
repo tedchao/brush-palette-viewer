@@ -2,21 +2,17 @@ use burn_jit::JitElement;
 use burn_wgpu::JitTensor;
 
 use super::{
-    create_tensor, generated_bindings,
+    create_tensor, div_round_up, generated_bindings,
     kernels::{PrefixSumAddScannedSums, PrefixSumScan, PrefixSumScanSums, SplatKernel},
     BurnClient, BurnRuntime,
 };
-
-fn num_groups(work_size: u32, per_group: u32) -> u32 {
-    (work_size + per_group - 1) / per_group
-}
 
 pub fn prefix_sum<E: JitElement>(
     client: &BurnClient,
     input: &JitTensor<BurnRuntime, E, 1>,
 ) -> JitTensor<BurnRuntime, E, 1> {
-    let threads_per_group = generated_bindings::prefix_sum_helpers::THREADS_PER_GROUP;
-    let num = input.shape.dims[0] as u32;
+    let threads_per_group = generated_bindings::prefix_sum_helpers::THREADS_PER_GROUP as usize;
+    let num = input.shape.dims[0];
     let outputs = create_tensor(client, &input.device, input.shape.dims);
 
     // 1. Per group scan
@@ -26,23 +22,22 @@ pub fn prefix_sum<E: JitElement>(
         (),
         &[&input.handle],
         &[&outputs.handle],
-        [num, 1, 1],
+        [num as u32, 1, 1],
     );
 
-    if num <= threads_per_group {
+    if num < threads_per_group {
         return outputs;
     }
 
+    let size = (num as f32 * 1.5) as usize;
     let mut group_buffer = vec![];
-    let mut work_sz = num;
-
+    let mut work_size = vec![];
+    let mut work_sz = size;
     while work_sz > threads_per_group {
-        work_sz = num_groups(work_sz, threads_per_group);
-        group_buffer.push(create_tensor::<E, 1>(
-            client,
-            &input.device,
-            [work_sz as usize],
-        ));
+        work_sz = div_round_up(work_sz, threads_per_group);
+
+        group_buffer.push(create_tensor::<E, 1>(client, &input.device, [work_sz]));
+        work_size.push(work_sz);
     }
 
     PrefixSumScanSums::execute(
@@ -50,30 +45,29 @@ pub fn prefix_sum<E: JitElement>(
         (),
         &[&outputs.handle],
         &[&group_buffer[0].handle],
-        [group_buffer[0].shape.dims[0] as u32, 1, 1],
+        [work_size[0] as u32, 1, 1],
     );
 
     // Continue down the pyramid
     for l in 0..(group_buffer.len() - 1) {
-        let ouput = &group_buffer[l + 1];
         PrefixSumScanSums::execute(
             client,
             (),
             &[&group_buffer[l].handle],
-            &[&ouput.handle],
-            [ouput.shape.dims[0] as u32, 1, 1],
+            &[&group_buffer[l + 1].handle],
+            [work_size[l + 1] as u32, 1, 1],
         );
     }
 
     for l in (1..group_buffer.len()).rev() {
-        let ouput = &group_buffer[l - 1];
+        let work_sz = work_size[l - 1];
 
         PrefixSumAddScannedSums::execute(
             client,
             (),
             &[&group_buffer[l].handle],
-            &[&ouput.handle],
-            [ouput.shape.dims[0] as u32, 1, 1],
+            &[&group_buffer[l - 1].handle],
+            [work_sz as u32, 1, 1],
         );
     }
 
@@ -82,8 +76,44 @@ pub fn prefix_sum<E: JitElement>(
         (),
         &[&group_buffer[0].handle],
         &[&outputs.handle],
-        [num, 1, 1],
+        [(work_size[0] * threads_per_group) as u32, 1, 1],
     );
 
     outputs
+}
+
+mod tests {
+    use crate::splat_render::{
+        prefix_sum::prefix_sum, radix_sort::radix_argsort, read_buffer_to_u32, BurnBack,
+    };
+    use burn::tensor::{Int, Tensor};
+
+    #[test]
+    fn test_sum() {
+        const ITERS: usize = 512 * 16;
+        let mut data = vec![];
+        for i in 0..ITERS {
+            data.push(2 + i as i32);
+            data.push(0);
+        }
+
+        type Backend = BurnBack;
+        let device = Default::default();
+        let keys = Tensor::<Backend, 1, Int>::from_data(data.as_slice(), &device).into_primitive();
+
+        let summed = prefix_sum(&keys.client, &keys);
+        let summed = read_buffer_to_u32(&summed.client, &summed.handle);
+
+        let prefix_sum_ref: Vec<_> = data
+            .into_iter()
+            .scan(0, |x, y| {
+                *x += y;
+                Some(*x)
+            })
+            .collect();
+
+        for (summed, reff) in summed.into_iter().zip(prefix_sum_ref) {
+            assert_eq!(summed, reff as u32)
+        }
+    }
 }
