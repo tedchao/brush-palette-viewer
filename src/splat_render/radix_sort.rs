@@ -142,12 +142,16 @@ pub fn radix_argsort<E: JitElement>(
 }
 
 mod tests {
+    #[allow(unused_imports)]
     use std::{
         fs::File,
         io::{BufReader, Read},
     };
 
+    #[allow(unused_imports)]
     use crate::splat_render::{radix_sort::radix_argsort, read_buffer_to_u32, BurnBack};
+
+    #[allow(unused_imports)]
     use burn::{
         backend::Autodiff,
         tensor::{Int, Tensor},

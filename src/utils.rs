@@ -1,15 +1,6 @@
 // Utilities to go from ndarray -> image and the other way around.
 use burn::tensor::{backend::Backend, BasicOps, Data, Element, Shape, Tensor};
-use ndarray::{Array, Array3, Dim, Dimension, StrideShape};
-
-// pub fn to_rerun_tensor<B: Backend, const D: usize>(t: Tensor<B, D>) -> rerun::TensorData {
-//     rerun::TensorData::new(
-//         t.dims()
-//             .map(|x| rerun::TensorDimension::unnamed(x as u64))
-//             .to_vec(),
-//         rerun::TensorBuffer::F32(t.into_data().convert().value.into()),
-//     )
-// }
+use ndarray::{Array, Dim, Dimension, StrideShape};
 
 pub(crate) fn ndarray_to_burn<T: Element, B: Backend, const D: usize, K: BasicOps<B>>(
     arr: Array<T, Dim<[usize; D]>>,

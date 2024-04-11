@@ -83,9 +83,11 @@ pub fn prefix_sum<E: JitElement>(
 }
 
 mod tests {
+    #[allow(unused_imports)]
     use crate::splat_render::{
         prefix_sum::prefix_sum, radix_sort::radix_argsort, read_buffer_to_u32, BurnBack,
     };
+    #[allow(unused_imports)]
     use burn::tensor::{Int, Tensor};
 
     #[test]

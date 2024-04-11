@@ -1,5 +1,4 @@
 use crate::camera::InputData;
-use crate::utils;
 use anyhow::Result;
 use rerun::Image;
 
