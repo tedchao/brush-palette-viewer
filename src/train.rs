@@ -35,18 +35,19 @@ pub(crate) struct TrainConfig {
     pub min_lr: f64,
     #[config(default = 5)]
     pub visualize_every: u32,
-    #[config(default = 1024)]
+    #[config(default = 62144)]
     pub init_points: usize,
-    #[config(default = 5.0)]
+    #[config(default = 2.0)]
     pub init_aabb: f32,
     pub scene_path: String,
 }
 
-struct TrainStats {
+struct TrainStats<B: Backend> {
     total_points: usize,
     pred_image: Array3<f32>,
     gt_image: Array3<f32>,
     loss: Array1<f32>,
+    aux: crate::splat_render::render::RenderAux<B>,
 }
 
 // Consists of the following steps.
@@ -69,7 +70,7 @@ fn train_step<B: AutodiffBackend>(
     optim: &mut impl Optimizer<Splats<B>, B>,
     rng: &mut StdRng,
     device: &B::Device,
-) -> (Splats<B>, TrainStats)
+) -> (Splats<B>, TrainStats<B>)
 where
     B::InnerBackend: Backend,
 {
@@ -93,7 +94,7 @@ where
         scene.default_bg_color
     };
 
-    let pred_img = splats.render(camera, background_color);
+    let (pred_img, aux) = splats.render(camera, background_color);
     let dims = pred_img.dims();
 
     let render_img = pred_img.clone().slice([0..dims[0], 0..dims[1], 0..3]);
@@ -132,6 +133,7 @@ where
         splats,
         TrainStats {
             total_points: num_points,
+            aux,
             gt_image: viewpoint.view.image.clone(),
             loss: Array::from_shape_vec(loss_scalar.dims(), loss_scalar.to_data().convert().value)
                 .unwrap(),
@@ -204,15 +206,32 @@ where
             "points/total",
             &rerun::Scalar::new(stats.total_points as f64),
         )?;
+        rec.log(
+            "points/num intersects",
+            &rerun::Scalar::new(stats.aux.num_intersects as f64),
+        )?;
 
         if iter % config.visualize_every == 0 {
             rec.log(
                 "images/ground truth",
-                &utils::ndarray_to_rerun_image(&stats.gt_image),
+                &rerun::Tensor::try_from(stats.gt_image).unwrap(),
             )?;
+
+            let tile_depth = stats.aux.tile_depth.float();
+            let tile_depth = Tensor::div(tile_depth.clone(), tile_depth.max().unsqueeze());
+            let tile_depth = Array::from_shape_vec(
+                tile_depth.dims(),
+                tile_depth.to_data().convert::<f32>().value,
+            )
+            .unwrap();
+            rec.log(
+                "images/tile depth",
+                &rerun::Tensor::try_from(tile_depth).unwrap().clone(),
+            )?;
+
             rec.log(
                 "images/predicted",
-                &utils::ndarray_to_rerun_image(&stats.pred_image),
+                &rerun::Image::try_from(stats.pred_image).unwrap(),
             )?;
 
             splats.visualize(&rec)?;

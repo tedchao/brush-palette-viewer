@@ -15,6 +15,8 @@ use burn_wgpu::JitTensor;
 
 use crate::camera::Camera;
 
+use self::kernels::{SplatKernel, Zero};
+
 mod dim_check;
 mod generated_bindings;
 mod kernels;
@@ -38,6 +40,11 @@ pub type IntTensor<B, const D: usize> =
 
 pub type HandleType<S> = Handle<S>;
 
+pub(crate) struct Aux<B: Backend> {
+    pub tile_bins: IntTensor<B, 3>,
+    pub num_intersects: u32,
+}
+
 /// We create our own Backend trait that extends the Burn backend trait.
 pub trait Backend: burn::tensor::backend::Backend {
     // Render splats
@@ -53,7 +60,7 @@ pub trait Backend: burn::tensor::backend::Backend {
         colors: FloatTensor<Self, 2>,
         opacity: FloatTensor<Self, 1>,
         background: glam::Vec3,
-    ) -> FloatTensor<Self, 3>;
+    ) -> (FloatTensor<Self, 3>, Aux<Self>);
 }
 
 // TODO: In rust 1.80 having a trait bound here on the inner backend would be great.
@@ -67,7 +74,15 @@ fn create_buffer<E: JitElement, const D: usize>(
 ) -> BufferHandle {
     let shape = Shape::new(shape);
     let bufsize = shape.num_elements() * core::mem::size_of::<E>();
-    client.empty(bufsize)
+    let buf = client.empty(bufsize);
+    Zero::execute(
+        client,
+        (),
+        &[],
+        &[&buf],
+        [shape.num_elements() as u32, 1, 1],
+    );
+    buf
 }
 
 fn create_tensor<E: JitElement, const D: usize>(
@@ -83,7 +98,7 @@ fn create_tensor<E: JitElement, const D: usize>(
     )
 }
 
-fn read_buffer_to_u32<S: ComputeServer, C: ComputeChannel<S>>(
+pub(crate) fn read_buffer_to_u32<S: ComputeServer, C: ComputeChannel<S>>(
     client: &ComputeClient<S, C>,
     tensor: &Handle<S>,
 ) -> Vec<u32> {

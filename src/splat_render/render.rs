@@ -11,9 +11,9 @@ use crate::splat_render::{create_buffer, create_tensor, read_buffer_to_u32};
 use burn::backend::autodiff::NodeID;
 use burn::tensor::ops::IntTensor;
 use burn::tensor::ops::IntTensorOps;
-use burn::tensor::Tensor;
+use burn::tensor::{Int, Tensor};
 
-use super::{generated_bindings, Backend, BurnBack, BurnRuntime, FloatTensor};
+use super::{generated_bindings, Aux, Backend, BurnBack, BurnRuntime, FloatTensor};
 use burn::backend::{
     autodiff::{
         checkpoint::{base::Checkpointer, strategy::CheckpointStrategy},
@@ -42,7 +42,7 @@ impl<G: GraphicsApi, F: FloatElement, I: IntElement> Backend for JitBackend<Wgpu
         _colors: FloatTensor<Self, 2>,
         _opacity: FloatTensor<Self, 1>,
         _background: glam::Vec3,
-    ) -> FloatTensor<Self, 3> {
+    ) -> (FloatTensor<Self, 3>, Aux<Self>) {
         // Implement inference only version. This shouldn't be hard, but burn makes it a bit annoying!
         todo!();
     }
@@ -68,7 +68,7 @@ struct GaussianBackwardState {
     out_img: FloatTensor<BurnBack, 3>,
 
     gaussian_ids_sorted: JitTensor<BurnRuntime, u32, 1>,
-    tile_bins: IntTensor<BurnBack, 2>,
+    tile_bins: IntTensor<BurnBack, 3>,
     final_index: IntTensor<BurnBack, 2>,
 }
 
@@ -84,7 +84,7 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
         colors_diff: FloatTensor<Self, 2>,
         opacity_diff: FloatTensor<Self, 1>,
         background: glam::Vec3,
-    ) -> FloatTensor<Self, 3> {
+    ) -> (FloatTensor<Self, 3>, Aux<Self>) {
         let prep_nodes = RenderBackwards
             .prepare::<C>([
                 means_diff.node.clone(),
@@ -175,13 +175,16 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
             [num_points as u32, 1, 1],
         );
 
-        let (isect_ids_sorted, gaussian_ids_sorted) =
-            radix_argsort(client, &isect_ids_unsorted, &gaussian_ids_unsorted);
+        let (isect_ids_sorted, gaussian_ids_sorted) = radix_argsort(
+            client.clone(),
+            isect_ids_unsorted.clone(),
+            gaussian_ids_unsorted,
+        );
 
         let tile_bins = create_tensor(
             client,
             device,
-            [(tile_bounds[0] * tile_bounds[1]) as usize, 2],
+            [tile_bounds[0] as usize, tile_bounds[1] as usize, 2],
         );
         Zero::execute(
             client,
@@ -226,6 +229,10 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
             [camera.height, camera.width, 1],
         );
 
+        let aux = Aux {
+            tile_bins: tile_bins.clone(),
+            num_intersects: num_intersects as u32,
+        };
         // Prepare a stateful operation with each variable node and corresponding graph.
         //
         // Each node can be fetched with `ops.parents` in the same order as defined here.
@@ -249,12 +256,12 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
                     final_index,
                 };
 
-                prep.finish(state, out_img)
+                (prep.finish(state, out_img), aux)
             }
             OpsKind::UnTracked(prep) => {
                 // When no node is tracked, we can just compute the original operation without
                 // keeping any state.
-                prep.finish(out_img)
+                (prep.finish(out_img), aux)
             }
         }
     }
@@ -406,6 +413,11 @@ impl Backward<BurnBack, 3, 5> for RenderBackwards {
     }
 }
 
+pub(crate) struct RenderAux<B: Backend> {
+    pub tile_depth: Tensor<B, 3, Int>,
+    pub num_intersects: u32,
+}
+
 pub fn render<B: Backend>(
     camera: &Camera,
     means: Tensor<B, 2>,
@@ -414,8 +426,8 @@ pub fn render<B: Backend>(
     colors: Tensor<B, 2>,
     opacity: Tensor<B, 1>,
     background: glam::Vec3,
-) -> Tensor<B, 3> {
-    let img = B::render_gaussians(
+) -> (Tensor<B, 3>, RenderAux<B>) {
+    let (img, aux) = B::render_gaussians(
         camera,
         means.clone().into_primitive(),
         scales.clone().into_primitive(),
@@ -424,5 +436,17 @@ pub fn render<B: Backend>(
         opacity.clone().into_primitive(),
         background,
     );
-    Tensor::from_primitive(img)
+    let tile_bins = Tensor::<B, 3, Int>::from_primitive(aux.tile_bins);
+    let tile_size = tile_bins.dims();
+    let tile_depth = tile_bins
+        .clone()
+        .slice([0..tile_size[0], 0..tile_size[1], 1..2])
+        - tile_bins
+            .clone()
+            .slice([0..tile_size[0], 0..tile_size[1], 0..1]);
+    let aux = RenderAux {
+        tile_depth,
+        num_intersects: aux.num_intersects,
+    };
+    (Tensor::from_primitive(img), aux)
 }

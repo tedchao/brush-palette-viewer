@@ -1,6 +1,7 @@
 use crate::camera::InputData;
 use crate::utils;
 use anyhow::Result;
+use rerun::Image;
 
 // Encapsulates a multi-view scene including cameras and the splats.
 // Also provides methods for checkpointing the training process.
@@ -37,10 +38,7 @@ impl Scene {
                     data.camera.rotation(),
                 ),
             )?;
-            rec.log_timeless(
-                path + "/image",
-                &utils::ndarray_to_rerun_image(&data.view.image),
-            )?;
+            rec.log_timeless(path + "/image", &Image::try_from(data.view.image.clone())?)?;
         }
 
         Ok(())

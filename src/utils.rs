@@ -11,14 +11,6 @@ use ndarray::{Array, Array3, Dim, Dimension, StrideShape};
 //     )
 // }
 
-#[allow(dead_code)]
-// Assume 0-1, unlike rerun which always normalizes the image.
-pub fn ndarray_to_rerun_image(t: &Array3<f32>) -> rerun::Image {
-    let t_quant = (t * 255.0).map(|x| x.clamp(0.0, 255.0) as u8);
-    let data: rerun::TensorData = t_quant.try_into().unwrap();
-    rerun::Image::new(data)
-}
-
 pub(crate) fn ndarray_to_burn<T: Element, B: Backend, const D: usize, K: BasicOps<B>>(
     arr: Array<T, Dim<[usize; D]>>,
     device: &B::Device,
