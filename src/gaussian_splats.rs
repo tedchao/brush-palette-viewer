@@ -95,11 +95,9 @@ impl<B: Backend> Splats<B> {
         );
 
         let colors = Tensor::random([num_points, 4], Distribution::Uniform(-2.0, 2.0), device);
-        // let init_rotation = Tensor::from_floats([1.0, 0.0, 0.0, 0.0], device)
-        //     .unsqueeze::<2>()
-        //     .repeat(0, num_points);
-        let init_rotation = Tensor::zeros([num_points, 4], device)
-            + Tensor::from_floats([1.0, 0.0, 0.0, 0.0], device).unsqueeze::<2>();
+        let init_rotation = Tensor::from_floats([1.0, 0.0, 0.0, 0.0], device)
+            .unsqueeze::<2>()
+            .repeat(0, num_points);
 
         let init_opacity = Tensor::random([num_points], Distribution::Uniform(-4.0, -2.0), device);
 
@@ -421,7 +419,11 @@ impl<B: Backend> Splats<B> {
     //   * visibility_filter: a boolean tensor that indicates which gaussians
     //     participated in the rendering.
     //   * radii: the maximum screenspace radius of each gaussian
-    pub(crate) fn render(&self, camera: &Camera, bg_color: glam::Vec3) -> Tensor<B, 3> {
+    pub(crate) fn render(
+        &self,
+        camera: &Camera,
+        bg_color: glam::Vec3,
+    ) -> (Tensor<B, 3>, crate::splat_render::render::RenderAux<B>) {
         let cur_rot = self.rotation.val();
 
         let norms = Tensor::sum_dim(cur_rot.clone() * cur_rot.clone(), 1).sqrt();
