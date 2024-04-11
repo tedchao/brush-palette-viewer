@@ -1,4 +1,4 @@
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use anyhow::Result;
 use burn::lr_scheduler::LrScheduler;
@@ -10,7 +10,6 @@ use burn::{
 };
 use ndarray::{Array, Array1, Array3};
 use rand::{rngs::StdRng, SeedableRng};
-use running_average::RealTimeRunningAverage;
 
 use crate::splat_render::{self, AutodiffBackend, Backend};
 use crate::{
@@ -128,9 +127,6 @@ where
     // Update the model using the optimizer.
     splats = optim.step(cur_lr, splats, grads);
 
-    // splats.update_rolling_statistics(render);
-    // adaptive_density_control(scene, cfg);
-
     let num_points = splats.cur_num_points();
     (
         splats,
@@ -170,7 +166,7 @@ where
     let mut splats: Splats<B> =
         SplatsConfig::new(config.init_points, config.init_aabb, 0, 1.0).build(device);
 
-    // TODO: Original implementation has learning rates different for almost all params.
+    // TODO: Original implementation has differennt learning rates for almost all params.
     let mut scheduler = burn::lr_scheduler::cosine::CosineAnnealingLrSchedulerConfig::new(
         config.lr,
         config.train_steps as usize,
@@ -195,22 +191,21 @@ where
         // Replace current model.
         splats = new_splats;
 
-        if iter % config.visualize_every == 0 {
-            rec.set_time_sequence("iterations", iter);
-            rec.log("losses/main", &rerun::Scalar::new(stats.loss[[0]] as f64))?;
-            rec.log("lr/current", &rerun::Scalar::new(lr))?;
-            if iter > 5 {
-                rec.log(
-                    "performance/ms",
-                    &rerun::Scalar::new(
-                        (Instant::now() - start_time).as_secs_f32() as f64 * 1000.0,
-                    ),
-                )?;
-            }
+        rec.set_time_sequence("iterations", iter);
+        rec.log("losses/main", &rerun::Scalar::new(stats.loss[[0]] as f64))?;
+        rec.log("lr/current", &rerun::Scalar::new(lr))?;
+        if iter > 5 {
             rec.log(
-                "points/total",
-                &rerun::Scalar::new(stats.total_points as f64),
+                "performance/ms",
+                &rerun::Scalar::new((Instant::now() - start_time).as_secs_f32() as f64 * 1000.0),
             )?;
+        }
+        rec.log(
+            "points/total",
+            &rerun::Scalar::new(stats.total_points as f64),
+        )?;
+
+        if iter % config.visualize_every == 0 {
             rec.log(
                 "images/ground truth",
                 &utils::ndarray_to_rerun_image(&stats.gt_image),
