@@ -100,6 +100,14 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
         return;
     }
 
+    v_quats[idx] = vec4f(0.0);
+    v_scales[idx] = vec4f(0.0);
+    v_means[idx] = vec4f(0.0);
+
+    if radii[idx] == 0 {
+        return;
+    }
+
     let info = info_array[0];
     let viewmat = info.viewmat;
     let focal = info.focal;

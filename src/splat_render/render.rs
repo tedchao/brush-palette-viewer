@@ -1,4 +1,4 @@
-use super::kernels::SplatKernel;
+use super::kernels::{SplatKernel, Zero};
 use super::prefix_sum::prefix_sum;
 use super::radix_sort::radix_argsort;
 use crate::camera::Camera;
@@ -7,28 +7,23 @@ use crate::splat_render::kernels::{
     GetTileBinEdges, MapGaussiansToIntersect, ProjectBackwards, ProjectSplats, Rasterize,
     RasterizeBackwards,
 };
-use crate::splat_render::{create_buffer, create_tensor, read_buffer_to_f32, read_buffer_to_u32};
+use crate::splat_render::{create_buffer, create_tensor, read_buffer_to_u32};
 use burn::backend::autodiff::NodeID;
-use burn::tensor::ops::FloatTensorOps;
 use burn::tensor::ops::IntTensor;
 use burn::tensor::ops::IntTensorOps;
 use burn::tensor::Tensor;
 
 use super::{generated_bindings, Backend, BurnBack, BurnRuntime, FloatTensor};
-use burn::{
-    backend::{
-        autodiff::{
-            checkpoint::{base::Checkpointer, strategy::CheckpointStrategy},
-            grads::Gradients,
-            ops::{Backward, Ops, OpsKind},
-        },
-        wgpu::{
-            into_contiguous, FloatElement, GraphicsApi, IntElement, JitBackend, JitTensor,
-            WgpuRuntime,
-        },
-        Autodiff,
+use burn::backend::{
+    autodiff::{
+        checkpoint::{base::Checkpointer, strategy::CheckpointStrategy},
+        grads::Gradients,
+        ops::{Backward, Ops, OpsKind},
     },
-    tensor::Shape,
+    wgpu::{
+        into_contiguous, FloatElement, GraphicsApi, IntElement, JitBackend, JitTensor, WgpuRuntime,
+    },
+    Autodiff,
 };
 use glam::{uvec2, Vec3};
 
@@ -172,7 +167,6 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
         let gaussian_ids_unsorted = create_tensor::<u32, 1>(client, device, [num_intersects]);
 
         // Dispatch one thread per point.
-
         MapGaussiansToIntersect::execute(
             client,
             generated_bindings::map_gaussian_to_intersects::Uniforms::new(tile_bounds.into()),
@@ -184,9 +178,17 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
         let (isect_ids_sorted, gaussian_ids_sorted) =
             radix_argsort(client, &isect_ids_unsorted, &gaussian_ids_unsorted);
 
-        let tile_bins = BurnBack::int_zeros(
-            Shape::new([(tile_bounds[0] * tile_bounds[1]) as usize, 2]),
+        let tile_bins = create_tensor(
+            client,
             device,
+            [(tile_bounds[0] * tile_bounds[1]) as usize, 2],
+        );
+        Zero::execute(
+            client,
+            (),
+            &[],
+            &[&tile_bins.handle],
+            [tile_bins.shape.num_elements() as u32, 1, 1],
         );
 
         GetTileBinEdges::execute(
@@ -293,10 +295,38 @@ impl Backward<BurnBack, 3, 5> for RenderBackwards {
         let num_points = means.shape.dims[0];
 
         // TODO: Can't this be done for just visible points
-        let v_xy = BurnBack::float_zeros(Shape::new([num_points, 2]), device);
-        let v_conic = BurnBack::float_zeros(Shape::new([num_points, 4]), device);
-        let v_colors = BurnBack::float_zeros(Shape::new([num_points, 4]), device);
-        let v_opacity = BurnBack::float_zeros(Shape::new([num_points]), device);
+        let v_xy = create_tensor::<f32, 2>(client, device, [num_points, 2]);
+        let v_conic = create_tensor::<f32, 2>(client, device, [num_points, 4]);
+        let v_colors = create_tensor(client, device, [num_points, 4]);
+        let v_opacity = create_tensor(client, device, [num_points]);
+        Zero::execute(
+            client,
+            (),
+            &[],
+            &[&v_xy.handle],
+            [(num_points * 2) as u32, 1, 1],
+        );
+        Zero::execute(
+            client,
+            (),
+            &[],
+            &[&v_conic.handle],
+            [(num_points * 4) as u32, 1, 1],
+        );
+        Zero::execute(
+            client,
+            (),
+            &[],
+            &[&v_colors.handle],
+            [(num_points * 4) as u32, 1, 1],
+        );
+        Zero::execute(
+            client,
+            (),
+            &[],
+            &[&v_opacity.handle],
+            [num_points as u32, 1, 1],
+        );
 
         RasterizeBackwards::execute(
             client,
@@ -325,9 +355,9 @@ impl Backward<BurnBack, 3, 5> for RenderBackwards {
         );
 
         // TODO: Can't this be done for just visible points
-        let v_means = BurnBack::float_zeros(Shape::new([num_points, 4]), device);
-        let v_scales = BurnBack::float_zeros(Shape::new([num_points, 4]), device);
-        let v_quats = BurnBack::float_zeros(Shape::new([num_points, 4]), device);
+        let v_means = create_tensor(client, device, [num_points, 4]);
+        let v_scales = create_tensor(client, device, [num_points, 4]);
+        let v_quats = create_tensor(client, device, [num_points, 4]);
 
         ProjectBackwards::execute(
             client,

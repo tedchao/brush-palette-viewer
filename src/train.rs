@@ -35,9 +35,9 @@ pub(crate) struct TrainConfig {
     pub min_lr: f64,
     #[config(default = 5)]
     pub visualize_every: u32,
-    #[config(default = 8192)]
+    #[config(default = 4194304)]
     pub init_points: usize,
-    #[config(default = 2.0)]
+    #[config(default = 5.0)]
     pub init_aabb: f32,
     pub scene_path: String,
 }

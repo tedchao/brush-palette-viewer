@@ -99,3 +99,5 @@ kernel_source_gen!(SortReduce, sort_reduce, sorting::Config);
 kernel_source_gen!(SortScanAdd, sort_scan_add, sorting::Config);
 kernel_source_gen!(SortScan, sort_scan, sorting::Config);
 kernel_source_gen!(SortScatter, sort_scatter, sorting::Config);
+
+kernel_source_gen!(Zero, zero, ());
