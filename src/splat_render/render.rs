@@ -14,7 +14,7 @@ use burn::tensor::ops::IntTensor;
 use burn::tensor::ops::IntTensorOps;
 use burn::tensor::Tensor;
 
-use super::{generated_bindings, Backend, BurnBack, FloatTensor};
+use super::{generated_bindings, Backend, BurnBack, BurnRuntime, FloatTensor};
 use burn::{
     backend::{
         autodiff::{
@@ -72,7 +72,7 @@ struct GaussianBackwardState {
     cov2ds: FloatTensor<BurnBack, 2>,
     out_img: FloatTensor<BurnBack, 3>,
 
-    gaussian_ids_sorted: IntTensor<BurnBack, 1>,
+    gaussian_ids_sorted: JitTensor<BurnRuntime, u32, 1>,
     tile_bins: IntTensor<BurnBack, 2>,
     final_index: IntTensor<BurnBack, 2>,
 }
@@ -179,38 +179,9 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
             &[&isect_ids_unsorted.handle, &gaussian_ids_unsorted.handle],
             [num_points as u32, 1, 1],
         );
-        let isect_ids_unsorted = read_buffer_to_u32(client, &isect_ids_unsorted.handle);
 
-        // TODO: WGSL Radix sort.
-        let gaussian_ids_unsorted = read_buffer_to_u32(client, &gaussian_ids_unsorted.handle);
-        let depths_read = read_buffer_to_f32(client, &depths);
-
-        let isect_sort_order = {
-            let data = &isect_ids_unsorted;
-            let mut indices = (0..data.len()).collect::<Vec<_>>();
-            indices.sort_unstable_by(|&ai, &bi| {
-                let gauss_idxa = gaussian_ids_unsorted[ai];
-                let gauss_idxb = gaussian_ids_unsorted[bi];
-
-                let a = (isect_ids_unsorted[ai], depths_read[gauss_idxa as usize]);
-                let b = (isect_ids_unsorted[bi], depths_read[gauss_idxb as usize]);
-                a.0.cmp(&b.0).then(a.1.partial_cmp(&b.1).unwrap())
-            });
-            indices
-        };
-
-        let isect_ids_sorted: Vec<_> = isect_sort_order
-            .iter()
-            .copied()
-            .map(|x| isect_ids_unsorted[x])
-            .collect();
-        let gaussian_ids_sorted: Vec<_> = isect_sort_order
-            .iter()
-            .copied()
-            .map(|x| gaussian_ids_unsorted[x])
-            .collect();
-
-        let isect_ids_sorted = client.create(bytemuck::cast_slice::<u32, u8>(&isect_ids_sorted));
+        let (isect_ids_sorted, gaussian_ids_sorted) =
+            radix_argsort(client, &isect_ids_unsorted, &gaussian_ids_unsorted);
 
         let tile_bins = BurnBack::int_zeros(
             Shape::new([(tile_bounds[0] * tile_bounds[1]) as usize, 2]),
@@ -220,7 +191,7 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
         GetTileBinEdges::execute(
             client,
             (),
-            &[&isect_ids_sorted],
+            &[&isect_ids_sorted.handle],
             &[&tile_bins.handle],
             [num_intersects as u32, 1, 1],
         );
@@ -235,13 +206,6 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
             client,
             device,
             [camera.height as usize, camera.width as usize],
-        );
-
-        let gaussian_ids_sorted = JitTensor::new(
-            client.clone(),
-            device.clone(),
-            Shape::new([num_intersects]),
-            client.create(bytemuck::cast_slice::<u32, u8>(&gaussian_ids_sorted)),
         );
 
         Rasterize::execute(
