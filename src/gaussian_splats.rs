@@ -87,7 +87,6 @@ impl<B: Backend> Splats<B> {
         active_sh_degree: u32,
         device: &Device<B>,
     ) -> Splats<B> {
-        println!("Splats new random tensor.");
         let extent = (aabb_scale as f64) / 2.0;
         let means = Tensor::random(
             [num_points, 4],
@@ -95,29 +94,17 @@ impl<B: Backend> Splats<B> {
             device,
         );
 
-        println!("Means.");
-
         let colors = Tensor::random([num_points, 4], Distribution::Uniform(-2.0, 2.0), device);
-
-        println!("Colors.");
-
-        let init_rotation = Tensor::zeros([num_points, 4], device)
-            + Tensor::from_floats([1.0, 0.0, 0.0, 0.0], device).unsqueeze::<2>();
-
         // let init_rotation = Tensor::from_floats([1.0, 0.0, 0.0, 0.0], device)
         //     .unsqueeze::<2>()
         //     .repeat(0, num_points);
-
-        println!("Opac.");
+        let init_rotation = Tensor::zeros([num_points, 4], device)
+            + Tensor::from_floats([1.0, 0.0, 0.0, 0.0], device).unsqueeze::<2>();
 
         let init_opacity = Tensor::random([num_points], Distribution::Uniform(-4.0, -2.0), device);
 
-        println!("Scale.");
-
         // TODO: Fancy KNN init.
         let init_scale = Tensor::random([num_points, 4], Distribution::Uniform(-5.0, -3.0), device);
-
-        println!("Bl;a.");
 
         // TODO: Support lazy loading.
         // Model parameters.
