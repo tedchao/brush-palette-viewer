@@ -101,9 +101,12 @@ impl<B: Backend> Splats<B> {
 
         println!("Colors.");
 
-        let init_rotation = Tensor::from_floats([1.0, 0.0, 0.0, 0.0], device)
-            .unsqueeze::<2>()
-            .repeat(0, num_points);
+        let init_rotation = Tensor::zeros([num_points, 4], device)
+            + Tensor::from_floats([1.0, 0.0, 0.0, 0.0], device).unsqueeze::<2>();
+
+        // let init_rotation = Tensor::from_floats([1.0, 0.0, 0.0, 0.0], device)
+        //     .unsqueeze::<2>()
+        //     .repeat(0, num_points);
 
         println!("Opac.");
 
