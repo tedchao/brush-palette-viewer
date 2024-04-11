@@ -29,7 +29,7 @@ pub fn prefix_sum<E: JitElement>(
         [num, 1, 1],
     );
 
-    if num < threads_per_group {
+    if num <= threads_per_group {
         return outputs;
     }
 
