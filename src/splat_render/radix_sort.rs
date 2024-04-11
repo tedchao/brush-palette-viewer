@@ -4,27 +4,27 @@ use burn_wgpu::JitTensor;
 
 use burn::tensor::ops::IntTensorOps;
 
-use crate::splat_render::create_buffer;
 use crate::splat_render::kernels::{SortCount, SortReduce, SortScanAdd, SortScatter};
+use crate::splat_render::{create_buffer, div_round_up};
 
 use super::kernels::SplatKernel;
 use super::{generated_bindings, kernels::SortScan, BurnBack, BurnClient, BurnRuntime};
 
-// TODO: Get from bindings
-const WG: u32 = 256;
-const ELEMENTS_PER_THREAD: u32 = 4;
+const WG: u32 = generated_bindings::sorting::WG;
+const ELEMENTS_PER_THREAD: u32 = generated_bindings::sorting::ELEMENTS_PER_THREAD;
 const BLOCK_SIZE: u32 = WG * ELEMENTS_PER_THREAD;
-const BIN_COUNT: u32 = 16;
+const BIN_COUNT: u32 = generated_bindings::sorting::BIN_COUNT;
 
 pub fn radix_argsort<E: JitElement>(
-    client: &BurnClient,
-    input_keys: &JitTensor<BurnRuntime, E, 1>,
-    input_values: &JitTensor<BurnRuntime, E, 1>,
+    client: BurnClient,
+    input_keys: JitTensor<BurnRuntime, E, 1>,
+    input_values: JitTensor<BurnRuntime, E, 1>,
 ) -> (JitTensor<BurnRuntime, E, 1>, JitTensor<BurnRuntime, E, 1>) {
     let n = input_keys.shape.dims[0] as u32;
+    assert_eq!(input_keys.shape.dims[0], input_values.shape.dims[0]);
 
     // compute buffer and dispatch sizes
-    let num_blocks = (n + (BLOCK_SIZE - 1)) / BLOCK_SIZE;
+    let num_blocks = div_round_up(n as usize, BLOCK_SIZE as usize) as u32;
 
     let num_wgs = num_blocks;
     let num_blocks_per_wg = num_blocks / num_wgs;
@@ -44,13 +44,13 @@ pub fn radix_argsort<E: JitElement>(
 
     let num_blocks = num_blocks as usize;
     let count_buf = BurnBack::int_zeros(Shape::new([num_blocks * 16]), device);
-    let reduced_buf = BurnBack::int_zeros(Shape::new([BLOCK_SIZE as usize]), device);
+    let reduced_buf = BurnBack::int_zeros(Shape::new([(BLOCK_SIZE) as usize]), device);
 
-    let output_keys = create_buffer::<E, 1>(client, [n as usize]);
-    let output_values = create_buffer::<E, 1>(client, [n as usize]);
+    let output_keys = create_buffer::<E, 1>(&client, [n as usize]);
+    let output_values = create_buffer::<E, 1>(&client, [n as usize]);
 
-    let output_keys_swap = create_buffer::<E, 1>(client, [n as usize]);
-    let output_values_swap = create_buffer::<E, 1>(client, [n as usize]);
+    let output_keys_swap = create_buffer::<E, 1>(&client, [n as usize]);
+    let output_values_swap = create_buffer::<E, 1>(&client, [n as usize]);
 
     let mut config = generated_bindings::sorting::Config {
         num_keys: n,
@@ -91,7 +91,7 @@ pub fn radix_argsort<E: JitElement>(
         let wg = generated_bindings::sorting::WG;
 
         SortCount::execute(
-            client,
+            &client,
             config,
             &[from],
             &[&count_buf.handle],
@@ -100,17 +100,17 @@ pub fn radix_argsort<E: JitElement>(
 
         // Todo: in -> out -> out2
         SortReduce::execute(
-            client,
+            &client,
             config,
             &[&count_buf.handle],
             &[&reduced_buf.handle],
             [num_reduce_wgs * wg, 1, 1],
         );
 
-        SortScan::execute(client, config, &[], &[&reduced_buf.handle], [1, 1, 1]);
+        SortScan::execute(&client, config, &[], &[&reduced_buf.handle], [1, 1, 1]);
 
         SortScanAdd::execute(
-            client,
+            &client,
             config,
             &[&reduced_buf.handle],
             &[&count_buf.handle],
@@ -118,7 +118,7 @@ pub fn radix_argsort<E: JitElement>(
         );
 
         SortScatter::execute(
-            client,
+            &client,
             config,
             &[from, from_val, &count_buf.handle],
             &[to, to_val],
@@ -142,14 +142,27 @@ pub fn radix_argsort<E: JitElement>(
 }
 
 mod tests {
+    use std::{
+        fs::File,
+        io::{BufReader, Read},
+    };
+
     use crate::splat_render::{radix_sort::radix_argsort, read_buffer_to_u32, BurnBack};
-    use burn::tensor::{Int, Tensor};
+    use burn::{
+        backend::Autodiff,
+        tensor::{Int, Tensor},
+    };
+
+    pub fn argsort<T: Ord>(data: &[T]) -> Vec<usize> {
+        let mut indices = (0..data.len()).collect::<Vec<_>>();
+        indices.sort_by_key(|&i| &data[i]);
+        indices
+    }
 
     #[test]
     fn test_sorting() {
         for i in 0..128 {
-            // Look i'm not going to say this is the most sophisticated test :)
-            let data = [
+            let keys_inp = [
                 5 + i * 4,
                 i,
                 6,
@@ -157,7 +170,7 @@ mod tests {
                 74657,
                 123,
                 999,
-                2i32.pow(30) + 123,
+                2i32.pow(24) + 123,
                 6,
                 7,
                 8,
@@ -166,22 +179,77 @@ mod tests {
                 16 + i,
                 128 * i,
             ];
+
+            let values_inp: Vec<_> = keys_inp.iter().copied().map(|x| x * 2 + 5).collect();
+
             type Backend = BurnBack;
             let device = Default::default();
-            let keys = Tensor::<Backend, 1, Int>::from_ints(data, &device).into_primitive();
-            let values = Tensor::<Backend, 1, Int>::from_ints(data, &device).into_primitive();
+            let keys = Tensor::<Backend, 1, Int>::from_ints(keys_inp, &device).into_primitive();
+            let values = Tensor::<Backend, 1, Int>::from_ints(values_inp.as_slice(), &device)
+                .into_primitive();
+            let client = keys.client.clone();
+            let (ret_keys, ret_values) = radix_argsort(client, keys, values);
 
-            let (ret_keys, ret_values) = radix_argsort(&keys.client, &keys, &values);
             let ret_keys = read_buffer_to_u32(&ret_keys.client, &ret_keys.handle);
             let ret_values = read_buffer_to_u32(&ret_values.client, &ret_values.handle);
-            let mut sorted = data.to_vec();
-            sorted.sort();
 
-            println!("{:?}", ret_values);
+            let inds = argsort(&keys_inp);
 
-            for (val, sort_val) in ret_keys.into_iter().zip(sorted) {
-                assert_eq!(val, sort_val as u32)
+            let ref_keys: Vec<i32> = inds.iter().map(|&i| keys_inp[i]).collect();
+            let ref_values: Vec<i32> = inds.iter().map(|&i| values_inp[i]).collect();
+
+            for (((key, val), ref_key), ref_val) in ret_keys
+                .into_iter()
+                .zip(ret_values)
+                .zip(ref_keys)
+                .zip(ref_values)
+            {
+                assert_eq!(key, ref_key as u32);
+                assert_eq!(val, ref_val as u32);
             }
+        }
+    }
+
+    #[test]
+    fn test_sorting_big() {
+        let file = File::open("sort_test.txt").unwrap();
+        let mut reader = BufReader::new(file);
+        let mut content = String::new();
+        reader.read_to_string(&mut content).unwrap();
+
+        // Split on newlines to get each record
+        let keys_inp: Vec<i32> = content
+            .split(',')
+            .map(|field| field.trim().parse().unwrap())
+            .collect();
+
+        let values_inp: Vec<_> = keys_inp.iter().copied().map(|x| x * 2 + 5).collect();
+
+        type Backend = BurnBack;
+        let device = Default::default();
+        let keys =
+            Tensor::<Backend, 1, Int>::from_ints(keys_inp.as_slice(), &device).into_primitive();
+        let values =
+            Tensor::<Backend, 1, Int>::from_ints(values_inp.as_slice(), &device).into_primitive();
+        let client = keys.client.clone();
+        let (ret_keys, ret_values) = radix_argsort(client, keys, values);
+
+        let ret_keys = read_buffer_to_u32(&ret_keys.client, &ret_keys.handle);
+        let ret_values = read_buffer_to_u32(&ret_values.client, &ret_values.handle);
+
+        let inds = argsort(&keys_inp);
+
+        let ref_keys: Vec<i32> = inds.iter().map(|&i| keys_inp[i]).collect();
+        let ref_values: Vec<i32> = inds.iter().map(|&i| values_inp[i]).collect();
+
+        for (((key, val), ref_key), ref_val) in ret_keys
+            .into_iter()
+            .zip(ret_values)
+            .zip(ref_keys)
+            .zip(ref_values)
+        {
+            assert_eq!(key, ref_key as u32);
+            assert_eq!(val, ref_val as u32);
         }
     }
 }

@@ -8,7 +8,8 @@
 @group(0) @binding(4) var<storage, read_write> out_values: array<u32>;
 @group(0) @binding(5) var<storage> config: sorting::Config;
 
-var<workgroup> sums: array<u32, sorting::WG>;
+var<workgroup> lds_sums: array<u32, sorting::WG>;
+var<workgroup> lds_scratch: array<u32, sorting::WG>;
 var<workgroup> bin_offset_cache: array<u32, sorting::WG>;
 var<workgroup> local_histogram: array<atomic<u32>, sorting::BIN_COUNT>;
 
@@ -46,30 +47,32 @@ fn main(
                 var packed_histogram = 1u << (bit_key * 8u);
                 // workgroup prefix sum
                 var sum = packed_histogram;
-                sums[local_id.x] = sum;
+                lds_scratch[local_id.x] = sum;
                 for (var i = 0u; i < 8u; i++) {
                     workgroupBarrier();
                     if local_id.x >= (1u << i) {
-                        sum += sums[local_id.x - (1u << i)];
+                        sum += lds_scratch[local_id.x - (1u << i)];
                     }
                     workgroupBarrier();
-                    sums[local_id.x] = sum;
+                    lds_scratch[local_id.x] = sum;
                 }
                 workgroupBarrier();
-                packed_histogram = sums[sorting::WG - 1u];
+                packed_histogram = lds_scratch[sorting::WG - 1u];
                 packed_histogram = (packed_histogram << 8u) + (packed_histogram << 16u) + (packed_histogram << 24u);
                 var local_sum = packed_histogram;
                 if local_id.x > 0u {
-                    local_sum += sums[local_id.x - 1u];
+                    local_sum += lds_scratch[local_id.x - 1u];
                 }
                 let key_offset = (local_sum >> (bit_key * 8u)) & 0xffu;
-                sums[key_offset] = local_key;
+                
+                lds_sums[key_offset] = local_key;
                 workgroupBarrier();
-                local_key = sums[local_id.x];
-
-                sums[key_offset] = local_value;
+                local_key = lds_sums[local_id.x];
                 workgroupBarrier();
-                local_value = sums[local_id.x];
+            
+                lds_sums[key_offset] = local_value;
+                workgroupBarrier();
+                local_value = lds_sums[local_id.x];
                 workgroupBarrier();
             }
             let key_index = (local_key >> config.shift) & 0xfu;
@@ -82,23 +85,23 @@ fn main(
             // workgroup prefix sum of histogram
             var histogram_prefix_sum = histogram_local_sum;
             if local_id.x < sorting::BIN_COUNT {
-                sums[local_id.x] = histogram_prefix_sum;
+                lds_scratch[local_id.x] = histogram_prefix_sum;
             }
             for (var i = 0u; i < 4u; i++) {
                 workgroupBarrier();
                 if local_id.x >= (1u << i) && local_id.x < sorting::BIN_COUNT {
-                    histogram_prefix_sum += sums[local_id.x - (1u << i)];
+                    histogram_prefix_sum += lds_scratch[local_id.x - (1u << i)];
                 }
                 workgroupBarrier();
                 if local_id.x < sorting::BIN_COUNT {
-                    sums[local_id.x] = histogram_prefix_sum;
+                    lds_scratch[local_id.x] = histogram_prefix_sum;
                 }
             }
             let global_offset = bin_offset_cache[key_index];
             workgroupBarrier();
             var local_offset = local_id.x;
             if key_index > 0u {
-                local_offset -= sums[key_index - 1u];
+                local_offset -= lds_scratch[key_index - 1u];
             }
             let total_offset = global_offset + local_offset;
             if total_offset < config.num_keys {
