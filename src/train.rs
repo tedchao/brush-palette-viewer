@@ -33,18 +33,18 @@ pub(crate) struct TrainConfig {
     pub lr: f64,
     #[config(default = 1e-2)]
     pub min_lr: f64,
-    #[config(default = 5)]
+    #[config(default = 10)]
     pub visualize_every: u32,
-    #[config(default = 994304)]
+    #[config(default = 248576)]
     pub init_points: usize,
     #[config(default = 5.0)]
     pub init_aabb: f32,
     pub scene_path: String,
 }
 
-struct TrainStats {
+struct TrainStats<B: Backend> {
     total_points: usize,
-    pred_image: Array3<f32>,
+    pred_image: Tensor<B, 3>,
     gt_image: Array3<f32>,
     loss: Array1<f32>,
     aux: crate::splat_render::Aux<BurnBack>,
@@ -70,7 +70,7 @@ fn train_step<B: AutodiffBackend>(
     optim: &mut impl Optimizer<Splats<B>, B>,
     rng: &mut StdRng,
     device: &B::Device,
-) -> (Splats<B>, TrainStats)
+) -> (Splats<B>, TrainStats<B>)
 where
     B::InnerBackend: Backend,
 {
@@ -97,8 +97,7 @@ where
     let (pred_img, aux) = splats.render(camera, background_color);
     let dims = pred_img.dims();
 
-    let render_img = pred_img.clone().slice([0..dims[0], 0..dims[1], 0..3]);
-
+    let rgb_img = pred_img.clone().slice([0..dims[0], 0..dims[1], 0..3]);
     let gt_image = utils::ndarray_to_burn(viewpoint.view.image.clone(), device);
     // TODO: Burn should be able to slice open ranges.
     let rgb = gt_image.clone().slice([0..dims[0], 0..dims[1], 0..3]);
@@ -116,7 +115,7 @@ where
             .unsqueeze::<3>();
 
     let loss_scalar = loss.forward(
-        render_img.clone(),
+        rgb_img.clone(),
         gt_image.clone(),
         burn::nn::loss::Reduction::Auto,
     );
@@ -137,11 +136,7 @@ where
             gt_image: viewpoint.view.image.clone(),
             loss: Array::from_shape_vec(loss_scalar.dims(), loss_scalar.to_data().convert().value)
                 .unwrap(),
-            pred_image: Array::from_shape_vec(
-                render_img.dims(),
-                render_img.to_data().convert().value,
-            )
-            .unwrap(),
+            pred_image: pred_img,
         },
     )
 }
@@ -198,7 +193,7 @@ where
         rec.log("lr/current", &rerun::Scalar::new(lr))?;
         if iter > 5 {
             rec.log(
-                "performance/ms",
+                "performance/train step ms",
                 &rerun::Scalar::new((Instant::now() - start_time).as_secs_f32() as f64 * 1000.0),
             )?;
         }
@@ -236,9 +231,30 @@ where
                 &rerun::Tensor::try_from(tile_depth).unwrap().clone(),
             )?;
 
+            let pred_image = Array::from_shape_vec(
+                stats.pred_image.dims(),
+                stats.pred_image.to_data().convert::<f32>().value,
+            )
+            .unwrap();
             rec.log(
                 "images/predicted",
-                &rerun::Image::try_from(stats.pred_image).unwrap(),
+                &rerun::Image::try_from(pred_image).unwrap(),
+            )?;
+
+            let first_cam = &scene.train_data[1].camera;
+
+            let start_time = Instant::now();
+            let (img, _) = splats.render(first_cam, glam::vec3(0.0, 0.0, 0.0));
+            let img =
+                Array::from_shape_vec(img.dims(), img.to_data().convert::<f32>().value).unwrap();
+            rec.log(
+                "performance/render ms",
+                &rerun::Scalar::new((Instant::now() - start_time).as_secs_f32() as f64 * 1000.0),
+            )?;
+
+            rec.log(
+                "images/fixed camera render",
+                &rerun::Image::try_from(img).unwrap(),
             )?;
 
             splats.visualize(&rec)?;

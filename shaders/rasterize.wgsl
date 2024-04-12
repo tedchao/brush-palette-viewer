@@ -150,6 +150,6 @@ fn main(
         // add background
         final_index[pix_id] = final_idx; // index of in bin of last gaussian in this pixel
         let final_color = pix_out + T * background;
-        out_img[pix_id] = vec4f(final_color, T);
+        out_img[pix_id] = vec4f(final_color, 1.0 - T);
     }
 }

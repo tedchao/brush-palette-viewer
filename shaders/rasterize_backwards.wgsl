@@ -62,7 +62,7 @@ fn main(
     let inside = global_id.x < img_size.x && global_id.y < img_size.y;
 
     // this is the T AFTER the last gaussian in this pixel
-    let T_final = output[pix_id].w;
+    let T_final = 1.0 - output[pix_id].w;
     
     var T = T_final;
     // the contribution from gaussians behind the current one
@@ -151,7 +151,8 @@ fn main(
                     let color = color_batch[t].xyz;
                     // contribution from this pixel
                     v_alpha += dot(color * T - buffer * ra, v_out.xyz);
-                    v_alpha += T_final * ra * v_out.w;
+                    // TODO: Now that we store alpha instea of transmission, flip this?
+                    // v_alpha += T_final * ra * v_out.w;
                     // contribution from background pixel
                     v_alpha -= dot(T_final * ra * background, v_out.xyz);
 
