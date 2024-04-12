@@ -102,6 +102,85 @@ fn read_synthetic_nerf_data(
     Ok(cameras)
 }
 
+pub(crate) fn read_viewpoint_data(file: &str) -> Result<Vec<Camera>> {
+    let mut cameras = vec![];
+
+    let file = std::fs::read_to_string(file).expect("Couldn't find viewpoints file.");
+    let contents: serde_json::Value = serde_json::from_str(&file).unwrap();
+
+    let frames_array = contents.as_array().context("Parsing cameras as list")?;
+
+    for cam in frames_array.iter() {
+        // NeRF 'transform_matrix' is a camera-to-world transform
+        let translation = cam
+            .get("position")
+            .context("Get transform matrix")?
+            .as_array()
+            .context("Transform as array")?;
+        let translation: Vec<f32> = translation
+            .iter()
+            .map(|x| x.as_f64().unwrap() as f32)
+            .collect();
+        let translation = glam::vec3(translation[0], translation[1], translation[2]);
+
+        let rot_matrix = cam
+            .get("rotation")
+            .context("Get rotation")?
+            .as_array()
+            .context("rotation as array")?;
+
+        let rot_matrix: Vec<f32> = rot_matrix
+            .iter()
+            .flat_map(|x| {
+                x.as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|x| x.as_f64().unwrap() as f32)
+            })
+            .collect();
+        let rot_matrix = glam::Mat3::from_cols_slice(&rot_matrix).transpose();
+
+        let width = cam
+            .get("width")
+            .context("Get width")?
+            .as_i64()
+            .context("parse width")? as u32;
+
+        let height = cam
+            .get("height")
+            .context("Get height")?
+            .as_i64()
+            .context("parse height")? as u32;
+
+        let fx = cam
+            .get("fx")
+            .context("Get fx")?
+            .as_f64()
+            .context("parse fx")?;
+
+        let fy = cam
+            .get("fy")
+            .context("Get fy")?
+            .as_f64()
+            .context("parse fy")?;
+
+        let rotation = glam::Quat::from_mat3(&rot_matrix);
+        let fovx = camera::focal_to_fov(fx as f32, width);
+        let fovy = camera::focal_to_fov(fy as f32, height);
+
+        cameras.push(Camera::new(
+            translation,
+            rotation,
+            fovx,
+            fovy,
+            width,
+            height,
+        ));
+    }
+
+    Ok(cameras)
+}
+
 pub(crate) fn read_scene(
     scene_path: &str,
     max_images: Option<usize>,

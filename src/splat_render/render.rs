@@ -293,10 +293,10 @@ impl Backward<BurnBack, 3, 5> for RenderBackwards {
         let num_points = means.shape.dims[0];
 
         // TODO: Can't this be done for just visible points
-        let v_xy = BurnBack::float_zeros(Shape::new([num_points, 2]), &device);
-        let v_conic = BurnBack::float_zeros(Shape::new([num_points, 4]), &device);
-        let v_colors = BurnBack::float_zeros(Shape::new([num_points, 4]), &device);
-        let v_opacity = BurnBack::float_zeros(Shape::new([num_points]), &device);
+        let v_xy = BurnBack::float_zeros(Shape::new([num_points, 2]), device);
+        let v_conic = BurnBack::float_zeros(Shape::new([num_points, 4]), device);
+        let v_colors = BurnBack::float_zeros(Shape::new([num_points, 4]), device);
+        let v_opacity = BurnBack::float_zeros(Shape::new([num_points]), device);
 
         let aux = state.aux;
 

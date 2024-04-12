@@ -1,10 +1,13 @@
+use std::io::BufReader;
+
 use burn::{
     config::Config,
     module::{Module, Param, ParamId},
-    tensor::{activation::sigmoid, Device},
+    tensor::{activation::sigmoid, Data, Device, Shape},
 };
 use ndarray::Axis;
-use rerun::{RecordingStream, Rgba32};
+use ply_rs::parser::Parser;
+use rerun::{Color, RecordingStream};
 
 use crate::{
     camera::Camera,
@@ -26,13 +29,7 @@ pub(crate) struct SplatsConfig {
 
 impl SplatsConfig {
     pub(crate) fn build<B: Backend>(&self, device: &Device<B>) -> Splats<B> {
-        Splats::new(
-            self.num_points,
-            self.aabb_scale,
-            self.max_sh_degree,
-            0,
-            device,
-        )
+        Splats::new(self.num_points, self.aabb_scale, device)
     }
 }
 
@@ -40,13 +37,6 @@ impl SplatsConfig {
 // This implementation wraps CUDA kernels from (Kerbel and Kopanas et al, 2023).
 #[derive(Module, Debug)]
 pub(crate) struct Splats<B: Backend> {
-    // Current and maximum spherical harmonic degree. This is increased over
-    // training.
-    active_sh_degree: u32,
-
-    // Currently maximum active sh degree.
-    max_sh_degree: u32,
-
     // f32[n, 3]. Position.
     means: Param<Tensor<B, 2>>,
 
@@ -61,9 +51,10 @@ pub(crate) struct Splats<B: Backend> {
 
     // f32[n, 3]. Scale matrix coefficients.
     scales: Param<Tensor<B, 2>>,
+}
 
+struct SplatTrainState<B: Backend> {
     // Non trainable params.
-
     // f32[n]. Maximum projected radius of each Gaussian in pixel-units. It is
     // later used during culling.
     max_radii_2d: Tensor<B, 1>,
@@ -79,14 +70,113 @@ pub(crate) struct Splats<B: Backend> {
     denom: Tensor<B, 1>,
 }
 
+impl<B: Backend> SplatTrainState<B> {
+    fn new(num_points: usize, device: &Device<B>) -> Self {
+        Self {
+            max_radii_2d: Tensor::zeros([num_points], device),
+            xyz_gradient_accum: Tensor::zeros([num_points], device),
+            denom: Tensor::zeros([num_points], device),
+        }
+    }
+}
+
+fn vec3_to_tensor4<B: Backend>(data: Vec<glam::Vec3>, device: &Device<B>) -> Tensor<B, 2> {
+    let mean_vec = data
+        .iter()
+        .flat_map(|v| [v.x, v.y, v.z, 0.0])
+        .collect::<Vec<_>>();
+    Tensor::from_data(
+        Data::new(mean_vec, Shape::new([data.len(), 4])).convert(),
+        device,
+    )
+}
+
+fn vec4_to_tensor4<B: Backend>(data: Vec<glam::Vec4>, device: &Device<B>) -> Tensor<B, 2> {
+    let mean_vec = data
+        .iter()
+        .flat_map(|v| [v.x, v.y, v.z, v.w])
+        .collect::<Vec<_>>();
+    Tensor::from_data(
+        Data::new(mean_vec, Shape::new([data.len(), 4])).convert(),
+        device,
+    )
+}
+
+fn float_to_tensor<B: Backend>(data: Vec<f32>, device: &Device<B>) -> Tensor<B, 1> {
+    Tensor::from_data(
+        Data::new(data.clone(), Shape::new([data.len()])).convert(),
+        device,
+    )
+}
+
 impl<B: Backend> Splats<B> {
-    pub(crate) fn new(
-        num_points: usize,
-        aabb_scale: f32,
-        max_sh_degree: u32,
-        active_sh_degree: u32,
-        device: &Device<B>,
-    ) -> Splats<B> {
+    pub(crate) fn from_data(data: Vec<GaussianData>, device: &Device<B>) -> Self {
+        // TODO: This is all terribly space inefficient.
+        let means = data
+            .iter()
+            .flat_map(|d| [d.means.x, d.means.y, d.means.z, 0.0])
+            .collect::<Vec<_>>();
+        let colors = data
+            .iter()
+            .flat_map(|d| [d.colors.x, d.colors.y, d.colors.z, 0.0])
+            .collect::<Vec<_>>();
+        let rotation = data
+            .iter()
+            .flat_map(|d| [d.rotation.x, d.rotation.y, d.rotation.z, d.rotation.w])
+            .collect::<Vec<_>>();
+        let opacity = data.iter().map(|d| d.opacity).collect::<Vec<_>>();
+        let scales = data
+            .iter()
+            .flat_map(|d| [d.scale.x, d.scale.y, d.scale.z, 0.0])
+            .collect::<Vec<_>>();
+
+        let num_points = data.len();
+
+        Splats {
+            means: Param::initialized(
+                ParamId::new(),
+                Tensor::from_data(
+                    Data::new(means, Shape::new([num_points, 4])).convert(),
+                    device,
+                )
+                .require_grad(),
+            ),
+            colors: Param::initialized(
+                ParamId::new(),
+                Tensor::from_data(
+                    Data::new(colors, Shape::new([num_points, 4])).convert(),
+                    device,
+                )
+                .require_grad(),
+            ),
+            rotation: Param::initialized(
+                ParamId::new(),
+                Tensor::from_data(
+                    Data::new(rotation, Shape::new([num_points, 4])).convert(),
+                    device,
+                )
+                .require_grad(),
+            ),
+            opacity: Param::initialized(
+                ParamId::new(),
+                Tensor::from_data(
+                    Data::new(opacity, Shape::new([num_points])).convert(),
+                    device,
+                )
+                .require_grad(),
+            ),
+            scales: Param::initialized(
+                ParamId::new(),
+                Tensor::from_data(
+                    Data::new(scales, Shape::new([num_points, 4])).convert(),
+                    device,
+                )
+                .require_grad(),
+            ),
+        }
+    }
+
+    pub(crate) fn new(num_points: usize, aabb_scale: f32, device: &Device<B>) -> Splats<B> {
         let extent = (aabb_scale as f64) / 2.0;
         let means = Tensor::random(
             [num_points, 4],
@@ -107,16 +197,11 @@ impl<B: Backend> Splats<B> {
         // TODO: Support lazy loading.
         // Model parameters.
         Splats {
-            active_sh_degree,
-            max_sh_degree,
             means: Param::initialized(ParamId::new(), means.require_grad()),
             colors: Param::initialized(ParamId::new(), colors.require_grad()),
             rotation: Param::initialized(ParamId::new(), init_rotation.require_grad()),
             opacity: Param::initialized(ParamId::new(), init_opacity.require_grad()),
             scales: Param::initialized(ParamId::new(), init_scale.require_grad()),
-            max_radii_2d: Tensor::zeros([num_points], device),
-            xyz_gradient_accum: Tensor::zeros([num_points], device),
-            denom: Tensor::zeros([num_points], device),
         }
     }
 
@@ -124,13 +209,6 @@ impl<B: Backend> Splats<B> {
     //   cfg: ...
     //   position_lr_scale: Multiplier for learning rate for positions.  Larger
     //     values mean higher learning rates.
-
-    // One-up sh degree.
-    pub(crate) fn oneup_sh_degree(&mut self) {
-        if self.active_sh_degree < self.max_sh_degree {
-            self.active_sh_degree += 1
-        }
-    }
 
     // Updates rolling statistics that we capture during rendering.
     // pub(crate) fn update_rolling_statistics(&mut self, render_pkg: RenderPackage<B>) {
@@ -437,35 +515,36 @@ impl<B: Backend> Splats<B> {
             self.means.val(),
             self.scales.val().exp(),
             norm_rotation,
-            sigmoid(self.colors.val()),
+            self.colors.val(),
             sigmoid(self.opacity.val()),
             bg_color,
         )
     }
 
     pub(crate) fn visualize(&self, rec: &RecordingStream) -> Result<()> {
-        let points_data = utils::burn_to_ndarray(self.means.val());
-
-        let glam_data = points_data
+        let means_data = utils::burn_to_ndarray(self.means.val());
+        let means = means_data
             .axis_iter(Axis(0))
-            .map(|c| glam::vec3(c[0], c[1], c[2]))
-            .collect::<Vec<_>>();
+            .map(|c| glam::vec3(c[0], c[1], c[2]));
 
-        let colors_data = utils::burn_to_ndarray(sigmoid(self.colors.val()));
+        let colors_data = utils::burn_to_ndarray(self.colors.val());
+
         let colors = colors_data.axis_iter(Axis(0)).map(|c| {
-            Rgba32::from([
+            Color::from_rgb(
                 (c[[0]] * 255.0) as u8,
                 (c[[1]] * 255.0) as u8,
                 (c[[2]] * 255.0) as u8,
-            ])
+            )
         });
-        let scales_data = utils::burn_to_ndarray(self.scales.val());
+
+        let scales_data = utils::burn_to_ndarray(self.scales.val().exp());
         let radii = scales_data
             .axis_iter(Axis(0))
-            .map(|c| c[0].max(c[1]).max(c[2]).exp() * 0.1);
+            .map(|c| 0.5 * 0.33 * (c[0] * c[0] + c[1] * c[1] + c[2] * c[2]).sqrt());
+
         rec.log(
             "world/splat/points",
-            &rerun::Points3D::new(glam_data)
+            &rerun::Points3D::new(means)
                 .with_colors(colors)
                 .with_radii(radii),
         )?;
@@ -475,4 +554,85 @@ impl<B: Backend> Splats<B> {
     pub(crate) fn cur_num_points(&self) -> usize {
         self.means.dims()[0]
     }
+}
+
+use ply_rs::ply::{Property, PropertyAccess};
+
+#[derive(Default)]
+pub(crate) struct GaussianData {
+    means: glam::Vec3,
+    colors: glam::Vec3,
+    scale: glam::Vec3,
+    opacity: f32,
+    rotation: glam::Vec4,
+}
+
+fn inv_sigmoid(v: f32) -> f32 {
+    (v / (1.0 - v)).ln()
+}
+
+const SH_C0: f32 = 0.28209479;
+
+impl PropertyAccess for GaussianData {
+    fn new() -> Self {
+        GaussianData::default()
+    }
+
+    fn set_property(&mut self, key: String, property: Property) {
+        match (key.as_ref(), property) {
+            // TODO: SH.
+            ("x", Property::Float(v)) => self.means[0] = v,
+            ("y", Property::Float(v)) => self.means[1] = v,
+            ("z", Property::Float(v)) => self.means[2] = v,
+
+            ("f_dc_0", Property::Float(v)) => self.colors[0] = v * SH_C0,
+            ("f_dc_1", Property::Float(v)) => self.colors[1] = v * SH_C0,
+            ("f_dc_2", Property::Float(v)) => self.colors[2] = v * SH_C0,
+
+            ("scale_0", Property::Float(v)) => self.scale[0] = v,
+            ("scale_1", Property::Float(v)) => self.scale[1] = v,
+            ("scale_2", Property::Float(v)) => self.scale[2] = v,
+
+            ("opacity", Property::Float(v)) => self.opacity = v,
+
+            ("rot_0", Property::Float(v)) => self.rotation[0] = v,
+            ("rot_1", Property::Float(v)) => self.rotation[1] = v,
+            ("rot_2", Property::Float(v)) => self.rotation[2] = v,
+            ("rot_3", Property::Float(v)) => self.rotation[3] = v,
+
+            (_, _) => {}
+        }
+    }
+}
+
+pub fn create_from_ply<B: Backend>(file: &str, device: &B::Device) -> Result<Splats<B>> {
+    // set up a reader, in this case a file.
+    let f = std::fs::File::open(file).unwrap();
+    let mut reader = BufReader::new(f);
+
+    let gaussian_parser = Parser::<GaussianData>::new();
+    let header = gaussian_parser.read_header(&mut reader)?;
+
+    let mut cloud = Vec::new();
+
+    for (_ignore_key, element) in &header.elements {
+        if element.name == "vertex" {
+            cloud = gaussian_parser.read_payload_for_element(&mut reader, element, &header)?;
+        }
+    }
+
+    // Return normalized rotations.
+    for gaussian in &mut cloud {
+        // TODO: Clamp maximum variance? Is that needed?
+        // TODO: Is scale in log(scale) or scale format?
+        //
+        // for i in 0..3 {
+        //     gaussian.scale_opacity.scale[i] = gaussian.scale_opacity.scale[i]
+        //         .max(mean_scale - MAX_SIZE_VARIANCE)
+        //         .min(mean_scale + MAX_SIZE_VARIANCE)
+        //         .exp();
+        // }
+        gaussian.rotation = gaussian.rotation.normalize();
+    }
+    Ok(Splats::from_data(cloud, device))
 }

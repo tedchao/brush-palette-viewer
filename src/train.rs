@@ -35,9 +35,9 @@ pub(crate) struct TrainConfig {
     pub min_lr: f64,
     #[config(default = 10)]
     pub visualize_every: u32,
-    #[config(default = 248576)]
+    #[config(default = 16000)]
     pub init_points: usize,
-    #[config(default = 5.0)]
+    #[config(default = 2.0)]
     pub init_aabb: f32,
     pub scene_path: String,
 }
@@ -63,7 +63,7 @@ struct TrainStats<B: Backend> {
 fn train_step<B: AutodiffBackend>(
     scene: &Scene,
     mut splats: Splats<B>,
-    iteration: u32,
+    _iteration: u32,
     cur_lr: f64,
     config: &TrainConfig,
     loss: &MseLoss<B>,
@@ -74,10 +74,6 @@ fn train_step<B: AutodiffBackend>(
 where
     B::InnerBackend: Backend,
 {
-    if iteration % 1000 == 0 {
-        splats.oneup_sh_degree();
-    }
-
     // Get a random camera
     // TODO: Reproduciable RNG thingies.
     // TODO: If there is no camera, maybe just bail?
