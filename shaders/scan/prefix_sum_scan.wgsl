@@ -1,6 +1,5 @@
 #import prefix_sum_helpers as helpers
 
-
 @compute
 @workgroup_size(helpers::THREADS_PER_GROUP, 1, 1)
 fn main(

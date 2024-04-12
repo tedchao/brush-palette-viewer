@@ -1,7 +1,7 @@
 #import sorting
 
-@group(0) @binding(0) var<storage, read_write> reduced: array<u32>;
-@group(0) @binding(1) var<storage> config: sorting::Config;
+@group(0) @binding(0) var<storage> config: sorting::Config;
+@group(0) @binding(1) var<storage, read_write> reduced: array<u32>;
 
 var<workgroup> sums: array<u32, sorting::WG>;
 var<workgroup> lds: array<array<u32, sorting::WG>, sorting::ELEMENTS_PER_THREAD>;

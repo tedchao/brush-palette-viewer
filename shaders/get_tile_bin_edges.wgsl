@@ -1,6 +1,6 @@
 #import helpers
 
-@group(0) @binding(0) var<storage, read> isect_ids_sorted: array<u32>;
+@group(0) @binding(0) var<storage> isect_ids_sorted: array<u32>;
 @group(0) @binding(1) var<storage, read_write> tile_bins: array<vec2u>;
 
 // kernel to map sorted intersection IDs to tile bins

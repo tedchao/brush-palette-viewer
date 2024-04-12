@@ -1,5 +1,4 @@
 const SPLATS_PER_GROUP: u32 = 256;
-
 const TILE_WIDTH: u32 = 14u;
 const TILE_SIZE: u32 = TILE_WIDTH * TILE_WIDTH;
 

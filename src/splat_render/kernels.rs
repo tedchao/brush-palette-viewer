@@ -41,7 +41,7 @@ where
 
         if size_of::<Self::Uniforms>() != 0 {
             let uniform_data = client.create(bytemuck::bytes_of(&uniforms));
-            let total_handles = [read_handles, write_handles, &[&uniform_data]].concat();
+            let total_handles = [&[&uniform_data], read_handles, write_handles].concat();
             assert_eq!(total_handles.len(), Self::BINDING_COUNT);
             client.execute(kernel, &total_handles);
         } else {
@@ -94,7 +94,6 @@ kernel_source_gen!(PrefixSumScanSums, prefix_sum_scan_sums, ());
 kernel_source_gen!(PrefixSumAddScannedSums, prefix_sum_add_scanned_sums, ());
 
 kernel_source_gen!(SortCount, sort_count, sorting::Config);
-kernel_source_gen!(SortMultiSplit, sort_multisplit, sorting::Config);
 kernel_source_gen!(SortReduce, sort_reduce, sorting::Config);
 kernel_source_gen!(SortScanAdd, sort_scan_add, sorting::Config);
 kernel_source_gen!(SortScan, sort_scan, sorting::Config);

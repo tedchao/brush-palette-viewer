@@ -1,22 +1,28 @@
 #import helpers;
 
-@group(0) @binding(0) var<storage, read> gaussian_ids_sorted: array<u32>;
-@group(0) @binding(1) var<storage, read> tile_bins: array<vec2u>;
-@group(0) @binding(2) var<storage, read> xys: array<vec2f>;
-@group(0) @binding(3) var<storage, read> cov2ds: array<vec4f>;
-@group(0) @binding(4) var<storage, read> colors: array<vec4f>;
-@group(0) @binding(5) var<storage, read> opacities: array<f32>;
-@group(0) @binding(6) var<storage, read> final_index: array<u32>;
-@group(0) @binding(7) var<storage, read> output: array<vec4f>;
-@group(0) @binding(8) var<storage, read> v_output: array<vec4f>;
+struct Uniforms {
+    // Img resolution (w, h)
+    img_size: vec2u,
+    // Background color behind the splats.
+    background: vec3f,
+}
 
-@group(0) @binding(9) var<storage, read_write> v_xy: array<atomic<u32>>;
-@group(0) @binding(10) var<storage, read_write> v_conic: array<atomic<u32>>;
-@group(0) @binding(11) var<storage, read_write> v_colors: array<atomic<u32>>;
-@group(0) @binding(12) var<storage, read_write> v_opacity: array<atomic<u32>>;
+@group(0) @binding(0) var<storage> uniforms: Uniforms;
 
-@group(0) @binding(13) var<storage, read> info_array: array<Uniforms>;
+@group(0) @binding(1) var<storage> gaussian_ids_sorted: array<u32>;
+@group(0) @binding(2) var<storage> tile_bins: array<vec2u>;
+@group(0) @binding(3) var<storage> xys: array<vec2f>;
+@group(0) @binding(4) var<storage> cov2ds: array<vec4f>;
+@group(0) @binding(5) var<storage> colors: array<vec4f>;
+@group(0) @binding(6) var<storage> opacities: array<f32>;
+@group(0) @binding(7) var<storage> final_index: array<u32>;
+@group(0) @binding(8) var<storage> output: array<vec4f>;
+@group(0) @binding(9) var<storage> v_output: array<vec4f>;
 
+@group(0) @binding(10) var<storage, read_write> v_xy: array<atomic<u32>>;
+@group(0) @binding(11) var<storage, read_write> v_conic: array<atomic<u32>>;
+@group(0) @binding(12) var<storage, read_write> v_colors: array<atomic<u32>>;
+@group(0) @binding(13) var<storage, read_write> v_opacity: array<atomic<u32>>;
 
 var<workgroup> id_batch: array<u32, helpers::TILE_SIZE>;
 var<workgroup> xy_batch: array<vec2f, helpers::TILE_SIZE>;
@@ -29,12 +35,6 @@ var<workgroup> v_conic_local: array<vec3f, helpers::TILE_SIZE>;
 var<workgroup> v_xy_local: array<vec2f, helpers::TILE_SIZE>;
 var<workgroup> v_colors_local: array<vec3f, helpers::TILE_SIZE>;
 
-struct Uniforms {
-    // Img resolution (w, h)
-    img_size: vec2u,
-    // Background color behind the splats.
-    background: vec3f,
-}
 
 fn bitAddFloat(cur: u32, add: f32) -> u32 {
     return bitcast<u32>(bitcast<f32>(cur) + add);
@@ -47,9 +47,8 @@ fn main(
     @builtin(local_invocation_index) local_idx: u32,
     @builtin(workgroup_id) workgroup_id: vec3u,
 ) {
-    let info = info_array[0];
-    let background = info.background;
-    let img_size = info.img_size;
+    let background = uniforms.background;
+    let img_size = uniforms.img_size;
 
     let tiles_xx = (img_size.x + helpers::TILE_WIDTH - 1) / helpers::TILE_WIDTH;
     let tile_id = workgroup_id.x + workgroup_id.y * tiles_xx;

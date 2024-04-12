@@ -1,19 +1,17 @@
 #import helpers;
 
-@group(0) @binding(0) var<storage, read> xys: array<vec2f>;
-@group(0) @binding(1) var<storage, read> radii: array<u32>;
-@group(0) @binding(2) var<storage, read> cum_tiles_hit: array<u32>;
-@group(0) @binding(3) var<storage, read> depths: array<f32>;
-
-@group(0) @binding(4) var<storage, read_write> isect_ids: array<u32>;
-@group(0) @binding(5) var<storage, read_write> gaussian_ids: array<u32>;
-
-@group(0) @binding(6) var<storage, read> info_array: array<Uniforms>;
-
 struct Uniforms {
     // Total reachable pixels (w, h)
     tile_bounds: vec2u,
 }
+
+@group(0) @binding(0) var<storage> uniforms: Uniforms;
+@group(0) @binding(1) var<storage> xys: array<vec2f>;
+@group(0) @binding(2) var<storage> radii: array<u32>;
+@group(0) @binding(3) var<storage> cum_tiles_hit: array<u32>;
+@group(0) @binding(4) var<storage> depths: array<f32>;
+@group(0) @binding(5) var<storage, read_write> isect_ids: array<u32>;
+@group(0) @binding(6) var<storage, read_write> gaussian_ids: array<u32>;
 
 // kernel to map each intersection from tile ID and depth to a gaussian
 // writes output to isect_ids and gaussian_ids
@@ -33,8 +31,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
         return;
     }
 
-    let info = info_array[0];
-    let tile_bounds = info.tile_bounds;
+    let tile_bounds = uniforms.tile_bounds;
 
     // get the tile bbox for gaussian
     let center = xys[idx];

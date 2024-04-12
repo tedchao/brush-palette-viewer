@@ -1,12 +1,11 @@
 #import sorting
 
-
-@group(0) @binding(0) var<storage> src: array<u32>;
-@group(0) @binding(1) var<storage> values: array<u32>;
-@group(0) @binding(2) var<storage> counts: array<u32>;
-@group(0) @binding(3) var<storage, read_write> out: array<u32>;
-@group(0) @binding(4) var<storage, read_write> out_values: array<u32>;
-@group(0) @binding(5) var<storage> config: sorting::Config;
+@group(0) @binding(0) var<storage> config: sorting::Config;
+@group(0) @binding(1) var<storage> src: array<u32>;
+@group(0) @binding(2) var<storage> values: array<u32>;
+@group(0) @binding(3) var<storage> counts: array<u32>;
+@group(0) @binding(4) var<storage, read_write> out: array<u32>;
+@group(0) @binding(5) var<storage, read_write> out_values: array<u32>;
 
 var<workgroup> lds_sums: array<u32, sorting::WG>;
 var<workgroup> lds_scratch: array<u32, sorting::WG>;

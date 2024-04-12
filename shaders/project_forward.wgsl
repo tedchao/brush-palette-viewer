@@ -1,16 +1,16 @@
 #import helpers;
 
-@group(0) @binding(0) var<storage, read> means: array<vec4f>;
-@group(0) @binding(1) var<storage, read> scales: array<vec4f>;
-@group(0) @binding(2) var<storage, read> quats: array<vec4f>;
+@group(0) @binding(0) var<storage, read> uniforms: Uniforms;
 
-@group(0) @binding(3) var<storage, read_write> xys: array<vec2f>;
-@group(0) @binding(4) var<storage, read_write> depths: array<f32>;
-@group(0) @binding(5) var<storage, read_write> radii: array<u32>;
-@group(0) @binding(6) var<storage, read_write> cov2ds: array<vec4f>;
-@group(0) @binding(7) var<storage, read_write> num_tiles_hit: array<u32>;
+@group(0) @binding(1) var<storage, read> means: array<vec4f>;
+@group(0) @binding(2) var<storage, read> scales: array<vec4f>;
+@group(0) @binding(3) var<storage, read> quats: array<vec4f>;
 
-@group(0) @binding(8) var<storage, read> info_array: array<Uniforms>;
+@group(0) @binding(4) var<storage, read_write> xys: array<vec2f>;
+@group(0) @binding(5) var<storage, read_write> depths: array<f32>;
+@group(0) @binding(6) var<storage, read_write> radii: array<u32>;
+@group(0) @binding(7) var<storage, read_write> cov2ds: array<vec4f>;
+@group(0) @binding(8) var<storage, read_write> num_tiles_hit: array<u32>;
 
 struct Uniforms {
     // View matrix transform world to view position.
@@ -40,7 +40,6 @@ fn project_pix(fxfy: vec2f, p_view: vec3f, pp: vec2f) -> vec2f {
 @workgroup_size(helpers::SPLATS_PER_GROUP, 1, 1)
 fn main(@builtin(global_invocation_id) global_id: vec3u) {
     let idx = global_id.x;
-    let info = info_array[0];
     let num_points = arrayLength(&means);
 
     if idx >= num_points {
@@ -52,13 +51,13 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
     // Zero out number of tiles hit before cumulative sum.
     num_tiles_hit[idx] = 0u;
 
-    let viewmat = info.viewmat;
-    let focal = info.focal;
-    let pixel_center = info.pixel_center;
+    let viewmat = uniforms.viewmat;
+    let focal = uniforms.focal;
+    let pixel_center = uniforms.pixel_center;
 
-    let img_size = info.img_size;
-    let tile_bounds = info.tile_bounds;
-    let clip_thresh = info.clip_thresh;
+    let img_size = uniforms.img_size;
+    let tile_bounds = uniforms.tile_bounds;
+    let clip_thresh = uniforms.clip_thresh;
 
     // Project world space to camera space.
     let p_world = means[idx].xyz;

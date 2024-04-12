@@ -18,7 +18,6 @@ fn main() -> Result<()> {
         .add_entry_point("shaders/scan/prefix_sum_scan_sums.wgsl")
         .add_entry_point("shaders/scan/prefix_sum_add_scanned_sums.wgsl")
         .add_entry_point("shaders/sort/sort_count.wgsl")
-        .add_entry_point("shaders/sort/sort_multisplit.wgsl")
         .add_entry_point("shaders/sort/sort_reduce.wgsl")
         .add_entry_point("shaders/sort/sort_scan_add.wgsl")
         .add_entry_point("shaders/sort/sort_scan.wgsl")
