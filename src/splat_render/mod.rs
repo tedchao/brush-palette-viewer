@@ -16,8 +16,6 @@ use burn_wgpu::JitTensor;
 
 use crate::camera::Camera;
 
-use self::kernels::{SplatKernel, Zero};
-
 mod dim_check;
 mod generated_bindings;
 mod kernels;
@@ -81,15 +79,7 @@ fn create_buffer<E: JitElement, const D: usize>(
 ) -> BufferHandle {
     let shape = Shape::new(shape);
     let bufsize = shape.num_elements() * core::mem::size_of::<E>();
-    let buf = client.empty(bufsize);
-    Zero::execute(
-        client,
-        (),
-        &[],
-        &[&buf],
-        [shape.num_elements() as u32, 1, 1],
-    );
-    buf
+    client.empty(bufsize)
 }
 
 fn create_tensor<E: JitElement, const D: usize>(

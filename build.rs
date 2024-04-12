@@ -22,7 +22,6 @@ fn main() -> Result<()> {
         .add_entry_point("shaders/sort/sort_scan_add.wgsl")
         .add_entry_point("shaders/sort/sort_scan.wgsl")
         .add_entry_point("shaders/sort/sort_scatter.wgsl")
-        .add_entry_point("shaders/zero.wgsl")
         .output("src/splat_render/generated_bindings.rs")
         .build()?
         .generate()

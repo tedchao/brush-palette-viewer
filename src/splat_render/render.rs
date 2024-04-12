@@ -1,4 +1,4 @@
-use super::kernels::{SplatKernel, Zero};
+use super::kernels::SplatKernel;
 use super::prefix_sum::prefix_sum;
 use super::radix_sort::radix_argsort;
 use crate::camera::Camera;
@@ -9,8 +9,9 @@ use crate::splat_render::kernels::{
 };
 use crate::splat_render::{create_buffer, create_tensor, read_buffer_to_u32};
 use burn::backend::autodiff::NodeID;
+use burn::tensor::ops::FloatTensorOps;
 use burn::tensor::ops::IntTensorOps;
-use burn::tensor::Tensor;
+use burn::tensor::{Shape, Tensor};
 
 use super::{generated_bindings, Aux, Backend, BurnBack, FloatTensor};
 use burn::backend::{
@@ -124,19 +125,10 @@ impl Backend for BurnBack {
             gaussian_ids_unsorted,
         );
 
-        let tile_bins = create_tensor(
-            &client,
+        let tile_bins = BurnBack::int_zeros(
+            Shape::new([tile_bounds[0] as usize, tile_bounds[1] as usize, 2]),
             &device,
-            [tile_bounds[0] as usize, tile_bounds[1] as usize, 2],
         );
-        Zero::execute(
-            &client,
-            (),
-            &[],
-            &[&tile_bins.handle],
-            [tile_bins.shape.num_elements() as u32, 1, 1],
-        );
-
         GetTileBinEdges::execute(
             &client,
             (),
@@ -301,38 +293,10 @@ impl Backward<BurnBack, 3, 5> for RenderBackwards {
         let num_points = means.shape.dims[0];
 
         // TODO: Can't this be done for just visible points
-        let v_xy = create_tensor::<f32, 2>(client, device, [num_points, 2]);
-        let v_conic = create_tensor::<f32, 2>(client, device, [num_points, 4]);
-        let v_colors = create_tensor(client, device, [num_points, 4]);
-        let v_opacity = create_tensor(client, device, [num_points]);
-        Zero::execute(
-            client,
-            (),
-            &[],
-            &[&v_xy.handle],
-            [(num_points * 2) as u32, 1, 1],
-        );
-        Zero::execute(
-            client,
-            (),
-            &[],
-            &[&v_conic.handle],
-            [(num_points * 4) as u32, 1, 1],
-        );
-        Zero::execute(
-            client,
-            (),
-            &[],
-            &[&v_colors.handle],
-            [(num_points * 4) as u32, 1, 1],
-        );
-        Zero::execute(
-            client,
-            (),
-            &[],
-            &[&v_opacity.handle],
-            [num_points as u32, 1, 1],
-        );
+        let v_xy = BurnBack::float_zeros(Shape::new([num_points, 2]), &device);
+        let v_conic = BurnBack::float_zeros(Shape::new([num_points, 4]), &device);
+        let v_colors = BurnBack::float_zeros(Shape::new([num_points, 4]), &device);
+        let v_opacity = BurnBack::float_zeros(Shape::new([num_points]), &device);
 
         let aux = state.aux;
 
