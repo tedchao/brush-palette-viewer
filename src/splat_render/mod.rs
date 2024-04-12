@@ -1,9 +1,10 @@
+use burn::prelude::Int;
 use burn::{
     backend::{
         wgpu::{AutoGraphicsApi, JitBackend, WgpuRuntime},
         Autodiff,
     },
-    tensor::Shape,
+    tensor::{Shape, Tensor},
 };
 use burn_compute::{
     channel::ComputeChannel,
@@ -41,7 +42,7 @@ pub type IntTensor<B, const D: usize> =
 pub type HandleType<S> = Handle<S>;
 
 pub(crate) struct Aux<B: Backend> {
-    pub tile_bins: IntTensor<B, 3>,
+    pub tile_bins: Tensor<B, 3, Int>,
     pub num_intersects: u32,
 }
 

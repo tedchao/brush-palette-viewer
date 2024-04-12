@@ -35,9 +35,9 @@ pub(crate) struct TrainConfig {
     pub min_lr: f64,
     #[config(default = 5)]
     pub visualize_every: u32,
-    #[config(default = 62144)]
+    #[config(default = 994304)]
     pub init_points: usize,
-    #[config(default = 2.0)]
+    #[config(default = 5.0)]
     pub init_aabb: f32,
     pub scene_path: String,
 }
@@ -47,7 +47,7 @@ struct TrainStats<B: Backend> {
     pred_image: Array3<f32>,
     gt_image: Array3<f32>,
     loss: Array1<f32>,
-    aux: crate::splat_render::render::RenderAux<B>,
+    aux: crate::splat_render::Aux<B>,
 }
 
 // Consists of the following steps.
@@ -214,14 +214,21 @@ where
         if iter % config.visualize_every == 0 {
             rec.log(
                 "images/ground truth",
-                &rerun::Tensor::try_from(stats.gt_image).unwrap(),
+                &rerun::Image::try_from(stats.gt_image).unwrap(),
             )?;
 
-            let tile_depth = stats.aux.tile_depth.float();
-            let tile_depth = Tensor::div(tile_depth.clone(), tile_depth.max().unsqueeze());
+            let tile_bins = stats.aux.tile_bins;
+            let tile_size = tile_bins.dims();
+            let tile_depth = tile_bins
+                .clone()
+                .slice([0..tile_size[0], 0..tile_size[1], 1..2])
+                - tile_bins
+                    .clone()
+                    .slice([0..tile_size[0], 0..tile_size[1], 0..1]);
+
             let tile_depth = Array::from_shape_vec(
                 tile_depth.dims(),
-                tile_depth.to_data().convert::<f32>().value,
+                tile_depth.to_data().convert::<u32>().value,
             )
             .unwrap();
             rec.log(

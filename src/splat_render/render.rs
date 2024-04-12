@@ -11,7 +11,7 @@ use crate::splat_render::{create_buffer, create_tensor, read_buffer_to_u32};
 use burn::backend::autodiff::NodeID;
 use burn::tensor::ops::IntTensor;
 use burn::tensor::ops::IntTensorOps;
-use burn::tensor::{Int, Tensor};
+use burn::tensor::Tensor;
 
 use super::{generated_bindings, Aux, Backend, BurnBack, BurnRuntime, FloatTensor};
 use burn::backend::{
@@ -230,7 +230,7 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
         );
 
         let aux = Aux {
-            tile_bins: tile_bins.clone(),
+            tile_bins: Tensor::from_primitive(tile_bins.clone()),
             num_intersects: num_intersects as u32,
         };
         // Prepare a stateful operation with each variable node and corresponding graph.
@@ -413,11 +413,6 @@ impl Backward<BurnBack, 3, 5> for RenderBackwards {
     }
 }
 
-pub(crate) struct RenderAux<B: Backend> {
-    pub tile_depth: Tensor<B, 3, Int>,
-    pub num_intersects: u32,
-}
-
 pub fn render<B: Backend>(
     camera: &Camera,
     means: Tensor<B, 2>,
@@ -426,7 +421,7 @@ pub fn render<B: Backend>(
     colors: Tensor<B, 2>,
     opacity: Tensor<B, 1>,
     background: glam::Vec3,
-) -> (Tensor<B, 3>, RenderAux<B>) {
+) -> (Tensor<B, 3>, Aux<B>) {
     let (img, aux) = B::render_gaussians(
         camera,
         means.clone().into_primitive(),
@@ -436,17 +431,5 @@ pub fn render<B: Backend>(
         opacity.clone().into_primitive(),
         background,
     );
-    let tile_bins = Tensor::<B, 3, Int>::from_primitive(aux.tile_bins);
-    let tile_size = tile_bins.dims();
-    let tile_depth = tile_bins
-        .clone()
-        .slice([0..tile_size[0], 0..tile_size[1], 1..2])
-        - tile_bins
-            .clone()
-            .slice([0..tile_size[0], 0..tile_size[1], 0..1]);
-    let aux = RenderAux {
-        tile_depth,
-        num_intersects: aux.num_intersects,
-    };
     (Tensor::from_primitive(img), aux)
 }
