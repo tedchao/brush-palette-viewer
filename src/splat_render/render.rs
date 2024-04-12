@@ -9,20 +9,17 @@ use crate::splat_render::kernels::{
 };
 use crate::splat_render::{create_buffer, create_tensor, read_buffer_to_u32};
 use burn::backend::autodiff::NodeID;
-use burn::tensor::ops::IntTensor;
 use burn::tensor::ops::IntTensorOps;
 use burn::tensor::Tensor;
 
-use super::{generated_bindings, Aux, Backend, BurnBack, BurnRuntime, FloatTensor};
+use super::{generated_bindings, Aux, Backend, BurnBack, FloatTensor};
 use burn::backend::{
     autodiff::{
         checkpoint::{base::Checkpointer, strategy::CheckpointStrategy},
         grads::Gradients,
         ops::{Backward, Ops, OpsKind},
     },
-    wgpu::{
-        into_contiguous, FloatElement, GraphicsApi, IntElement, JitBackend, JitTensor, WgpuRuntime,
-    },
+    wgpu::into_contiguous,
     Autodiff,
 };
 use glam::{uvec2, Vec3};
@@ -33,75 +30,22 @@ pub fn argsort<T: Ord>(data: &[T]) -> Vec<usize> {
     indices
 }
 
-impl<G: GraphicsApi, F: FloatElement, I: IntElement> Backend for JitBackend<WgpuRuntime<G, F, I>> {
-    fn render_gaussians(
-        _camera: &Camera,
-        _means: FloatTensor<Self, 2>,
-        _scales: FloatTensor<Self, 2>,
-        _quats: FloatTensor<Self, 2>,
-        _colors: FloatTensor<Self, 2>,
-        _opacity: FloatTensor<Self, 1>,
-        _background: glam::Vec3,
-    ) -> (FloatTensor<Self, 3>, Aux<Self>) {
-        // Implement inference only version. This shouldn't be hard, but burn makes it a bit annoying!
-        todo!();
-    }
-}
-
-#[derive(Debug, Clone)]
-struct GaussianBackwardState {
-    cam: Camera,
-    background: Vec3,
-
-    // Splat inputs.
-    means: NodeID,
-    scales: NodeID,
-    quats: NodeID,
-    colors: NodeID,
-    opacity: NodeID,
-
-    // Calculated state.
-    radii: IntTensor<BurnBack, 1>,
-
-    xys: FloatTensor<BurnBack, 2>,
-    cov2ds: FloatTensor<BurnBack, 2>,
-    out_img: FloatTensor<BurnBack, 3>,
-
-    gaussian_ids_sorted: JitTensor<BurnRuntime, u32, 1>,
-    tile_bins: IntTensor<BurnBack, 3>,
-    final_index: IntTensor<BurnBack, 2>,
-}
-
-#[derive(Debug)]
-struct RenderBackwards;
-
-impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
+impl Backend for BurnBack {
     fn render_gaussians(
         camera: &Camera,
-        means_diff: FloatTensor<Self, 2>,
-        scales_diff: FloatTensor<Self, 2>,
-        quats_diff: FloatTensor<Self, 2>,
-        colors_diff: FloatTensor<Self, 2>,
-        opacity_diff: FloatTensor<Self, 1>,
+        means: FloatTensor<Self, 2>,
+        scales: FloatTensor<Self, 2>,
+        quats: FloatTensor<Self, 2>,
+        colors: FloatTensor<Self, 2>,
+        opacity: FloatTensor<Self, 1>,
         background: glam::Vec3,
     ) -> (FloatTensor<Self, 3>, Aux<Self>) {
-        let prep_nodes = RenderBackwards
-            .prepare::<C>([
-                means_diff.node.clone(),
-                scales_diff.node.clone(),
-                quats_diff.node.clone(),
-                colors_diff.node.clone(),
-                opacity_diff.node.clone(),
-            ])
-            .compute_bound()
-            .stateful();
-
         let (means, scales, quats, colors, opacity) = (
-            into_contiguous(means_diff.clone().primitive),
-            into_contiguous(scales_diff.clone().primitive),
-            into_contiguous(quats_diff.clone().primitive),
-            into_contiguous(colors_diff.clone().primitive),
-            into_contiguous(opacity_diff.clone().primitive),
+            into_contiguous(means.clone()),
+            into_contiguous(scales.clone()),
+            into_contiguous(quats.clone()),
+            into_contiguous(colors.clone()),
+            into_contiguous(opacity.clone()),
         );
 
         DimCheck::new()
@@ -111,8 +55,6 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
             .check_dims(&colors, ["D".into(), 4.into()])
             .check_dims(&opacity, ["D".into()]);
 
-        let num_points = means.shape.dims[0];
-
         // Divide screen into blocks.
         let tile_width = generated_bindings::helpers::TILE_WIDTH;
         let img_size = [camera.width, camera.height];
@@ -121,17 +63,18 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
             camera.height.div_ceil(tile_width),
         );
 
-        let client = &means.client;
-        let device = &means.device;
+        let client = means.client.clone();
+        let device = means.device.clone();
 
-        let radii = create_tensor(client, device, [num_points]);
-        let depths = create_buffer::<f32, 1>(client, [num_points]);
-        let xys = create_tensor(client, device, [num_points, 2]);
-        let cov2ds = create_tensor(client, device, [num_points, 4]);
-        let num_tiles_hit = create_tensor::<i32, 1>(client, device, [num_points]);
+        let num_points = means.shape.dims[0];
+        let radii = create_tensor(&client, &device, [num_points]);
+        let depths = create_buffer::<f32, 1>(&client, [num_points]);
+        let xys = create_tensor(&client, &device, [num_points, 2]);
+        let cov2ds = create_tensor(&client, &device, [num_points, 4]);
+        let num_tiles_hit = create_tensor::<i32, 1>(&client, &device, [num_points]);
 
         ProjectSplats::execute(
-            client,
+            &client,
             generated_bindings::project_forward::Uniforms::new(
                 camera.viewmatrix(),
                 camera.focal().into(),
@@ -152,23 +95,23 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
             [num_points as u32, 1, 1],
         );
 
-        let cum_tiles_hit = prefix_sum(client, &num_tiles_hit);
+        let cum_tiles_hit = prefix_sum(&client, &num_tiles_hit);
 
         // TODO: This is the only real CPU <-> GPU bottleneck, get around this somehow?
         #[allow(clippy::single_range_in_vec_init)]
         let last_elem = BurnBack::int_slice(cum_tiles_hit.clone(), [num_points - 1..num_points]);
 
-        let num_intersects = *read_buffer_to_u32(client, &last_elem.handle)
+        let num_intersects = *read_buffer_to_u32(&client, &last_elem.handle)
             .last()
             .unwrap() as usize;
 
         // Each intersection maps to a gaussian.
-        let isect_ids_unsorted = create_tensor::<u32, 1>(client, device, [num_intersects]);
-        let gaussian_ids_unsorted = create_tensor::<u32, 1>(client, device, [num_intersects]);
+        let isect_ids_unsorted = create_tensor::<i32, 1>(&client, &device, [num_intersects]);
+        let gaussian_ids_unsorted = create_tensor::<i32, 1>(&client, &device, [num_intersects]);
 
         // Dispatch one thread per point.
         MapGaussiansToIntersect::execute(
-            client,
+            &client,
             generated_bindings::map_gaussian_to_intersects::Uniforms::new(tile_bounds.into()),
             &[&xys.handle, &radii.handle, &cum_tiles_hit.handle, &depths],
             &[&isect_ids_unsorted.handle, &gaussian_ids_unsorted.handle],
@@ -182,12 +125,12 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
         );
 
         let tile_bins = create_tensor(
-            client,
-            device,
+            &client,
+            &device,
             [tile_bounds[0] as usize, tile_bounds[1] as usize, 2],
         );
         Zero::execute(
-            client,
+            &client,
             (),
             &[],
             &[&tile_bins.handle],
@@ -195,7 +138,7 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
         );
 
         GetTileBinEdges::execute(
-            client,
+            &client,
             (),
             &[&isect_ids_sorted.handle],
             &[&tile_bins.handle],
@@ -203,19 +146,19 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
         );
 
         let out_img = create_tensor(
-            client,
-            device,
+            &client,
+            &device,
             [camera.height as usize, camera.width as usize, 4],
         );
 
         let final_index = create_tensor(
-            client,
-            device,
+            &client,
+            &device,
             [camera.height as usize, camera.width as usize],
         );
 
         Rasterize::execute(
-            client,
+            &client,
             generated_bindings::rasterize::Uniforms::new(img_size, background.into()),
             &[
                 &gaussian_ids_sorted.handle,
@@ -229,10 +172,71 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
             [camera.height, camera.width, 1],
         );
 
-        let aux = Aux {
-            tile_bins: Tensor::from_primitive(tile_bins.clone()),
-            num_intersects: num_intersects as u32,
-        };
+        (
+            out_img,
+            Aux {
+                num_intersects: num_intersects as u32,
+                tile_bins: Tensor::from_primitive(tile_bins.clone()),
+                radii: Tensor::from_primitive(radii),
+                cov2ds: Tensor::from_primitive(cov2ds),
+                gaussian_ids_sorted: Tensor::from_primitive(gaussian_ids_sorted),
+                xys: Tensor::from_primitive(xys),
+                final_index: Tensor::from_primitive(final_index),
+            },
+        )
+    }
+}
+
+#[derive(Debug, Clone)]
+struct GaussianBackwardState {
+    cam: Camera,
+    background: Vec3,
+
+    // Splat inputs.
+    means: NodeID,
+    scales: NodeID,
+    quats: NodeID,
+    colors: NodeID,
+    opacity: NodeID,
+
+    out_img: FloatTensor<BurnBack, 3>,
+    aux: Aux<BurnBack>,
+}
+
+#[derive(Debug)]
+struct RenderBackwards;
+
+impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
+    fn render_gaussians(
+        camera: &Camera,
+        means: FloatTensor<Self, 2>,
+        scales: FloatTensor<Self, 2>,
+        quats: FloatTensor<Self, 2>,
+        colors: FloatTensor<Self, 2>,
+        opacity: FloatTensor<Self, 1>,
+        background: glam::Vec3,
+    ) -> (FloatTensor<Self, 3>, Aux<BurnBack>) {
+        let prep_nodes = RenderBackwards
+            .prepare::<C>([
+                means.node.clone(),
+                scales.node.clone(),
+                quats.node.clone(),
+                colors.node.clone(),
+                opacity.node.clone(),
+            ])
+            .compute_bound()
+            .stateful();
+
+        let (out_img, aux) = BurnBack::render_gaussians(
+            camera,
+            means.clone().primitive,
+            scales.clone().primitive,
+            quats.clone().primitive,
+            colors.clone().primitive,
+            opacity.clone().primitive,
+            background,
+        );
+
         // Prepare a stateful operation with each variable node and corresponding graph.
         //
         // Each node can be fetched with `ops.parents` in the same order as defined here.
@@ -240,20 +244,15 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
             OpsKind::Tracked(mut prep) => {
                 let state = GaussianBackwardState {
                     // TODO: Respect checkpointing in this.
-                    means: prep.checkpoint(&means_diff),
-                    scales: prep.checkpoint(&scales_diff),
-                    quats: prep.checkpoint(&quats_diff),
-                    colors: prep.checkpoint(&colors_diff),
-                    opacity: prep.checkpoint(&opacity_diff),
-                    radii,
+                    means: prep.checkpoint(&means),
+                    scales: prep.checkpoint(&scales),
+                    quats: prep.checkpoint(&quats),
+                    colors: prep.checkpoint(&colors),
+                    opacity: prep.checkpoint(&opacity),
+                    aux: aux.clone(),
                     cam: camera.clone(),
                     background,
                     out_img: out_img.clone(),
-                    gaussian_ids_sorted,
-                    tile_bins,
-                    xys,
-                    cov2ds,
-                    final_index,
                 };
 
                 (prep.finish(state, out_img), aux)
@@ -335,6 +334,8 @@ impl Backward<BurnBack, 3, 5> for RenderBackwards {
             [num_points as u32, 1, 1],
         );
 
+        let aux = state.aux;
+
         RasterizeBackwards::execute(
             client,
             generated_bindings::rasterize_backwards::Uniforms::new(
@@ -342,13 +343,13 @@ impl Backward<BurnBack, 3, 5> for RenderBackwards {
                 state.background.into(),
             ),
             &[
-                &state.gaussian_ids_sorted.handle,
-                &state.tile_bins.handle,
-                &state.xys.handle,
-                &state.cov2ds.handle,
+                &aux.gaussian_ids_sorted.into_primitive().handle,
+                &aux.tile_bins.into_primitive().handle,
+                &aux.xys.into_primitive().handle,
+                &aux.cov2ds.clone().into_primitive().handle,
                 &colors.handle,
                 &opacity.handle,
-                &state.final_index.handle,
+                &aux.final_index.into_primitive().handle,
                 &state.out_img.handle,
                 &v_output.handle,
             ],
@@ -377,8 +378,8 @@ impl Backward<BurnBack, 3, 5> for RenderBackwards {
                 &means.handle,
                 &scales.handle,
                 &quats.handle,
-                &state.radii.handle,
-                &state.cov2ds.handle,
+                &aux.radii.into_primitive().handle,
+                &aux.cov2ds.into_primitive().handle,
                 &v_xy.handle,
                 &v_conic.handle,
                 &v_opacity.handle,
@@ -421,7 +422,7 @@ pub fn render<B: Backend>(
     colors: Tensor<B, 2>,
     opacity: Tensor<B, 1>,
     background: glam::Vec3,
-) -> (Tensor<B, 3>, Aux<B>) {
+) -> (Tensor<B, 3>, Aux<BurnBack>) {
     let (img, aux) = B::render_gaussians(
         camera,
         means.clone().into_primitive(),

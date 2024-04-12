@@ -11,7 +11,7 @@ use burn::{
 use ndarray::{Array, Array1, Array3};
 use rand::{rngs::StdRng, SeedableRng};
 
-use crate::splat_render::{self, AutodiffBackend, Backend};
+use crate::splat_render::{self, AutodiffBackend, Backend, BurnBack};
 use crate::{
     dataset_readers,
     gaussian_splats::{Splats, SplatsConfig},
@@ -42,12 +42,12 @@ pub(crate) struct TrainConfig {
     pub scene_path: String,
 }
 
-struct TrainStats<B: Backend> {
+struct TrainStats {
     total_points: usize,
     pred_image: Array3<f32>,
     gt_image: Array3<f32>,
     loss: Array1<f32>,
-    aux: crate::splat_render::Aux<B>,
+    aux: crate::splat_render::Aux<BurnBack>,
 }
 
 // Consists of the following steps.
@@ -70,7 +70,7 @@ fn train_step<B: AutodiffBackend>(
     optim: &mut impl Optimizer<Splats<B>, B>,
     rng: &mut StdRng,
     device: &B::Device,
-) -> (Splats<B>, TrainStats<B>)
+) -> (Splats<B>, TrainStats)
 where
     B::InnerBackend: Backend,
 {

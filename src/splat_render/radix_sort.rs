@@ -1,5 +1,4 @@
 use burn::tensor::Shape;
-use burn_jit::JitElement;
 use burn_wgpu::JitTensor;
 
 use burn::tensor::ops::IntTensorOps;
@@ -15,11 +14,14 @@ const ELEMENTS_PER_THREAD: u32 = generated_bindings::sorting::ELEMENTS_PER_THREA
 const BLOCK_SIZE: u32 = WG * ELEMENTS_PER_THREAD;
 const BIN_COUNT: u32 = generated_bindings::sorting::BIN_COUNT;
 
-pub fn radix_argsort<E: JitElement>(
+pub fn radix_argsort(
     client: BurnClient,
-    input_keys: JitTensor<BurnRuntime, E, 1>,
-    input_values: JitTensor<BurnRuntime, E, 1>,
-) -> (JitTensor<BurnRuntime, E, 1>, JitTensor<BurnRuntime, E, 1>) {
+    input_keys: JitTensor<BurnRuntime, i32, 1>,
+    input_values: JitTensor<BurnRuntime, i32, 1>,
+) -> (
+    JitTensor<BurnRuntime, i32, 1>,
+    JitTensor<BurnRuntime, i32, 1>,
+) {
     let n = input_keys.shape.dims[0] as u32;
     assert_eq!(input_keys.shape.dims[0], input_values.shape.dims[0]);
 
@@ -46,11 +48,11 @@ pub fn radix_argsort<E: JitElement>(
     let count_buf = BurnBack::int_zeros(Shape::new([num_blocks * 16]), device);
     let reduced_buf = BurnBack::int_zeros(Shape::new([(BLOCK_SIZE) as usize]), device);
 
-    let output_keys = create_buffer::<E, 1>(&client, [n as usize]);
-    let output_values = create_buffer::<E, 1>(&client, [n as usize]);
+    let output_keys = create_buffer::<i32, 1>(&client, [n as usize]);
+    let output_values = create_buffer::<i32, 1>(&client, [n as usize]);
 
-    let output_keys_swap = create_buffer::<E, 1>(&client, [n as usize]);
-    let output_values_swap = create_buffer::<E, 1>(&client, [n as usize]);
+    let output_keys_swap = create_buffer::<i32, 1>(&client, [n as usize]);
+    let output_values_swap = create_buffer::<i32, 1>(&client, [n as usize]);
 
     let mut config = generated_bindings::sorting::Config {
         num_keys: n,

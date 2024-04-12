@@ -27,7 +27,7 @@ mod radix_sort;
 pub mod render;
 
 type BurnRuntime = WgpuRuntime<AutoGraphicsApi, f32, i32>;
-type BurnBack = JitBackend<BurnRuntime>;
+pub(crate) type BurnBack = JitBackend<BurnRuntime>;
 type BurnClient =
     ComputeClient<<BurnRuntime as Runtime>::Server, <BurnRuntime as Runtime>::Channel>;
 
@@ -41,8 +41,14 @@ pub type IntTensor<B, const D: usize> =
 
 pub type HandleType<S> = Handle<S>;
 
+#[derive(Debug, Clone)]
 pub(crate) struct Aux<B: Backend> {
     pub tile_bins: Tensor<B, 3, Int>,
+    pub radii: Tensor<B, 1>,
+    pub gaussian_ids_sorted: Tensor<B, 1, Int>,
+    pub xys: Tensor<B, 2>,
+    pub cov2ds: Tensor<B, 2>,
+    pub final_index: Tensor<B, 2, Int>,
     pub num_intersects: u32,
 }
 
@@ -61,7 +67,7 @@ pub trait Backend: burn::tensor::backend::Backend {
         colors: FloatTensor<Self, 2>,
         opacity: FloatTensor<Self, 1>,
         background: glam::Vec3,
-    ) -> (FloatTensor<Self, 3>, Aux<Self>);
+    ) -> (FloatTensor<Self, 3>, Aux<BurnBack>);
 }
 
 // TODO: In rust 1.80 having a trait bound here on the inner backend would be great.

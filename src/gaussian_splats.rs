@@ -423,7 +423,10 @@ impl<B: Backend> Splats<B> {
         &self,
         camera: &Camera,
         bg_color: glam::Vec3,
-    ) -> (Tensor<B, 3>, crate::splat_render::Aux<B>) {
+    ) -> (
+        Tensor<B, 3>,
+        crate::splat_render::Aux<crate::splat_render::BurnBack>,
+    ) {
         let cur_rot = self.rotation.val();
 
         let norms = Tensor::sum_dim(cur_rot.clone() * cur_rot.clone(), 1).sqrt();
