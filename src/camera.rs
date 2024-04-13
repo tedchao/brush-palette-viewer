@@ -51,7 +51,7 @@ impl Camera {
     pub fn focal(&self) -> glam::Vec2 {
         glam::vec2(
             fov_to_focal(self.fovx, self.width),
-            fov_to_focal(self.fovy, self.width),
+            fov_to_focal(self.fovy, self.height),
         )
     }
 

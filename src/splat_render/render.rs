@@ -60,7 +60,7 @@ impl Backend for BurnBack {
         let tile_width = generated_bindings::helpers::TILE_WIDTH;
         let img_size = [camera.width, camera.height];
         let tile_bounds = uvec2(
-            camera.height.div_ceil(tile_width),
+            camera.width.div_ceil(tile_width),
             camera.height.div_ceil(tile_width),
         );
 
@@ -161,7 +161,7 @@ impl Backend for BurnBack {
                 &opacity.handle,
             ],
             &[&out_img.handle, &final_index.handle],
-            [camera.height, camera.width, 1],
+            [camera.width, camera.height, 1],
         );
 
         (
@@ -299,11 +299,12 @@ impl Backward<BurnBack, 3, 5> for RenderBackwards {
         let v_opacity = BurnBack::float_zeros(Shape::new([num_points]), device);
 
         let aux = state.aux;
+        let img_size = [camera.width, camera.height];
 
         RasterizeBackwards::execute(
             client,
             generated_bindings::rasterize_backwards::Uniforms::new(
-                [camera.height, camera.width],
+                img_size,
                 state.background.into(),
             ),
             &[
@@ -323,7 +324,7 @@ impl Backward<BurnBack, 3, 5> for RenderBackwards {
                 &v_colors.handle,
                 &v_opacity.handle,
             ],
-            [camera.height, camera.width, 1],
+            [camera.width, camera.height, 1],
         );
 
         // TODO: Can't this be done for just visible points
@@ -336,7 +337,7 @@ impl Backward<BurnBack, 3, 5> for RenderBackwards {
             generated_bindings::project_backwards::Uniforms::new(
                 camera.viewmatrix(),
                 camera.center().into(),
-                [camera.height, camera.width],
+                img_size,
             ),
             &[
                 &means.handle,

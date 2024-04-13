@@ -21,7 +21,7 @@ struct Uniforms {
     pixel_center: vec2f,
     // Img resolution (w, h)
     img_size: vec2u,
-    // Total reachable pixels (w, h)
+    // Nr. of tiles on each axis (w, h)
     tile_bounds: vec2u,
     // Width of blocks image is divided into.
     block_width: u32,
@@ -55,8 +55,6 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
     let focal = uniforms.focal;
     let pixel_center = uniforms.pixel_center;
 
-    let img_size = uniforms.img_size;
-    let tile_bounds = uniforms.tile_bounds;
     let clip_thresh = uniforms.clip_thresh;
 
     // Project world space to camera space.
@@ -78,7 +76,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
     let M = R * S;
     let V = M * transpose(M);
     
-    let tan_fov = 0.5 * vec2f(img_size.xy) / focal;
+    let tan_fov = 0.5 * vec2f(uniforms.img_size.xy) / focal;
     
     let lims = 1.3 * tan_fov;
     // Get ndc coords +- clipped to the frustum.
@@ -121,7 +119,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
 
     // compute the projected mean
     let center = project_pix(focal, p_view, pixel_center);
-    let tile_minmax = helpers::get_tile_bbox(center, radius, tile_bounds);
+    let tile_minmax = helpers::get_tile_bbox(center, radius, uniforms.tile_bounds);
     let tile_area = (tile_minmax.z - tile_minmax.x) * (tile_minmax.w - tile_minmax.y);
 
     // Now write all the data to the buffers.

@@ -1,5 +1,4 @@
 use crate::{
-    camera::Camera,
     dataset_readers,
     gaussian_splats::{self, Splats},
     splat_render::Backend,
@@ -13,16 +12,8 @@ pub(crate) fn view<B: Backend>(path: &str, viewpoints: &str, device: &B::Device)
 
     let cameras = dataset_readers::read_viewpoint_data(viewpoints)?;
 
-    for (i, cam) in cameras[0..10].iter().enumerate() {
-        let camera = Camera {
-            width: 600,
-            height: 600,
-            fovx: cam.fovx,
-            fovy: cam.fovy,
-            ..cam.clone()
-        };
-
-        let (img, _) = splats.render(&camera, glam::vec3(0.0, 0.0, 0.0));
+    for (i, camera) in cameras[0..10].iter().enumerate() {
+        let (img, _) = splats.render(camera, glam::vec3(0.0, 0.0, 0.0));
         let img = Array::from_shape_vec(img.dims(), img.to_data().convert::<f32>().value).unwrap();
         let img = img.map(|x| (*x * 255.0).clamp(0.0, 255.0) as u8);
 
