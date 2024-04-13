@@ -585,9 +585,10 @@ impl PropertyAccess for GaussianData {
             ("y", Property::Float(v)) => self.means[1] = v,
             ("z", Property::Float(v)) => self.means[2] = v,
 
-            ("f_dc_0", Property::Float(v)) => self.colors[0] = v * SH_C0,
-            ("f_dc_1", Property::Float(v)) => self.colors[1] = v * SH_C0,
-            ("f_dc_2", Property::Float(v)) => self.colors[2] = v * SH_C0,
+            // TODO: This 0.5 shouldn't be needed anymore once we do full SH?
+            ("f_dc_0", Property::Float(v)) => self.colors[0] = v * SH_C0 + 0.5,
+            ("f_dc_1", Property::Float(v)) => self.colors[1] = v * SH_C0 + 0.5,
+            ("f_dc_2", Property::Float(v)) => self.colors[2] = v * SH_C0 + 0.5,
 
             ("scale_0", Property::Float(v)) => self.scale[0] = v,
             ("scale_1", Property::Float(v)) => self.scale[1] = v,

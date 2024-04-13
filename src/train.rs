@@ -232,6 +232,8 @@ where
                 stats.pred_image.to_data().convert::<f32>().value,
             )
             .unwrap();
+            let pred_image = pred_image.map(|x| (*x * 255.0).clamp(0.0, 255.0) as u8);
+
             rec.log(
                 "images/predicted",
                 &rerun::Image::try_from(pred_image).unwrap(),
@@ -248,6 +250,7 @@ where
                 &rerun::Scalar::new((Instant::now() - start_time).as_secs_f32() as f64 * 1000.0),
             )?;
 
+            let img = img.map(|x| (*x * 255.0).clamp(0.0, 255.0) as u8);
             rec.log(
                 "images/fixed camera render",
                 &rerun::Image::try_from(img).unwrap(),

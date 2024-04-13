@@ -24,6 +24,8 @@ pub(crate) fn view<B: Backend>(path: &str, viewpoints: &str, device: &B::Device)
 
         let (img, _) = splats.render(&camera, glam::vec3(0.0, 0.0, 0.0));
         let img = Array::from_shape_vec(img.dims(), img.to_data().convert::<f32>().value).unwrap();
+        let img = img.map(|x| (*x * 255.0).clamp(0.0, 255.0) as u8);
+
         rec.log_timeless(
             format!("images/fixed camera render {i}"),
             &rerun::Image::try_from(img).unwrap(),
