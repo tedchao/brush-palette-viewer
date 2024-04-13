@@ -50,6 +50,11 @@ pub(crate) struct Aux<B: Backend> {
     pub num_intersects: u32,
 }
 
+#[derive(Default)]
+pub(crate) struct RenderArgs {
+    pub sync_kernels: bool,
+}
+
 /// We create our own Backend trait that extends the Burn backend trait.
 pub trait Backend: burn::tensor::backend::Backend {
     // Render splats
@@ -65,6 +70,7 @@ pub trait Backend: burn::tensor::backend::Backend {
         colors: FloatTensor<Self, 2>,
         opacity: FloatTensor<Self, 1>,
         background: glam::Vec3,
+        args: RenderArgs,
     ) -> (FloatTensor<Self, 3>, Aux<BurnBack>);
 }
 

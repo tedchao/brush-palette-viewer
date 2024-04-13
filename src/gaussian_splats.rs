@@ -11,7 +11,7 @@ use rerun::{Color, RecordingStream};
 
 use crate::{
     camera::Camera,
-    splat_render::{self, Backend},
+    splat_render::{self, Backend, RenderArgs},
     utils,
 };
 use burn::tensor::Distribution;
@@ -510,6 +510,8 @@ impl<B: Backend> Splats<B> {
         let norms = Tensor::sum_dim(cur_rot.clone() * cur_rot.clone(), 1).sqrt();
         let norm_rotation = cur_rot / Tensor::clamp_min(norms, 1e-6);
 
+        let args = RenderArgs { sync_kernels: true };
+
         splat_render::render::render(
             camera,
             self.means.val(),
@@ -518,6 +520,7 @@ impl<B: Backend> Splats<B> {
             self.colors.val(),
             sigmoid(self.opacity.val()),
             bg_color,
+            args,
         )
     }
 

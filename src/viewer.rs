@@ -5,20 +5,26 @@ use crate::{
 };
 use anyhow::Result;
 use ndarray::Array;
+use tracing_subscriber::{filter, layer::SubscriberExt, util::SubscriberInitExt, Layer};
 
 pub(crate) fn view<B: Backend>(path: &str, viewpoints: &str, device: &B::Device) -> Result<()> {
     let rec = rerun::RecordingStreamBuilder::new("visualize training").spawn()?;
     let splats: Splats<B> = gaussian_splats::create_from_ply(path, device)?;
 
     let cameras = dataset_readers::read_viewpoint_data(viewpoints)?;
+    tracing::subscriber::set_global_default(
+        tracing_subscriber::registry().with(tracing_tracy::TracyLayer::default()),
+    )
+    .expect("setup tracy layer");
 
-    for (i, camera) in cameras[0..10].iter().enumerate() {
+    for (i, camera) in cameras.iter().enumerate() {
         let (img, _) = splats.render(camera, glam::vec3(0.0, 0.0, 0.0));
+
         let img = Array::from_shape_vec(img.dims(), img.to_data().convert::<f32>().value).unwrap();
         let img = img.map(|x| (*x * 255.0).clamp(0.0, 255.0) as u8);
 
         rec.log_timeless(
-            format!("images/fixed camera render {i}"),
+            format!("images/fixed_camera_render_{i}"),
             &rerun::Image::try_from(img).unwrap(),
         )?;
 

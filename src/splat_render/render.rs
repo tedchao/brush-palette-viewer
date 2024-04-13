@@ -13,7 +13,9 @@ use burn::tensor::ops::FloatTensorOps;
 use burn::tensor::ops::IntTensorOps;
 use burn::tensor::{Shape, Tensor};
 
-use super::{generated_bindings, Aux, Backend, BurnBack, FloatTensor};
+use tracing::{info, info_span, span, Level};
+
+use super::{generated_bindings, Aux, Backend, BurnBack, FloatTensor, RenderArgs};
 use burn::backend::{
     autodiff::{
         checkpoint::{base::Checkpointer, strategy::CheckpointStrategy},
@@ -40,6 +42,7 @@ impl Backend for BurnBack {
         colors: FloatTensor<Self, 2>,
         opacity: FloatTensor<Self, 1>,
         background: glam::Vec3,
+        args: RenderArgs,
     ) -> (FloatTensor<Self, 3>, Aux<Self>) {
         let (means, scales, quats, colors, opacity) = (
             into_contiguous(means.clone()),
@@ -74,27 +77,34 @@ impl Backend for BurnBack {
         let cov2ds = create_tensor(&client, &device, [num_points, 4]);
         let num_tiles_hit = create_tensor::<i32, 1>(&client, &device, [num_points]);
 
-        ProjectSplats::execute(
-            &client,
-            generated_bindings::project_forward::Uniforms::new(
-                camera.viewmatrix(),
-                camera.focal().into(),
-                camera.center().into(),
-                img_size,
-                tile_bounds.into(),
-                tile_width,
-                0.01,
-            ),
-            &[&means.handle, &scales.handle, &quats.handle],
-            &[
-                &xys.handle,
-                &depths,
-                &radii.handle,
-                &cov2ds.handle,
-                &num_tiles_hit.handle,
-            ],
-            [num_points as u32, 1, 1],
-        );
+        {
+            let _project_span = info_span!("Project splat").entered();
+            ProjectSplats::execute(
+                &client,
+                generated_bindings::project_forward::Uniforms::new(
+                    camera.viewmatrix(),
+                    camera.focal().into(),
+                    camera.center().into(),
+                    img_size,
+                    tile_bounds.into(),
+                    tile_width,
+                    0.01,
+                ),
+                &[&means.handle, &scales.handle, &quats.handle],
+                &[
+                    &xys.handle,
+                    &depths,
+                    &radii.handle,
+                    &cov2ds.handle,
+                    &num_tiles_hit.handle,
+                ],
+                [num_points as u32, 1, 1],
+            );
+
+            if args.sync_kernels {
+                <BurnBack as burn::prelude::Backend>::sync(&device);
+            }
+        }
 
         let cum_tiles_hit = prefix_sum(&client, &num_tiles_hit);
 
@@ -207,6 +217,7 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
         colors: FloatTensor<Self, 2>,
         opacity: FloatTensor<Self, 1>,
         background: glam::Vec3,
+        args: RenderArgs,
     ) -> (FloatTensor<Self, 3>, Aux<BurnBack>) {
         let prep_nodes = RenderBackwards
             .prepare::<C>([
@@ -227,6 +238,7 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
             colors.clone().primitive,
             opacity.clone().primitive,
             background,
+            args,
         );
 
         // Prepare a stateful operation with each variable node and corresponding graph.
@@ -387,6 +399,7 @@ pub fn render<B: Backend>(
     colors: Tensor<B, 2>,
     opacity: Tensor<B, 1>,
     background: glam::Vec3,
+    args: RenderArgs,
 ) -> (Tensor<B, 3>, Aux<BurnBack>) {
     let (img, aux) = B::render_gaussians(
         camera,
@@ -396,6 +409,7 @@ pub fn render<B: Backend>(
         colors.clone().into_primitive(),
         opacity.clone().into_primitive(),
         background,
+        args,
     );
     (Tensor::from_primitive(img), aux)
 }
