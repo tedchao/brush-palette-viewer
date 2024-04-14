@@ -50,7 +50,7 @@ pub(crate) struct Aux<B: Backend> {
     pub num_intersects: u32,
 }
 
-#[derive(Default)]
+#[derive(Default, Debug, Clone)]
 pub(crate) struct RenderArgs {
     pub sync_kernels: bool,
 }

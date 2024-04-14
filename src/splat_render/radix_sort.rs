@@ -2,6 +2,7 @@ use burn::tensor::Shape;
 use burn_wgpu::JitTensor;
 
 use burn::tensor::ops::IntTensorOps;
+use tracing::info_span;
 
 use crate::splat_render::kernels::{SortCount, SortReduce, SortScanAdd, SortScatter};
 use crate::splat_render::{create_buffer, div_round_up};
@@ -18,10 +19,13 @@ pub fn radix_argsort(
     client: BurnClient,
     input_keys: JitTensor<BurnRuntime, i32, 1>,
     input_values: JitTensor<BurnRuntime, i32, 1>,
+    sync: bool,
 ) -> (
     JitTensor<BurnRuntime, i32, 1>,
     JitTensor<BurnRuntime, i32, 1>,
 ) {
+    let _span = info_span!("Radix sort").entered();
+
     let n = input_keys.shape.dims[0] as u32;
     assert_eq!(input_keys.shape.dims[0], input_values.shape.dims[0]);
 
@@ -98,6 +102,7 @@ pub fn radix_argsort(
             &[from],
             &[&count_buf.handle],
             [config.num_wgs * wg, 1, 1],
+            sync,
         );
 
         // Todo: in -> out -> out2
@@ -107,9 +112,17 @@ pub fn radix_argsort(
             &[&count_buf.handle],
             &[&reduced_buf.handle],
             [num_reduce_wgs * wg, 1, 1],
+            sync,
         );
 
-        SortScan::execute(&client, config, &[], &[&reduced_buf.handle], [1, 1, 1]);
+        SortScan::execute(
+            &client,
+            config,
+            &[],
+            &[&reduced_buf.handle],
+            [1, 1, 1],
+            sync,
+        );
 
         SortScanAdd::execute(
             &client,
@@ -117,6 +130,7 @@ pub fn radix_argsort(
             &[&reduced_buf.handle],
             &[&count_buf.handle],
             [num_reduce_wgs * wg, 1, 1],
+            sync,
         );
 
         SortScatter::execute(
@@ -125,6 +139,7 @@ pub fn radix_argsort(
             &[from, from_val, &count_buf.handle],
             &[to, to_val],
             [config.num_wgs * wg, 1, 1],
+            sync,
         );
     }
     (
@@ -194,7 +209,7 @@ mod tests {
             let values = Tensor::<Backend, 1, Int>::from_ints(values_inp.as_slice(), &device)
                 .into_primitive();
             let client = keys.client.clone();
-            let (ret_keys, ret_values) = radix_argsort(client, keys, values);
+            let (ret_keys, ret_values) = radix_argsort(client, keys, values, false);
 
             let ret_keys = read_buffer_to_u32(&ret_keys.client, &ret_keys.handle);
             let ret_values = read_buffer_to_u32(&ret_values.client, &ret_values.handle);
@@ -238,7 +253,7 @@ mod tests {
         let values =
             Tensor::<Backend, 1, Int>::from_ints(values_inp.as_slice(), &device).into_primitive();
         let client = keys.client.clone();
-        let (ret_keys, ret_values) = radix_argsort(client, keys, values);
+        let (ret_keys, ret_values) = radix_argsort(client, keys, values, false);
 
         let ret_keys = read_buffer_to_u32(&ret_keys.client, &ret_keys.handle);
         let ret_values = read_buffer_to_u32(&ret_values.client, &ret_values.handle);

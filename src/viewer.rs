@@ -5,7 +5,7 @@ use crate::{
 };
 use anyhow::Result;
 use ndarray::Array;
-use tracing_subscriber::{filter, layer::SubscriberExt, util::SubscriberInitExt, Layer};
+use tracing_subscriber::layer::SubscriberExt;
 
 pub(crate) fn view<B: Backend>(path: &str, viewpoints: &str, device: &B::Device) -> Result<()> {
     let rec = rerun::RecordingStreamBuilder::new("visualize training").spawn()?;
@@ -16,6 +16,7 @@ pub(crate) fn view<B: Backend>(path: &str, viewpoints: &str, device: &B::Device)
         tracing_subscriber::registry().with(tracing_tracy::TracyLayer::default()),
     )
     .expect("setup tracy layer");
+    splats.visualize(&rec)?;
 
     for (i, camera) in cameras.iter().enumerate() {
         let (img, _) = splats.render(camera, glam::vec3(0.0, 0.0, 0.0));
@@ -39,8 +40,6 @@ pub(crate) fn view<B: Backend>(path: &str, viewpoints: &str, device: &B::Device)
             cam_path.clone(),
             &rerun::Transform3D::from_translation_rotation(camera.position(), camera.rotation()),
         )?;
-
-        splats.visualize(&rec)?;
     }
 
     Ok(())

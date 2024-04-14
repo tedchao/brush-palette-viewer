@@ -12,6 +12,7 @@ use burn::backend::wgpu::{
 
 use bytemuck::NoUninit;
 use glam::UVec3;
+use tracing::info_span;
 
 use super::generated_bindings::{self, sorting};
 
@@ -19,6 +20,7 @@ pub(crate) trait SplatKernel<S: ComputeServer<Kernel = Kernel>, C: ComputeChanne
 where
     Self: Default + KernelSource + 'static,
 {
+    const SPAN_NAME: &'static str;
     const BINDING_COUNT: usize;
     const WORKGROUP_SIZE: [u32; 3];
     type Uniforms: NoUninit;
@@ -29,7 +31,9 @@ where
         read_handles: &[&Handle<S>],
         write_handles: &[&Handle<S>],
         executions: [u32; 3],
+        sync: bool,
     ) {
+        let _span = info_span!("Executing", "{}", Self::SPAN_NAME).entered();
         let exec_vec = UVec3::from_array(executions);
         let group_size = UVec3::from_array(Self::WORKGROUP_SIZE);
         let execs = (exec_vec + group_size - 1) / group_size;
@@ -48,6 +52,10 @@ where
             let total_handles = [read_handles, write_handles].concat();
             assert_eq!(total_handles.len(), Self::BINDING_COUNT);
             client.execute(kernel, &total_handles);
+        }
+
+        if sync {
+            client.sync();
         }
     }
 }
@@ -71,6 +79,7 @@ macro_rules! kernel_source_gen {
         impl<S: ComputeServer<Kernel = Kernel>, C: ComputeChannel<S>> SplatKernel<S, C>
             for $struct_name
         {
+            const SPAN_NAME: &'static str = stringify!($struct_name);
             const BINDING_COUNT: usize =
                 generated_bindings::$module::bind_groups::WgpuBindGroup0::LAYOUT_DESCRIPTOR
                     .entries

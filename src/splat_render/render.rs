@@ -44,6 +44,8 @@ impl Backend for BurnBack {
         background: glam::Vec3,
         args: RenderArgs,
     ) -> (FloatTensor<Self, 3>, Aux<Self>) {
+        let _span = info_span!("Rendering splats").entered();
+
         let (means, scales, quats, colors, opacity) = (
             into_contiguous(means.clone()),
             into_contiguous(scales.clone()),
@@ -77,40 +79,36 @@ impl Backend for BurnBack {
         let cov2ds = create_tensor(&client, &device, [num_points, 4]);
         let num_tiles_hit = create_tensor::<i32, 1>(&client, &device, [num_points]);
 
-        {
-            let _project_span = info_span!("Project splat").entered();
-            ProjectSplats::execute(
-                &client,
-                generated_bindings::project_forward::Uniforms::new(
-                    camera.viewmatrix(),
-                    camera.focal().into(),
-                    camera.center().into(),
-                    img_size,
-                    tile_bounds.into(),
-                    tile_width,
-                    0.01,
-                ),
-                &[&means.handle, &scales.handle, &quats.handle],
-                &[
-                    &xys.handle,
-                    &depths,
-                    &radii.handle,
-                    &cov2ds.handle,
-                    &num_tiles_hit.handle,
-                ],
-                [num_points as u32, 1, 1],
-            );
+        ProjectSplats::execute(
+            &client,
+            generated_bindings::project_forward::Uniforms::new(
+                camera.viewmatrix(),
+                camera.focal().into(),
+                camera.center().into(),
+                img_size,
+                tile_bounds.into(),
+                tile_width,
+                0.01,
+            ),
+            &[&means.handle, &scales.handle, &quats.handle],
+            &[
+                &xys.handle,
+                &depths,
+                &radii.handle,
+                &cov2ds.handle,
+                &num_tiles_hit.handle,
+            ],
+            [num_points as u32, 1, 1],
+            args.sync_kernels,
+        );
 
-            if args.sync_kernels {
-                <BurnBack as burn::prelude::Backend>::sync(&device);
-            }
-        }
+        let cum_tiles_hit = prefix_sum(&client, &num_tiles_hit, args.sync_kernels);
 
-        let cum_tiles_hit = prefix_sum(&client, &num_tiles_hit);
-
+        let read_back = info_span!("Read back num_intersects").entered();
         // TODO: This is the only real CPU <-> GPU bottleneck, get around this somehow?
         #[allow(clippy::single_range_in_vec_init)]
         let last_elem = BurnBack::int_slice(cum_tiles_hit.clone(), [num_points - 1..num_points]);
+        drop(read_back);
 
         let num_intersects = *read_buffer_to_u32(&client, &last_elem.handle)
             .last()
@@ -127,12 +125,14 @@ impl Backend for BurnBack {
             &[&xys.handle, &radii.handle, &cum_tiles_hit.handle, &depths],
             &[&isect_ids_unsorted.handle, &gaussian_ids_unsorted.handle],
             [num_points as u32, 1, 1],
+            args.sync_kernels,
         );
 
         let (isect_ids_sorted, gaussian_ids_sorted) = radix_argsort(
             client.clone(),
             isect_ids_unsorted.clone(),
             gaussian_ids_unsorted,
+            args.sync_kernels,
         );
 
         let tile_bins = BurnBack::int_zeros(
@@ -145,6 +145,7 @@ impl Backend for BurnBack {
             &[&isect_ids_sorted.handle],
             &[&tile_bins.handle],
             [num_intersects as u32, 1, 1],
+            args.sync_kernels,
         );
 
         let out_img = create_tensor(
@@ -172,6 +173,7 @@ impl Backend for BurnBack {
             ],
             &[&out_img.handle, &final_index.handle],
             [camera.width, camera.height, 1],
+            args.sync_kernels,
         );
 
         (
@@ -203,6 +205,8 @@ struct GaussianBackwardState {
 
     out_img: FloatTensor<BurnBack, 3>,
     aux: Aux<BurnBack>,
+
+    args: RenderArgs,
 }
 
 #[derive(Debug)]
@@ -238,7 +242,7 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
             colors.clone().primitive,
             opacity.clone().primitive,
             background,
-            args,
+            args.clone(),
         );
 
         // Prepare a stateful operation with each variable node and corresponding graph.
@@ -257,6 +261,7 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
                     cam: camera.clone(),
                     background,
                     out_img: out_img.clone(),
+                    args,
                 };
 
                 (prep.finish(state, out_img), aux)
@@ -337,6 +342,7 @@ impl Backward<BurnBack, 3, 5> for RenderBackwards {
                 &v_opacity.handle,
             ],
             [camera.width, camera.height, 1],
+            state.args.sync_kernels,
         );
 
         // TODO: Can't this be done for just visible points
@@ -363,6 +369,7 @@ impl Backward<BurnBack, 3, 5> for RenderBackwards {
             ],
             &[&v_means.handle, &v_scales.handle, &v_quats.handle],
             [num_points as u32, 1, 1],
+            state.args.sync_kernels,
         );
 
         // Register gradients for parent nodes.
