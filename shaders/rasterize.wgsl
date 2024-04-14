@@ -20,11 +20,9 @@ struct Uniforms {
 @group(0) @binding(8) var<storage, read_write> final_index: array<u32>;
 
 // Workgroup variables.
-var<workgroup> id_batch: array<u32, helpers::TILE_SIZE>;
 var<workgroup> xy_batch: array<vec2f, helpers::TILE_SIZE>;
-var<workgroup> opacity_batch: array<f32, helpers::TILE_SIZE>;
 var<workgroup> colors_batch: array<vec4f, helpers::TILE_SIZE>;
-var<workgroup> cov2d_batch: array<vec4f, helpers::TILE_SIZE>;
+var<workgroup> conic_comp_batch: array<vec4f, helpers::TILE_SIZE>;
 
 // kernel function for rasterizing each tile
 // each thread treats a single pixel
@@ -88,11 +86,10 @@ fn main(
 
         if idx < range.y {
             let g_id = gaussian_ids_sorted[idx];
-            id_batch[local_idx] = g_id;
             xy_batch[local_idx] = xys[g_id];
-            opacity_batch[local_idx] = opacities[g_id];
-            colors_batch[local_idx] = colors[g_id];
-            cov2d_batch[local_idx] = cov2ds[g_id];
+            colors_batch[local_idx] = vec4f(colors[g_id].xyz, opacities[g_id]);
+            let cov2d = cov2ds[g_id].xyz;
+            conic_comp_batch[local_idx] = vec4f(helpers::cov2d_to_conic(cov2d), helpers::cov_compensation(cov2d));
         }
 
         // wait for other threads to collect the gaussians in batch
@@ -101,16 +98,16 @@ fn main(
         // process gaussians in the current batch for this pixel
         let remaining = min(helpers::TILE_SIZE, range.y - batch_start);
     
-        for (var t = 0u; t < remaining && !done; t++) {
-            let cov2d = cov2d_batch[t].xyz;
-            let conic =  helpers::cov2d_to_conic(cov2d);
-            // Apply compensation for the blurring of 2D covariances.
-            let compensation = helpers::cov_compensation(cov2d);
+        var t = 0u;
+        for (; t < remaining && !done; t++) {
+            let conic_comp = conic_comp_batch[t];
+            let conic = conic_comp.xyz;
+            let compensation = conic_comp.w;
             let xy = xy_batch[t];
-            let opac = opacity_batch[t];
+            let opac = colors_batch[t].w * compensation;
             let delta = xy - pixel_coord;
             let sigma = 0.5f * (conic.x * delta.x * delta.x + conic.z * delta.y * delta.y) + conic.y * delta.x * delta.y;
-            let alpha = min(0.99f, opac * compensation * exp(-sigma));
+            let alpha = min(0.99f, opac * exp(-sigma));
 
             if sigma < 0.0 || alpha < 1.0 / 255.0 {
                 continue;
@@ -131,13 +128,15 @@ fn main(
             let c = colors_batch[t].xyz;
             pix_out += c * vis;
             T = next_T;
-            final_idx = batch_start + t;
         }
+
+        final_idx = batch_start + t;
     }
 
     if inside {
-        // add background
         final_index[pix_id] = final_idx; // index of in bin of last gaussian in this pixel
+
+        // add background
         let final_color = pix_out + T * background;
         out_img[pix_id] = vec4f(final_color, 1.0 - T);
     }

@@ -26,15 +26,13 @@ struct Uniforms {
 
 var<workgroup> id_batch: array<u32, helpers::TILE_SIZE>;
 var<workgroup> xy_batch: array<vec2f, helpers::TILE_SIZE>;
-var<workgroup> opacity_batch: array<f32, helpers::TILE_SIZE>;
-var<workgroup> color_batch: array<vec4f, helpers::TILE_SIZE>;
-var<workgroup> cov2d_batch: array<vec4f, helpers::TILE_SIZE>;
+var<workgroup> colors_batch: array<vec4f, helpers::TILE_SIZE>;
+var<workgroup> conic_comp_batch: array<vec4f, helpers::TILE_SIZE>;
 
 var<workgroup> v_opacity_local: array<f32, helpers::TILE_SIZE>;
 var<workgroup> v_conic_local: array<vec3f, helpers::TILE_SIZE>;
 var<workgroup> v_xy_local: array<vec2f, helpers::TILE_SIZE>;
 var<workgroup> v_colors_local: array<vec3f, helpers::TILE_SIZE>;
-
 
 fn bitAddFloat(cur: u32, add: f32) -> u32 {
     return bitcast<u32>(bitcast<f32>(cur) + add);
@@ -99,9 +97,10 @@ fn main(
             let g_id = gaussian_ids_sorted[fetch_idx];
             id_batch[local_idx] = g_id;
             xy_batch[local_idx] = xys[g_id];
-            opacity_batch[local_idx] = opacities[g_id];
-            color_batch[local_idx] = colors[g_id];
-            cov2d_batch[local_idx] = cov2ds[g_id];
+
+            colors_batch[local_idx] = vec4f(colors[g_id].xyz, opacities[g_id]);
+            let cov2d = cov2ds[g_id].xyz;
+            conic_comp_batch[local_idx] = vec4f(helpers::cov2d_to_conic(cov2d), helpers::cov_compensation(cov2d));
         }
     
         // wait for other threads to collect the gaussians in batch
@@ -113,7 +112,6 @@ fn main(
 
         // reset local accumulations.
         for (var t = 0u; t < batch_size; t++) {
-            let g_id = id_batch[t];
             
             // Don't overwrite data before all the gradients have been scattered to the gaussians.
             workgroupBarrier();
@@ -126,10 +124,11 @@ fn main(
             let batch_idx = batch_end - t;
 
             if inside && batch_idx >= range.x && batch_idx <= bin_final {
-                let cov2d = cov2d_batch[t].xyz;
-                let conic = helpers::cov2d_to_conic(cov2d);
+                let conic_comp = conic_comp_batch[t];
+                let conic = conic_comp.xyz;
+                let color = colors_batch[t];
                 let xy = xy_batch[t];
-                let opac = opacity_batch[t] * helpers::cov_compensation(cov2d);
+                let opac = color.w * conic_comp.w;
                 let delta = xy - pixel_coord;
                 var sigma = 0.5f * (conic.x * delta.x * delta.x + conic.z * delta.y * delta.y) + conic.y * delta.x * delta.y;
                 let vis = exp(-sigma);
@@ -147,7 +146,7 @@ fn main(
 
                     var v_alpha = 0.0;
 
-                    let color = color_batch[t].xyz;
+                    let color = color.xyz;
                     // contribution from this pixel
                     v_alpha += dot(color * T - buffer * ra, v_out.xyz);
                     // TODO: Now that we store alpha instea of transmission, flip this?
@@ -178,6 +177,8 @@ fn main(
             workgroupBarrier();
 
             if local_idx == 0 {
+                let g_id = id_batch[t];
+
                 // Gather workgroup sums.
                 var v_colors_sum = vec3f(0.0);
                 var v_conic_sum = vec3f(0.0);
