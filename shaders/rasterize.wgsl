@@ -57,7 +57,6 @@ fn main(
     var done = false;
     if !inside {
         // this pixel is done
-        // atomicAdd(&count_done, 1u);
         done = true;
     }
 
