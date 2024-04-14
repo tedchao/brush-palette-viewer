@@ -26,9 +26,6 @@ var<workgroup> opacity_batch: array<f32, helpers::TILE_SIZE>;
 var<workgroup> colors_batch: array<vec4f, helpers::TILE_SIZE>;
 var<workgroup> cov2d_batch: array<vec4f, helpers::TILE_SIZE>;
 
-// Keep track of how many threads are done in this workgroup.
-var<workgroup> count_done: atomic<u32>;
-
 // kernel function for rasterizing each tile
 // each thread treats a single pixel
 // each thread group uses the same gaussian data in a tile
@@ -60,7 +57,7 @@ fn main(
     var done = false;
     if !inside {
         // this pixel is done
-        atomicAdd(&count_done, 1u);
+        // atomicAdd(&count_done, 1u);
         done = true;
     }
 
@@ -84,11 +81,6 @@ fn main(
         // resync all threads before beginning next batch
         // end early out if entire tile is done
         workgroupBarrier();
-
-        // end early out if entire tile is done
-        if count_done >= helpers::TILE_SIZE {
-            break;
-        }
 
         // each thread fetch 1 gaussian from front to back
         // index of gaussian to load
@@ -131,7 +123,6 @@ fn main(
                 // this pixel is done
                 // we want to render the last gaussian that contributes and note
                 // that here idx > range.x so we don't underflow
-                atomicAdd(&count_done, 1u);
                 done = true;
                 break;
             }
