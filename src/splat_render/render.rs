@@ -1,3 +1,6 @@
+use std::ops::DerefMut;
+use std::sync::Arc;
+
 use super::kernels::SplatKernel;
 use super::prefix_sum::prefix_sum;
 use super::radix_sort::radix_argsort;
@@ -31,6 +34,29 @@ pub fn argsort<T: Ord>(data: &[T]) -> Vec<usize> {
     let mut indices = (0..data.len()).collect::<Vec<_>>();
     indices.sort_by_key(|&i| &data[i]);
     indices
+}
+
+pub fn render<B: Backend>(
+    camera: &Camera,
+    means: Tensor<B, 2>,
+    scales: Tensor<B, 2>,
+    quats: Tensor<B, 2>,
+    colors: Tensor<B, 2>,
+    opacity: Tensor<B, 1>,
+    background: glam::Vec3,
+    args: RenderArgs,
+) -> (Tensor<B, 3>, Aux<BurnBack>) {
+    let (img, aux) = B::render_gaussians(
+        camera,
+        means.clone().into_primitive(),
+        scales.clone().into_primitive(),
+        quats.clone().into_primitive(),
+        colors.clone().into_primitive(),
+        opacity.clone().into_primitive(),
+        background,
+        args,
+    );
+    (Tensor::from_primitive(img), aux)
 }
 
 impl Backend for BurnBack {
@@ -108,11 +134,11 @@ impl Backend for BurnBack {
         // TODO: This is the only real CPU <-> GPU bottleneck, get around this somehow?
         #[allow(clippy::single_range_in_vec_init)]
         let last_elem = BurnBack::int_slice(cum_tiles_hit.clone(), [num_points - 1..num_points]);
-        drop(read_back);
 
         let num_intersects = *read_buffer_to_u32(&client, &last_elem.handle)
             .last()
             .unwrap() as usize;
+        drop(read_back);
 
         // Each intersection maps to a gaussian.
         let isect_ids_unsorted = create_tensor::<i32, 1>(&client, &device, [num_intersects]);
@@ -160,6 +186,33 @@ impl Backend for BurnBack {
             [camera.height as usize, camera.width as usize],
         );
 
+        let texture = {
+            let mut server_lock = client.channel.server.lock();
+            let server = server_lock.deref_mut();
+            let descriptor = wgpu::TextureDescriptor {
+                label: Some("camera back buffer"),
+                size: wgpu::Extent3d {
+                    width: camera.width,
+                    height: camera.height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba16Float,
+                usage: wgpu::TextureUsages::COPY_DST
+                    | wgpu::TextureUsages::STORAGE_BINDING
+                    | wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[wgpu::TextureFormat::Rgba16Float],
+            };
+            let texture = server.allocate_texture(&descriptor);
+            server.copy_to_texture(&out_img.handle, &texture);
+
+            println!("Texture has data now!!");
+
+            texture
+        };
+
         Rasterize::execute(
             &client,
             generated_bindings::rasterize::Uniforms::new(img_size, background.into()),
@@ -186,6 +239,7 @@ impl Backend for BurnBack {
                 gaussian_ids_sorted: Tensor::from_primitive(gaussian_ids_sorted),
                 xys: Tensor::from_primitive(xys),
                 final_index: Tensor::from_primitive(final_index),
+                texture: Arc::new(texture),
             },
         )
     }
@@ -398,27 +452,4 @@ impl Backward<BurnBack, 3, 5> for RenderBackwards {
             grads.register::<BurnBack, 1>(node.id, v_opacity);
         }
     }
-}
-
-pub fn render<B: Backend>(
-    camera: &Camera,
-    means: Tensor<B, 2>,
-    scales: Tensor<B, 2>,
-    quats: Tensor<B, 2>,
-    colors: Tensor<B, 2>,
-    opacity: Tensor<B, 1>,
-    background: glam::Vec3,
-    args: RenderArgs,
-) -> (Tensor<B, 3>, Aux<BurnBack>) {
-    let (img, aux) = B::render_gaussians(
-        camera,
-        means.clone().into_primitive(),
-        scales.clone().into_primitive(),
-        quats.clone().into_primitive(),
-        colors.clone().into_primitive(),
-        opacity.clone().into_primitive(),
-        background,
-        args,
-    );
-    (Tensor::from_primitive(img), aux)
 }

@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use burn::prelude::Int;
 use burn::{
     backend::{
@@ -13,6 +15,7 @@ use burn_compute::{
 };
 use burn_jit::{JitElement, Runtime};
 use burn_wgpu::JitTensor;
+use tracing::info_span;
 
 use crate::camera::Camera;
 
@@ -48,6 +51,7 @@ pub(crate) struct Aux<B: Backend> {
     pub cov2ds: Tensor<B, 2>,
     pub final_index: Tensor<B, 2, Int>,
     pub num_intersects: u32,
+    pub texture: Arc<wgpu::Texture>,
 }
 
 #[derive(Default, Debug, Clone)]
@@ -83,6 +87,8 @@ fn create_buffer<E: JitElement, const D: usize>(
     client: &BurnClient,
     shape: [usize; D],
 ) -> BufferHandle {
+    let _span = info_span!("Create buffer").entered();
+
     let shape = Shape::new(shape);
     let bufsize = shape.num_elements() * core::mem::size_of::<E>();
     client.empty(bufsize)
@@ -93,6 +99,8 @@ fn create_tensor<E: JitElement, const D: usize>(
     device: &<BurnRuntime as Runtime>::Device,
     shape: [usize; D],
 ) -> JitTensor<BurnRuntime, E, D> {
+    let _span = info_span!("Create tensor").entered();
+
     JitTensor::new(
         client.clone(),
         device.clone(),
