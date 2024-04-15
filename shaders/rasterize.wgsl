@@ -61,13 +61,12 @@ fn main(
     // have all threads in tile process the same gaussians in batches
     // first collect gaussians between range.x and range.y in batches
     // which gaussians to look through in this tile
-    let range = tile_bins[tile_id];
+    var range = tile_bins[tile_id];
     let num_batches = (range.y - range.x + helpers::TILE_SIZE - 1) / helpers::TILE_SIZE;
 
     // current visibility left to render
     var T = 1.0;
 
-    // TODO: Is this local_invocation_index?
     var pix_out = vec3f(0.0);
     var final_idx = range.y;
 

@@ -14,9 +14,21 @@ mod train;
 mod utils;
 mod viewer;
 
-use burn::backend::wgpu::{AutoGraphicsApi, JitBackend, WgpuRuntime};
+use burn::backend::{
+    wgpu::{AutoGraphicsApi, JitBackend, WgpuRuntime},
+    Autodiff,
+};
+use burn_wgpu::Wgpu;
+use tracing_subscriber::layer::SubscriberExt;
+
+use crate::train::TrainConfig;
 
 fn main() -> Result<(), Box<dyn Error>> {
+    tracing::subscriber::set_global_default(
+        tracing_subscriber::registry().with(tracing_tracy::TracyLayer::default()),
+    )
+    .expect("setup tracy layer");
+
     let device = Default::default();
 
     // type BackGPU = Wgpu<AutoGraphicsApi, f32, i32>;

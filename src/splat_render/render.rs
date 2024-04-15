@@ -13,7 +13,7 @@ use burn::tensor::ops::FloatTensorOps;
 use burn::tensor::ops::IntTensorOps;
 use burn::tensor::{Shape, Tensor};
 
-use tracing::{info, info_span, span, Level};
+use tracing::info_span;
 
 use super::{generated_bindings, Aux, Backend, BurnBack, FloatTensor, RenderArgs};
 use burn::backend::{
@@ -44,7 +44,7 @@ impl Backend for BurnBack {
         background: glam::Vec3,
         args: RenderArgs,
     ) -> (FloatTensor<Self, 3>, Aux<Self>) {
-        let _span = info_span!("Rendering splats").entered();
+        let _span = info_span!("render_gaussians").entered();
 
         let (means, scales, quats, colors, opacity) = (
             into_contiguous(means.clone()),
@@ -288,6 +288,8 @@ impl Backward<BurnBack, 3, 5> for RenderBackwards {
         grads: &mut Gradients,
         checkpointer: &mut Checkpointer,
     ) {
+        let _span = info_span!("render_gaussians backwards").entered();
+
         // // Get the nodes of each variable.
         let state = ops.state;
         let v_output = grads.consume::<BurnBack, 3>(&ops.node);

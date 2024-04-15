@@ -10,6 +10,7 @@ use burn::{
 };
 use ndarray::{Array, Array1, Array3};
 use rand::{rngs::StdRng, SeedableRng};
+use tracing::info_span;
 
 use crate::splat_render::{self, AutodiffBackend, Backend, BurnBack};
 use crate::{
@@ -74,6 +75,8 @@ fn train_step<B: AutodiffBackend>(
 where
     B::InnerBackend: Backend,
 {
+    let _span = info_span!("Train step").entered();
+
     // Get a random camera
     // TODO: Reproduciable RNG thingies.
     // TODO: If there is no camera, maybe just bail?

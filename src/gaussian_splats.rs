@@ -8,6 +8,7 @@ use burn::{
 use ndarray::Axis;
 use ply_rs::parser::Parser;
 use rerun::{Color, RecordingStream};
+use tracing::info_span;
 
 use crate::{
     camera::Camera,
@@ -505,6 +506,7 @@ impl<B: Backend> Splats<B> {
         Tensor<B, 3>,
         crate::splat_render::Aux<crate::splat_render::BurnBack>,
     ) {
+        let _span = info_span!("Splats render").entered();
         let cur_rot = self.rotation.val();
 
         let norms = Tensor::sum_dim(cur_rot.clone() * cur_rot.clone(), 1).sqrt();
