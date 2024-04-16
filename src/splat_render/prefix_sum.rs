@@ -1,5 +1,6 @@
 use burn_jit::JitElement;
 use burn_wgpu::JitTensor;
+use tracing::info_span;
 
 use super::{
     create_tensor, div_round_up, generated_bindings,
@@ -12,6 +13,8 @@ pub fn prefix_sum<E: JitElement>(
     input: &JitTensor<BurnRuntime, E, 1>,
     sync: bool,
 ) -> JitTensor<BurnRuntime, E, 1> {
+    let _span = info_span!("prefix sum");
+
     let threads_per_group = generated_bindings::prefix_sum_helpers::THREADS_PER_GROUP as usize;
     let num = input.shape.dims[0];
     let outputs = create_tensor(client, &input.device, input.shape.dims);
@@ -37,7 +40,6 @@ pub fn prefix_sum<E: JitElement>(
     let mut work_sz = size;
     while work_sz > threads_per_group {
         work_sz = div_round_up(work_sz, threads_per_group);
-
         group_buffer.push(create_tensor::<E, 1>(client, &input.device, [work_sz]));
         work_size.push(work_sz);
     }
@@ -65,7 +67,6 @@ pub fn prefix_sum<E: JitElement>(
 
     for l in (1..group_buffer.len()).rev() {
         let work_sz = work_size[l - 1];
-
         PrefixSumAddScannedSums::execute(
             client,
             (),
