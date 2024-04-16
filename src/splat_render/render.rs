@@ -1,6 +1,3 @@
-use std::ops::DerefMut;
-use std::sync::Arc;
-
 use super::kernels::SplatKernel;
 use super::prefix_sum::prefix_sum;
 use super::radix_sort::radix_argsort;
@@ -186,33 +183,6 @@ impl Backend for BurnBack {
             [camera.height as usize, camera.width as usize],
         );
 
-        let texture = {
-            let mut server_lock = client.channel.server.lock();
-            let server = server_lock.deref_mut();
-            let descriptor = wgpu::TextureDescriptor {
-                label: Some("camera back buffer"),
-                size: wgpu::Extent3d {
-                    width: camera.width,
-                    height: camera.height,
-                    depth_or_array_layers: 1,
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::Rgba16Float,
-                usage: wgpu::TextureUsages::COPY_DST
-                    | wgpu::TextureUsages::STORAGE_BINDING
-                    | wgpu::TextureUsages::TEXTURE_BINDING,
-                view_formats: &[wgpu::TextureFormat::Rgba16Float],
-            };
-            let texture = server.allocate_texture(&descriptor);
-            server.copy_to_texture(&out_img.handle, &texture);
-
-            println!("Texture has data now!!");
-
-            texture
-        };
-
         Rasterize::execute(
             &client,
             generated_bindings::rasterize::Uniforms::new(img_size, background.into()),
@@ -239,7 +209,6 @@ impl Backend for BurnBack {
                 gaussian_ids_sorted: Tensor::from_primitive(gaussian_ids_sorted),
                 xys: Tensor::from_primitive(xys),
                 final_index: Tensor::from_primitive(final_index),
-                texture: Arc::new(texture),
             },
         )
     }

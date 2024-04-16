@@ -6,7 +6,8 @@ pub(crate) struct Camera {
     pub height: u32,
     pub fovx: f32,
     pub fovy: f32,
-    pub transform: glam::Mat4,
+    pub position: glam::Vec3,
+    pub rotation: glam::Quat,
 }
 
 #[derive(Debug, Default)]
@@ -22,7 +23,7 @@ pub(crate) struct InputData {
 
 impl Camera {
     pub fn new(
-        translation: glam::Vec3,
+        position: glam::Vec3,
         rotation: glam::Quat,
         fovx: f32,
         fovy: f32,
@@ -34,18 +35,9 @@ impl Camera {
             height,
             fovx,
             fovy,
-            transform: glam::Mat4::from_rotation_translation(rotation, translation),
+            position,
+            rotation,
         }
-    }
-
-    pub fn position(&self) -> glam::Vec3 {
-        let (_, _, trans) = self.transform.to_scale_rotation_translation();
-        trans
-    }
-
-    pub fn rotation(&self) -> glam::Quat {
-        let (_, rot, _) = self.transform.to_scale_rotation_translation();
-        rot
     }
 
     pub fn focal(&self) -> glam::Vec2 {
@@ -60,7 +52,7 @@ impl Camera {
     }
 
     pub fn viewmatrix(&self) -> glam::Mat4 {
-        self.transform.inverse()
+        glam::Mat4::from_rotation_translation(self.rotation, self.position).inverse()
     }
 }
 

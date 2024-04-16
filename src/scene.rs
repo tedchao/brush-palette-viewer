@@ -33,8 +33,8 @@ impl Scene {
             rec.log_timeless(
                 path.clone(),
                 &rerun::Transform3D::from_translation_rotation(
-                    data.camera.position(),
-                    data.camera.rotation(),
+                    data.camera.position,
+                    data.camera.rotation,
                 ),
             )?;
             rec.log_timeless(path + "/image", &Image::try_from(data.view.image.clone())?)?;
@@ -49,7 +49,7 @@ impl Scene {
         let camera_centers = &self
             .train_data
             .iter()
-            .map(|x| x.camera.position())
+            .map(|x| x.camera.position)
             .collect::<Vec<_>>();
 
         let scene_center: glam::Vec3 = camera_centers

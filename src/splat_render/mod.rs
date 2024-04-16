@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use burn::prelude::Int;
 use burn::{
     backend::{
@@ -51,7 +49,6 @@ pub(crate) struct Aux<B: Backend> {
     pub cov2ds: Tensor<B, 2>,
     pub final_index: Tensor<B, 2, Int>,
     pub num_intersects: u32,
-    pub texture: Arc<wgpu::Texture>,
 }
 
 #[derive(Default, Debug, Clone)]

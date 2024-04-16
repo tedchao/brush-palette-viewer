@@ -16,7 +16,7 @@ struct Uniforms {
 @group(0) @binding(5) var<storage, read> colors: array<vec4f>;
 @group(0) @binding(6) var<storage, read> opacities: array<f32>;
 
-@group(0) @binding(7) var<storage, read_write> out_img: array<vec4f>;
+@group(0) @binding(7) var<storage, read_write> out_img: array<u32>;
 @group(0) @binding(8) var<storage, read_write> final_index: array<u32>;
 
 // Workgroup variables.
@@ -137,6 +137,10 @@ fn main(
 
         // add background
         let final_color = pix_out + T * background;
-        out_img[pix_id] = vec4f(final_color, 1.0 - T);
+        // out_img[pix_id] = vec4f(final_color, 1.0 - T);
+
+        let colors_u = vec4u(clamp(vec4f(final_color, 1.0 - T) * 255.0, vec4f(0.0), vec4f(255.0)));
+        let packed = colors_u.x | (colors_u.y << 8) | (colors_u.z << 16) | (colors_u.w << 24);
+        out_img[pix_id] = packed;
     }
 }
