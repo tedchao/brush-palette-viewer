@@ -136,7 +136,8 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
     
     // Compensation is applied as opac * comp
     // so deriv is v_opac.
-    let v_compensation = v_opacity[idx];
+    // TODO: Re-enable compensation.
+    let v_compensation = v_opacity[idx] * 0.0;
 
     // comp = sqrt(det(cov2d - 0.3 I) / det(cov2d))
     // conic = inverse(cov2d)

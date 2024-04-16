@@ -128,7 +128,9 @@ fn main(
                 let conic = conic_comp.xyz;
                 let color = colors_batch[t];
                 let xy = xy_batch[t];
-                let opac = color.w * conic_comp.w;
+                // TODO: Re-enable compensation.
+                let compensation = conic_comp.w;
+                let opac = color.w;
                 let delta = xy - pixel_coord;
                 var sigma = 0.5f * (conic.x * delta.x * delta.x + conic.z * delta.y * delta.y) + conic.y * delta.x * delta.y;
                 let vis = exp(-sigma);

@@ -101,9 +101,10 @@ fn main(
         for (; t < remaining && !done; t++) {
             let conic_comp = conic_comp_batch[t];
             let conic = conic_comp.xyz;
+            // TODO: Re-enable compensation.
             let compensation = conic_comp.w;
             let xy = xy_batch[t];
-            let opac = colors_batch[t].w * compensation;
+            let opac = colors_batch[t].w;
             let delta = xy - pixel_coord;
             let sigma = 0.5f * (conic.x * delta.x * delta.x + conic.z * delta.y * delta.y) + conic.y * delta.x * delta.y;
             let alpha = min(0.99f, opac * exp(-sigma));
