@@ -7,7 +7,7 @@ use crate::{
     splat_render::BurnBack,
 };
 use anyhow::Result;
-use burn_wgpu::{AutoGraphicsApi, RuntimeOptions, WgpuData};
+use burn::tensor::Tensor;
 use eframe::{egui_wgpu::WgpuConfiguration, NativeOptions};
 use egui::{pos2, Color32, Rect, TextureId};
 use wgpu::ImageDataLayout;
@@ -25,6 +25,44 @@ struct MyApp {
     data: Option<RunningData>,
 }
 
+fn copy_buffer_to_texture(img: Tensor<BurnBack, 3>, texture: &wgpu::Texture) {
+    let client = img.clone().into_primitive().client.clone();
+    let [height, width, _] = img.shape().dims;
+
+    client.run_custom_command(
+        |server, resources| {
+            // Put compute passes in encoder before copying the buffer.
+            let img_res = &resources[0];
+            let bytes_per_row = Some(4 * width as u32);
+            let encoder = server.get_command_encoder();
+
+            // Now copy the buffer to the texture.
+            encoder.copy_buffer_to_texture(
+                wgpu::ImageCopyBuffer {
+                    buffer: &img_res.buffer,
+                    layout: ImageDataLayout {
+                        offset: 0,
+                        bytes_per_row,
+                        rows_per_image: None,
+                    },
+                },
+                wgpu::ImageCopyTexture {
+                    texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
+                    aspect: wgpu::TextureAspect::All,
+                },
+                wgpu::Extent3d {
+                    width: width as u32,
+                    height: height as u32,
+                    depth_or_array_layers: 1,
+                },
+            );
+        },
+        &[&img.into_primitive().handle],
+    );
+}
+
 impl eframe::App for MyApp {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         let device = burn_wgpu::WgpuDevice::Existing;
@@ -32,29 +70,25 @@ impl eframe::App for MyApp {
         if !self.did_init {
             let state = frame.wgpu_render_state().unwrap();
 
-            burn::backend::wgpu::init_sync::<AutoGraphicsApi>(
-                &device,
-                RuntimeOptions {
-                    wgpu_devices: Some(WgpuData {
-                        adapter: state.adapter.clone(),
-                        device: state.device.clone(),
-                        queue: state.queue.clone(),
-                    }),
-                    ..Default::default()
-                },
+            let device = burn::backend::wgpu::init_existing_device(
+                0,
+                state.adapter.clone(),
+                state.device.clone(),
+                state.queue.clone(),
+                Default::default(),
             );
+
             let splats = gaussian_splats::create_from_ply::<BurnBack>(&self.path, &device).unwrap();
             self.did_init = true;
 
-            let state = frame.wgpu_render_state().unwrap();
             let mut rendererer = state.renderer.write();
             let egui_device = state.device.clone();
 
             let backbuffer = egui_device.create_texture(&wgpu::TextureDescriptor {
-                label: Some("EGUI custom texture"),
+                label: Some("Splat backbuffer"),
                 size: wgpu::Extent3d {
-                    width: self.camera.width as u32,
-                    height: self.camera.height as u32,
+                    width: self.camera.width,
+                    height: self.camera.height,
                     depth_or_array_layers: 1,
                 },
                 mip_level_count: 1,
@@ -78,57 +112,15 @@ impl eframe::App for MyApp {
             });
         }
 
-        let data = self.data.as_ref().expect("Initialization failed?");
-        let (img, _) = data.splats.render(&self.camera, glam::vec3(0.0, 0.0, 0.0));
-        <BurnBack as burn::prelude::Backend>::sync(&device);
-
-        {
-            let client = img.clone().into_primitive().client;
-            let mut device_guard = client.channel.server.lock();
-
-            // Put compute passes in encoder before copying the buffer.
-            device_guard.register_tasks();
-
-            let resource = device_guard.get_resource(&img.into_primitive().handle);
-            let bytes_per_row = Some(4 * self.camera.width);
-
-            // Now copy the buffer to the texture.
-            device_guard.encoder.copy_buffer_to_texture(
-                wgpu::ImageCopyBuffer {
-                    buffer: &resource.buffer,
-                    layout: ImageDataLayout {
-                        offset: 0,
-                        bytes_per_row,
-                        rows_per_image: None,
-                    },
-                },
-                wgpu::ImageCopyTexture {
-                    texture: &data.backbuffer,
-                    mip_level: 0,
-                    origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
-                    aspect: wgpu::TextureAspect::All,
-                },
-                wgpu::Extent3d {
-                    width: data.backbuffer.width(),
-                    height: data.backbuffer.height(),
-                    depth_or_array_layers: 1,
-                },
-            );
-            // Flush to device queue.
-            device_guard.submit();
-        }
-
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.heading("My egui Application");
+            ui.heading("Brush splat viewwer");
 
-            let uv = Rect {
-                min: pos2(0.0, 0.0),
-                max: pos2(1.0, 1.0),
-            };
             let (rect, response) = ui.allocate_exact_size(
                 egui::Vec2::new(self.camera.width as f32, self.camera.height as f32),
                 egui::Sense::drag(),
             );
+
+            let mut dirty = false;
 
             let mut translation = glam::Vec3::ZERO;
             let camera_forwarwd = self.camera.rotation * glam::vec3(0.0, 0.0, 1.0);
@@ -138,22 +130,26 @@ impl eframe::App for MyApp {
             // TODO: Deltatime.
             if ui.input(|i| i.key_down(egui::Key::W)) {
                 translation += camera_forwarwd * move_speed;
-                ctx.request_repaint();
+                dirty = true;
             }
             if ui.input(|i| i.key_down(egui::Key::A)) {
                 translation += -camera_right * move_speed;
-                ctx.request_repaint();
+                dirty = true;
             }
             if ui.input(|i| i.key_down(egui::Key::S)) {
                 translation += -camera_forwarwd * move_speed;
-                ctx.request_repaint();
+                dirty = true;
             }
             if ui.input(|i| i.key_down(egui::Key::D)) {
                 translation += camera_right * move_speed;
-                ctx.request_repaint();
+                dirty = true;
             }
 
             let drag = response.drag_delta();
+
+            if drag.length() > 0.0 {
+                dirty = true;
+            }
 
             let rot_x = drag.x * 0.005;
             let rot_y = drag.y * 0.005;
@@ -162,8 +158,25 @@ impl eframe::App for MyApp {
             self.camera.position += translation;
             self.camera.rotation = self.camera.rotation.mul_quat(rotation).normalize();
 
-            ui.painter()
-                .image(data.texture_id, rect, uv, Color32::WHITE);
+            let data = self.data.as_ref().expect("Initialization failed?");
+            let (img, _) = data.splats.render(&self.camera, glam::vec3(0.0, 0.0, 0.0));
+            copy_buffer_to_texture(img, &data.backbuffer);
+
+            ui.painter().rect_filled(rect, 0.0, Color32::BLACK);
+
+            ui.painter().image(
+                data.texture_id,
+                rect,
+                Rect {
+                    min: pos2(0.0, 0.0),
+                    max: pos2(1.0, 1.0),
+                },
+                Color32::WHITE,
+            );
+
+            if dirty {
+                ctx.request_repaint();
+            }
         });
     }
 }
