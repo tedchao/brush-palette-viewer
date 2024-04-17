@@ -29,8 +29,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     // let config = TrainConfig::new("../nerf_synthetic/lego/".to_owned());
     // train::train::<DiffBack>(&config, &device)?;
     viewer::view(
-        "../models/bicycle/point_cloud/iteration_30000/point_cloud.ply",
-        "../models/bicycle/cameras.json",
+        "../models/bonsai/point_cloud/iteration_30000/point_cloud.ply",
+        "../models/bonsai/cameras.json",
     )?;
     Ok(())
 }

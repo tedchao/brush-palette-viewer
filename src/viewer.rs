@@ -10,6 +10,7 @@ use anyhow::Result;
 use burn::tensor::Tensor;
 use eframe::{egui_wgpu::WgpuConfiguration, NativeOptions};
 use egui::{pos2, Color32, Rect, TextureId};
+use glam::{Mat3, Mat4, Quat, Vec2, Vec3};
 use wgpu::ImageDataLayout;
 
 struct RunningData {
@@ -18,11 +19,87 @@ struct RunningData {
     texture_id: TextureId,
 }
 
+/// Tags an entity as capable of panning and orbiting.
+struct OrbitControls {
+    pub focus: Vec3,
+    pub radius: f32,
+
+    pub rotation: glam::Quat,
+    pub position: glam::Vec3,
+}
+
+impl OrbitControls {
+    fn new(radius: f32) -> Self {
+        Self {
+            focus: Vec3::ZERO,
+            radius,
+            rotation: Quat::IDENTITY,
+            position: Vec3::NEG_Z * radius,
+        }
+    }
+}
+
+impl OrbitControls {
+    /// Pan the camera with middle mouse click, zoom with scroll wheel, orbit with right mouse click.
+    fn pan_orbit_camera(&mut self, pan: Vec2, rotate: Vec2, scroll: f32, window: Vec2) {
+        let mut any = false;
+        if rotate.length_squared() > 0.0 {
+            any = true;
+            let delta_x = rotate.x * std::f32::consts::PI * 2.0 / window.x;
+            let delta_y = rotate.y * std::f32::consts::PI / window.y;
+            let yaw = Quat::from_rotation_y(delta_x);
+            let pitch = Quat::from_rotation_x(-delta_y);
+            self.rotation = yaw * self.rotation * pitch;
+        } else if pan.length_squared() > 0.0 {
+            any = true;
+            // make panning distance independent of resolution and FOV,
+            let scaled_pan = pan * Vec2::new(1.0 / window.x, 1.0 / window.y);
+
+            // translate by local axes
+            let right = self.rotation * Vec3::X * -scaled_pan.x;
+            let up = self.rotation * Vec3::Y * -scaled_pan.y;
+
+            // make panning proportional to distance away from focus point
+            let translation = (right + up) * self.radius;
+            self.focus += translation;
+        } else if scroll.abs() > 0.0 {
+            any = true;
+            self.radius -= scroll * self.radius * 0.2;
+            // dont allow zoom to reach zero or you get stuck
+            self.radius = f32::max(self.radius, 0.05);
+        }
+
+        if any {
+            // emulating parent/child to make the yaw/y-axis rotation behave like a turntable
+            // parent = x and y rotation
+            // child = z-offset
+            let rot_matrix = Mat3::from_quat(self.rotation);
+            self.position = self.focus + rot_matrix.mul_vec3(Vec3::new(0.0, 0.0, -self.radius));
+        }
+    }
+}
+
 struct MyApp {
     camera: Camera,
     path: String,
-    did_init: bool,
     data: Option<RunningData>,
+    controls: OrbitControls,
+    start_transform: Mat4,
+}
+
+impl MyApp {
+    fn new(path: &str, camera: Camera) -> Self {
+        MyApp {
+            camera: camera.clone(),
+            path: path.to_owned(),
+            data: None,
+            controls: OrbitControls::new(15.0),
+            start_transform: glam::Mat4::from_rotation_translation(
+                camera.rotation,
+                camera.position,
+            ),
+        }
+    }
 }
 
 fn copy_buffer_to_texture(img: Tensor<BurnBack, 3>, texture: &wgpu::Texture) {
@@ -65,9 +142,7 @@ fn copy_buffer_to_texture(img: Tensor<BurnBack, 3>, texture: &wgpu::Texture) {
 
 impl eframe::App for MyApp {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
-        let device = burn_wgpu::WgpuDevice::Existing;
-
-        if !self.did_init {
+        if self.data.is_none() {
             let state = frame.wgpu_render_state().unwrap();
 
             let device = burn::backend::wgpu::init_existing_device(
@@ -79,7 +154,6 @@ impl eframe::App for MyApp {
             );
 
             let splats = gaussian_splats::create_from_ply::<BurnBack>(&self.path, &device).unwrap();
-            self.did_init = true;
 
             let mut rendererer = state.renderer.write();
             let egui_device = state.device.clone();
@@ -120,43 +194,35 @@ impl eframe::App for MyApp {
                 egui::Sense::drag(),
             );
 
-            let mut dirty = false;
+            let mouse_delta = glam::vec2(response.drag_delta().x, response.drag_delta().y);
 
-            let mut translation = glam::Vec3::ZERO;
-            let camera_forwarwd = self.camera.rotation * glam::vec3(0.0, 0.0, 1.0);
-            let camera_right = self.camera.rotation * glam::vec3(1.0, 0.0, 0.0);
+            let (pan, rotate) = if response.dragged_by(egui::PointerButton::Primary) {
+                (Vec2::ZERO, mouse_delta)
+            } else if response.dragged_by(egui::PointerButton::Secondary) {
+                (mouse_delta, Vec2::ZERO)
+            } else {
+                (Vec2::ZERO, Vec2::ZERO)
+            };
+            let scrolled = ui.input(|r| r.scroll_delta).y;
 
-            let move_speed = 0.05;
-            // TODO: Deltatime.
-            if ui.input(|i| i.key_down(egui::Key::W)) {
-                translation += camera_forwarwd * move_speed;
-                dirty = true;
-            }
-            if ui.input(|i| i.key_down(egui::Key::A)) {
-                translation += -camera_right * move_speed;
-                dirty = true;
-            }
-            if ui.input(|i| i.key_down(egui::Key::S)) {
-                translation += -camera_forwarwd * move_speed;
-                dirty = true;
-            }
-            if ui.input(|i| i.key_down(egui::Key::D)) {
-                translation += camera_right * move_speed;
-                dirty = true;
-            }
+            let dirty = response.dragged() || scrolled > 0.0;
 
-            let drag = response.drag_delta();
+            self.controls.pan_orbit_camera(
+                pan * 0.5,
+                rotate * 0.5,
+                scrolled * 0.02,
+                glam::vec2(rect.size().x, rect.size().y),
+            );
 
-            if drag.length() > 0.0 {
-                dirty = true;
-            }
+            let controls_transform = glam::Mat4::from_rotation_translation(
+                self.controls.rotation,
+                self.controls.position,
+            );
 
-            let rot_x = drag.x * 0.005;
-            let rot_y = drag.y * 0.005;
-            let rotation = glam::Quat::from_euler(glam::EulerRot::XYZ, -rot_y, rot_x, 0.0);
-
-            self.camera.position += translation;
-            self.camera.rotation = self.camera.rotation.mul_quat(rotation).normalize();
+            let total_transform = self.start_transform * controls_transform;
+            let (_, rot, pos) = total_transform.to_scale_rotation_translation();
+            self.camera.position = pos;
+            self.camera.rotation = rot;
 
             let data = self.data.as_ref().expect("Initialization failed?");
             let (img, _) = data.splats.render(&self.camera, glam::vec3(0.0, 0.0, 0.0));
@@ -202,7 +268,7 @@ pub(crate) fn view(path: &'static str, viewpoints: &str) -> Result<()> {
         cameras[0].position,
         cameras[0].rotation,
         cameras[0].fovx,
-        cameras[0].fovy,
+        cameras[0].fovx,
         1024,
         1024,
     );
@@ -210,14 +276,7 @@ pub(crate) fn view(path: &'static str, viewpoints: &str) -> Result<()> {
     eframe::run_native(
         "My egui App",
         native_options,
-        Box::new(move |_cc| {
-            Box::new(MyApp {
-                path: path.to_owned(),
-                camera: start_camera,
-                did_init: false,
-                data: None,
-            })
-        }),
+        Box::new(move |_cc| Box::new(MyApp::new(path, start_camera))),
     )
     .unwrap();
 

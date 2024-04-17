@@ -51,8 +51,20 @@ impl Camera {
         glam::vec2((self.width as f32) / 2.0, (self.height as f32) / 2.0)
     }
 
-    pub fn viewmatrix(&self) -> glam::Mat4 {
-        glam::Mat4::from_rotation_translation(self.rotation, self.position).inverse()
+    pub fn local_to_world(&self) -> glam::Mat4 {
+        glam::Mat4::from_rotation_translation(self.rotation, self.position)
+    }
+
+    pub fn world_to_local(&self) -> glam::Mat4 {
+        self.local_to_world().inverse()
+    }
+
+    pub(crate) fn forward(&self) -> glam::Vec3 {
+        self.rotation * glam::vec3(0.0, 0.0, 1.0)
+    }
+
+    pub(crate) fn right(&self) -> glam::Vec3 {
+        self.rotation * glam::vec3(1.0, 0.0, 0.0)
     }
 }
 

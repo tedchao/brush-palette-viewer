@@ -105,7 +105,7 @@ impl Backend for BurnBack {
         ProjectSplats::execute(
             &client,
             generated_bindings::project_forward::Uniforms::new(
-                camera.viewmatrix(),
+                camera.world_to_local(),
                 camera.focal().into(),
                 camera.center().into(),
                 img_size,
@@ -378,7 +378,7 @@ impl Backward<BurnBack, 3, 5> for RenderBackwards {
         ProjectBackwards::execute(
             client,
             generated_bindings::project_backwards::Uniforms::new(
-                camera.viewmatrix(),
+                camera.world_to_local(),
                 camera.center().into(),
                 img_size,
             ),
