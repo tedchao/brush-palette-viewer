@@ -2,8 +2,8 @@
 use burn::tensor::{backend::Backend, BasicOps, Data, Element, Shape, Tensor};
 use ndarray::{Array, Dim, Dimension, StrideShape};
 
-pub(crate) fn ndarray_to_burn<T: Element, B: Backend, const D: usize, K: BasicOps<B>>(
-    arr: Array<T, Dim<[usize; D]>>,
+pub(crate) fn ndarray_to_burn<E: Element, B: Backend, const D: usize, K: BasicOps<B>>(
+    arr: Array<E, Dim<[usize; D]>>,
     device: &B::Device,
 ) -> Tensor<B, D, K>
 where

@@ -1,6 +1,7 @@
-use crate::camera::InputData;
 use anyhow::Result;
 use rerun::Image;
+
+use crate::dataset_readers::InputData;
 
 // Encapsulates a multi-view scene including cameras and the splats.
 // Also provides methods for checkpointing the training process.

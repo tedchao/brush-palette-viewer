@@ -1,9 +1,7 @@
+use crate::camera::Camera;
 use burn::prelude::Int;
 use burn::{
-    backend::{
-        wgpu::{AutoGraphicsApi, JitBackend, WgpuRuntime},
-        Autodiff,
-    },
+    backend::wgpu::{AutoGraphicsApi, JitBackend, WgpuRuntime},
     tensor::{Shape, Tensor},
 };
 use burn_compute::{
@@ -15,30 +13,23 @@ use burn_jit::{JitElement, Runtime};
 use burn_wgpu::JitTensor;
 use tracing::info_span;
 
-use crate::camera::Camera;
-
 mod dim_check;
-mod generated_bindings;
 mod kernels;
 mod prefix_sum;
 mod radix_sort;
-
 pub mod render;
+mod shaders;
 
-type BurnRuntime = WgpuRuntime<AutoGraphicsApi, f32, i32>;
-pub(crate) type BurnBack = JitBackend<BurnRuntime>;
+pub type BurnRuntime = WgpuRuntime<AutoGraphicsApi, f32, i32>;
+pub type BurnBack = JitBackend<BurnRuntime>;
+
 type BurnClient =
     ComputeClient<<BurnRuntime as Runtime>::Server, <BurnRuntime as Runtime>::Channel>;
-
 type BufferHandle = Handle<<BurnRuntime as Runtime>::Server>;
 
-pub type FloatTensor<B, const D: usize> =
+type FloatTensor<B, const D: usize> =
     <B as burn::tensor::backend::Backend>::FloatTensorPrimitive<D>;
-
-pub type IntTensor<B, const D: usize> =
-    <B as burn::tensor::backend::Backend>::IntTensorPrimitive<D>;
-
-pub type HandleType<S> = Handle<S>;
+type IntTensor<B, const D: usize> = <B as burn::tensor::backend::Backend>::IntTensorPrimitive<D>;
 
 #[derive(Debug, Clone)]
 pub(crate) struct Aux<B: Backend> {
@@ -49,11 +40,6 @@ pub(crate) struct Aux<B: Backend> {
     pub cov2ds: Tensor<B, 2>,
     pub final_index: Option<Tensor<B, 2, Int>>,
     pub num_intersects: u32,
-}
-
-#[derive(Default, Debug, Clone)]
-pub(crate) struct RenderArgs {
-    pub sync_kernels: bool,
 }
 
 /// We create our own Backend trait that extends the Burn backend trait.
@@ -71,24 +57,12 @@ pub trait Backend: burn::tensor::backend::Backend {
         colors: FloatTensor<Self, 2>,
         opacity: FloatTensor<Self, 1>,
         background: glam::Vec3,
-        args: RenderArgs,
     ) -> (FloatTensor<Self, 3>, Aux<BurnBack>);
 }
 
-// TODO: In rust 1.80 having a trait bound here on the inner backend would be great.
-// For now all code using it will need to specify this bound itself.
-pub trait AutodiffBackend: Backend + burn::tensor::backend::AutodiffBackend {}
-impl AutodiffBackend for Autodiff<BurnBack> {}
-
-fn create_buffer<E: JitElement, const D: usize>(
-    client: &BurnClient,
-    shape: [usize; D],
-) -> BufferHandle {
-    let _span = info_span!("Create buffer").entered();
-
-    let shape = Shape::new(shape);
-    let bufsize = shape.num_elements() * core::mem::size_of::<E>();
-    client.empty(bufsize)
+pub trait AutodiffBackend:
+    Backend + burn::tensor::backend::AutodiffBackend<InnerBackend: Backend>
+{
 }
 
 fn create_tensor<E: JitElement, const D: usize>(
@@ -98,12 +72,16 @@ fn create_tensor<E: JitElement, const D: usize>(
 ) -> JitTensor<BurnRuntime, E, D> {
     let _span = info_span!("Create tensor").entered();
 
-    JitTensor::new(
-        client.clone(),
-        device.clone(),
-        Shape::new(shape),
-        create_buffer::<E, D>(client, shape),
-    )
+    let shape = Shape::new(shape);
+    let bufsize = shape.num_elements() * core::mem::size_of::<E>();
+    let buffer = client.empty(bufsize);
+    JitTensor::new(client.clone(), device.clone(), shape, buffer)
+}
+
+fn bitcast_tensor<const D: usize, EIn: JitElement, EOut: JitElement>(
+    tensor: JitTensor<BurnRuntime, EIn, D>,
+) -> JitTensor<BurnRuntime, EOut, D> {
+    JitTensor::new(tensor.client, tensor.device, tensor.shape, tensor.handle)
 }
 
 pub(crate) fn read_buffer_to_u32<S: ComputeServer, C: ComputeChannel<S>>(
@@ -137,8 +115,4 @@ fn assert_buffer_is_finite<S: ComputeServer, C: ComputeChannel<S>>(
             panic!("Elem {elem} at {i} is invalid!");
         }
     }
-}
-
-fn div_round_up(x: usize, y: usize) -> usize {
-    (x + y - 1) / y
 }

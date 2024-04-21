@@ -1,10 +1,20 @@
-use crate::camera::InputData;
-use crate::camera::{Camera, InputView};
+use crate::camera::Camera;
 use crate::{camera, scene};
 use anyhow::Result;
 use ndarray::Array3;
 use rerun::external::anyhow::Context;
 use std::path::PathBuf;
+
+#[derive(Debug, Default)]
+pub(crate) struct InputView {
+    pub(crate) image: Array3<f32>, // RGBA image.
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct InputData {
+    pub(crate) camera: Camera,
+    pub(crate) view: InputView,
+}
 
 fn read_synthetic_nerf_data(
     base_path: &str,

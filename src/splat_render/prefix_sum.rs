@@ -1,33 +1,28 @@
-use burn_jit::JitElement;
 use burn_wgpu::JitTensor;
 use tracing::info_span;
 
 use super::{
-    create_tensor, div_round_up, generated_bindings,
+    create_tensor,
     kernels::{PrefixSumAddScannedSums, PrefixSumScan, PrefixSumScanSums, SplatKernel},
-    BurnClient, BurnRuntime,
+    shaders, BurnClient, BurnRuntime,
 };
 
-pub fn prefix_sum<E: JitElement>(
+pub fn prefix_sum(
     client: &BurnClient,
-    input: &JitTensor<BurnRuntime, E, 1>,
-    sync: bool,
-) -> JitTensor<BurnRuntime, E, 1> {
+    input: &JitTensor<BurnRuntime, u32, 1>,
+) -> JitTensor<BurnRuntime, u32, 1> {
     let _span = info_span!("prefix sum");
 
-    let threads_per_group = generated_bindings::prefix_sum_helpers::THREADS_PER_GROUP as usize;
+    let threads_per_group = shaders::prefix_sum_helpers::THREADS_PER_GROUP as usize;
     let num = input.shape.dims[0];
     let outputs = create_tensor(client, &input.device, input.shape.dims);
 
-    // 1. Per group scan
-    // N = num.
     PrefixSumScan::new().execute(
         client,
         (),
         &[&input.handle],
         &[&outputs.handle],
         [num as u32, 1, 1],
-        sync,
     );
 
     if num < threads_per_group {
@@ -39,8 +34,8 @@ pub fn prefix_sum<E: JitElement>(
     let mut work_size = vec![];
     let mut work_sz = size;
     while work_sz > threads_per_group {
-        work_sz = div_round_up(work_sz, threads_per_group);
-        group_buffer.push(create_tensor::<E, 1>(client, &input.device, [work_sz]));
+        work_sz = work_sz.div_ceil(threads_per_group);
+        group_buffer.push(create_tensor::<u32, 1>(client, &input.device, [work_sz]));
         work_size.push(work_sz);
     }
 
@@ -50,10 +45,8 @@ pub fn prefix_sum<E: JitElement>(
         &[&outputs.handle],
         &[&group_buffer[0].handle],
         [work_size[0] as u32, 1, 1],
-        sync,
     );
 
-    // Continue down the pyramid
     for l in 0..(group_buffer.len() - 1) {
         PrefixSumScanSums::new().execute(
             client,
@@ -61,7 +54,6 @@ pub fn prefix_sum<E: JitElement>(
             &[&group_buffer[l].handle],
             &[&group_buffer[l + 1].handle],
             [work_size[l + 1] as u32, 1, 1],
-            sync,
         );
     }
 
@@ -73,7 +65,6 @@ pub fn prefix_sum<E: JitElement>(
             &[&group_buffer[l].handle],
             &[&group_buffer[l - 1].handle],
             [work_sz as u32, 1, 1],
-            sync,
         );
     }
 
@@ -83,7 +74,6 @@ pub fn prefix_sum<E: JitElement>(
         &[&group_buffer[0].handle],
         &[&outputs.handle],
         [(work_size[0] * threads_per_group) as u32, 1, 1],
-        sync,
     );
 
     outputs
@@ -96,6 +86,8 @@ mod tests {
     };
     #[allow(unused_imports)]
     use burn::tensor::{Int, Tensor};
+    #[allow(unused_imports)]
+    use burn_wgpu::JitTensor;
 
     #[test]
     fn test_sum() {
@@ -109,8 +101,8 @@ mod tests {
         type Backend = BurnBack;
         let device = Default::default();
         let keys = Tensor::<Backend, 1, Int>::from_data(data.as_slice(), &device).into_primitive();
-
-        let summed = prefix_sum(&keys.client, &keys, false);
+        let keys = JitTensor::new(keys.client, keys.device, keys.shape, keys.handle);
+        let summed = prefix_sum(&keys.client, &keys);
         let summed = read_buffer_to_u32(&summed.client, &summed.handle);
 
         let prefix_sum_ref: Vec<_> = data

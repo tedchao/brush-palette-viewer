@@ -10,12 +10,11 @@ use burn::backend::wgpu::{
     Kernel, KernelSource, SourceKernel, SourceTemplate, WorkGroup, WorkgroupSize,
 };
 
+use super::shaders::*;
 use bytemuck::NoUninit;
 use glam::UVec3;
 use naga_oil::compose::ShaderDefValue;
 use tracing::info_span;
-
-use super::generated_bindings::{self, sorting};
 
 pub(crate) trait SplatKernel<S: ComputeServer<Kernel = Kernel>, C: ComputeChannel<S>>
 where
@@ -33,7 +32,6 @@ where
         read_handles: &[&Handle<S>],
         write_handles: &[&Handle<S>],
         executions: [u32; 3],
-        sync: bool,
     ) {
         let _span = info_span!("Executing", "{}", Self::SPAN_NAME).entered();
         let exec_vec = UVec3::from_array(executions);
@@ -54,10 +52,6 @@ where
             let total_handles = [read_handles, write_handles].concat();
             assert_eq!(total_handles.len(), Self::BINDING_COUNT);
             client.execute(kernel, &total_handles);
-        }
-
-        if sync {
-            client.sync();
         }
     }
 }
@@ -98,11 +92,11 @@ macro_rules! kernel_source_gen {
             fn source(&self) -> SourceTemplate {
                 let mut composer = naga_oil::compose::Composer::default();
                 let shader_defs = self.create_shader_hashmap();
-                generated_bindings::$module::load_shader_modules_embedded(
+                $module::load_shader_modules_embedded(
                     &mut composer,
                     &shader_defs,
                 );
-                let module = generated_bindings::$module::load_naga_module_embedded(
+                let module = $module::load_naga_module_embedded(
                     &mut composer,
                     shader_defs,
                 );
@@ -127,42 +121,32 @@ macro_rules! kernel_source_gen {
             for $struct_name
         {
             const SPAN_NAME: &'static str = stringify!($struct_name);
-            const BINDING_COUNT: usize =
-                generated_bindings::$module::bind_groups::WgpuBindGroup0::LAYOUT_DESCRIPTOR
+            const BINDING_COUNT: usize = $module::bind_groups::WgpuBindGroup0::LAYOUT_DESCRIPTOR
                     .entries
                     .len();
             type Uniforms = $uniforms;
-            const WORKGROUP_SIZE: [u32; 3] =
-                generated_bindings::$module::compute::MAIN_WORKGROUP_SIZE;
+            const WORKGROUP_SIZE: [u32; 3] = $module::compute::MAIN_WORKGROUP_SIZE;
         }
     };
 }
 
-kernel_source_gen!(
-    ProjectSplats {},
-    project_forward,
-    generated_bindings::project_forward::Uniforms
-);
+kernel_source_gen!(ProjectSplats {}, project_forward, project_forward::Uniforms);
 kernel_source_gen!(
     MapGaussiansToIntersect {},
     map_gaussian_to_intersects,
-    generated_bindings::map_gaussian_to_intersects::Uniforms
+    map_gaussian_to_intersects::Uniforms
 );
 kernel_source_gen!(GetTileBinEdges {}, get_tile_bin_edges, ());
-kernel_source_gen!(
-    Rasterize { forward_only },
-    rasterize,
-    generated_bindings::rasterize::Uniforms
-);
+kernel_source_gen!(Rasterize { forward_only }, rasterize, rasterize::Uniforms);
 kernel_source_gen!(
     RasterizeBackwards {},
     rasterize_backwards,
-    generated_bindings::rasterize_backwards::Uniforms
+    rasterize_backwards::Uniforms
 );
 kernel_source_gen!(
     ProjectBackwards {},
     project_backwards,
-    generated_bindings::project_backwards::Uniforms
+    project_backwards::Uniforms
 );
 
 kernel_source_gen!(PrefixSumScan {}, prefix_sum_scan, ());

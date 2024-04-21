@@ -1,10 +1,7 @@
 use std::sync::Arc;
 
 use crate::{
-    camera::Camera,
-    dataset_readers,
-    gaussian_splats::{self, Splats},
-    splat_render::BurnBack,
+    camera::Camera, dataset_readers, gaussian_splats::Splats, splat_import, splat_render::BurnBack,
 };
 use anyhow::Result;
 use burn::tensor::Tensor;
@@ -153,7 +150,8 @@ impl eframe::App for MyApp {
                 Default::default(),
             );
 
-            let splats = gaussian_splats::create_from_ply::<BurnBack>(&self.path, &device).unwrap();
+            let splats =
+                splat_import::load_splat_from_ply::<BurnBack>(&self.path, &device).unwrap();
 
             let mut rendererer = state.renderer.write();
             let egui_device = state.device.clone();

@@ -1,5 +1,3 @@
-use ndarray::Array3;
-
 #[derive(Debug, Default, Clone)]
 pub(crate) struct Camera {
     pub width: u32,
@@ -8,17 +6,6 @@ pub(crate) struct Camera {
     pub fovy: f32,
     pub position: glam::Vec3,
     pub rotation: glam::Quat,
-}
-
-#[derive(Debug, Default)]
-pub(crate) struct InputView {
-    pub(crate) image: Array3<f32>, // RGBA image.
-}
-
-#[derive(Debug, Default)]
-pub(crate) struct InputData {
-    pub(crate) camera: Camera,
-    pub(crate) view: InputView,
 }
 
 impl Camera {

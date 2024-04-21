@@ -7,15 +7,16 @@ use crate::splat_render::kernels::{
     GetTileBinEdges, MapGaussiansToIntersect, ProjectBackwards, ProjectSplats, Rasterize,
     RasterizeBackwards,
 };
-use crate::splat_render::{create_buffer, create_tensor, read_buffer_to_u32};
+use crate::splat_render::{create_tensor, read_buffer_to_u32};
 use burn::backend::autodiff::NodeID;
 use burn::tensor::ops::FloatTensorOps;
 use burn::tensor::ops::IntTensorOps;
 use burn::tensor::{Shape, Tensor};
 
+use burn_wgpu::JitTensor;
 use tracing::info_span;
 
-use super::{generated_bindings, Aux, Backend, BurnBack, FloatTensor, RenderArgs};
+use super::{bitcast_tensor, shaders, Aux, Backend, BurnBack, BurnRuntime, FloatTensor};
 use burn::backend::{
     autodiff::{
         checkpoint::{base::Checkpointer, strategy::CheckpointStrategy},
@@ -27,46 +28,16 @@ use burn::backend::{
 };
 use glam::{uvec2, Vec3};
 
-pub fn argsort<T: Ord>(data: &[T]) -> Vec<usize> {
-    let mut indices = (0..data.len()).collect::<Vec<_>>();
-    indices.sort_by_key(|&i| &data[i]);
-    indices
-}
-
-pub fn render<B: Backend>(
-    camera: &Camera,
-    means: Tensor<B, 2>,
-    scales: Tensor<B, 2>,
-    quats: Tensor<B, 2>,
-    colors: Tensor<B, 2>,
-    opacity: Tensor<B, 1>,
-    background: glam::Vec3,
-    args: RenderArgs,
-) -> (Tensor<B, 3>, Aux<BurnBack>) {
-    let (img, aux) = B::render_gaussians(
-        camera,
-        means.clone().into_primitive(),
-        scales.clone().into_primitive(),
-        quats.clone().into_primitive(),
-        colors.clone().into_primitive(),
-        opacity.clone().into_primitive(),
-        background,
-        args,
-    );
-    (Tensor::from_primitive(img), aux)
-}
-
 fn render_forward(
     camera: &Camera,
-    means: FloatTensor<BurnBack, 2>,
-    scales: FloatTensor<BurnBack, 2>,
-    quats: FloatTensor<BurnBack, 2>,
-    colors: FloatTensor<BurnBack, 2>,
-    opacity: FloatTensor<BurnBack, 1>,
+    means: JitTensor<BurnRuntime, f32, 2>,
+    scales: JitTensor<BurnRuntime, f32, 2>,
+    quats: JitTensor<BurnRuntime, f32, 2>,
+    colors: JitTensor<BurnRuntime, f32, 2>,
+    opacity: JitTensor<BurnRuntime, f32, 1>,
     background: glam::Vec3,
     forward_only: bool,
-    args: RenderArgs,
-) -> (FloatTensor<BurnBack, 3>, Aux<BurnBack>) {
+) -> (JitTensor<BurnRuntime, f32, 3>, Aux<BurnBack>) {
     let _span = info_span!("render_gaussians").entered();
 
     let (means, scales, quats, colors, opacity) = (
@@ -85,7 +56,7 @@ fn render_forward(
         .check_dims(&opacity, ["D".into()]);
 
     // Divide screen into blocks.
-    let tile_width = generated_bindings::helpers::TILE_WIDTH;
+    let tile_width = shaders::helpers::TILE_WIDTH;
     let img_size = [camera.width, camera.height];
     let tile_bounds = uvec2(
         camera.width.div_ceil(tile_width),
@@ -96,15 +67,15 @@ fn render_forward(
     let device = means.device.clone();
 
     let num_points = means.shape.dims[0];
-    let radii = create_tensor(&client, &device, [num_points]);
-    let depths = create_buffer::<f32, 1>(&client, [num_points]);
-    let xys = create_tensor(&client, &device, [num_points, 2]);
-    let cov2ds = create_tensor(&client, &device, [num_points, 4]);
-    let num_tiles_hit = create_tensor::<i32, 1>(&client, &device, [num_points]);
+    let radii = create_tensor::<u32, 1>(&client, &device, [num_points]);
+    let depths = create_tensor::<f32, 1>(&client, &device, [num_points]);
+    let xys = create_tensor::<f32, 2>(&client, &device, [num_points, 2]);
+    let cov2ds = create_tensor::<f32, 2>(&client, &device, [num_points, 4]);
+    let num_tiles_hit = create_tensor(&client, &device, [num_points]);
 
     ProjectSplats::new().execute(
         &client,
-        generated_bindings::project_forward::Uniforms::new(
+        shaders::project_forward::Uniforms::new(
             camera.world_to_local(),
             camera.focal().into(),
             camera.center().into(),
@@ -116,21 +87,23 @@ fn render_forward(
         &[&means.handle, &scales.handle, &quats.handle],
         &[
             &xys.handle,
-            &depths,
+            &depths.handle,
             &radii.handle,
             &cov2ds.handle,
             &num_tiles_hit.handle,
         ],
         [num_points as u32, 1, 1],
-        args.sync_kernels,
     );
 
-    let cum_tiles_hit = prefix_sum(&client, &num_tiles_hit, args.sync_kernels);
+    let cum_tiles_hit = prefix_sum(&client, &num_tiles_hit);
 
     let read_back = info_span!("Read back num_intersects").entered();
     // TODO: This is the only real CPU <-> GPU bottleneck, get around this somehow?
     #[allow(clippy::single_range_in_vec_init)]
-    let last_elem = BurnBack::int_slice(cum_tiles_hit.clone(), [num_points - 1..num_points]);
+    let last_elem = BurnBack::int_slice(
+        bitcast_tensor(cum_tiles_hit.clone()),
+        [num_points - 1..num_points],
+    );
 
     let num_intersects = *read_buffer_to_u32(&client, &last_elem.handle)
         .last()
@@ -138,24 +111,27 @@ fn render_forward(
     drop(read_back);
 
     // Each intersection maps to a gaussian.
-    let isect_ids_unsorted = create_tensor::<i32, 1>(&client, &device, [num_intersects]);
-    let gaussian_ids_unsorted = create_tensor::<i32, 1>(&client, &device, [num_intersects]);
+    let isect_ids_unsorted = create_tensor(&client, &device, [num_intersects]);
+    let gaussian_ids_unsorted = create_tensor(&client, &device, [num_intersects]);
 
     // Dispatch one thread per point.
     MapGaussiansToIntersect::new().execute(
         &client,
-        generated_bindings::map_gaussian_to_intersects::Uniforms::new(tile_bounds.into()),
-        &[&xys.handle, &radii.handle, &cum_tiles_hit.handle, &depths],
+        shaders::map_gaussian_to_intersects::Uniforms::new(tile_bounds.into()),
+        &[
+            &xys.handle,
+            &radii.handle,
+            &cum_tiles_hit.handle,
+            &depths.handle,
+        ],
         &[&isect_ids_unsorted.handle, &gaussian_ids_unsorted.handle],
         [num_points as u32, 1, 1],
-        args.sync_kernels,
     );
 
     let (isect_ids_sorted, gaussian_ids_sorted) = radix_argsort(
         client.clone(),
         isect_ids_unsorted.clone(),
         gaussian_ids_unsorted,
-        args.sync_kernels,
     );
 
     let tile_bins = BurnBack::int_zeros(
@@ -168,7 +144,6 @@ fn render_forward(
         &[&isect_ids_sorted.handle],
         &[&tile_bins.handle],
         [num_intersects as u32, 1, 1],
-        args.sync_kernels,
     );
 
     let out_img = create_tensor(
@@ -180,7 +155,7 @@ fn render_forward(
     let final_index = if forward_only {
         None
     } else {
-        Some(create_tensor(
+        Some(create_tensor::<u32, 2>(
             &client,
             &device,
             [camera.height as usize, camera.width as usize],
@@ -195,7 +170,7 @@ fn render_forward(
 
     Rasterize::new(false).execute(
         &client,
-        generated_bindings::rasterize::Uniforms::new(img_size, background.into()),
+        shaders::rasterize::Uniforms::new(img_size, background.into()),
         &[
             &gaussian_ids_sorted.handle,
             &tile_bins.handle,
@@ -206,19 +181,18 @@ fn render_forward(
         ],
         &out_handles,
         [camera.width, camera.height, 1],
-        args.sync_kernels,
     );
 
     (
         out_img,
         Aux {
             num_intersects: num_intersects as u32,
-            tile_bins: Tensor::from_primitive(tile_bins.clone()),
-            radii: Tensor::from_primitive(radii),
-            cov2ds: Tensor::from_primitive(cov2ds),
-            gaussian_ids_sorted: Tensor::from_primitive(gaussian_ids_sorted),
-            xys: Tensor::from_primitive(xys),
-            final_index: final_index.map(Tensor::from_primitive),
+            tile_bins: Tensor::from_primitive(bitcast_tensor(tile_bins)),
+            radii: Tensor::from_primitive(bitcast_tensor(radii)),
+            cov2ds: Tensor::from_primitive(bitcast_tensor(cov2ds)),
+            gaussian_ids_sorted: Tensor::from_primitive(bitcast_tensor(gaussian_ids_sorted)),
+            xys: Tensor::from_primitive(bitcast_tensor(xys)),
+            final_index: final_index.map(|f| Tensor::from_primitive(bitcast_tensor(f))),
         },
     )
 }
@@ -232,10 +206,9 @@ impl Backend for BurnBack {
         colors: FloatTensor<Self, 2>,
         opacity: FloatTensor<Self, 1>,
         background: glam::Vec3,
-        args: RenderArgs,
     ) -> (FloatTensor<Self, 3>, Aux<BurnBack>) {
         render_forward(
-            camera, means, scales, quats, colors, opacity, background, true, args,
+            camera, means, scales, quats, colors, opacity, background, true,
         )
     }
 }
@@ -254,8 +227,6 @@ struct GaussianBackwardState {
 
     out_img: FloatTensor<BurnBack, 3>,
     aux: Aux<BurnBack>,
-
-    args: RenderArgs,
 }
 
 #[derive(Debug)]
@@ -270,7 +241,6 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
         colors: FloatTensor<Self, 2>,
         opacity: FloatTensor<Self, 1>,
         background: glam::Vec3,
-        args: RenderArgs,
     ) -> (FloatTensor<Self, 3>, Aux<BurnBack>) {
         let prep_nodes = RenderBackwards
             .prepare::<C>([
@@ -293,7 +263,6 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
             opacity.clone().primitive,
             background,
             forward_only,
-            args.clone(),
         );
 
         // Prepare a stateful operation with each variable node and corresponding graph.
@@ -312,7 +281,6 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
                     cam: camera.clone(),
                     background,
                     out_img: out_img.clone(),
-                    args,
                 };
 
                 (prep.finish(state, out_img), aux)
@@ -373,10 +341,7 @@ impl Backward<BurnBack, 3, 5> for RenderBackwards {
 
         RasterizeBackwards::new().execute(
             client,
-            generated_bindings::rasterize_backwards::Uniforms::new(
-                img_size,
-                state.background.into(),
-            ),
+            shaders::rasterize_backwards::Uniforms::new(img_size, state.background.into()),
             &[
                 &aux.gaussian_ids_sorted.into_primitive().handle,
                 &aux.tile_bins.into_primitive().handle,
@@ -395,7 +360,6 @@ impl Backward<BurnBack, 3, 5> for RenderBackwards {
                 &v_opacity.handle,
             ],
             [camera.width, camera.height, 1],
-            state.args.sync_kernels,
         );
 
         // TODO: Can't this be done for just visible points
@@ -405,7 +369,7 @@ impl Backward<BurnBack, 3, 5> for RenderBackwards {
 
         ProjectBackwards::new().execute(
             client,
-            generated_bindings::project_backwards::Uniforms::new(
+            shaders::project_backwards::Uniforms::new(
                 camera.world_to_local(),
                 camera.center().into(),
                 img_size,
@@ -422,7 +386,6 @@ impl Backward<BurnBack, 3, 5> for RenderBackwards {
             ],
             &[&v_means.handle, &v_scales.handle, &v_quats.handle],
             [num_points as u32, 1, 1],
-            state.args.sync_kernels,
         );
 
         // Register gradients for parent nodes.
@@ -449,4 +412,25 @@ impl Backward<BurnBack, 3, 5> for RenderBackwards {
             grads.register::<BurnBack, 1>(node.id, v_opacity);
         }
     }
+}
+
+pub fn render<B: Backend>(
+    camera: &Camera,
+    means: Tensor<B, 2>,
+    scales: Tensor<B, 2>,
+    quats: Tensor<B, 2>,
+    colors: Tensor<B, 2>,
+    opacity: Tensor<B, 1>,
+    background: glam::Vec3,
+) -> (Tensor<B, 3>, Aux<BurnBack>) {
+    let (img, aux) = B::render_gaussians(
+        camera,
+        means.clone().into_primitive(),
+        scales.clone().into_primitive(),
+        quats.clone().into_primitive(),
+        colors.clone().into_primitive(),
+        opacity.clone().into_primitive(),
+        background,
+    );
+    (Tensor::from_primitive(img), aux)
 }
