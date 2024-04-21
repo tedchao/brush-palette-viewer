@@ -15,8 +15,13 @@ struct Uniforms {
 @group(0) @binding(4) var<storage, read> cov2ds: array<vec4f>;
 @group(0) @binding(5) var<storage, read> colors: array<vec4f>;
 @group(0) @binding(6) var<storage, read> opacities: array<f32>;
-@group(0) @binding(7) var<storage, read_write> out_img: array<u32>;
-@group(0) @binding(8) var<storage, read_write> final_index : array<u32>;
+
+#ifdef FORWARD_ONLY
+    @group(0) @binding(7) var<storage, read_write> out_img: array<u32>;
+#else
+    @group(0) @binding(7) var<storage, read_write> out_img: array<vec4f>;
+    @group(0) @binding(8) var<storage, read_write> final_index : array<u32>;
+#endif
 
 // Workgroup variables.
 var<workgroup> xy_batch: array<vec2f, helpers::TILE_SIZE>;
@@ -133,14 +138,16 @@ fn main(
     }
 
     if inside {
-        final_index[pix_id] = final_idx; // index of in bin of last gaussian in this pixel
-
         // add background
         let final_color = pix_out + T * background;
-        // out_img[pix_id] = vec4f(final_color, 1.0 - T);
 
-        let colors_u = vec4u(clamp(vec4f(final_color, 1.0 - T) * 255.0, vec4f(0.0), vec4f(255.0)));
-        let packed = colors_u.x | (colors_u.y << 8u) | (colors_u.z << 16u) | (colors_u.w << 24u);
-        out_img[pix_id] = packed;
+        #ifdef FORWARD_ONLY
+            let colors_u = vec4u(clamp(vec4f(final_color, 1.0 - T) * 255.0, vec4f(0.0), vec4f(255.0)));
+            let packed = colors_u.x | (colors_u.y << 8u) | (colors_u.z << 16u) | (colors_u.w << 24u);
+            out_img[pix_id] = packed;
+        #else 
+            final_index[pix_id] = final_idx; // index of in bin of last gaussian in this pixel
+            out_img[pix_id] = vec4f(final_color, 1.0 - T);
+        #endif
     }
 }

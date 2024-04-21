@@ -56,6 +56,173 @@ pub fn render<B: Backend>(
     (Tensor::from_primitive(img), aux)
 }
 
+fn render_forward(
+    camera: &Camera,
+    means: FloatTensor<BurnBack, 2>,
+    scales: FloatTensor<BurnBack, 2>,
+    quats: FloatTensor<BurnBack, 2>,
+    colors: FloatTensor<BurnBack, 2>,
+    opacity: FloatTensor<BurnBack, 1>,
+    background: glam::Vec3,
+    forward_only: bool,
+    args: RenderArgs,
+) -> (FloatTensor<BurnBack, 3>, Aux<BurnBack>) {
+    let _span = info_span!("render_gaussians").entered();
+
+    let (means, scales, quats, colors, opacity) = (
+        into_contiguous(means.clone()),
+        into_contiguous(scales.clone()),
+        into_contiguous(quats.clone()),
+        into_contiguous(colors.clone()),
+        into_contiguous(opacity.clone()),
+    );
+
+    DimCheck::new()
+        .check_dims(&means, ["D".into(), 4.into()])
+        .check_dims(&scales, ["D".into(), 4.into()])
+        .check_dims(&quats, ["D".into(), 4.into()])
+        .check_dims(&colors, ["D".into(), 4.into()])
+        .check_dims(&opacity, ["D".into()]);
+
+    // Divide screen into blocks.
+    let tile_width = generated_bindings::helpers::TILE_WIDTH;
+    let img_size = [camera.width, camera.height];
+    let tile_bounds = uvec2(
+        camera.width.div_ceil(tile_width),
+        camera.height.div_ceil(tile_width),
+    );
+
+    let client = means.client.clone();
+    let device = means.device.clone();
+
+    let num_points = means.shape.dims[0];
+    let radii = create_tensor(&client, &device, [num_points]);
+    let depths = create_buffer::<f32, 1>(&client, [num_points]);
+    let xys = create_tensor(&client, &device, [num_points, 2]);
+    let cov2ds = create_tensor(&client, &device, [num_points, 4]);
+    let num_tiles_hit = create_tensor::<i32, 1>(&client, &device, [num_points]);
+
+    ProjectSplats::new().execute(
+        &client,
+        generated_bindings::project_forward::Uniforms::new(
+            camera.world_to_local(),
+            camera.focal().into(),
+            camera.center().into(),
+            img_size,
+            tile_bounds.into(),
+            tile_width,
+            0.01,
+        ),
+        &[&means.handle, &scales.handle, &quats.handle],
+        &[
+            &xys.handle,
+            &depths,
+            &radii.handle,
+            &cov2ds.handle,
+            &num_tiles_hit.handle,
+        ],
+        [num_points as u32, 1, 1],
+        args.sync_kernels,
+    );
+
+    let cum_tiles_hit = prefix_sum(&client, &num_tiles_hit, args.sync_kernels);
+
+    let read_back = info_span!("Read back num_intersects").entered();
+    // TODO: This is the only real CPU <-> GPU bottleneck, get around this somehow?
+    #[allow(clippy::single_range_in_vec_init)]
+    let last_elem = BurnBack::int_slice(cum_tiles_hit.clone(), [num_points - 1..num_points]);
+
+    let num_intersects = *read_buffer_to_u32(&client, &last_elem.handle)
+        .last()
+        .unwrap() as usize;
+    drop(read_back);
+
+    // Each intersection maps to a gaussian.
+    let isect_ids_unsorted = create_tensor::<i32, 1>(&client, &device, [num_intersects]);
+    let gaussian_ids_unsorted = create_tensor::<i32, 1>(&client, &device, [num_intersects]);
+
+    // Dispatch one thread per point.
+    MapGaussiansToIntersect::new().execute(
+        &client,
+        generated_bindings::map_gaussian_to_intersects::Uniforms::new(tile_bounds.into()),
+        &[&xys.handle, &radii.handle, &cum_tiles_hit.handle, &depths],
+        &[&isect_ids_unsorted.handle, &gaussian_ids_unsorted.handle],
+        [num_points as u32, 1, 1],
+        args.sync_kernels,
+    );
+
+    let (isect_ids_sorted, gaussian_ids_sorted) = radix_argsort(
+        client.clone(),
+        isect_ids_unsorted.clone(),
+        gaussian_ids_unsorted,
+        args.sync_kernels,
+    );
+
+    let tile_bins = BurnBack::int_zeros(
+        Shape::new([tile_bounds[0] as usize, tile_bounds[1] as usize, 2]),
+        &device,
+    );
+    GetTileBinEdges::new().execute(
+        &client,
+        (),
+        &[&isect_ids_sorted.handle],
+        &[&tile_bins.handle],
+        [num_intersects as u32, 1, 1],
+        args.sync_kernels,
+    );
+
+    let out_img = create_tensor(
+        &client,
+        &device,
+        [camera.height as usize, camera.width as usize, 4],
+    );
+
+    let final_index = if forward_only {
+        None
+    } else {
+        Some(create_tensor(
+            &client,
+            &device,
+            [camera.height as usize, camera.width as usize],
+        ))
+    };
+
+    let mut out_handles = vec![&out_img.handle];
+
+    if let Some(f) = final_index.as_ref() {
+        out_handles.push(&f.handle);
+    }
+
+    Rasterize::new(false).execute(
+        &client,
+        generated_bindings::rasterize::Uniforms::new(img_size, background.into()),
+        &[
+            &gaussian_ids_sorted.handle,
+            &tile_bins.handle,
+            &xys.handle,
+            &cov2ds.handle,
+            &colors.handle,
+            &opacity.handle,
+        ],
+        &out_handles,
+        [camera.width, camera.height, 1],
+        args.sync_kernels,
+    );
+
+    (
+        out_img,
+        Aux {
+            num_intersects: num_intersects as u32,
+            tile_bins: Tensor::from_primitive(tile_bins.clone()),
+            radii: Tensor::from_primitive(radii),
+            cov2ds: Tensor::from_primitive(cov2ds),
+            gaussian_ids_sorted: Tensor::from_primitive(gaussian_ids_sorted),
+            xys: Tensor::from_primitive(xys),
+            final_index: final_index.map(Tensor::from_primitive),
+        },
+    )
+}
+
 impl Backend for BurnBack {
     fn render_gaussians(
         camera: &Camera,
@@ -66,150 +233,9 @@ impl Backend for BurnBack {
         opacity: FloatTensor<Self, 1>,
         background: glam::Vec3,
         args: RenderArgs,
-    ) -> (FloatTensor<Self, 3>, Aux<Self>) {
-        let _span = info_span!("render_gaussians").entered();
-
-        let (means, scales, quats, colors, opacity) = (
-            into_contiguous(means.clone()),
-            into_contiguous(scales.clone()),
-            into_contiguous(quats.clone()),
-            into_contiguous(colors.clone()),
-            into_contiguous(opacity.clone()),
-        );
-
-        DimCheck::new()
-            .check_dims(&means, ["D".into(), 4.into()])
-            .check_dims(&scales, ["D".into(), 4.into()])
-            .check_dims(&quats, ["D".into(), 4.into()])
-            .check_dims(&colors, ["D".into(), 4.into()])
-            .check_dims(&opacity, ["D".into()]);
-
-        // Divide screen into blocks.
-        let tile_width = generated_bindings::helpers::TILE_WIDTH;
-        let img_size = [camera.width, camera.height];
-        let tile_bounds = uvec2(
-            camera.width.div_ceil(tile_width),
-            camera.height.div_ceil(tile_width),
-        );
-
-        let client = means.client.clone();
-        let device = means.device.clone();
-
-        let num_points = means.shape.dims[0];
-        let radii = create_tensor(&client, &device, [num_points]);
-        let depths = create_buffer::<f32, 1>(&client, [num_points]);
-        let xys = create_tensor(&client, &device, [num_points, 2]);
-        let cov2ds = create_tensor(&client, &device, [num_points, 4]);
-        let num_tiles_hit = create_tensor::<i32, 1>(&client, &device, [num_points]);
-
-        ProjectSplats::execute(
-            &client,
-            generated_bindings::project_forward::Uniforms::new(
-                camera.world_to_local(),
-                camera.focal().into(),
-                camera.center().into(),
-                img_size,
-                tile_bounds.into(),
-                tile_width,
-                0.01,
-            ),
-            &[&means.handle, &scales.handle, &quats.handle],
-            &[
-                &xys.handle,
-                &depths,
-                &radii.handle,
-                &cov2ds.handle,
-                &num_tiles_hit.handle,
-            ],
-            [num_points as u32, 1, 1],
-            args.sync_kernels,
-        );
-
-        let cum_tiles_hit = prefix_sum(&client, &num_tiles_hit, args.sync_kernels);
-
-        let read_back = info_span!("Read back num_intersects").entered();
-        // TODO: This is the only real CPU <-> GPU bottleneck, get around this somehow?
-        #[allow(clippy::single_range_in_vec_init)]
-        let last_elem = BurnBack::int_slice(cum_tiles_hit.clone(), [num_points - 1..num_points]);
-
-        let num_intersects = *read_buffer_to_u32(&client, &last_elem.handle)
-            .last()
-            .unwrap() as usize;
-        drop(read_back);
-
-        // Each intersection maps to a gaussian.
-        let isect_ids_unsorted = create_tensor::<i32, 1>(&client, &device, [num_intersects]);
-        let gaussian_ids_unsorted = create_tensor::<i32, 1>(&client, &device, [num_intersects]);
-
-        // Dispatch one thread per point.
-        MapGaussiansToIntersect::execute(
-            &client,
-            generated_bindings::map_gaussian_to_intersects::Uniforms::new(tile_bounds.into()),
-            &[&xys.handle, &radii.handle, &cum_tiles_hit.handle, &depths],
-            &[&isect_ids_unsorted.handle, &gaussian_ids_unsorted.handle],
-            [num_points as u32, 1, 1],
-            args.sync_kernels,
-        );
-
-        let (isect_ids_sorted, gaussian_ids_sorted) = radix_argsort(
-            client.clone(),
-            isect_ids_unsorted.clone(),
-            gaussian_ids_unsorted,
-            args.sync_kernels,
-        );
-
-        let tile_bins = BurnBack::int_zeros(
-            Shape::new([tile_bounds[0] as usize, tile_bounds[1] as usize, 2]),
-            &device,
-        );
-        GetTileBinEdges::execute(
-            &client,
-            (),
-            &[&isect_ids_sorted.handle],
-            &[&tile_bins.handle],
-            [num_intersects as u32, 1, 1],
-            args.sync_kernels,
-        );
-
-        let out_img = create_tensor(
-            &client,
-            &device,
-            [camera.height as usize, camera.width as usize, 4],
-        );
-
-        let final_index = create_tensor(
-            &client,
-            &device,
-            [camera.height as usize, camera.width as usize],
-        );
-
-        Rasterize::execute(
-            &client,
-            generated_bindings::rasterize::Uniforms::new(img_size, background.into()),
-            &[
-                &gaussian_ids_sorted.handle,
-                &tile_bins.handle,
-                &xys.handle,
-                &cov2ds.handle,
-                &colors.handle,
-                &opacity.handle,
-            ],
-            &[&out_img.handle, &final_index.handle],
-            [camera.width, camera.height, 1],
-            args.sync_kernels,
-        );
-
-        (
-            out_img,
-            Aux {
-                num_intersects: num_intersects as u32,
-                tile_bins: Tensor::from_primitive(tile_bins.clone()),
-                radii: Tensor::from_primitive(radii),
-                cov2ds: Tensor::from_primitive(cov2ds),
-                gaussian_ids_sorted: Tensor::from_primitive(gaussian_ids_sorted),
-                xys: Tensor::from_primitive(xys),
-                final_index: Tensor::from_primitive(final_index),
-            },
+    ) -> (FloatTensor<Self, 3>, Aux<BurnBack>) {
+        render_forward(
+            camera, means, scales, quats, colors, opacity, background, true, args,
         )
     }
 }
@@ -257,7 +283,8 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
             .compute_bound()
             .stateful();
 
-        let (out_img, aux) = BurnBack::render_gaussians(
+        let forward_only = matches!(prep_nodes, OpsKind::UnTracked(_));
+        let (out_img, aux) = render_forward(
             camera,
             means.clone().primitive,
             scales.clone().primitive,
@@ -265,6 +292,7 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
             colors.clone().primitive,
             opacity.clone().primitive,
             background,
+            forward_only,
             args.clone(),
         );
 
@@ -343,7 +371,7 @@ impl Backward<BurnBack, 3, 5> for RenderBackwards {
         let aux = state.aux;
         let img_size = [camera.width, camera.height];
 
-        RasterizeBackwards::execute(
+        RasterizeBackwards::new().execute(
             client,
             generated_bindings::rasterize_backwards::Uniforms::new(
                 img_size,
@@ -356,7 +384,7 @@ impl Backward<BurnBack, 3, 5> for RenderBackwards {
                 &aux.cov2ds.clone().into_primitive().handle,
                 &colors.handle,
                 &opacity.handle,
-                &aux.final_index.into_primitive().handle,
+                &aux.final_index.unwrap().into_primitive().handle,
                 &state.out_img.handle,
                 &v_output.handle,
             ],
@@ -375,7 +403,7 @@ impl Backward<BurnBack, 3, 5> for RenderBackwards {
         let v_scales = create_tensor(client, device, [num_points, 4]);
         let v_quats = create_tensor(client, device, [num_points, 4]);
 
-        ProjectBackwards::execute(
+        ProjectBackwards::new().execute(
             client,
             generated_bindings::project_backwards::Uniforms::new(
                 camera.world_to_local(),

@@ -1,4 +1,4 @@
-use std::{collections::HashMap, mem::size_of};
+use std::mem::size_of;
 
 use burn_compute::{
     channel::ComputeChannel,
@@ -12,13 +12,14 @@ use burn::backend::wgpu::{
 
 use bytemuck::NoUninit;
 use glam::UVec3;
+use naga_oil::compose::ShaderDefValue;
 use tracing::info_span;
 
 use super::generated_bindings::{self, sorting};
 
 pub(crate) trait SplatKernel<S: ComputeServer<Kernel = Kernel>, C: ComputeChannel<S>>
 where
-    Self: Default + KernelSource + 'static,
+    Self: KernelSource + Sized + Copy + Clone + 'static,
 {
     const SPAN_NAME: &'static str;
     const BINDING_COUNT: usize;
@@ -26,6 +27,7 @@ where
     type Uniforms: NoUninit;
 
     fn execute(
+        self,
         client: &ComputeClient<S, C>,
         uniforms: Self::Uniforms,
         read_handles: &[&Handle<S>],
@@ -38,7 +40,7 @@ where
         let group_size = UVec3::from_array(Self::WORKGROUP_SIZE);
         let execs = (exec_vec + group_size - 1) / group_size;
         let kernel = Kernel::Custom(Box::new(SourceKernel::new(
-            Self::default(),
+            self,
             WorkGroup::new(execs.x, execs.y, execs.z),
             WorkgroupSize::new(group_size.x, group_size.y, group_size.z),
         )));
@@ -62,18 +64,40 @@ where
 
 #[macro_export]
 macro_rules! kernel_source_gen {
-    ($struct_name:ident, $module:ident) => {
-        kernel_source_gen!($struct_name, $module, generated_bindings::$module::Uniforms);
-    };
+    ($struct_name:ident { $($field_name:ident),* }, $module:ident, $uniforms:ty) => {
+        #[derive(Debug, Copy, Clone)]
+        pub(crate) struct $struct_name {
+            $(
+                $field_name: bool,
+            )*
+        }
 
-    ($struct_name:ident, $module:ident, $uniforms:ty) => {
-        #[derive(Default, Debug)]
-        pub(crate) struct $struct_name {}
+        impl $struct_name {
+            pub fn new($($field_name: bool),*) -> Self {
+                Self {
+                    $(
+                        $field_name,
+                    )*
+                }
+            }
+
+            fn create_shader_hashmap(&self) -> std::collections::HashMap<String, ShaderDefValue> {
+                let map = std::collections::HashMap::new();
+                $(
+                    let mut map = map;
+
+                    if self.$field_name {
+                        map.insert(stringify!($field_name).to_owned().to_uppercase(), ShaderDefValue::Bool(true));
+                    }
+                )*
+                map
+            }
+        }
 
         impl KernelSource for $struct_name {
             fn source(&self) -> SourceTemplate {
                 let mut composer = naga_oil::compose::Composer::default();
-                let shader_defs = HashMap::new();
+                let shader_defs = self.create_shader_hashmap();
                 generated_bindings::$module::load_shader_modules_embedded(
                     &mut composer,
                     &shader_defs,
@@ -114,19 +138,39 @@ macro_rules! kernel_source_gen {
     };
 }
 
-kernel_source_gen!(ProjectSplats, project_forward);
-kernel_source_gen!(MapGaussiansToIntersect, map_gaussian_to_intersects);
-kernel_source_gen!(GetTileBinEdges, get_tile_bin_edges, ());
-kernel_source_gen!(Rasterize, rasterize);
-kernel_source_gen!(RasterizeBackwards, rasterize_backwards);
-kernel_source_gen!(ProjectBackwards, project_backwards);
+kernel_source_gen!(
+    ProjectSplats {},
+    project_forward,
+    generated_bindings::project_forward::Uniforms
+);
+kernel_source_gen!(
+    MapGaussiansToIntersect {},
+    map_gaussian_to_intersects,
+    generated_bindings::map_gaussian_to_intersects::Uniforms
+);
+kernel_source_gen!(GetTileBinEdges {}, get_tile_bin_edges, ());
+kernel_source_gen!(
+    Rasterize { forward_only },
+    rasterize,
+    generated_bindings::rasterize::Uniforms
+);
+kernel_source_gen!(
+    RasterizeBackwards {},
+    rasterize_backwards,
+    generated_bindings::rasterize_backwards::Uniforms
+);
+kernel_source_gen!(
+    ProjectBackwards {},
+    project_backwards,
+    generated_bindings::project_backwards::Uniforms
+);
 
-kernel_source_gen!(PrefixSumScan, prefix_sum_scan, ());
-kernel_source_gen!(PrefixSumScanSums, prefix_sum_scan_sums, ());
-kernel_source_gen!(PrefixSumAddScannedSums, prefix_sum_add_scanned_sums, ());
+kernel_source_gen!(PrefixSumScan {}, prefix_sum_scan, ());
+kernel_source_gen!(PrefixSumScanSums {}, prefix_sum_scan_sums, ());
+kernel_source_gen!(PrefixSumAddScannedSums {}, prefix_sum_add_scanned_sums, ());
 
-kernel_source_gen!(SortCount, sort_count, sorting::Config);
-kernel_source_gen!(SortReduce, sort_reduce, sorting::Config);
-kernel_source_gen!(SortScanAdd, sort_scan_add, sorting::Config);
-kernel_source_gen!(SortScan, sort_scan, sorting::Config);
-kernel_source_gen!(SortScatter, sort_scatter, sorting::Config);
+kernel_source_gen!(SortCount {}, sort_count, sorting::Config);
+kernel_source_gen!(SortReduce {}, sort_reduce, sorting::Config);
+kernel_source_gen!(SortScanAdd {}, sort_scan_add, sorting::Config);
+kernel_source_gen!(SortScan {}, sort_scan, sorting::Config);
+kernel_source_gen!(SortScatter {}, sort_scatter, sorting::Config);

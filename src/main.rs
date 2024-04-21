@@ -14,8 +14,13 @@ mod train;
 mod utils;
 mod viewer;
 
-use burn::backend::wgpu::{AutoGraphicsApi, JitBackend, WgpuRuntime};
+use burn::backend::{
+    wgpu::{AutoGraphicsApi, JitBackend, WgpuRuntime},
+    Autodiff,
+};
 use tracing_subscriber::layer::SubscriberExt;
+
+use crate::train::TrainConfig;
 
 fn main() -> Result<(), Box<dyn Error>> {
     tracing::subscriber::set_global_default(
@@ -25,12 +30,15 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // type BackGPU = Wgpu<AutoGraphicsApi, f32, i32>;
     type BackGPU = JitBackend<WgpuRuntime<AutoGraphicsApi, f32, i32>>;
-    // type DiffBack = Autodiff<BackGPU>;
-    // let config = TrainConfig::new("../nerf_synthetic/lego/".to_owned());
-    // train::train::<DiffBack>(&config, &device)?;
-    viewer::view(
-        "../models/bonsai/point_cloud/iteration_30000/point_cloud.ply",
-        "../models/bonsai/cameras.json",
-    )?;
+    type DiffBack = Autodiff<BackGPU>;
+    let config = TrainConfig::new("../nerf_synthetic/lego/".to_owned());
+
+    // TODDO: When training with viewer enabled, needs to be existing UI device.. ?
+    let device = Default::default();
+    train::train::<DiffBack>(&config, &device)?;
+    // viewer::view(
+    //     "../models/bonsai/point_cloud/iteration_30000/point_cloud.ply",
+    //     "../models/bonsai/cameras.json",
+    // )?;
     Ok(())
 }

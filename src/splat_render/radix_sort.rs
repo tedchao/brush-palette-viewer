@@ -96,7 +96,7 @@ pub fn radix_argsort(
 
         let wg = generated_bindings::sorting::WG;
 
-        SortCount::execute(
+        SortCount::new().execute(
             &client,
             config,
             &[from],
@@ -106,7 +106,7 @@ pub fn radix_argsort(
         );
 
         // Todo: in -> out -> out2
-        SortReduce::execute(
+        SortReduce::new().execute(
             &client,
             config,
             &[&count_buf.handle],
@@ -115,7 +115,7 @@ pub fn radix_argsort(
             sync,
         );
 
-        SortScan::execute(
+        SortScan::new().execute(
             &client,
             config,
             &[],
@@ -124,7 +124,7 @@ pub fn radix_argsort(
             sync,
         );
 
-        SortScanAdd::execute(
+        SortScanAdd::new().execute(
             &client,
             config,
             &[&reduced_buf.handle],
@@ -133,7 +133,7 @@ pub fn radix_argsort(
             sync,
         );
 
-        SortScatter::execute(
+        SortScatter::new().execute(
             &client,
             config,
             &[from, from_val, &count_buf.handle],

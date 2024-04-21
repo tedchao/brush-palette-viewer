@@ -47,7 +47,7 @@ pub(crate) struct Aux<B: Backend> {
     pub gaussian_ids_sorted: Tensor<B, 1, Int>,
     pub xys: Tensor<B, 2>,
     pub cov2ds: Tensor<B, 2>,
-    pub final_index: Tensor<B, 2, Int>,
+    pub final_index: Option<Tensor<B, 2, Int>>,
     pub num_intersects: u32,
 }
 

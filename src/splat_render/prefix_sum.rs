@@ -21,7 +21,7 @@ pub fn prefix_sum<E: JitElement>(
 
     // 1. Per group scan
     // N = num.
-    PrefixSumScan::execute(
+    PrefixSumScan::new().execute(
         client,
         (),
         &[&input.handle],
@@ -44,7 +44,7 @@ pub fn prefix_sum<E: JitElement>(
         work_size.push(work_sz);
     }
 
-    PrefixSumScanSums::execute(
+    PrefixSumScanSums::new().execute(
         client,
         (),
         &[&outputs.handle],
@@ -55,7 +55,7 @@ pub fn prefix_sum<E: JitElement>(
 
     // Continue down the pyramid
     for l in 0..(group_buffer.len() - 1) {
-        PrefixSumScanSums::execute(
+        PrefixSumScanSums::new().execute(
             client,
             (),
             &[&group_buffer[l].handle],
@@ -67,7 +67,7 @@ pub fn prefix_sum<E: JitElement>(
 
     for l in (1..group_buffer.len()).rev() {
         let work_sz = work_size[l - 1];
-        PrefixSumAddScannedSums::execute(
+        PrefixSumAddScannedSums::new().execute(
             client,
             (),
             &[&group_buffer[l].handle],
@@ -77,7 +77,7 @@ pub fn prefix_sum<E: JitElement>(
         );
     }
 
-    PrefixSumAddScannedSums::execute(
+    PrefixSumAddScannedSums::new().execute(
         client,
         (),
         &[&group_buffer[0].handle],
