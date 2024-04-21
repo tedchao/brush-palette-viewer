@@ -48,7 +48,7 @@ fn main(
     let background = uniforms.background;
     let img_size = uniforms.img_size;
 
-    let tiles_xx = (img_size.x + helpers::TILE_WIDTH - 1) / helpers::TILE_WIDTH;
+    let tiles_xx = (img_size.x + helpers::TILE_WIDTH - 1u) / helpers::TILE_WIDTH;
     let tile_id = workgroup_id.x + workgroup_id.y * tiles_xx;
 
     let pix_id = global_id.x + global_id.y * img_size.x;
@@ -79,10 +79,10 @@ fn main(
 
     // collect and process batches of gaussians
     // each thread loads one gaussian at a time before rasterizing
-    var num_batches = (range.y - range.x + helpers::TILE_SIZE - 1) / helpers::TILE_SIZE;
+    var num_batches = (range.y - range.x + helpers::TILE_SIZE - 1u) / helpers::TILE_SIZE;
 
     for(var batch = 0u; batch < num_batches; batch++) {
-        let batch_end  = range.y - 1 - batch * helpers::TILE_SIZE;
+        let batch_end  = range.y - 1u - batch * helpers::TILE_SIZE;
 
         // resync all threads before writing next batch of shared mem
         workgroupBarrier();
@@ -108,7 +108,7 @@ fn main(
 
         // TODO: WGSL lacks warp intrinsics, quite a bit more contention here
         // than needed. Might be some other ways to reduce it?
-        let batch_size = min(helpers::TILE_SIZE, batch_end + 1 - range.x);
+        let batch_size = min(helpers::TILE_SIZE, batch_end + 1u - range.x);
 
         // reset local accumulations.
         for (var t = 0u; t < batch_size; t++) {
@@ -178,7 +178,7 @@ fn main(
             // This needs to be on a uniform path so can't be in the if above.
             workgroupBarrier();
 
-            if local_idx == 0 {
+            if local_idx == 0u {
                 let g_id = id_batch[t];
 
                 // Gather workgroup sums.
@@ -214,59 +214,59 @@ fn main(
 
                 // v_colors.
                 loop {
-                    let old = v_colors[g_id * 4 + 0];
-                    if atomicCompareExchangeWeak(&v_colors[g_id * 4 + 0], old, bitAddFloat(old, v_colors_sum.x)).exchanged {
+                    let old = v_colors[g_id * 4u + 0u];
+                    if atomicCompareExchangeWeak(&v_colors[g_id * 4u + 0u], old, bitAddFloat(old, v_colors_sum.x)).exchanged {
                         break;
                     }
                 }
 
                 loop {
-                    let old = v_colors[g_id * 4 + 1];
-                    if atomicCompareExchangeWeak(&v_colors[g_id * 4 + 1], old, bitAddFloat(old, v_colors_sum.y)).exchanged {
+                    let old = v_colors[g_id * 4u + 1u];
+                    if atomicCompareExchangeWeak(&v_colors[g_id * 4u + 1u], old, bitAddFloat(old, v_colors_sum.y)).exchanged {
                         break;
                     }
                 }
 
                 loop {
-                    let old = v_colors[g_id * 4 + 2];
-                    if atomicCompareExchangeWeak(&v_colors[g_id * 4 + 2], old, bitAddFloat(old, v_colors_sum.z)).exchanged {
+                    let old = v_colors[g_id * 4u + 2u];
+                    if atomicCompareExchangeWeak(&v_colors[g_id * 4u + 2u], old, bitAddFloat(old, v_colors_sum.z)).exchanged {
                         break;
                     }
                 }
 
                 // v_conic.
                 loop {
-                    let old = v_conic[g_id * 4 + 0];
-                    if atomicCompareExchangeWeak(&v_conic[g_id * 4 + 0], old, bitAddFloat(old, v_conic_sum.x)).exchanged {
+                    let old = v_conic[g_id * 4u + 0u];
+                    if atomicCompareExchangeWeak(&v_conic[g_id * 4u + 0u], old, bitAddFloat(old, v_conic_sum.x)).exchanged {
                         break;
                     }
                 }
 
                 loop {
-                    let old = v_conic[g_id * 4 + 1];
-                    if atomicCompareExchangeWeak(&v_conic[g_id * 4 + 1], old, bitAddFloat(old, v_conic_sum.y)).exchanged {
+                    let old = v_conic[g_id * 4u + 1u];
+                    if atomicCompareExchangeWeak(&v_conic[g_id * 4u + 1u], old, bitAddFloat(old, v_conic_sum.y)).exchanged {
                         break;
                     }
                 }
 
                 loop {
-                    let old = v_conic[g_id * 4 + 2];
-                    if atomicCompareExchangeWeak(&v_conic[g_id * 4 + 2], old, bitAddFloat(old, v_conic_sum.z)).exchanged {
+                    let old = v_conic[g_id * 4u + 2u];
+                    if atomicCompareExchangeWeak(&v_conic[g_id * 4u + 2u], old, bitAddFloat(old, v_conic_sum.z)).exchanged {
                         break;
                     }
                 }
 
                 // v_xy.
                 loop {
-                    let old = v_xy[g_id * 2 + 0];
-                    if atomicCompareExchangeWeak(&v_xy[g_id * 2 + 0], old, bitAddFloat(old, v_xy_sum.x)).exchanged {
+                    let old = v_xy[g_id * 2u + 0u];
+                    if atomicCompareExchangeWeak(&v_xy[g_id * 2u + 0u], old, bitAddFloat(old, v_xy_sum.x)).exchanged {
                         break;
                     }
                 }
 
                 loop {
-                    let old = v_xy[g_id * 2 + 1];
-                    if atomicCompareExchangeWeak(&v_xy[g_id * 2 + 1], old, bitAddFloat(old, v_xy_sum.y)).exchanged {
+                    let old = v_xy[g_id * 2u + 1u];
+                    if atomicCompareExchangeWeak(&v_xy[g_id * 2u + 1u], old, bitAddFloat(old, v_xy_sum.y)).exchanged {
                         break;
                     }
                 }

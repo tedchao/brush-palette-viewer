@@ -18,17 +18,17 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
 
     // Save the indices where the tile_id changes
     // let cur_tile_idx = isect_ids_sorted[idx];
-    let cur_tile_idx = isect_ids_sorted[idx] >> 16;
+    let cur_tile_idx = isect_ids_sorted[idx] >> 16u;
 
     // handle edge cases.
-    if idx == num_intersects - 1 {
+    if idx == num_intersects - 1u {
         tile_bins[cur_tile_idx].y = num_intersects;
     }
 
-    if idx == 0 {
+    if idx == 0u {
         tile_bins[cur_tile_idx].x = 0u;
     } else {
-        let prev_tile_idx = isect_ids_sorted[idx - 1] >> 16;
+        let prev_tile_idx = isect_ids_sorted[idx - 1u] >> 16u;
 
         if prev_tile_idx != cur_tile_idx {
             tile_bins[prev_tile_idx].y = idx;

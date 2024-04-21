@@ -27,7 +27,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
     // Check if gaussian is visible.
     let radius = radii[idx];
 
-    if radius == 0 {
+    if radius == 0u {
         return;
     }
 
@@ -42,8 +42,8 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
 
     // update the intersection info for all tiles this gaussian hits
     var cur_idx = 0u;
-    if idx > 0 {
-        cur_idx = cum_tiles_hit[idx - 1];
+    if idx > 0u {
+        cur_idx = cum_tiles_hit[idx - 1u];
     }
 
     for (var ty = tile_min.y; ty < tile_max.y; ty++) {
@@ -58,8 +58,8 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
             // sign | 8 bit exp | 23 bits mantissa.
             // assume sign is 0. Then we have space for 8 bits mantiassa, so,
             // remove 15 bits.
-            let depth_id = bitcast<u32>(depth) >> 15;
-            let packed_val = (tile_id << 16) | depth_id;
+            let depth_id = bitcast<u32>(depth) >> 15u;
+            let packed_val = (tile_id << 16u) | depth_id;
             isect_ids[cur_idx] = packed_val;
             gaussian_ids[cur_idx] = idx; // 3D gaussian id
             cur_idx++; // handles gaussians that hit more than one tile

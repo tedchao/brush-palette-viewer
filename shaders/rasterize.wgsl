@@ -15,9 +15,8 @@ struct Uniforms {
 @group(0) @binding(4) var<storage, read> cov2ds: array<vec4f>;
 @group(0) @binding(5) var<storage, read> colors: array<vec4f>;
 @group(0) @binding(6) var<storage, read> opacities: array<f32>;
-
 @group(0) @binding(7) var<storage, read_write> out_img: array<u32>;
-@group(0) @binding(8) var<storage, read_write> final_index: array<u32>;
+@group(0) @binding(8) var<storage, read_write> final_index : array<u32>;
 
 // Workgroup variables.
 var<workgroup> xy_batch: array<vec2f, helpers::TILE_SIZE>;
@@ -42,7 +41,7 @@ fn main(
     // shared tile
 
     // Get index of tile being drawn.
-    let tiles_xx = (img_size.x + helpers::TILE_WIDTH - 1) / helpers::TILE_WIDTH;
+    let tiles_xx = (img_size.x + helpers::TILE_WIDTH - 1u) / helpers::TILE_WIDTH;
     let tile_id = workgroup_id.x + workgroup_id.y * tiles_xx;
 
     let pix_id = global_id.x + global_id.y * img_size.x;
@@ -62,7 +61,7 @@ fn main(
     // first collect gaussians between range.x and range.y in batches
     // which gaussians to look through in this tile
     var range = tile_bins[tile_id];
-    let num_batches = (range.y - range.x + helpers::TILE_SIZE - 1) / helpers::TILE_SIZE;
+    let num_batches = (range.y - range.x + helpers::TILE_SIZE - 1u) / helpers::TILE_SIZE;
 
     // current visibility left to render
     var T = 1.0;
@@ -141,7 +140,7 @@ fn main(
         // out_img[pix_id] = vec4f(final_color, 1.0 - T);
 
         let colors_u = vec4u(clamp(vec4f(final_color, 1.0 - T) * 255.0, vec4f(0.0), vec4f(255.0)));
-        let packed = colors_u.x | (colors_u.y << 8) | (colors_u.z << 16) | (colors_u.w << 24);
+        let packed = colors_u.x | (colors_u.y << 8u) | (colors_u.z << 16u) | (colors_u.w << 24u);
         out_img[pix_id] = packed;
     }
 }

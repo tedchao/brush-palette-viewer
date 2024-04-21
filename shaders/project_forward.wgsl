@@ -112,7 +112,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
     // TODO: Is rounding down better? Eg. for gaussians <pixel size, just skip?
     let radius = u32(ceil(3.0 * sqrt(max(0.0, max(v1, v2)))));
 
-    if radius == 0 {
+    if radius == 0u {
         // point bbox outside of bounds.
         return;
     }

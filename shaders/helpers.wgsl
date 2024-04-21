@@ -1,4 +1,4 @@
-const SPLATS_PER_GROUP: u32 = 256;
+const SPLATS_PER_GROUP: u32 = 256u;
 const TILE_WIDTH: u32 = 26u;
 const TILE_SIZE: u32 = TILE_WIDTH * TILE_WIDTH;
 
@@ -7,7 +7,7 @@ fn get_bbox(center: vec2f, dims: vec2f, bounds: vec2u) -> vec4u {
     // bounding box coords returned in tile coords, inclusive min, exclusive max
     // clamp between 0 and tile bounds
     let min = vec2u(clamp(vec2i(center - dims), vec2i(0), vec2i(bounds)));
-    let max = vec2u(clamp(vec2i(center + dims + 1), vec2i(0), vec2i(bounds)));
+    let max = vec2u(clamp(vec2i(center + dims + vec2f(1.0)), vec2i(0), vec2i(bounds)));
     return vec4u(min, max);
 }
 
@@ -52,9 +52,9 @@ fn quat_to_rotmat(quat: vec4f) -> mat3x3f {
 
 fn scale_to_mat(scale: vec3f) -> mat3x3f {
     return mat3x3(
-        vec3f(scale.x, 0, 0),
-        vec3f(0, scale.y, 0), 
-        vec3f(0, 0, scale.z)
+        vec3f(scale.x, 0.0, 0.0),
+        vec3f(0.0, scale.y, 0.0), 
+        vec3f(0.0, 0.0, scale.z)
     );
 }
 
