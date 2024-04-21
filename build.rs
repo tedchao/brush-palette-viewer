@@ -1,5 +1,7 @@
 use miette::{IntoDiagnostic, Result};
-use wgsl_bindgen::{GlamWgslTypeMap, WgslBindgenOptionBuilder, WgslTypeSerializeStrategy};
+use wgsl_bindgen::{
+    GlamWgslTypeMap, WgslBindgenOptionBuilder, WgslShaderSourceType, WgslTypeSerializeStrategy,
+};
 
 fn main() -> Result<()> {
     WgslBindgenOptionBuilder::default()
@@ -23,6 +25,7 @@ fn main() -> Result<()> {
         .add_entry_point("shaders/sort/sort_scan.wgsl")
         .add_entry_point("shaders/sort/sort_scatter.wgsl")
         .output("src/splat_render/generated_bindings.rs")
+        .shader_source_type(WgslShaderSourceType::UseComposerEmbed)
         .build()?
         .generate()
         .into_diagnostic()

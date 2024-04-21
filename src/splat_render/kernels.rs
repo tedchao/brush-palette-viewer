@@ -1,4 +1,4 @@
-use std::mem::size_of;
+use std::{collections::HashMap, mem::size_of};
 
 use burn_compute::{
     channel::ComputeChannel,
@@ -72,7 +72,30 @@ macro_rules! kernel_source_gen {
 
         impl KernelSource for $struct_name {
             fn source(&self) -> SourceTemplate {
-                SourceTemplate::new(generated_bindings::$module::SHADER_STRING)
+                let mut composer = naga_oil::compose::Composer::default();
+                let shader_defs = HashMap::new();
+                generated_bindings::$module::load_shader_modules_embedded(
+                    &mut composer,
+                    &shader_defs,
+                );
+                let module = generated_bindings::$module::load_naga_module_embedded(
+                    &mut composer,
+                    shader_defs,
+                );
+                let info = wgpu::naga::valid::Validator::new(
+                    wgpu::naga::valid::ValidationFlags::empty(),
+                    wgpu::naga::valid::Capabilities::all(),
+                )
+                .validate(&module)
+                .unwrap();
+                let shader_string = wgpu::naga::back::wgsl::write_string(
+                    &module,
+                    &info,
+                    wgpu::naga::back::wgsl::WriterFlags::EXPLICIT_TYPES,
+                )
+                .expect("failed to convert naga module to source");
+
+                SourceTemplate::new(shader_string)
             }
         }
 
