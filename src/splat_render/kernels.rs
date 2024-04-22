@@ -12,7 +12,7 @@ use burn::backend::wgpu::{
 
 use super::shaders::*;
 use bytemuck::NoUninit;
-use glam::UVec3;
+use glam::{uvec3, UVec3};
 use naga_oil::compose::ShaderDefValue;
 use tracing::info_span;
 
@@ -21,7 +21,6 @@ where
     Self: KernelSource + Sized + Copy + Clone + 'static,
 {
     const SPAN_NAME: &'static str;
-    const BINDING_COUNT: usize;
     const WORKGROUP_SIZE: [u32; 3];
     type Uniforms: NoUninit;
 
@@ -36,7 +35,12 @@ where
         let _span = info_span!("Executing", "{}", Self::SPAN_NAME).entered();
         let exec_vec = UVec3::from_array(executions);
         let group_size = UVec3::from_array(Self::WORKGROUP_SIZE);
-        let execs = (exec_vec + group_size - 1) / group_size;
+        let execs = uvec3(
+            exec_vec.x.div_ceil(group_size.x),
+            exec_vec.y.div_ceil(group_size.y),
+            exec_vec.z.div_ceil(group_size.z),
+        );
+
         let kernel = Kernel::Custom(Box::new(SourceKernel::new(
             self,
             WorkGroup::new(execs.x, execs.y, execs.z),
@@ -46,11 +50,9 @@ where
         if size_of::<Self::Uniforms>() != 0 {
             let uniform_data = client.create(bytemuck::bytes_of(&uniforms));
             let total_handles = [&[&uniform_data], read_handles, write_handles].concat();
-            assert_eq!(total_handles.len(), Self::BINDING_COUNT);
             client.execute(kernel, &total_handles);
         } else {
             let total_handles = [read_handles, write_handles].concat();
-            assert_eq!(total_handles.len(), Self::BINDING_COUNT);
             client.execute(kernel, &total_handles);
         }
     }
@@ -112,7 +114,6 @@ macro_rules! kernel_source_gen {
                     wgpu::naga::back::wgsl::WriterFlags::EXPLICIT_TYPES,
                 )
                 .expect("failed to convert naga module to source");
-
                 SourceTemplate::new(shader_string)
             }
         }
@@ -121,9 +122,6 @@ macro_rules! kernel_source_gen {
             for $struct_name
         {
             const SPAN_NAME: &'static str = stringify!($struct_name);
-            const BINDING_COUNT: usize = $module::bind_groups::WgpuBindGroup0::LAYOUT_DESCRIPTOR
-                    .entries
-                    .len();
             type Uniforms = $uniforms;
             const WORKGROUP_SIZE: [u32; 3] = $module::compute::MAIN_WORKGROUP_SIZE;
         }

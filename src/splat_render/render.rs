@@ -146,11 +146,20 @@ fn render_forward(
         [num_intersects as u32, 1, 1],
     );
 
-    let out_img = create_tensor(
-        &client,
-        &device,
-        [camera.height as usize, camera.width as usize, 4],
-    );
+    let out_img = if forward_only {
+        create_tensor(
+            &client,
+            &device,
+            [camera.height as usize, camera.width as usize, 4],
+        )
+    } else {
+        // Channels are packed into 1 byte - aka one u32 element.
+        create_tensor(
+            &client,
+            &device,
+            [camera.height as usize, camera.width as usize, 1],
+        )
+    };
 
     let final_index = if forward_only {
         None
@@ -168,7 +177,7 @@ fn render_forward(
         out_handles.push(&f.handle);
     }
 
-    Rasterize::new(false).execute(
+    Rasterize::new(forward_only).execute(
         &client,
         shaders::rasterize::Uniforms::new(img_size, background.into()),
         &[
