@@ -426,6 +426,7 @@ impl<B: Backend> Splats<B> {
     pub(crate) fn render(
         &self,
         camera: &Camera,
+        img_size: glam::UVec2,
         bg_color: glam::Vec3,
     ) -> (
         Tensor<B, 3>,
@@ -439,6 +440,7 @@ impl<B: Backend> Splats<B> {
 
         splat_render::render::render(
             camera,
+            img_size,
             self.means.val(),
             self.scales.val().exp(),
             norm_rotation,

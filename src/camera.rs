@@ -1,7 +1,5 @@
 #[derive(Debug, Default, Clone)]
 pub(crate) struct Camera {
-    pub width: u32,
-    pub height: u32,
     pub fovx: f32,
     pub fovy: f32,
     pub position: glam::Vec3,
@@ -9,17 +7,8 @@ pub(crate) struct Camera {
 }
 
 impl Camera {
-    pub fn new(
-        position: glam::Vec3,
-        rotation: glam::Quat,
-        fovx: f32,
-        fovy: f32,
-        width: u32,
-        height: u32,
-    ) -> Self {
+    pub fn new(position: glam::Vec3, rotation: glam::Quat, fovx: f32, fovy: f32) -> Self {
         Camera {
-            width,
-            height,
             fovx,
             fovy,
             position,
@@ -27,15 +16,15 @@ impl Camera {
         }
     }
 
-    pub fn focal(&self) -> glam::Vec2 {
+    pub fn focal(&self, img_size: glam::UVec2) -> glam::Vec2 {
         glam::vec2(
-            fov_to_focal(self.fovx, self.width),
-            fov_to_focal(self.fovy, self.height),
+            fov_to_focal(self.fovx, img_size.x),
+            fov_to_focal(self.fovy, img_size.y),
         )
     }
 
-    pub fn center(&self) -> glam::Vec2 {
-        glam::vec2((self.width as f32) / 2.0, (self.height as f32) / 2.0)
+    pub fn center(&self, img_size: glam::UVec2) -> glam::Vec2 {
+        glam::vec2((img_size.x as f32) / 2.0, (img_size.y as f32) / 2.0)
     }
 
     pub fn local_to_world(&self) -> glam::Mat4 {

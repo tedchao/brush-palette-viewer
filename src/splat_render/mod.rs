@@ -51,6 +51,7 @@ pub trait Backend: burn::tensor::backend::Backend {
     // which we use to 'carry' the gradients'.
     fn render_gaussians(
         cam: &Camera,
+        img_size: glam::UVec2,
         means: FloatTensor<Self, 2>,
         scales: FloatTensor<Self, 2>,
         quats: FloatTensor<Self, 2>,

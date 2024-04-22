@@ -30,6 +30,7 @@ use glam::{uvec2, Vec3};
 
 fn render_forward(
     camera: &Camera,
+    img_size: glam::UVec2,
     means: JitTensor<BurnRuntime, f32, 2>,
     scales: JitTensor<BurnRuntime, f32, 2>,
     quats: JitTensor<BurnRuntime, f32, 2>,
@@ -57,10 +58,9 @@ fn render_forward(
 
     // Divide screen into blocks.
     let tile_width = shaders::helpers::TILE_WIDTH;
-    let img_size = [camera.width, camera.height];
     let tile_bounds = uvec2(
-        camera.width.div_ceil(tile_width),
-        camera.height.div_ceil(tile_width),
+        img_size.x.div_ceil(tile_width),
+        img_size.y.div_ceil(tile_width),
     );
 
     let client = means.client.clone();
@@ -77,9 +77,9 @@ fn render_forward(
         &client,
         shaders::project_forward::Uniforms::new(
             camera.world_to_local(),
-            camera.focal().into(),
-            camera.center().into(),
-            img_size,
+            camera.focal(img_size).into(),
+            camera.center(img_size).into(),
+            img_size.into(),
             tile_bounds.into(),
             tile_width,
             0.01,
@@ -150,14 +150,14 @@ fn render_forward(
         create_tensor(
             &client,
             &device,
-            [camera.height as usize, camera.width as usize, 4],
+            [img_size.y as usize, img_size.x as usize, 4],
         )
     } else {
         // Channels are packed into 1 byte - aka one u32 element.
         create_tensor(
             &client,
             &device,
-            [camera.height as usize, camera.width as usize, 1],
+            [img_size.y as usize, img_size.x as usize, 1],
         )
     };
 
@@ -167,7 +167,7 @@ fn render_forward(
         Some(create_tensor::<u32, 2>(
             &client,
             &device,
-            [camera.height as usize, camera.width as usize],
+            [img_size.y as usize, img_size.x as usize],
         ))
     };
 
@@ -179,7 +179,7 @@ fn render_forward(
 
     Rasterize::new(forward_only).execute(
         &client,
-        shaders::rasterize::Uniforms::new(img_size, background.into()),
+        shaders::rasterize::Uniforms::new(img_size.into(), background.into()),
         &[
             &gaussian_ids_sorted.handle,
             &tile_bins.handle,
@@ -189,7 +189,7 @@ fn render_forward(
             &opacity.handle,
         ],
         &out_handles,
-        [camera.width, camera.height, 1],
+        [img_size.x, img_size.y, 1],
     );
 
     (
@@ -209,6 +209,7 @@ fn render_forward(
 impl Backend for BurnBack {
     fn render_gaussians(
         camera: &Camera,
+        img_size: glam::UVec2,
         means: FloatTensor<Self, 2>,
         scales: FloatTensor<Self, 2>,
         quats: FloatTensor<Self, 2>,
@@ -217,7 +218,7 @@ impl Backend for BurnBack {
         background: glam::Vec3,
     ) -> (FloatTensor<Self, 3>, Aux<BurnBack>) {
         render_forward(
-            camera, means, scales, quats, colors, opacity, background, true,
+            camera, img_size, means, scales, quats, colors, opacity, background, true,
         )
     }
 }
@@ -244,6 +245,7 @@ struct RenderBackwards;
 impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
     fn render_gaussians(
         camera: &Camera,
+        img_size: glam::UVec2,
         means: FloatTensor<Self, 2>,
         scales: FloatTensor<Self, 2>,
         quats: FloatTensor<Self, 2>,
@@ -265,6 +267,7 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
         let forward_only = matches!(prep_nodes, OpsKind::UnTracked(_));
         let (out_img, aux) = render_forward(
             camera,
+            img_size,
             means.clone().primitive,
             scales.clone().primitive,
             quats.clone().primitive,
@@ -320,13 +323,14 @@ impl Backward<BurnBack, 3, 5> for RenderBackwards {
 
         // // Get the nodes of each variable.
         let state = ops.state;
+
+        let img_dimgs = state.out_img.shape.dims;
+        let img_size = glam::uvec2(img_dimgs[1] as u32, img_dimgs[0] as u32);
+
         let v_output = grads.consume::<BurnBack, 3>(&ops.node);
         let camera = state.cam;
 
-        DimCheck::new().check_dims(
-            &v_output,
-            [camera.height.into(), camera.width.into(), 4.into()],
-        );
+        DimCheck::new().check_dims(&v_output, [img_size.y.into(), img_size.x.into(), 4.into()]);
 
         let client = &v_output.client;
         let device = &v_output.device;
@@ -346,11 +350,10 @@ impl Backward<BurnBack, 3, 5> for RenderBackwards {
         let v_opacity = BurnBack::float_zeros(Shape::new([num_points]), device);
 
         let aux = state.aux;
-        let img_size = [camera.width, camera.height];
 
         RasterizeBackwards::new().execute(
             client,
-            shaders::rasterize_backwards::Uniforms::new(img_size, state.background.into()),
+            shaders::rasterize_backwards::Uniforms::new(img_size.into(), state.background.into()),
             &[
                 &aux.gaussian_ids_sorted.into_primitive().handle,
                 &aux.tile_bins.into_primitive().handle,
@@ -368,7 +371,7 @@ impl Backward<BurnBack, 3, 5> for RenderBackwards {
                 &v_colors.handle,
                 &v_opacity.handle,
             ],
-            [camera.width, camera.height, 1],
+            [img_size.x, img_size.y, 1],
         );
 
         // TODO: Can't this be done for just visible points
@@ -380,8 +383,8 @@ impl Backward<BurnBack, 3, 5> for RenderBackwards {
             client,
             shaders::project_backwards::Uniforms::new(
                 camera.world_to_local(),
-                camera.center().into(),
-                img_size,
+                camera.center(img_size).into(),
+                img_size.into(),
             ),
             &[
                 &means.handle,
@@ -425,6 +428,7 @@ impl Backward<BurnBack, 3, 5> for RenderBackwards {
 
 pub fn render<B: Backend>(
     camera: &Camera,
+    img_size: glam::UVec2,
     means: Tensor<B, 2>,
     scales: Tensor<B, 2>,
     quats: Tensor<B, 2>,
@@ -434,6 +438,7 @@ pub fn render<B: Backend>(
 ) -> (Tensor<B, 3>, Aux<BurnBack>) {
     let (img, aux) = B::render_gaussians(
         camera,
+        img_size,
         means.clone().into_primitive(),
         scales.clone().into_primitive(),
         quats.clone().into_primitive(),

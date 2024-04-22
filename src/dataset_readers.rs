@@ -89,14 +89,7 @@ fn read_synthetic_nerf_data(
         let fovy = camera::focal_to_fov(camera::fov_to_focal(fovx, image.width()), image.height());
 
         cameras.push(InputData {
-            camera: Camera::new(
-                translation,
-                rotation,
-                fovx,
-                fovy,
-                image.width(),
-                image.height(),
-            ),
+            camera: Camera::new(translation, rotation, fovx, fovy),
             view: InputView {
                 image: tensor.to_owned().map(|&x| (x as f32) / 255.0),
             },
@@ -177,15 +170,7 @@ pub(crate) fn read_viewpoint_data(file: &str) -> Result<Vec<Camera>> {
         let rotation = glam::Quat::from_mat3(&rot_matrix);
         let fovx = camera::focal_to_fov(fx as f32, width);
         let fovy = camera::focal_to_fov(fy as f32, height);
-
-        cameras.push(Camera::new(
-            translation,
-            rotation,
-            fovx,
-            fovy,
-            width,
-            height,
-        ));
+        cameras.push(Camera::new(translation, rotation, fovx, fovy));
     }
 
     Ok(cameras)

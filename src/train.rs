@@ -93,11 +93,14 @@ where
         scene.default_bg_color
     };
 
-    let (pred_img, aux) = splats.render(camera, background_color);
+    let view_image = &viewpoint.view.image;
+    let img_size = glam::uvec2(view_image.shape()[1] as u32, view_image.shape()[0] as u32);
+
+    let (pred_img, aux) = splats.render(camera, img_size, background_color);
     let dims = pred_img.dims();
 
     let rgb_img = pred_img.clone().slice([0..dims[0], 0..dims[1], 0..3]);
-    let gt_image = utils::ndarray_to_burn(viewpoint.view.image.clone(), device);
+    let gt_image = utils::ndarray_to_burn(view_image.clone(), device);
     // TODO: Burn should be able to slice open ranges.
     let rgb = gt_image.clone().slice([0..dims[0], 0..dims[1], 0..3]);
     let alpha = gt_image.clone().slice([0..dims[0], 0..dims[1], 3..4]);
@@ -245,7 +248,8 @@ where
             let first_cam = &scene.train_data[1].camera;
 
             let start_time = Instant::now();
-            let (img, _) = splats.render(first_cam, glam::vec3(0.0, 0.0, 0.0));
+            let (img, _) =
+                splats.render(first_cam, glam::uvec2(512, 512), glam::vec3(0.0, 0.0, 0.0));
             let img =
                 Array::from_shape_vec(img.dims(), img.to_data().convert::<f32>().value).unwrap();
             rec.log(

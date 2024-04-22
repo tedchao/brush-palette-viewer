@@ -134,7 +134,7 @@ impl Viewer {
         );
 
         Viewer {
-            camera: Camera::new(Vec3::ZERO, Quat::IDENTITY, 500.0, 500.0, 500, 500),
+            camera: Camera::new(Vec3::ZERO, Quat::IDENTITY, 500.0, 500.0),
             splats: None,
             backbuffer: None,
             controls: OrbitControls::new(15.0),
@@ -251,12 +251,10 @@ impl eframe::App for Viewer {
             self.camera.rotation = rot;
             self.camera.fovx = 0.5;
             self.camera.fovy = 0.5 * (size.y as f32) / (size.x as f32);
-            self.camera.width = size.x as u32;
-            self.camera.height = size.y as u32;
 
             if let Some(backbuffer) = &self.backbuffer {
                 if let Some(splats) = &self.splats {
-                    let (img, _) = splats.render(&self.camera, glam::vec3(0.0, 0.0, 0.0));
+                    let (img, _) = splats.render(&self.camera, size, glam::vec3(0.0, 0.0, 0.0));
                     copy_buffer_to_texture(img, &backbuffer.texture);
                 }
 

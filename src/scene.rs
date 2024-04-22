@@ -26,9 +26,10 @@ impl Scene {
 
         for (i, data) in self.train_data.iter().enumerate() {
             let path = format!("world/dataset/camera/{i}");
+            let vis_size = glam::uvec2(512, 512);
             let rerun_camera = rerun::Pinhole::from_focal_length_and_resolution(
-                data.camera.focal(),
-                glam::vec2(data.camera.width as f32, data.camera.height as f32),
+                data.camera.focal(vis_size),
+                glam::vec2(vis_size.x as f32, vis_size.y as f32),
             );
             rec.log_timeless(path.clone(), &rerun_camera)?;
             rec.log_timeless(
