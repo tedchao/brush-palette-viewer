@@ -30,9 +30,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     // TODDO: When training with viewer enabled, needs to be existing UI device.. ?
     // let device = Default::default();
     // train::train::<DiffBack>(&config, &device)?;
-    viewer::view(
-        "../models/bonsai/point_cloud/iteration_30000/point_cloud.ply",
-        "../models/bonsai/cameras.json",
-    )?;
+    viewer::start()?;
+
+    // "../models/bonsai/point_cloud/iteration_30000/point_cloud.ply",
+    // "../models/bonsai/cameras.json",
+
     Ok(())
 }

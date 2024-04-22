@@ -1,26 +1,18 @@
-use std::sync::Arc;
+use std::{ops::DerefMut, sync::Arc};
 
-use crate::{
-    camera::Camera, dataset_readers, gaussian_splats::Splats, splat_import, splat_render::BurnBack,
-};
+use crate::{camera::Camera, gaussian_splats::Splats, splat_import, splat_render::BurnBack};
 use anyhow::Result;
 use burn::tensor::Tensor;
+use burn_wgpu::WgpuDevice;
 use eframe::{egui_wgpu::WgpuConfiguration, NativeOptions};
 use egui::{pos2, Color32, Rect, TextureId};
 use glam::{Mat3, Mat4, Quat, Vec2, Vec3};
 use wgpu::ImageDataLayout;
 
-struct RunningData {
-    splats: Splats<BurnBack>,
-    backbuffer: wgpu::Texture,
-    texture_id: TextureId,
-}
-
 /// Tags an entity as capable of panning and orbiting.
 struct OrbitControls {
     pub focus: Vec3,
     pub radius: f32,
-
     pub rotation: glam::Quat,
     pub position: glam::Vec3,
 }
@@ -76,29 +68,7 @@ impl OrbitControls {
     }
 }
 
-struct MyApp {
-    camera: Camera,
-    path: String,
-    data: Option<RunningData>,
-    controls: OrbitControls,
-    start_transform: Mat4,
-}
-
-impl MyApp {
-    fn new(path: &str, camera: Camera) -> Self {
-        MyApp {
-            camera: camera.clone(),
-            path: path.to_owned(),
-            data: None,
-            controls: OrbitControls::new(15.0),
-            start_transform: glam::Mat4::from_rotation_translation(
-                camera.rotation,
-                camera.position,
-            ),
-        }
-    }
-}
-
+// TODO: This probably doesn't belong here but meh.
 fn copy_buffer_to_texture(img: Tensor<BurnBack, 3>, texture: &wgpu::Texture) {
     let client = img.clone().into_primitive().client.clone();
     let [height, width, _] = img.shape().dims;
@@ -137,30 +107,61 @@ fn copy_buffer_to_texture(img: Tensor<BurnBack, 3>, texture: &wgpu::Texture) {
     );
 }
 
-impl eframe::App for MyApp {
-    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
-        if self.data.is_none() {
+struct BackBuffer {
+    texture: wgpu::Texture,
+    id: TextureId,
+}
+
+struct Viewer {
+    camera: Camera,
+    splats: Option<Splats<BurnBack>>,
+    backbuffer: Option<BackBuffer>,
+    controls: OrbitControls,
+    device: WgpuDevice,
+    start_transform: Mat4,
+}
+
+impl Viewer {
+    pub fn new(cc: &eframe::CreationContext) -> Self {
+        let state = cc.wgpu_render_state.as_ref().unwrap();
+        // Run the burn backend on the egui WGPU device.
+        let device = burn::backend::wgpu::init_existing_device(
+            0,
+            state.adapter.clone(),
+            state.device.clone(),
+            state.queue.clone(),
+            Default::default(),
+        );
+
+        Viewer {
+            camera: Camera::new(Vec3::ZERO, Quat::IDENTITY, 500.0, 500.0, 500, 500),
+            splats: None,
+            backbuffer: None,
+            controls: OrbitControls::new(15.0),
+            device,
+            start_transform: glam::Mat4::IDENTITY,
+        }
+    }
+
+    pub fn load_splats(&mut self, path: &str) {
+        self.splats = splat_import::load_splat_from_ply::<BurnBack>(path, &self.device).ok();
+    }
+
+    fn update_backbuffer(&mut self, size: glam::UVec2, frame: &mut eframe::Frame) {
+        let dirty = !matches!(
+            self.backbuffer.as_ref(),
+            Some(back) if back.texture.width() == size.x && back.texture.height() == size.y
+        );
+
+        if dirty {
             let state = frame.wgpu_render_state().unwrap();
-
-            let device = burn::backend::wgpu::init_existing_device(
-                0,
-                state.adapter.clone(),
-                state.device.clone(),
-                state.queue.clone(),
-                Default::default(),
-            );
-
-            let splats =
-                splat_import::load_splat_from_ply::<BurnBack>(&self.path, &device).unwrap();
-
-            let mut rendererer = state.renderer.write();
             let egui_device = state.device.clone();
 
-            let backbuffer = egui_device.create_texture(&wgpu::TextureDescriptor {
+            let texture = egui_device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("Splat backbuffer"),
                 size: wgpu::Extent3d {
-                    width: self.camera.width,
-                    height: self.camera.height,
+                    width: size.x,
+                    height: size.y,
                     depth_or_array_layers: 1,
                 },
                 mip_level_count: 1,
@@ -170,25 +171,52 @@ impl eframe::App for MyApp {
                 usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
                 view_formats: &[wgpu::TextureFormat::Rgba8UnormSrgb],
             });
-            let texture_id = rendererer.register_native_texture(
-                &egui_device,
-                &backbuffer.create_view(&wgpu::TextureViewDescriptor {
-                    ..Default::default()
-                }),
-                wgpu::FilterMode::Linear,
-            );
-            self.data = Some(RunningData {
-                splats,
-                backbuffer,
-                texture_id,
-            });
-        }
 
+            let view = texture.create_view(&Default::default());
+
+            let mut rend_guard = state.renderer.write();
+            let renderer = rend_guard.deref_mut();
+
+            if let Some(back) = self.backbuffer.as_mut() {
+                back.texture = texture;
+                renderer.update_egui_texture_from_wgpu_texture(
+                    &egui_device,
+                    &view,
+                    wgpu::FilterMode::Linear,
+                    back.id,
+                )
+            } else {
+                self.backbuffer = Some(BackBuffer {
+                    texture,
+                    id: renderer.register_native_texture(
+                        &egui_device,
+                        &view,
+                        wgpu::FilterMode::Linear,
+                    ),
+                });
+            }
+        }
+    }
+}
+
+impl eframe::App for Viewer {
+    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.heading("Brush splat viewwer");
+            ui.heading("Brush splat viewer");
+
+            if ui.button("load").clicked() {
+                self.load_splats("../models/bonsai/point_cloud/iteration_30000/point_cloud.ply");
+            }
+
+            let size = ui.available_size();
+            // Round to 16 pixels for buffer alignment.
+            // TODO: Ideally just alloc a backbuffer that's aligned
+            // and render a slice of it.
+            let size = 64 * (glam::uvec2(size.x as u32, size.y as u32) / 64);
+            self.update_backbuffer(size, frame);
 
             let (rect, response) = ui.allocate_exact_size(
-                egui::Vec2::new(self.camera.width as f32, self.camera.height as f32),
+                egui::Vec2::new(size.x as f32, size.y as f32),
                 egui::Sense::drag(),
             );
 
@@ -221,35 +249,41 @@ impl eframe::App for MyApp {
             let (_, rot, pos) = total_transform.to_scale_rotation_translation();
             self.camera.position = pos;
             self.camera.rotation = rot;
+            self.camera.fovx = 0.5;
+            self.camera.fovy = 0.5 * (size.y as f32) / (size.x as f32);
+            self.camera.width = size.x as u32;
+            self.camera.height = size.y as u32;
 
-            let data = self.data.as_ref().expect("Initialization failed?");
-            let (img, _) = data.splats.render(&self.camera, glam::vec3(0.0, 0.0, 0.0));
-            copy_buffer_to_texture(img, &data.backbuffer);
+            if let Some(backbuffer) = &self.backbuffer {
+                if let Some(splats) = &self.splats {
+                    let (img, _) = splats.render(&self.camera, glam::vec3(0.0, 0.0, 0.0));
+                    copy_buffer_to_texture(img, &backbuffer.texture);
+                }
 
-            ui.painter().rect_filled(rect, 0.0, Color32::BLACK);
-
-            ui.painter().image(
-                data.texture_id,
-                rect,
-                Rect {
-                    min: pos2(0.0, 0.0),
-                    max: pos2(1.0, 1.0),
-                },
-                Color32::WHITE,
-            );
+                ui.painter().image(
+                    backbuffer.id,
+                    rect,
+                    Rect {
+                        min: pos2(0.0, 0.0),
+                        max: pos2(1.0, 1.0),
+                    },
+                    Color32::WHITE,
+                );
+            }
 
             if dirty {
                 ctx.request_repaint();
             }
         });
     }
+
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        [0.0, 0.0, 0.0, 1.0]
+    }
 }
 
-pub(crate) fn view(path: &'static str, viewpoints: &str) -> Result<()> {
-    // Init burns backend.
-
-    let cameras = dataset_readers::read_viewpoint_data(viewpoints)?;
-
+pub(crate) fn start() -> Result<()> {
+    // let cameras = dataset_readers::read_viewpoint_data(viewpoints)?;
     let native_options = NativeOptions {
         wgpu_options: WgpuConfiguration {
             device_descriptor: Arc::new(|adapter| wgpu::DeviceDescriptor {
@@ -262,53 +296,12 @@ pub(crate) fn view(path: &'static str, viewpoints: &str) -> Result<()> {
         ..Default::default()
     };
 
-    let start_camera = Camera::new(
-        cameras[0].position,
-        cameras[0].rotation,
-        cameras[0].fovx,
-        cameras[0].fovx,
-        1024,
-        1024,
-    );
-
     eframe::run_native(
         "My egui App",
         native_options,
-        Box::new(move |_cc| Box::new(MyApp::new(path, start_camera))),
+        Box::new(move |cc| Box::new(Viewer::new(cc))),
     )
     .unwrap();
 
     Ok(())
-
-    // let rec = rerun::RecordingStreamBuilder::new("visualize training").spawn()?;
-    // let splats: Splats<B> = gaussian_splats::create_from_ply(path, device)?;
-    // let cameras = dataset_readers::read_viewpoint_data(viewpoints)?;
-    // splats.visualize(&rec)?;
-    // for (i, camera) in cameras.iter().enumerate() {
-    //     let _span = info_span!("Splats render, sync").entered();
-
-    //     let (img, _) = splats.render(camera, glam::vec3(0.0, 0.0, 0.0));
-    //     B::sync(device);
-    //     drop(_span);
-
-    //     let img = Array::from_shape_vec(img.dims(), img.to_data().convert::<f32>().value).unwrap();
-    //     let img = img.map(|x| (*x * 255.0).clamp(0.0, 255.0) as u8);
-
-    //     rec.log_timeless(
-    //         format!("images/fixed_camera_render_{i}"),
-    //         &rerun::Image::try_from(img).unwrap(),
-    //     )?;
-
-    //     let rerun_camera = rerun::Pinhole::from_focal_length_and_resolution(
-    //         camera.focal(),
-    //         glam::vec2(camera.width as f32, camera.height as f32),
-    //     );
-    //     // TODO: make a function.
-    //     let cam_path = format!("world/camera_{i}");
-    //     rec.log_timeless(cam_path.clone(), &rerun_camera)?;
-    //     rec.log_timeless(
-    //         cam_path.clone(),
-    //         &rerun::Transform3D::from_translation_rotation(camera.position(), camera.rotation()),
-    //     )?;
-    // }
 }
