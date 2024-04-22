@@ -1,4 +1,5 @@
-use std::{ops::DerefMut, sync::Arc};
+use core::ops::DerefMut;
+use std::sync::Arc;
 
 use crate::{camera::Camera, gaussian_splats::Splats, splat_import, splat_render::BurnBack};
 use anyhow::Result;

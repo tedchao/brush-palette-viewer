@@ -2,8 +2,6 @@
 #![allow(clippy::too_many_arguments)]
 #![feature(iter_array_chunks)]
 #![feature(let_chains)]
-
-use std::error::Error;
 mod camera;
 mod dataset_readers;
 mod gaussian_splats;
@@ -15,9 +13,11 @@ mod train;
 mod utils;
 mod viewer;
 
+#[cfg(feature = "tracy")]
 use tracing_subscriber::layer::SubscriberExt;
 
-fn main() -> Result<(), Box<dyn Error>> {
+fn main() -> anyhow::Result<()> {
+    #[cfg(feature = "tracy")]
     tracing::subscriber::set_global_default(
         tracing_subscriber::registry().with(tracing_tracy::TracyLayer::default()),
     )

@@ -1,9 +1,10 @@
+use std::path::PathBuf;
+
 use crate::camera::Camera;
 use crate::{camera, scene};
+use anyhow::Context;
 use anyhow::Result;
 use ndarray::Array3;
-use rerun::external::anyhow::Context;
-use std::path::PathBuf;
 
 #[derive(Debug, Default)]
 pub(crate) struct InputView {
@@ -25,16 +26,14 @@ fn read_synthetic_nerf_data(
     let mut cameras = vec![];
 
     let path = PathBuf::from(base_path).join(transformsfile);
-    println!("Opening dataset at {path:?}");
     let file = std::fs::read_to_string(path).expect("Couldn't find transforms file.");
+
     let contents: serde_json::Value = serde_json::from_str(&file).unwrap();
     let fovx = contents
         .get("camera_angle_x")
         .context("Camera angle x")?
         .as_f64()
         .context("Parsing camera angle")? as f32;
-
-    println!("Loaded {transformsfile}");
 
     let frames_array = contents
         .get("frames")
@@ -181,7 +180,6 @@ pub(crate) fn read_scene(
     max_images: Option<usize>,
     with_test_data: bool,
 ) -> scene::Scene {
-    println!("Reading Training Transforms");
     let train_cams =
         read_synthetic_nerf_data(scene_path, "transforms_train.json", ".png", max_images)
             .expect("Failed to load train cameras.");
@@ -189,7 +187,6 @@ pub(crate) fn read_scene(
     let mut test_cams = vec![];
 
     if with_test_data {
-        println!("Reading Test Transforms");
         test_cams =
             read_synthetic_nerf_data(scene_path, "transforms_test.json", ".png", max_images)
                 .expect("Failed to load test cameras.");

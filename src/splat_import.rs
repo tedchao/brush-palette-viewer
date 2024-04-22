@@ -1,5 +1,3 @@
-use std::io::BufReader;
-
 use burn::{
     module::{Param, ParamId},
     tensor::{Data, Shape, Tensor},
@@ -8,6 +6,7 @@ use ply_rs::{
     parser::Parser,
     ply::{Property, PropertyAccess},
 };
+use std::io::BufReader;
 
 use crate::{gaussian_splats::Splats, splat_render::Backend};
 use anyhow::Result;

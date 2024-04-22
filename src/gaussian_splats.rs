@@ -3,19 +3,19 @@ use burn::{
     module::{Module, Param, ParamId},
     tensor::{activation::sigmoid, Data, Device, Shape},
 };
-use ndarray::Axis;
-use rerun::{Color, RecordingStream};
 use tracing::info_span;
 
 use crate::{
     camera::Camera,
     splat_render::{self, Backend},
-    utils,
 };
 use burn::tensor::Distribution;
 use burn::tensor::Tensor;
 
 use anyhow::Result;
+
+#[cfg(feature = "rerun")]
+use rerun::{Color, RecordingStream};
 
 #[derive(Config)]
 pub(crate) struct SplatsConfig {
@@ -450,6 +450,7 @@ impl<B: Backend> Splats<B> {
         )
     }
 
+    #[cfg(feature = "rerun")]
     pub(crate) fn visualize(&self, rec: &RecordingStream) -> Result<()> {
         let means_data = utils::burn_to_ndarray(self.means.val());
         let means = means_data

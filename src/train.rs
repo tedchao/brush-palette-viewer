@@ -1,5 +1,3 @@
-use std::time::Instant;
-
 use anyhow::Result;
 use burn::lr_scheduler::LrScheduler;
 use burn::nn::loss::MseLoss;
@@ -19,7 +17,6 @@ use crate::{
     scene::Scene,
     utils,
 };
-
 use rand::seq::SliceRandom;
 
 #[derive(Config)]
@@ -151,6 +148,7 @@ pub(crate) fn train<B: splat_render::AutodiffBackend>(
 where
     B::InnerBackend: Backend,
 {
+    #[cfg(feature = "rerun")]
     let rec = rerun::RecordingStreamBuilder::new("visualize training").spawn()?;
 
     println!("Loading dataset.");
@@ -160,6 +158,8 @@ where
 
     B::seed(config.seed);
     let mut rng = StdRng::from_seed([10; 32]);
+
+    #[cfg(feature = "rerun")]
     scene.visualize(&rec)?;
 
     let mut splats: Splats<B> =
@@ -179,8 +179,6 @@ where
 
     // By default use 8 second window with 16 accumulators
     for iter in 0..config.train_steps + 1 {
-        let start_time = Instant::now();
-
         let lr = LrScheduler::<B>::step(&mut scheduler);
 
         let (new_splats, stats) = train_step(
@@ -190,80 +188,83 @@ where
         // Replace current model.
         splats = new_splats;
 
-        rec.set_time_sequence("iterations", iter);
-        rec.log("losses/main", &rerun::Scalar::new(stats.loss[[0]] as f64))?;
-        rec.log("lr/current", &rerun::Scalar::new(lr))?;
-        if iter > 5 {
-            rec.log(
-                "performance/train step ms",
-                &rerun::Scalar::new((Instant::now() - start_time).as_secs_f32() as f64 * 1000.0),
-            )?;
-        }
-        rec.log(
-            "points/total",
-            &rerun::Scalar::new(stats.total_points as f64),
-        )?;
-        rec.log(
-            "points/num intersects",
-            &rerun::Scalar::new(stats.aux.num_intersects as f64),
-        )?;
+        #[cfg(not(feature = "rerun"))]
+        drop(stats);
 
-        if iter % config.visualize_every == 0 {
+        #[cfg(feature = "rerun")]
+        {
+            rec.set_time_sequence("iterations", iter);
+            rec.log("losses/main", &rerun::Scalar::new(stats.loss[[0]] as f64))?;
+            rec.log("lr/current", &rerun::Scalar::new(lr))?;
+
             rec.log(
-                "images/ground truth",
-                &rerun::Image::try_from(stats.gt_image).unwrap(),
+                "points/total",
+                &rerun::Scalar::new(stats.total_points as f64),
+            )?;
+            rec.log(
+                "points/num intersects",
+                &rerun::Scalar::new(stats.aux.num_intersects as f64),
             )?;
 
-            let tile_bins = stats.aux.tile_bins;
-            let tile_size = tile_bins.dims();
-            let tile_depth = tile_bins
-                .clone()
-                .slice([0..tile_size[0], 0..tile_size[1], 1..2])
-                - tile_bins
+            if iter % config.visualize_every == 0 {
+                rec.log(
+                    "images/ground truth",
+                    &rerun::Image::try_from(stats.gt_image).unwrap(),
+                )?;
+
+                let tile_bins = stats.aux.tile_bins;
+                let tile_size = tile_bins.dims();
+                let tile_depth = tile_bins
                     .clone()
-                    .slice([0..tile_size[0], 0..tile_size[1], 0..1]);
+                    .slice([0..tile_size[0], 0..tile_size[1], 1..2])
+                    - tile_bins
+                        .clone()
+                        .slice([0..tile_size[0], 0..tile_size[1], 0..1]);
 
-            let tile_depth = Array::from_shape_vec(
-                tile_depth.dims(),
-                tile_depth.to_data().convert::<u32>().value,
-            )
-            .unwrap();
-            rec.log(
-                "images/tile depth",
-                &rerun::Tensor::try_from(tile_depth).unwrap().clone(),
-            )?;
+                let tile_depth = Array::from_shape_vec(
+                    tile_depth.dims(),
+                    tile_depth.to_data().convert::<u32>().value,
+                )
+                .unwrap();
+                rec.log(
+                    "images/tile depth",
+                    &rerun::Tensor::try_from(tile_depth).unwrap().clone(),
+                )?;
 
-            let pred_image = Array::from_shape_vec(
-                stats.pred_image.dims(),
-                stats.pred_image.to_data().convert::<f32>().value,
-            )
-            .unwrap();
-            let pred_image = pred_image.map(|x| (*x * 255.0).clamp(0.0, 255.0) as u8);
+                let pred_image = Array::from_shape_vec(
+                    stats.pred_image.dims(),
+                    stats.pred_image.to_data().convert::<f32>().value,
+                )
+                .unwrap();
+                let pred_image = pred_image.map(|x| (*x * 255.0).clamp(0.0, 255.0) as u8);
 
-            rec.log(
-                "images/predicted",
-                &rerun::Image::try_from(pred_image).unwrap(),
-            )?;
+                rec.log(
+                    "images/predicted",
+                    &rerun::Image::try_from(pred_image).unwrap(),
+                )?;
 
-            let first_cam = &scene.train_data[1].camera;
+                let first_cam = &scene.train_data[1].camera;
 
-            let start_time = Instant::now();
-            let (img, _) =
-                splats.render(first_cam, glam::uvec2(512, 512), glam::vec3(0.0, 0.0, 0.0));
-            let img =
-                Array::from_shape_vec(img.dims(), img.to_data().convert::<f32>().value).unwrap();
-            rec.log(
-                "performance/render ms",
-                &rerun::Scalar::new((Instant::now() - start_time).as_secs_f32() as f64 * 1000.0),
-            )?;
+                let start_time = Instant::now();
+                let (img, _) =
+                    splats.render(first_cam, glam::uvec2(512, 512), glam::vec3(0.0, 0.0, 0.0));
+                let img = Array::from_shape_vec(img.dims(), img.to_data().convert::<f32>().value)
+                    .unwrap();
+                rec.log(
+                    "performance/render ms",
+                    &rerun::Scalar::new(
+                        (Instant::now() - start_time).as_secs_f32() as f64 * 1000.0,
+                    ),
+                )?;
 
-            let img = img.map(|x| (*x * 255.0).clamp(0.0, 255.0) as u8);
-            rec.log(
-                "images/fixed camera render",
-                &rerun::Image::try_from(img).unwrap(),
-            )?;
+                let img = img.map(|x| (*x * 255.0).clamp(0.0, 255.0) as u8);
+                rec.log(
+                    "images/fixed camera render",
+                    &rerun::Image::try_from(img).unwrap(),
+                )?;
 
-            splats.visualize(&rec)?;
+                splats.visualize(&rec)?;
+            }
         }
     }
     Ok(())

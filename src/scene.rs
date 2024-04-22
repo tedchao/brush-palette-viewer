@@ -1,6 +1,3 @@
-use anyhow::Result;
-use rerun::Image;
-
 use crate::dataset_readers::InputData;
 
 // Encapsulates a multi-view scene including cameras and the splats.
@@ -21,7 +18,8 @@ impl Scene {
         }
     }
 
-    pub(crate) fn visualize(&self, rec: &rerun::RecordingStream) -> Result<()> {
+    #[cfg(feature = "rerun")]
+    pub(crate) fn visualize(&self, rec: &rerun::RecordingStream) -> anyhow::Result<()> {
         rec.log_timeless("world", &rerun::ViewCoordinates::RIGHT_HAND_Z_UP)?;
 
         for (i, data) in self.train_data.iter().enumerate() {
@@ -39,7 +37,10 @@ impl Scene {
                     data.camera.rotation,
                 ),
             )?;
-            rec.log_timeless(path + "/image", &Image::try_from(data.view.image.clone())?)?;
+            rec.log_timeless(
+                path + "/image",
+                &rerun::Image::try_from(data.view.image.clone())?,
+            )?;
         }
 
         Ok(())
