@@ -1,7 +1,5 @@
 #![allow(dead_code)]
 #![allow(clippy::too_many_arguments)]
-#![feature(iter_array_chunks)]
-#![feature(let_chains)]
 mod camera;
 mod dataset_readers;
 mod gaussian_splats;

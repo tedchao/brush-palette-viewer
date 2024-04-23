@@ -61,10 +61,7 @@ pub trait Backend: burn::tensor::backend::Backend {
     ) -> (FloatTensor<Self, 3>, Aux<BurnBack>);
 }
 
-pub trait AutodiffBackend:
-    Backend + burn::tensor::backend::AutodiffBackend<InnerBackend: Backend>
-{
-}
+pub trait AutodiffBackend: Backend + burn::tensor::backend::AutodiffBackend {}
 
 fn create_tensor<E: JitElement, const D: usize>(
     client: &BurnClient,
@@ -90,9 +87,8 @@ pub(crate) fn read_buffer_to_u32<S: ComputeServer, C: ComputeChannel<S>>(
     tensor: &Handle<S>,
 ) -> Vec<u32> {
     let data = client.read(tensor).read();
-    data.into_iter()
-        .array_chunks::<4>()
-        .map(u32::from_le_bytes)
+    data.chunks_exact(4)
+        .map(|x| u32::from_le_bytes([x[0], x[1], x[2], x[3]]))
         .collect()
 }
 
@@ -101,9 +97,8 @@ fn read_buffer_to_f32<S: ComputeServer, C: ComputeChannel<S>>(
     tensor: &Handle<S>,
 ) -> Vec<f32> {
     let data = client.read(tensor).read();
-    data.into_iter()
-        .array_chunks::<4>()
-        .map(f32::from_le_bytes)
+    data.chunks_exact(4)
+        .map(|x| f32::from_le_bytes([x[0], x[1], x[2], x[3]]))
         .collect()
 }
 

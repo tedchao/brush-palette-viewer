@@ -94,10 +94,10 @@ fn read_synthetic_nerf_data(
             },
         });
 
-        if let Some(max) = max_frames
-            && i == max - 1
-        {
-            break;
+        if let Some(max) = max_frames {
+            if i == max - 1 {
+                break;
+            }
         }
     }
 
