@@ -84,18 +84,22 @@ fn render_forward(
             tile_width,
             0.01,
         ),
-        &[&means.handle, &scales.handle, &quats.handle],
         &[
-            &xys.handle,
-            &depths.handle,
-            &radii.handle,
-            &cov2ds.handle,
-            &num_tiles_hit.handle,
+            means.handle.binding(),
+            scales.handle.binding(),
+            quats.handle.binding(),
+        ],
+        &[
+            xys.handle.clone().binding(),
+            depths.handle.clone().binding(),
+            radii.handle.clone().binding(),
+            cov2ds.handle.clone().binding(),
+            num_tiles_hit.handle.clone().binding(),
         ],
         [num_points as u32, 1, 1],
     );
 
-    let cum_tiles_hit = prefix_sum(&client, &num_tiles_hit);
+    let cum_tiles_hit = prefix_sum(&client, num_tiles_hit);
 
     let read_back = info_span!("Read back num_intersects").entered();
     // TODO: This is the only real CPU <-> GPU bottleneck, get around this somehow?
@@ -105,7 +109,7 @@ fn render_forward(
         [num_points - 1..num_points],
     );
 
-    let num_intersects = *read_buffer_to_u32(&client, &last_elem.handle)
+    let num_intersects = *read_buffer_to_u32(&client, last_elem.handle.binding())
         .last()
         .unwrap() as usize;
     drop(read_back);
@@ -119,12 +123,15 @@ fn render_forward(
         &client,
         shaders::map_gaussian_to_intersects::Uniforms::new(tile_bounds.into()),
         &[
-            &xys.handle,
-            &radii.handle,
-            &cum_tiles_hit.handle,
-            &depths.handle,
+            xys.handle.clone().binding(),
+            radii.handle.clone().binding(),
+            cum_tiles_hit.handle.binding(),
+            depths.handle.binding(),
         ],
-        &[&isect_ids_unsorted.handle, &gaussian_ids_unsorted.handle],
+        &[
+            isect_ids_unsorted.handle.clone().binding(),
+            gaussian_ids_unsorted.handle.clone().binding(),
+        ],
         [num_points as u32, 1, 1],
     );
 
@@ -141,8 +148,8 @@ fn render_forward(
     GetTileBinEdges::new().execute(
         &client,
         (),
-        &[&isect_ids_sorted.handle],
-        &[&tile_bins.handle],
+        &[isect_ids_sorted.handle.binding()],
+        &[tile_bins.handle.clone().binding()],
         [num_intersects as u32, 1, 1],
     );
 
@@ -171,22 +178,22 @@ fn render_forward(
         ))
     };
 
-    let mut out_handles = vec![&out_img.handle];
+    let mut out_handles = vec![out_img.handle.clone().binding()];
 
     if let Some(f) = final_index.as_ref() {
-        out_handles.push(&f.handle);
+        out_handles.push(f.handle.clone().binding());
     }
 
     Rasterize::new(forward_only).execute(
         &client,
         shaders::rasterize::Uniforms::new(img_size.into(), background.into()),
         &[
-            &gaussian_ids_sorted.handle,
-            &tile_bins.handle,
-            &xys.handle,
-            &cov2ds.handle,
-            &colors.handle,
-            &opacity.handle,
+            gaussian_ids_sorted.handle.clone().binding(),
+            tile_bins.handle.clone().binding(),
+            xys.handle.clone().binding(),
+            cov2ds.handle.clone().binding(),
+            colors.handle.binding(),
+            opacity.handle.binding(),
         ],
         &out_handles,
         [img_size.x, img_size.y, 1],
@@ -355,21 +362,21 @@ impl Backward<BurnBack, 3, 5> for RenderBackwards {
             client,
             shaders::rasterize_backwards::Uniforms::new(img_size.into(), state.background.into()),
             &[
-                &aux.gaussian_ids_sorted.into_primitive().handle,
-                &aux.tile_bins.into_primitive().handle,
-                &aux.xys.into_primitive().handle,
-                &aux.cov2ds.clone().into_primitive().handle,
-                &colors.handle,
-                &opacity.handle,
-                &aux.final_index.unwrap().into_primitive().handle,
-                &state.out_img.handle,
-                &v_output.handle,
+                aux.gaussian_ids_sorted.into_primitive().handle.binding(),
+                aux.tile_bins.into_primitive().handle.binding(),
+                aux.xys.into_primitive().handle.binding(),
+                aux.cov2ds.clone().into_primitive().handle.binding(),
+                colors.handle.binding(),
+                opacity.handle.binding(),
+                aux.final_index.unwrap().into_primitive().handle.binding(),
+                state.out_img.handle.binding(),
+                v_output.handle.binding(),
             ],
             &[
-                &v_xy.handle,
-                &v_conic.handle,
-                &v_colors.handle,
-                &v_opacity.handle,
+                v_xy.handle.clone().binding(),
+                v_conic.handle.clone().binding(),
+                v_colors.handle.clone().binding(),
+                v_opacity.handle.clone().binding(),
             ],
             [img_size.x, img_size.y, 1],
         );
@@ -387,16 +394,20 @@ impl Backward<BurnBack, 3, 5> for RenderBackwards {
                 img_size.into(),
             ),
             &[
-                &means.handle,
-                &scales.handle,
-                &quats.handle,
-                &aux.radii.into_primitive().handle,
-                &aux.cov2ds.into_primitive().handle,
-                &v_xy.handle,
-                &v_conic.handle,
-                &v_opacity.handle,
+                means.handle.binding(),
+                scales.handle.binding(),
+                quats.handle.binding(),
+                aux.radii.into_primitive().handle.binding(),
+                aux.cov2ds.into_primitive().handle.binding(),
+                v_xy.handle.binding(),
+                v_conic.handle.binding(),
+                v_opacity.handle.clone().binding(),
             ],
-            &[&v_means.handle, &v_scales.handle, &v_quats.handle],
+            &[
+                v_means.handle.clone().binding(),
+                v_scales.handle.clone().binding(),
+                v_quats.handle.clone().binding(),
+            ],
             [num_points as u32, 1, 1],
         );
 

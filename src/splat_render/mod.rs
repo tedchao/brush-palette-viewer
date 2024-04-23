@@ -4,6 +4,7 @@ use burn::{
     backend::wgpu::{AutoGraphicsApi, JitBackend, WgpuRuntime},
     tensor::{Shape, Tensor},
 };
+use burn_compute::server::Binding;
 use burn_compute::{
     channel::ComputeChannel,
     client::ComputeClient,
@@ -84,9 +85,9 @@ fn bitcast_tensor<const D: usize, EIn: JitElement, EOut: JitElement>(
 
 pub(crate) fn read_buffer_to_u32<S: ComputeServer, C: ComputeChannel<S>>(
     client: &ComputeClient<S, C>,
-    tensor: &Handle<S>,
+    binding: Binding<S>,
 ) -> Vec<u32> {
-    let data = client.read(tensor).read();
+    let data = client.read(binding).read();
     data.chunks_exact(4)
         .map(|x| u32::from_le_bytes([x[0], x[1], x[2], x[3]]))
         .collect()
@@ -94,9 +95,9 @@ pub(crate) fn read_buffer_to_u32<S: ComputeServer, C: ComputeChannel<S>>(
 
 fn read_buffer_to_f32<S: ComputeServer, C: ComputeChannel<S>>(
     client: &ComputeClient<S, C>,
-    tensor: &Handle<S>,
+    binding: Binding<S>,
 ) -> Vec<f32> {
-    let data = client.read(tensor).read();
+    let data = client.read(binding).read();
     data.chunks_exact(4)
         .map(|x| f32::from_le_bytes([x[0], x[1], x[2], x[3]]))
         .collect()
@@ -104,9 +105,9 @@ fn read_buffer_to_f32<S: ComputeServer, C: ComputeChannel<S>>(
 
 fn assert_buffer_is_finite<S: ComputeServer, C: ComputeChannel<S>>(
     client: &ComputeClient<S, C>,
-    tensor: &Handle<S>,
+    binding: Binding<S>,
 ) {
-    for (i, elem) in read_buffer_to_f32(client, tensor).iter().enumerate() {
+    for (i, elem) in read_buffer_to_f32(client, binding).iter().enumerate() {
         if !elem.is_finite() {
             panic!("Elem {elem} at {i} is invalid!");
         }

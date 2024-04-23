@@ -3,7 +3,7 @@ use std::mem::size_of;
 use burn_compute::{
     channel::ComputeChannel,
     client::ComputeClient,
-    server::{ComputeServer, Handle},
+    server::{Binding, ComputeServer},
 };
 
 use burn::backend::wgpu::{
@@ -28,8 +28,8 @@ where
         self,
         client: &ComputeClient<S, C>,
         uniforms: Self::Uniforms,
-        read_handles: &[&Handle<S>],
-        write_handles: &[&Handle<S>],
+        read_handles: &[Binding<S>],
+        write_handles: &[Binding<S>],
         executions: [u32; 3],
     ) {
         let _span = info_span!("Executing", "{}", Self::SPAN_NAME).entered();
@@ -48,12 +48,12 @@ where
         )));
 
         if size_of::<Self::Uniforms>() != 0 {
-            let uniform_data = client.create(bytemuck::bytes_of(&uniforms));
-            let total_handles = [&[&uniform_data], read_handles, write_handles].concat();
-            client.execute(kernel, &total_handles);
+            let uniform_data = client.create(bytemuck::bytes_of(&uniforms)).binding();
+            let total_handles = [[uniform_data].as_slice(), read_handles, write_handles].concat();
+            client.execute(kernel, total_handles);
         } else {
             let total_handles = [read_handles, write_handles].concat();
-            client.execute(kernel, &total_handles);
+            client.execute(kernel, total_handles);
         }
     }
 }

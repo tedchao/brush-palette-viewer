@@ -98,8 +98,8 @@ pub fn radix_argsort(
         SortCount::new().execute(
             &client,
             config,
-            &[&from.handle],
-            &[&count_buf.handle],
+            &[from.clone().handle.binding()],
+            &[count_buf.clone().handle.binding()],
             [config.num_wgs * wg, 1, 1],
         );
 
@@ -107,26 +107,36 @@ pub fn radix_argsort(
         SortReduce::new().execute(
             &client,
             config,
-            &[&count_buf.handle],
-            &[&reduced_buf.handle],
+            &[count_buf.clone().handle.binding()],
+            &[reduced_buf.clone().handle.binding()],
             [num_reduce_wgs * wg, 1, 1],
         );
 
-        SortScan::new().execute(&client, config, &[], &[&reduced_buf.handle], [1, 1, 1]);
+        SortScan::new().execute(
+            &client,
+            config,
+            &[],
+            &[reduced_buf.clone().handle.binding()],
+            [1, 1, 1],
+        );
 
         SortScanAdd::new().execute(
             &client,
             config,
-            &[&reduced_buf.handle],
-            &[&count_buf.handle],
+            &[reduced_buf.clone().handle.binding()],
+            &[count_buf.clone().handle.binding()],
             [num_reduce_wgs * wg, 1, 1],
         );
 
         SortScatter::new().execute(
             &client,
             config,
-            &[&from.handle, &from_val.handle, &count_buf.handle],
-            &[&to.handle, &to_val.handle],
+            &[
+                from.handle.clone().binding(),
+                from_val.handle.clone().binding(),
+                count_buf.handle.clone().binding(),
+            ],
+            &[to.handle.clone().binding(), to_val.handle.clone().binding()],
             [config.num_wgs * wg, 1, 1],
         );
     }
@@ -191,8 +201,8 @@ mod tests {
             let client = keys.client.clone();
             let (ret_keys, ret_values) = radix_argsort(client, keys, values);
 
-            let ret_keys = read_buffer_to_u32(&ret_keys.client, &ret_keys.handle);
-            let ret_values = read_buffer_to_u32(&ret_values.client, &ret_values.handle);
+            let ret_keys = read_buffer_to_u32(&ret_keys.client, ret_keys.handle.binding());
+            let ret_values = read_buffer_to_u32(&ret_values.client, ret_values.handle.binding());
 
             let inds = argsort(&keys_inp);
 
@@ -239,8 +249,8 @@ mod tests {
         let client = keys.client.clone();
         let (ret_keys, ret_values) = radix_argsort(client, keys, values);
 
-        let ret_keys = read_buffer_to_u32(&ret_keys.client, &ret_keys.handle);
-        let ret_values = read_buffer_to_u32(&ret_values.client, &ret_values.handle);
+        let ret_keys = read_buffer_to_u32(&ret_keys.client, ret_keys.handle.binding());
+        let ret_values = read_buffer_to_u32(&ret_values.client, ret_values.handle.binding());
 
         let inds = argsort(&keys_inp);
 

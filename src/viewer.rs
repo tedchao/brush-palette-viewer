@@ -73,39 +73,38 @@ impl OrbitControls {
 fn copy_buffer_to_texture(img: Tensor<BurnBack, 3>, texture: &wgpu::Texture) {
     let client = img.clone().into_primitive().client.clone();
     let [height, width, _] = img.shape().dims;
+    let img_handle = img.into_primitive().handle;
 
-    client.run_custom_command(
-        |server, resources| {
-            // Put compute passes in encoder before copying the buffer.
-            let img_res = &resources[0];
-            let bytes_per_row = Some(4 * width as u32);
-            let encoder = server.get_command_encoder();
+    client.run_custom_command(move |server| {
+        let img_res = server.get_resource_binding(img_handle.clone().binding());
 
-            // Now copy the buffer to the texture.
-            encoder.copy_buffer_to_texture(
-                wgpu::ImageCopyBuffer {
-                    buffer: &img_res.buffer,
-                    layout: ImageDataLayout {
-                        offset: 0,
-                        bytes_per_row,
-                        rows_per_image: None,
-                    },
+        // Put compute passes in encoder before copying the buffer.
+        let bytes_per_row = Some(4 * width as u32);
+        let encoder = server.get_command_encoder();
+
+        // Now copy the buffer to the texture.
+        encoder.copy_buffer_to_texture(
+            wgpu::ImageCopyBuffer {
+                buffer: &img_res.buffer,
+                layout: ImageDataLayout {
+                    offset: 0,
+                    bytes_per_row,
+                    rows_per_image: None,
                 },
-                wgpu::ImageCopyTexture {
-                    texture,
-                    mip_level: 0,
-                    origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
-                    aspect: wgpu::TextureAspect::All,
-                },
-                wgpu::Extent3d {
-                    width: width as u32,
-                    height: height as u32,
-                    depth_or_array_layers: 1,
-                },
-            );
-        },
-        &[&img.into_primitive().handle],
-    );
+            },
+            wgpu::ImageCopyTexture {
+                texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::Extent3d {
+                width: width as u32,
+                height: height as u32,
+                depth_or_array_layers: 1,
+            },
+        );
+    });
 }
 
 struct BackBuffer {
