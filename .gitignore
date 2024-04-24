@@ -19,4 +19,4 @@ Cargo.lock
 # Added by cargo
 
 /target
-/src/splat_render/generated_bindings.rs
+/src/splat_render/shaders/mod.rs
