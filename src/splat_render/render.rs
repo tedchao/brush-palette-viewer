@@ -188,8 +188,8 @@ fn render_forward(
         &client,
         shaders::rasterize::Uniforms::new(img_size.into(), background.into()),
         &[
-            gaussian_ids_sorted.handle.clone().binding(),
-            tile_bins.handle.clone().binding(),
+            // gaussian_ids_sorted.handle.clone().binding(),
+            // tile_bins.handle.clone().binding(),
             xys.handle.clone().binding(),
             cov2ds.handle.clone().binding(),
             colors.handle.binding(),

@@ -8,6 +8,7 @@ use burn_wgpu::WgpuDevice;
 use eframe::{egui_wgpu::WgpuConfiguration, NativeOptions};
 use egui::{pos2, Color32, Rect, TextureId};
 use glam::{Mat3, Mat4, Quat, Vec2, Vec3};
+use tracing::info_span;
 use wgpu::ImageDataLayout;
 
 /// Tags an entity as capable of panning and orbiting.
@@ -254,7 +255,12 @@ impl eframe::App for Viewer {
 
             if let Some(backbuffer) = &self.backbuffer {
                 if let Some(splats) = &self.splats {
+                    let synced_render = info_span!("Synced render").entered();
                     let (img, _) = splats.render(&self.camera, size, glam::vec3(0.0, 0.0, 0.0));
+
+                    <BurnBack as burn::prelude::Backend>::sync(&self.device);
+                    drop(synced_render);
+
                     copy_buffer_to_texture(img, &backbuffer.texture);
                 }
 

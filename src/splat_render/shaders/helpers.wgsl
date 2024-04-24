@@ -1,5 +1,5 @@
 const SPLATS_PER_GROUP: u32 = 256u;
-const TILE_WIDTH: u32 = 26u;
+const TILE_WIDTH: u32 = 20u;
 const TILE_SIZE: u32 = TILE_WIDTH * TILE_WIDTH;
 
 fn get_bbox(center: vec2f, dims: vec2f, bounds: vec2u) -> vec4u {
@@ -71,4 +71,19 @@ fn cov_compensation(cov2d: vec3f) -> f32 {
     let det_orig = cov_orig.x * cov_orig.z - cov_orig.y * cov_orig.y;
     let det = cov2d.x * cov2d.z - cov2d.y * cov2d.y;
     return sqrt(max(0.0, det_orig / det));
+}
+
+fn calc_sigma(conic: vec3f, xy: vec2f, pixel_coord: vec2f) -> f32 {
+    let delta = pixel_coord - xy;
+    return 0.5f * (conic.x * delta.x * delta.x + conic.z * delta.y * delta.y) + conic.y * delta.x * delta.y;
+}
+
+fn can_be_visible(tile_start: vec2f, conic: vec3f, xy: vec2f, opac: f32) -> bool {
+    let dif = xy - tile_start;
+    let clamped = clamp(dif, vec2f(0.0, 0.0), vec2f(f32(TILE_WIDTH)));
+    let closest = tile_start + clamped;
+    let sigma = calc_sigma(conic, xy, closest);
+    let alpha = opac * exp(-sigma);
+    // What's a sane alpha threshold?
+    return alpha > (1.0 / 255.0);
 }
