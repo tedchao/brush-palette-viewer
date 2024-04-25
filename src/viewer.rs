@@ -232,7 +232,7 @@ impl eframe::App for Viewer {
             } else {
                 (Vec2::ZERO, Vec2::ZERO)
             };
-            let scrolled = ui.input(|r| r.scroll_delta).y;
+            let scrolled = ui.input(|r| r.smooth_scroll_delta).y;
 
             let dirty = response.dragged() || scrolled > 0.0;
 
@@ -292,12 +292,12 @@ impl eframe::App for Viewer {
 pub(crate) fn start() -> Result<()> {
     // let cameras = dataset_readers::read_viewpoint_data(viewpoints)?;
     let native_options = NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_inner_size(egui::Vec2::new(1920.0, 1080.0)),
+        viewport: egui::ViewportBuilder::default().with_maximized(true),
         wgpu_options: WgpuConfiguration {
             device_descriptor: Arc::new(|adapter| wgpu::DeviceDescriptor {
                 label: Some("egui+burn wgpu device"),
-                features: wgpu::Features::default(),
-                limits: adapter.limits(),
+                required_features: wgpu::Features::default(),
+                required_limits: adapter.limits(),
             }),
             ..Default::default()
         },
