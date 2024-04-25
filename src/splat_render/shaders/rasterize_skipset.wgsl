@@ -3,30 +3,32 @@
 struct Uniforms {
     // Img resolution (w, h)
     img_size: vec2u,
+    tile_bounds: vec2u,
     // Background color behind splats.
     background: vec3f,
 }
 
-@group(0) @binding(0) var<storage, read> uniforms: Uniforms;
+@group(0) @binding(0) var<storage> uniforms: Uniforms;
+@group(0) @binding(1) var<storage> gaussian_ids_sorted: array<u32>;
+@group(0) @binding(2) var<storage> xys: array<vec2f>;
+@group(0) @binding(3) var<storage> cov2ds: array<vec4f>;
+@group(0) @binding(4) var<storage> colors: array<vec4f>;
+@group(0) @binding(5) var<storage> opacities: array<f32>;
 
-// @group(0) @binding(1) var<storage, read> gaussian_ids_sorted: array<u32>;
-// @group(0) @binding(1) var<storage, read> tile_bins: array<vec2u>;
-@group(0) @binding(1) var<storage, read> xys: array<vec2f>;
-@group(0) @binding(2) var<storage, read> cov2ds: array<vec4f>;
-@group(0) @binding(3) var<storage, read> colors: array<vec4f>;
-@group(0) @binding(4) var<storage, read> opacities: array<f32>;
-
+@group(0) @binding(6) var<storage> tile_min_gid: array<atomic<u32>>;
+@group(0) @binding(7) var<storage> tile_max_gid: array<atomic<u32>>;
+// @group(0) @binding(8) var<storage> skipbits: array<atomic<u32>>;
 
 #ifdef FORWARD_ONLY
-    @group(0) @binding(5) var<storage, read_write> out_img: array<u32>;
+    @group(0) @binding(8) var<storage, read_write> out_img: array<u32>;
 #else
-    @group(0) @binding(5) var<storage, read_write> out_img: array<vec4f>;
-    @group(0) @binding(6) var<storage, read_write> final_index : array<u32>;
+    @group(0) @binding(8) var<storage, read_write> out_img: array<vec4f>;
+    @group(0) @binding(9) var<storage, read_write> final_index : array<u32>;
 #endif
  
 // Workgroup variables.
 const GAUSS_PER_BATCH: u32 = 32u;
-var<workgroup> visible: atomic<u32>;
+var<workgroup> visible: array<u32, GAUSS_PER_BATCH>;
 var<workgroup> xy_batch: array<vec2f, GAUSS_PER_BATCH>;
 var<workgroup> colors_batch: array<vec4f, GAUSS_PER_BATCH>;
 var<workgroup> conic_comp_batch: array<vec4f, GAUSS_PER_BATCH>;
@@ -49,8 +51,7 @@ fn main(
     // shared tile
 
     // Get index of tile being drawn.
-    let tiles_xx = (img_size.x + helpers::TILE_WIDTH - 1u) / helpers::TILE_WIDTH;
-    let tile_id = workgroup_id.x + workgroup_id.y * tiles_xx;
+    let tile_id = workgroup_id.x + workgroup_id.y * uniforms.tile_bounds.x;
 
     let tile_start = vec2f(workgroup_id.xy * helpers::TILE_WIDTH);
 
@@ -67,13 +68,6 @@ fn main(
         done = true;
     }
 
-    // have all threads in tile process the same gaussians in batches
-    // first collect gaussians between range.x and range.y in batches
-    // which gaussians to look through in this tile
-    // var range = tile_bins[tile_id];
-    // range = vec2u(0u, arrayLength(&xys));
-    // let num_batches = (range.y - range.x + helpers::TILE_SIZE - 1u) / helpers::TILE_SIZE;
-
     // current visibility left to render
     var T = 1.0;
     var pix_out = vec3f(0.0);
@@ -82,94 +76,84 @@ fn main(
         var final_idx = 0u;
     #endif
 
-    var current_gauss_idx = 0u;
-    let number_gaussians = arrayLength(&xys);
-
     // collect and process batches of gaussians
     // each thread loads one gaussian at a time before rasterizing its
     // designated pixel
-    loop {
-        // resync all threads before beginning next batch
-        // end early out if entire tile is done
-        if local_idx == 0u {
-            visible = 0u;
-        }
+    for(var bucket = 0u; bucket < helpers::BUCKET_COUNT; bucket++) {
+        let min_gid = tile_min_gid[tile_id * helpers::BUCKET_COUNT + bucket];
+        let max_gid = tile_max_gid[tile_id * helpers::BUCKET_COUNT + bucket];
 
-        workgroupBarrier();
+        for(var current_gauss_idx = min_gid; current_gauss_idx < max_gid; current_gauss_idx += GAUSS_PER_BATCH)  {
+            // each thread fetch 1 gaussian from front to back
+            // index of gaussian to load
+            let local_gauss_idx = current_gauss_idx + local_idx;
 
-        // each thread fetch 1 gaussian from front to back
-        // index of gaussian to load
-        let g_id = current_gauss_idx + local_idx;
+            // Fetch and shade one batch.
+            workgroupBarrier();
 
-        if local_idx < GAUSS_PER_BATCH && g_id < number_gaussians {
-            // TODO: Test against some kind of sparse set.
-            let cov2d = cov2ds[g_id].xyz;
-            let conic = helpers::cov2d_to_conic(cov2d);
-            let xy = xys[g_id];
-            let opac = opacities[g_id];
+            // Mark invisible.
+            visible[local_idx] = 0u;
 
-            if helpers::can_be_visible(tile_start, conic, xy, opac) {
-                colors_batch[local_idx] = vec4f(colors[g_id].xyz, opac);
-                xy_batch[local_idx] = xy;
-                conic_comp_batch[local_idx] = vec4f(conic, helpers::cov_compensation(cov2d));
+            if local_idx < GAUSS_PER_BATCH && local_gauss_idx < max_gid {
+                // TODO: Test against some kind of sparse set.
+                let g_id = gaussian_ids_sorted[local_gauss_idx];
 
-                atomicOr(&visible, 1u << local_idx);
+                let cov2d = cov2ds[g_id].xyz;
+                let conic = helpers::cov2d_to_conic(cov2d);
+                let xy = xys[g_id];
+                let opac = opacities[g_id];
+
+                if helpers::can_be_visible(tile_start, conic, xy, opac) {
+                    colors_batch[local_idx] = vec4f(colors[g_id].xyz, opac);
+                    xy_batch[local_idx] = xy;
+                    conic_comp_batch[local_idx] = vec4f(conic, helpers::cov_compensation(cov2d));
+                    visible[local_idx] = 1u;
+                }
             }
-        }
-        current_gauss_idx += GAUSS_PER_BATCH;
+            // wait for other threads to collect the gaussians in batch
+            workgroupBarrier();
 
-        // wait for other threads to collect the gaussians in batch
-        workgroupBarrier();
+            if (!done) {
+                // Shade all the collected gaussians.
+                for (var t = 0u; t < GAUSS_PER_BATCH; t++) {
+                    if visible[t] == 0u {
+                        continue;
+                    }
 
-        // Shade all the collected gaussians.
-        var t = 0u;
-        let vis = atomicLoad(&visible);
+                    let opac = colors_batch[t].w;
+                    let conic_comp = conic_comp_batch[t];
+                    let conic = conic_comp.xyz;
+                    // TODO: Re-enable compensation.
+                    let compensation = conic_comp.w;
+                    let xy = xy_batch[t];
+                    let sigma = helpers::calc_sigma(conic, xy, pixel_coord);
+                    let alpha = min(0.99f, opac * exp(-sigma));
 
-        if (!done && vis > 0u) {
-            for (; t < GAUSS_PER_BATCH; t++) {
-                if (vis & (1u << t)) == 0u {
-                    continue;
+                    if sigma < 0.0 || alpha < 1.0 / 255.0 {
+                        continue;
+                    }
+
+                    let next_T = T * (1.0 - alpha);
+
+                    if next_T <= 1e-4f { 
+                        // this pixel is done
+                        // we want to render the last gaussian that contributes and note
+                        // that here idx > range.x so we don't underflow
+                        done = true;
+                        break;
+                    }
+
+                    let vis = alpha * T;
+
+                    let c = colors_batch[t].xyz;
+                    pix_out += c * vis;
+                    T = next_T;
+
+                    #ifndef FORWARD_ONLY
+                        final_idx = current_gauss_idx + t;
+                    #endif
                 }
-
-                let opac = colors_batch[t].w;
-                let conic_comp = conic_comp_batch[t];
-                let conic = conic_comp.xyz;
-                // TODO: Re-enable compensation.
-                let compensation = conic_comp.w;
-                let xy = xy_batch[t];
-                let sigma = helpers::calc_sigma(conic, xy, pixel_coord);
-                let alpha = min(0.99f, opac * exp(-sigma));
-
-                if sigma < 0.0 || alpha < 1.0 / 255.0 {
-                    continue;
-                }
-
-                let next_T = T * (1.0 - alpha);
-
-                if next_T <= 1e-4f { 
-                    // this pixel is done
-                    // we want to render the last gaussian that contributes and note
-                    // that here idx > range.x so we don't underflow
-                    done = true;
-                    break;
-                }
-
-                let vis = alpha * T;
-
-                let c = colors_batch[t].xyz;
-                pix_out += c * vis;
-                T = next_T;
-
-                #ifndef FORWARD_ONLY
-                    final_idx = current_gauss_idx + t;
-                #endif
             }
-        }
-
-        // Shaded all gaussians, bail
-        // TODO: For
-        if current_gauss_idx >= number_gaussians - 1u {
-            break;
         }
     }
 

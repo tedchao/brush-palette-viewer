@@ -50,6 +50,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
     radii[idx] = 0u;
     // Zero out number of tiles hit before cumulative sum.
     num_tiles_hit[idx] = 0u;
+    depths[idx] = 1e30;
 
     let viewmat = uniforms.viewmat;
     let focal = uniforms.focal;
@@ -70,6 +71,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
     // compute the projected covariance
     let scale = scales[idx].xyz;
     let quat = quats[idx];
+
 
     let R = helpers::quat_to_rotmat(quat);
     let S = helpers::scale_to_mat(scale);

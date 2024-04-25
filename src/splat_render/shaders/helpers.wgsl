@@ -87,3 +87,25 @@ fn can_be_visible(tile_start: vec2f, conic: vec3f, xy: vec2f, opac: f32) -> bool
     // What's a sane alpha threshold?
     return alpha > (1.0 / 255.0);
 }
+
+const BUCKET_COUNT: u32 = 4096u;
+
+const SKIP_BITS: u32 = 512u;
+const SKIP_ARR_SIZE: u32 = SKIP_BITS / 32u;
+
+fn skipset_index(idx: u32, min_gid: u32, max_gid: u32) -> u32 {
+    return (idx - min_gid) / skipset_partition_size(min_gid, max_gid);
+}
+
+fn skipset_array_index(tile_id: u32, index: u32) -> u32 {
+    return tile_id * SKIP_ARR_SIZE + index / 32u;
+}
+
+fn skipset_mask_bit(index: u32) -> u32 {
+    return index % 32u;
+}
+
+fn skipset_partition_size(min_gid: u32, max_gid: u32) -> u32 {
+    return ((max_gid - min_gid) + SKIP_BITS - 1u) / SKIP_BITS;
+}
+

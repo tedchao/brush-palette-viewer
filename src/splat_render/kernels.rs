@@ -55,6 +55,8 @@ where
             let total_handles = [read_handles, write_handles].concat();
             client.execute(kernel, total_handles);
         }
+
+        client.sync();
     }
 }
 
@@ -136,6 +138,20 @@ kernel_source_gen!(
 );
 kernel_source_gen!(GetTileBinEdges {}, get_tile_bin_edges, ());
 kernel_source_gen!(Rasterize { forward_only }, rasterize, rasterize::Uniforms);
+kernel_source_gen!(
+    RasterizeSkipset { forward_only },
+    rasterize_skipset,
+    rasterize_skipset::Uniforms
+);
+
+kernel_source_gen!(
+    MapTileSkipset {},
+    map_tile_skipset,
+    map_tile_skipset::Uniforms
+);
+
+kernel_source_gen!(MapTileBounds {}, map_tile_bounds, map_tile_bounds::Uniforms);
+
 kernel_source_gen!(
     RasterizeBackwards {},
     rasterize_backwards,
