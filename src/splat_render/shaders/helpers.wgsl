@@ -1,5 +1,5 @@
 const SPLATS_PER_GROUP: u32 = 256u;
-const TILE_WIDTH: u32 = 20u;
+const TILE_WIDTH: u32 = 16u;
 const TILE_SIZE: u32 = TILE_WIDTH * TILE_WIDTH;
 
 fn get_bbox(center: vec2f, dims: vec2f, bounds: vec2u) -> vec4u {
@@ -88,7 +88,7 @@ fn can_be_visible(tile_start: vec2f, conic: vec3f, xy: vec2f, opac: f32) -> bool
     return alpha > (1.0 / 255.0);
 }
 
-const BUCKET_COUNT: u32 = 4096u;
+const BUCKET_COUNT: u32 = 256u;
 
 const SKIP_BITS: u32 = 512u;
 const SKIP_ARR_SIZE: u32 = SKIP_BITS / 32u;

@@ -70,8 +70,8 @@ fn render_forward(
     let radii = create_tensor::<u32, 1>(&client, &device, [num_points]);
     let depths = create_tensor::<f32, 1>(&client, &device, [num_points]);
     let xys = create_tensor::<f32, 2>(&client, &device, [num_points, 2]);
-    let cov2ds = create_tensor::<f32, 2>(&client, &device, [num_points, 4]);
-    let num_tiles_hit = create_tensor::<u32, 1>(&client, &device, [num_points]);
+    let conics = create_tensor::<f32, 2>(&client, &device, [num_points, 4]);
+    let visible_mask = create_tensor::<u32, 1>(&client, &device, [num_points]);
 
     ProjectSplats::new().execute(
         &client,
@@ -88,16 +88,19 @@ fn render_forward(
             means.handle.binding(),
             scales.handle.binding(),
             quats.handle.binding(),
+            opacity.handle.clone().binding(),
         ],
         &[
             xys.handle.clone().binding(),
             depths.handle.clone().binding(),
             radii.handle.clone().binding(),
-            cov2ds.handle.clone().binding(),
-            num_tiles_hit.handle.clone().binding(),
+            conics.handle.clone().binding(),
+            visible_mask.handle.clone().binding(),
         ],
         [num_points as u32, 1, 1],
     );
+
+    let vis_indices = prefix_sum(&client, visible_mask);
 
     // let cum_tiles_hit = prefix_sum(&client, num_tiles_hit);
 
@@ -168,20 +171,21 @@ fn render_forward(
         ]),
         &device,
     );
-    let tile_counts = BurnBack::int_zeros(
-        Shape::new([tile_bounds[0] as usize, tile_bounds[1] as usize]),
+    let tile_set_gid = BurnBack::int_zeros(
+        Shape::new([
+            tile_bounds[0] as usize,
+            tile_bounds[1] as usize,
+            shaders::helpers::BUCKET_COUNT as usize,
+        ]),
         &device,
     );
-    let skipbits = BurnBack::int_zeros(
-        Shape::new([(tile_bounds[0] * tile_bounds[1] * shaders::helpers::SKIP_ARR_SIZE) as usize]),
-        &device,
-    );
+
     MapTileBounds::new().execute(
         &client,
         shaders::map_tile_bounds::Uniforms::new(tile_bounds.into()),
         &[
             xys.handle.clone().binding(),
-            cov2ds.handle.clone().binding(),
+            conics.handle.clone().binding(),
             opacity.handle.clone().binding(),
             radii.handle.clone().binding(),
             gaussian_ids_sorted.handle.clone().binding(),
@@ -189,7 +193,7 @@ fn render_forward(
         &[
             tile_min_gid.handle.clone().binding(),
             tile_max_gid.handle.clone().binding(),
-            tile_counts.handle.clone().binding(),
+            tile_set_gid.handle.clone().binding(),
         ],
         [num_points as u32, 1, 1],
     );
@@ -216,21 +220,21 @@ fn render_forward(
     //     &tile_counts[0],
     // );
 
-    MapTileSkipset::new().execute(
-        &client,
-        shaders::map_tile_skipset::Uniforms::new(tile_bounds.into()),
-        &[
-            xys.handle.clone().binding(),
-            cov2ds.handle.clone().binding(),
-            opacity.handle.clone().binding(),
-            radii.handle.clone().binding(),
-            gaussian_ids_sorted.handle.clone().binding(),
-            tile_min_gid.handle.clone().binding(),
-            tile_max_gid.handle.clone().binding(),
-        ],
-        &[skipbits.handle.clone().binding()],
-        [num_points as u32, 1, 1],
-    );
+    // MapTileSkipset::new().execute(
+    //     &client,
+    //     shaders::map_tile_skipset::Uniforms::new(tile_bounds.into()),
+    //     &[
+    //         xys.handle.clone().binding(),
+    //         cov2ds.handle.clone().binding(),
+    //         opacity.handle.clone().binding(),
+    //         radii.handle.clone().binding(),
+    //         gaussian_ids_sorted.handle.clone().binding(),
+    //         tile_min_gid.handle.clone().binding(),
+    //         tile_max_gid.handle.clone().binding(),
+    //     ],
+    //     &[skipbits.handle.clone().binding()],
+    //     [num_points as u32, 1, 1],
+    // );
 
     // let (isect_ids_sorted, gaussian_ids_sorted) = radix_argsort(
     //     client.clone(),
@@ -291,11 +295,11 @@ fn render_forward(
         &[
             gaussian_ids_sorted.handle.clone().binding(),
             xys.handle.clone().binding(),
-            cov2ds.handle.clone().binding(),
+            conics.handle.clone().binding(),
             colors.handle.binding(),
-            opacity.handle.binding(),
             tile_min_gid.handle.clone().binding(),
             tile_max_gid.handle.clone().binding(),
+            tile_set_gid.handle.clone().binding(),
         ],
         &out_handles,
         [img_size.x, img_size.y, 1],
@@ -307,7 +311,7 @@ fn render_forward(
             num_intersects: 0,
             tile_bins: Tensor::from_primitive(bitcast_tensor(tile_bins)),
             radii: Tensor::from_primitive(bitcast_tensor(radii)),
-            cov2ds: Tensor::from_primitive(bitcast_tensor(cov2ds)),
+            cov2ds: Tensor::from_primitive(bitcast_tensor(conics)),
             gaussian_ids_sorted: Tensor::from_primitive(bitcast_tensor(gaussian_ids_sorted)),
             xys: Tensor::from_primitive(bitcast_tensor(xys)),
             final_index: final_index.map(|f| Tensor::from_primitive(bitcast_tensor(f))),

@@ -5,12 +5,13 @@
 @group(0) @binding(1) var<storage, read> means: array<vec4f>;
 @group(0) @binding(2) var<storage, read> scales: array<vec4f>;
 @group(0) @binding(3) var<storage, read> quats: array<vec4f>;
+@group(0) @binding(4) var<storage, read> opacities: array<f32>;
 
-@group(0) @binding(4) var<storage, read_write> xys: array<vec2f>;
-@group(0) @binding(5) var<storage, read_write> depths: array<f32>;
-@group(0) @binding(6) var<storage, read_write> radii: array<u32>;
-@group(0) @binding(7) var<storage, read_write> cov2ds: array<vec4f>;
-@group(0) @binding(8) var<storage, read_write> num_tiles_hit: array<u32>;
+@group(0) @binding(5) var<storage, read_write> xys: array<vec2f>;
+@group(0) @binding(6) var<storage, read_write> depths: array<f32>;
+@group(0) @binding(7) var<storage, read_write> radii: array<u32>;
+@group(0) @binding(8) var<storage, read_write> conics: array<vec4f>;
+@group(0) @binding(9) var<storage, read_write> visible: array<u32>;
 
 struct Uniforms {
     // View matrix transform world to view position.
@@ -49,7 +50,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
     // 0 buffer to mark gaussian as not visible.
     radii[idx] = 0u;
     // Zero out number of tiles hit before cumulative sum.
-    num_tiles_hit[idx] = 0u;
+    visible[idx] = 0u;
     depths[idx] = 1e30;
 
     let viewmat = uniforms.viewmat;
@@ -125,9 +126,9 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
     let tile_area = (tile_minmax.z - tile_minmax.x) * (tile_minmax.w - tile_minmax.y);
 
     // Now write all the data to the buffers.
-    num_tiles_hit[idx] = tile_area;
+    visible[idx] = 1u;
     depths[idx] = p_view.z;
     radii[idx] = radius;
     xys[idx] = center;
-    cov2ds[idx] = vec4f(cov2d, 1.0);
+    conics[idx] = vec4f(helpers::cov2d_to_conic(cov2d), opacities[idx]);
 }

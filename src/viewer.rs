@@ -134,14 +134,16 @@ impl Viewer {
             Default::default(),
         );
 
-        Viewer {
+        let mut viewer = Viewer {
             camera: Camera::new(Vec3::ZERO, Quat::IDENTITY, 500.0, 500.0),
             splats: None,
             backbuffer: None,
             controls: OrbitControls::new(15.0),
             device,
             start_transform: glam::Mat4::IDENTITY,
-        }
+        };
+        viewer.load_splats("../models/bonsai/point_cloud/iteration_30000/point_cloud.ply");
+        viewer
     }
 
     pub fn load_splats(&mut self, path: &str) {
@@ -257,7 +259,6 @@ impl eframe::App for Viewer {
                 if let Some(splats) = &self.splats {
                     let synced_render = info_span!("Synced render").entered();
                     let (img, _) = splats.render(&self.camera, size, glam::vec3(0.0, 0.0, 0.0));
-
                     <BurnBack as burn::prelude::Backend>::sync(&self.device);
                     drop(synced_render);
 
@@ -278,6 +279,8 @@ impl eframe::App for Viewer {
             if dirty {
                 ctx.request_repaint();
             }
+
+            ctx.request_repaint();
         });
     }
 
@@ -289,6 +292,7 @@ impl eframe::App for Viewer {
 pub(crate) fn start() -> Result<()> {
     // let cameras = dataset_readers::read_viewpoint_data(viewpoints)?;
     let native_options = NativeOptions {
+        viewport: egui::ViewportBuilder::default().with_inner_size(egui::Vec2::new(1920.0, 1080.0)),
         wgpu_options: WgpuConfiguration {
             device_descriptor: Arc::new(|adapter| wgpu::DeviceDescriptor {
                 label: Some("egui+burn wgpu device"),
