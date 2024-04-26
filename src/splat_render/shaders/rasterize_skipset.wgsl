@@ -14,9 +14,9 @@ struct Uniforms {
 @group(0) @binding(3) var<storage> conics: array<vec4f>;
 @group(0) @binding(4) var<storage> colors: array<vec4f>;
 
-@group(0) @binding(5) var<storage> tile_min_gid: array<atomic<u32>>;
-@group(0) @binding(6) var<storage> tile_max_gid: array<atomic<u32>>;
-@group(0) @binding(7) var<storage> tile_set_gid: array<atomic<u32>>;
+@group(0) @binding(5) var<storage> tile_min_gid: array<u32>;
+@group(0) @binding(6) var<storage> tile_max_gid: array<u32>;
+@group(0) @binding(7) var<storage> tile_set_gid: array<u32>;
 
 #ifdef FORWARD_ONLY
     @group(0) @binding(8) var<storage, read_write> out_img: array<u32>;
@@ -26,16 +26,19 @@ struct Uniforms {
 #endif
  
 // Workgroup variables.
-const GAUSS_PER_BATCH: u32 = 128u;
+const GAUSS_PER_BATCH: u32 = helpers::TILE_SIZE;
 var<workgroup> num_gathered: atomic<u32>;
 var<workgroup> visible: array<atomic<u32>, GAUSS_PER_BATCH>;
 
 // const SHADE_PER_BATCH: u32 = 128u;
 // const SHADER_PER_BATCH_OVERFLOW: u32 = SHADE_PER_BATCH + GAUSS_PER_BATCH;
-
 var<workgroup> c_xy_batch: array<vec2f, GAUSS_PER_BATCH>;
 var<workgroup> c_colors_batch: array<vec4f, GAUSS_PER_BATCH>;
 var<workgroup> c_conic_comp_batch: array<vec4f, GAUSS_PER_BATCH>;
+
+var<workgroup> num_viable_buckets: atomic<u32>;
+var<workgroup> c_viable_bucket: array<u32, helpers::BUCKET_COUNT>;
+var<workgroup> c_viable_bucket_set: array<u32, helpers::BUCKET_COUNT>;
 
 // kernel function for rasterizing each tile
 // each thread treats a single pixel
@@ -86,12 +89,50 @@ fn main(
 
     // collect and process batches of gaussians
     // each thread loads one gaussian at a time before rasterizing its
-    // designated pixel
-    for(var bucket = 0u; bucket < helpers::BUCKET_COUNT; bucket++) {
-        let bucket_index = tile_id * helpers::BUCKET_COUNT + bucket;
+    // designated pixel.
+    let bucket_tile_offset = tile_id * helpers::BUCKET_COUNT;
+
+    for(var b = 0u; b < helpers::BUCKET_COUNT; b += helpers::TILE_SIZE) {
+        let base_offset = atomicLoad(&num_viable_buckets);
+        workgroupBarrier();
+
+        var vis_local = 0u;
+        let bucket = b + local_idx;
+        
+        var bucket_set = 0u;
+    
+        if bucket < helpers::BUCKET_COUNT &&  tile_set_gid[bucket_tile_offset + bucket] > 0u {
+            bucket_set = tile_set_gid[bucket_tile_offset + bucket];
+
+            if bucket_set > 0u {
+                vis_local = 1u;
+                atomicAdd(&num_viable_buckets, 1u);
+            }
+        }
+        visible[local_idx] = vis_local;
+        workgroupBarrier();
+
+        if vis_local == 1u {
+            var exclusive_sum = base_offset;
+            for(var i = 0u; i < local_idx; i++) {
+                exclusive_sum += visible[i];
+            }
+            c_viable_bucket[exclusive_sum] = bucket;
+            c_viable_bucket_set[exclusive_sum] = bucket_set;
+        }
+        workgroupBarrier();
+    }
+
+    workgroupBarrier();
+
+    for(var b = 0u; b < num_viable_buckets; b++) {
+        let bucket = c_viable_bucket[b];
+        let bucket_set = c_viable_bucket_set[b];
+
+        let bucket_index = bucket_tile_offset + bucket;
+        
         let min_gid = tile_min_gid[bucket_index];
         let max_gid = tile_max_gid[bucket_index];
-        let bucket_set = tile_set_gid[bucket_index];
 
         for(var current_gauss_idx = min_gid; current_gauss_idx < max_gid; current_gauss_idx += GAUSS_PER_BATCH)  {
             var xy = vec2f(0.0);
@@ -99,15 +140,12 @@ fn main(
             var conic_opac = vec4f(0.0);
 
             // Have some threads fetch & test some gaussians.
-            let base_offset = num_gathered;
-            workgroupBarrier();
-            visible[local_idx] = 0u;
 
             let local_gauss_idx = current_gauss_idx + local_idx;
+            var vis_local = 0u;
+            let bit_index = (local_gauss_idx - bucket * bucket_size) / bucket_bit_size;
 
             if local_idx < GAUSS_PER_BATCH && local_gauss_idx < max_gid {
-                let bit_index = (local_gauss_idx - bucket * bucket_size) / bucket_bit_size;
-
                 if (bucket_set & (1u << bit_index)) > 0u {
                     // TODO: Test against some kind of sparse set.
                     let g_id = gaussian_ids_sorted[local_gauss_idx];
@@ -116,27 +154,29 @@ fn main(
 
                     if helpers::can_be_visible(tile_start, conic_opac.xyz, xy, conic_opac.w) {
                         color = vec4f(colors[g_id].xyz, conic_opac.w);
-                        visible[local_idx] = 1u;
+                        vis_local = 1u;
                         atomicAdd(&num_gathered, 1u);
                     }
                 }
+
+                visible[local_idx] = vis_local;
             }
+
             // wait for other threads to collect the gaussians in batch
             workgroupBarrier();
 
             if num_gathered >= 0u {
                 // Compactify results.
-                if local_idx < GAUSS_PER_BATCH && local_gauss_idx < max_gid {
-                    if visible[local_idx] == 1u {
-                        var exclusiveSum = 0u;
-                        for(var i = 0u; i < local_idx; i++) {
-                            exclusiveSum += visible[i];
-                        }
-                        c_xy_batch[exclusiveSum] = xy;
-                        c_colors_batch[exclusiveSum] = color;
-                        c_conic_comp_batch[exclusiveSum] = conic_opac;
+                if vis_local == 1u {
+                    var exclusiveSum = 0u;
+                    for(var i = 0u; i < local_idx; i++) {
+                        exclusiveSum += visible[i];
                     }
+                    c_xy_batch[exclusiveSum] = xy;
+                    c_colors_batch[exclusiveSum] = color;
+                    c_conic_comp_batch[exclusiveSum] = conic_opac;
                 }
+                // Wait for the compacted results.
                 workgroupBarrier();
 
                 //  Shade pixels.
@@ -174,16 +214,17 @@ fn main(
                         T = next_T;
                     }
                 }
-
-                workgroupBarrier();
-                if local_idx == 0u {
-                    atomicStore(&num_gathered, 0u);
-                }
-                workgroupBarrier();
             }
+
+            // Wait for all the threads to be done shading.
+            workgroupBarrier();
+            // Clear num gathered flag.
+            if local_idx == 0u {
+                atomicStore(&num_gathered, 0u);
+            }
+            workgroupBarrier();
         }
     }
-
 
     if inside {
         // add background

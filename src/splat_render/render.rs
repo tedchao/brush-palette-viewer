@@ -1,13 +1,10 @@
-use super::kernels::{MapTileBounds, MapTileSkipset, RasterizeSkipset, SplatKernel};
+use super::kernels::{MapTileBounds, RasterizeSkipset, SplatKernel};
 use super::prefix_sum::prefix_sum;
 use super::radix_sort::radix_argsort;
 use crate::camera::Camera;
+use crate::splat_render::create_tensor;
 use crate::splat_render::dim_check::DimCheck;
-use crate::splat_render::kernels::{
-    GetTileBinEdges, MapGaussiansToIntersect, ProjectBackwards, ProjectSplats, Rasterize,
-    RasterizeBackwards,
-};
-use crate::splat_render::{create_tensor, read_buffer_to_u32};
+use crate::splat_render::kernels::{ProjectBackwards, ProjectSplats, RasterizeBackwards};
 use burn::backend::autodiff::NodeID;
 use burn::tensor::ops::FloatTensorOps;
 use burn::tensor::ops::IntTensorOps;
@@ -100,7 +97,7 @@ fn render_forward(
         [num_points as u32, 1, 1],
     );
 
-    let vis_indices = prefix_sum(&client, visible_mask);
+    let _vis_indices = prefix_sum(&client, visible_mask);
 
     // let cum_tiles_hit = prefix_sum(&client, num_tiles_hit);
 
@@ -146,7 +143,7 @@ fn render_forward(
 
     // TODO: VIsible inds only.
     let gauss_inds = BurnBack::int_arange(0..num_points as i64, &device);
-    let (depths_sorted, gaussian_ids_sorted) = radix_argsort(
+    let (_, gaussian_ids_sorted) = radix_argsort(
         client.clone(),
         bitcast_tensor(depths.clone()),
         bitcast_tensor(gauss_inds),
