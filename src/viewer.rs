@@ -8,6 +8,7 @@ use burn_wgpu::WgpuDevice;
 use eframe::{egui_wgpu::WgpuConfiguration, NativeOptions};
 use egui::{pos2, Color32, Rect, TextureId};
 use glam::{Mat3, Mat4, Quat, Vec2, Vec3};
+use tracing::info_span;
 use wgpu::ImageDataLayout;
 
 /// Tags an entity as capable of panning and orbiting.
@@ -133,14 +134,16 @@ impl Viewer {
             Default::default(),
         );
 
-        Viewer {
+        let mut viewer = Viewer {
             camera: Camera::new(Vec3::ZERO, Quat::IDENTITY, 500.0, 500.0),
             splats: None,
             backbuffer: None,
             controls: OrbitControls::new(15.0),
             device,
             start_transform: glam::Mat4::IDENTITY,
-        }
+        };
+        viewer.load_splats("../models/bonsai/point_cloud/iteration_30000/point_cloud.ply");
+        viewer
     }
 
     pub fn load_splats(&mut self, path: &str) {
@@ -229,7 +232,7 @@ impl eframe::App for Viewer {
             } else {
                 (Vec2::ZERO, Vec2::ZERO)
             };
-            let scrolled = ui.input(|r| r.scroll_delta).y;
+            let scrolled = ui.input(|r| r.smooth_scroll_delta).y;
 
             let dirty = response.dragged() || scrolled > 0.0;
 
@@ -254,7 +257,10 @@ impl eframe::App for Viewer {
 
             if let Some(backbuffer) = &self.backbuffer {
                 if let Some(splats) = &self.splats {
+                    let synced_render = info_span!("Synced render").entered();
                     let (img, _) = splats.render(&self.camera, size, glam::vec3(0.0, 0.0, 0.0));
+                    <BurnBack as burn::prelude::Backend>::sync(&self.device);
+                    drop(synced_render);
                     copy_buffer_to_texture(img, &backbuffer.texture);
                 }
 
@@ -272,6 +278,7 @@ impl eframe::App for Viewer {
             if dirty {
                 ctx.request_repaint();
             }
+            ctx.request_repaint();
         });
     }
 
@@ -283,11 +290,12 @@ impl eframe::App for Viewer {
 pub(crate) fn start() -> Result<()> {
     // let cameras = dataset_readers::read_viewpoint_data(viewpoints)?;
     let native_options = NativeOptions {
+        viewport: egui::ViewportBuilder::default().with_maximized(true),
         wgpu_options: WgpuConfiguration {
             device_descriptor: Arc::new(|adapter| wgpu::DeviceDescriptor {
                 label: Some("egui+burn wgpu device"),
-                features: wgpu::Features::default(),
-                limits: adapter.limits(),
+                required_features: wgpu::Features::default(),
+                required_limits: adapter.limits(),
             }),
             ..Default::default()
         },
