@@ -1,6 +1,6 @@
 #import sorting
 
-@group(0) @binding(0) var<storage> config: sorting::Config;
+@group(0) @binding(0) var<storage> num_keys_arr: array<u32>;
 @group(0) @binding(1) var<storage, read_write> reduced: array<u32>;
 
 var<workgroup> sums: array<u32, sorting::WG>;
@@ -12,9 +12,13 @@ fn main(
     @builtin(local_invocation_id) local_id: vec3<u32>,
     @builtin(workgroup_id) group_id: vec3<u32>,
 ) {
+    let num_keys = num_keys_arr[0];
+    let num_wgs = sorting::div_ceil(num_keys, sorting::BLOCK_SIZE);
+    let num_reduce_wgs = sorting::BIN_COUNT * sorting::div_ceil(num_wgs, sorting::BLOCK_SIZE);
+
     // We only dispatch a single wg, so I think this is always 0
     let base_index = sorting::BLOCK_SIZE * group_id.x;
-    let num_values_to_scan = config.num_scan_values;
+
     for (var i = 0u; i < sorting::ELEMENTS_PER_THREAD; i++) {
         let data_index = i * sorting::WG + local_id.x;
         let col = (i * sorting::WG + local_id.x) / sorting::ELEMENTS_PER_THREAD;
@@ -52,7 +56,7 @@ fn main(
         let data_index = i * sorting::WG + local_id.x;
         let col = (i * sorting::WG + local_id.x) / sorting::ELEMENTS_PER_THREAD;
         let row = (i * sorting::WG + local_id.x) % sorting::ELEMENTS_PER_THREAD;
-        if data_index < num_values_to_scan {
+        if data_index < num_reduce_wgs {
             reduced[data_index] = lds[row][col];
         }
     }

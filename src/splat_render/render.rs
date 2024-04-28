@@ -2,12 +2,12 @@ use super::kernels::SplatKernel;
 use super::prefix_sum::prefix_sum;
 use super::radix_sort::radix_argsort;
 use crate::camera::Camera;
+use crate::splat_render::create_tensor;
 use crate::splat_render::dim_check::DimCheck;
 use crate::splat_render::kernels::{
     GetTileBinEdges, MapGaussiansToIntersect, ProjectBackwards, ProjectSplats, Rasterize,
     RasterizeBackwards,
 };
-use crate::splat_render::{create_tensor, read_buffer_to_u32};
 use burn::backend::autodiff::NodeID;
 use burn::tensor::ops::FloatTensorOps;
 use burn::tensor::ops::IntTensorOps;
@@ -39,6 +39,8 @@ fn render_forward(
     background: glam::Vec3,
     forward_only: bool,
 ) -> (JitTensor<BurnRuntime, f32, 3>, Aux<BurnBack>) {
+    means.client.sync();
+
     let _span = info_span!("render_gaussians").entered();
 
     let (means, scales, quats, colors, opacity) = (
@@ -67,11 +69,15 @@ fn render_forward(
     let device = means.device.clone();
 
     let num_points = means.shape.dims[0];
-    let radii = create_tensor::<u32, 1>(&client, &device, [num_points]);
-    let depths = create_tensor::<f32, 1>(&client, &device, [num_points]);
+
     let xys = create_tensor::<f32, 2>(&client, &device, [num_points, 2]);
+    let depths = create_tensor::<f32, 1>(&client, &device, [num_points]);
+    let radii = create_tensor::<u32, 1>(&client, &device, [num_points]);
     let cov2ds = create_tensor::<f32, 2>(&client, &device, [num_points, 4]);
-    let num_tiles_hit = create_tensor(&client, &device, [num_points]);
+    let num_tiles_hit = BurnBack::int_zeros(Shape::new([num_points]), &device);
+    let num_visible = bitcast_tensor(BurnBack::int_zeros(Shape::new([1]), &device));
+    let compact_ids = create_tensor::<u32, 1>(&client, &device, [num_points]);
+    let remap_ids = create_tensor::<u32, 1>(&client, &device, [num_points]);
 
     ProjectSplats::new().execute(
         &client,
@@ -88,57 +94,85 @@ fn render_forward(
             means.handle.binding(),
             scales.handle.binding(),
             quats.handle.binding(),
+            opacity.handle.clone().binding(),
         ],
         &[
+            compact_ids.handle.clone().binding(),
+            remap_ids.handle.clone().binding(),
             xys.handle.clone().binding(),
             depths.handle.clone().binding(),
             radii.handle.clone().binding(),
             cov2ds.handle.clone().binding(),
             num_tiles_hit.handle.clone().binding(),
+            num_visible.handle.clone().binding(),
         ],
         [num_points as u32, 1, 1],
     );
 
-    let cum_tiles_hit = prefix_sum(&client, num_tiles_hit);
-
-    let read_back = info_span!("Read back num_intersects").entered();
-    // TODO: This is the only real CPU <-> GPU bottleneck, get around this somehow?
-    #[allow(clippy::single_range_in_vec_init)]
-    let last_elem = BurnBack::int_slice(
-        bitcast_tensor(cum_tiles_hit.clone()),
-        [num_points - 1..num_points],
+    // Interpret depth as u32. This is fine with radix sort, as long as depth > 0.0,
+    // which we know to be the case given how we cull.
+    let (_, sorted_compact_ids) = radix_argsort(
+        client.clone(),
+        bitcast_tensor(depths),
+        compact_ids,
+        num_visible.clone(),
+        32,
     );
 
-    let num_intersects = *read_buffer_to_u32(&client, last_elem.handle.binding())
-        .last()
-        .unwrap() as usize;
-    drop(read_back);
+    // Gather the number of tiles hit for the sorted gaussians.
+    let num_tiles_hit = bitcast_tensor(BurnBack::int_gather(
+        0,
+        bitcast_tensor(num_tiles_hit),
+        bitcast_tensor(sorted_compact_ids.clone()),
+    ));
+
+    // Calculate cumulative sums as offsets for the intersections buffer.
+    let cum_tiles_hit = prefix_sum(&client, num_tiles_hit);
+
+    // TODO: How do we actually properly deal with this :/
+    // Ideally render gaussians in chunks, but that might be hell with the backward pass.
+    let max_intersects = num_points * 3;
 
     // Each intersection maps to a gaussian.
-    let isect_ids_unsorted = create_tensor(&client, &device, [num_intersects]);
-    let gaussian_ids_unsorted = create_tensor(&client, &device, [num_intersects]);
+    let tile_ids_unsorted = create_tensor::<u32, 1>(&client, &device, [max_intersects]);
+    let gaussian_ids_depth_sorted = create_tensor::<u32, 1>(&client, &device, [max_intersects]);
 
     // Dispatch one thread per point.
+    // TODO: Really want to do an indirect dispatch here.
     MapGaussiansToIntersect::new().execute(
         &client,
         shaders::map_gaussian_to_intersects::Uniforms::new(tile_bounds.into()),
         &[
+            sorted_compact_ids.handle.clone().binding(),
             xys.handle.clone().binding(),
+            cov2ds.handle.clone().binding(),
             radii.handle.clone().binding(),
-            cum_tiles_hit.handle.binding(),
-            depths.handle.binding(),
+            cum_tiles_hit.handle.clone().binding(),
+            num_visible.handle.clone().binding(),
         ],
         &[
-            isect_ids_unsorted.handle.clone().binding(),
-            gaussian_ids_unsorted.handle.clone().binding(),
+            tile_ids_unsorted.handle.clone().binding(),
+            gaussian_ids_depth_sorted.handle.clone().binding(),
         ],
         [num_points as u32, 1, 1],
     );
 
-    let (isect_ids_sorted, gaussian_ids_sorted) = radix_argsort(
+    let num_intersect = bitcast_tensor(BurnBack::int_gather(
+        0,
+        bitcast_tensor(cum_tiles_hit),
+        bitcast_tensor(num_visible),
+    ));
+
+    // We're sorting by tile ID, but we know beforehand what the maximum value
+    // can be. We don't need to sort all the leading 0 bits!
+    let num_tiles: u32 = tile_bounds[0] * tile_bounds[1];
+    let bits = u32::BITS - num_tiles.leading_zeros();
+    let (tile_ids_sorted, gaussian_ids_sorted) = radix_argsort(
         client.clone(),
-        isect_ids_unsorted.clone(),
-        gaussian_ids_unsorted,
+        bitcast_tensor(tile_ids_unsorted),
+        bitcast_tensor(gaussian_ids_depth_sorted),
+        num_intersect.clone(),
+        bits,
     );
 
     let tile_bins = BurnBack::int_zeros(
@@ -148,9 +182,12 @@ fn render_forward(
     GetTileBinEdges::new().execute(
         &client,
         (),
-        &[isect_ids_sorted.handle.binding()],
+        &[
+            tile_ids_sorted.handle.binding(),
+            num_intersect.handle.clone().binding(),
+        ],
         &[tile_bins.handle.clone().binding()],
-        [num_intersects as u32, 1, 1],
+        [max_intersects as u32, 1, 1],
     );
 
     let out_img = if forward_only {
@@ -189,6 +226,7 @@ fn render_forward(
         shaders::rasterize::Uniforms::new(img_size.into(), background.into()),
         &[
             gaussian_ids_sorted.handle.clone().binding(),
+            remap_ids.handle.clone().binding(),
             tile_bins.handle.clone().binding(),
             xys.handle.clone().binding(),
             cov2ds.handle.clone().binding(),
@@ -199,10 +237,13 @@ fn render_forward(
         [img_size.x, img_size.y, 1],
     );
 
+    means.client.sync();
+
+    // TODO: Deal with sparsity in backwards pass.
     (
         out_img,
         Aux {
-            num_intersects: num_intersects as u32,
+            num_intersects: max_intersects as u32,
             tile_bins: Tensor::from_primitive(bitcast_tensor(tile_bins)),
             radii: Tensor::from_primitive(bitcast_tensor(radii)),
             cov2ds: Tensor::from_primitive(bitcast_tensor(cov2ds)),

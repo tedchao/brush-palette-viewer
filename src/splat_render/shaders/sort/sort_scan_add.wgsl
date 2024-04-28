@@ -1,6 +1,6 @@
 #import sorting
 
-@group(0) @binding(0) var<storage> config: sorting::Config;
+@group(0) @binding(0) var<storage> num_keys_arr: array<u32>;
 @group(0) @binding(1) var<storage> reduced: array<u32>;
 @group(0) @binding(2) var<storage, read_write> counts: array<u32>;
 
@@ -13,10 +13,20 @@ fn main(
     @builtin(local_invocation_id) local_id: vec3<u32>,
     @builtin(workgroup_id) group_id: vec3<u32>,
 ) {
-    let bin_id = group_id.x / config.num_reduce_wg_per_bin;
-    let bin_offset = bin_id * config.num_wgs;
-    let base_index = (group_id.x % config.num_reduce_wg_per_bin) * sorting::ELEMENTS_PER_THREAD * sorting::WG;
-    let num_values_to_scan = config.num_wgs;
+    let num_keys = num_keys_arr[0];
+    let num_wgs = sorting::div_ceil(num_keys, sorting::BLOCK_SIZE);
+    let num_reduce_wgs = sorting::BIN_COUNT * sorting::div_ceil(num_wgs, sorting::BLOCK_SIZE);
+
+    if group_id.x >= num_reduce_wgs {
+        return;
+    }
+
+    let num_reduce_wg_per_bin = num_reduce_wgs / sorting::BIN_COUNT;
+
+    let bin_id = group_id.x / num_reduce_wg_per_bin;
+    let bin_offset = bin_id * num_wgs;
+    let base_index = (group_id.x % num_reduce_wg_per_bin) * sorting::ELEMENTS_PER_THREAD * sorting::WG;
+
     for (var i = 0u; i < sorting::ELEMENTS_PER_THREAD; i++) {
         let data_index = base_index + i * sorting::WG + local_id.x;
         let col = (i * sorting::WG + local_id.x) / sorting::ELEMENTS_PER_THREAD;
@@ -56,7 +66,7 @@ fn main(
         let data_index = base_index + i * sorting::WG + local_id.x;
         let col = (i * sorting::WG + local_id.x) / sorting::ELEMENTS_PER_THREAD;
         let row = (i * sorting::WG + local_id.x) % sorting::ELEMENTS_PER_THREAD;
-        if data_index < num_values_to_scan {
+        if data_index < num_wgs {
             counts[bin_offset + data_index] = lds[row][col];
         }
     }

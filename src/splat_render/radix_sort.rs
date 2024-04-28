@@ -20,77 +20,46 @@ pub fn radix_argsort(
     client: BurnClient,
     input_keys: JitTensor<BurnRuntime, u32, 1>,
     input_values: JitTensor<BurnRuntime, u32, 1>,
+    num_points: JitTensor<BurnRuntime, u32, 1>,
+    sorting_bits: u32,
 ) -> (
     JitTensor<BurnRuntime, u32, 1>,
     JitTensor<BurnRuntime, u32, 1>,
 ) {
-    let _span = info_span!("Radix sort").entered();
-
-    let n = input_keys.shape.dims[0] as u32;
     assert_eq!(input_keys.shape.dims[0], input_values.shape.dims[0]);
+    assert!(sorting_bits <= 32);
+
+    let _span = info_span!("Radix sort").entered();
+    let max_n = input_keys.shape.dims[0] as u32;
 
     // compute buffer and dispatch sizes
-    let num_blocks = n.div_ceil(BLOCK_SIZE);
+    let max_num_wgs = max_n.div_ceil(BLOCK_SIZE);
+    let max_num_reduce_wgs = BIN_COUNT * max_num_wgs.div_ceil(BLOCK_SIZE);
 
-    let num_wgs = num_blocks;
-    let num_blocks_per_wg = num_blocks / num_wgs;
-    let num_wgs_with_additional_blocks = num_blocks % num_wgs;
+    let device = &input_keys.device.clone();
 
-    // I think the else always has the same value, but fix later.
-    let num_reduce_wgs = BIN_COUNT
-        * if BLOCK_SIZE > num_wgs {
-            1
+    let count_buf = BurnBack::int_zeros(Shape::new([(max_num_wgs as usize) * 16]), device);
+    let reduced_buf = BurnBack::int_zeros(Shape::new([BLOCK_SIZE as usize]), device);
+
+    let output_keys = input_keys;
+    let output_values = input_values;
+    let output_keys_swap = create_tensor::<u32, 1>(&client, device, [max_n as usize]);
+    let output_values_swap = create_tensor::<u32, 1>(&client, device, [max_n as usize]);
+
+    // NB: We fill in num_keys from the GPU!
+    // This at least prevents sorting values we don't need, but really
+    // we should use indirect dispatch for this.
+    let mut config = shaders::sorting::Config { shift: 0 };
+
+    let (mut last_out, mut last_out_values) = (&output_keys, &output_values);
+
+    for pass in 0..sorting_bits.div_ceil(4) {
+        let (to, to_val) = if pass % 2 == 0 {
+            (&output_keys_swap, &output_values_swap)
         } else {
-            (num_wgs + BLOCK_SIZE - 1) / BLOCK_SIZE
+            (&output_keys, &output_values)
         };
 
-    let num_reduce_wg_per_bin = num_reduce_wgs / BIN_COUNT;
-
-    let device = &input_keys.device;
-
-    let num_blocks = num_blocks as usize;
-    let count_buf = BurnBack::int_zeros(Shape::new([num_blocks * 16]), device);
-    let reduced_buf = BurnBack::int_zeros(Shape::new([(BLOCK_SIZE) as usize]), device);
-
-    let output_keys = create_tensor::<u32, 1>(&client, device, [n as usize]);
-    let output_values = create_tensor::<u32, 1>(&client, device, [n as usize]);
-    let output_keys_swap = create_tensor::<u32, 1>(&client, device, [n as usize]);
-    let output_values_swap = create_tensor::<u32, 1>(&client, device, [n as usize]);
-
-    let mut config = shaders::sorting::Config {
-        num_keys: n,
-        num_blocks_per_wg,
-        num_wgs,
-        num_wgs_with_additional_blocks,
-        num_reduce_wg_per_bin,
-        num_scan_values: num_reduce_wgs,
-        shift: 0,
-    };
-
-    const N_PASSES: u32 = 8;
-
-    for pass in 0..N_PASSES {
-        let ((from, to), (from_val, to_val)) = if pass == 0 {
-            (
-                (&input_keys, &output_keys_swap),
-                (&input_values, &output_values_swap),
-            )
-        } else if pass % 2 == 0 {
-            (
-                (&output_keys, &output_keys_swap),
-                (&output_values, &output_values_swap),
-            )
-        } else {
-            (
-                (&output_keys_swap, &output_keys),
-                (&output_values_swap, &output_values),
-            )
-        };
-
-        // The most straightforward way to update the shift amount would be
-        // queue.buffer_write, but that has performance problems, so we copy
-        // from a pre-initialized buffer.
-        // TODO: set config based on pass
         config.shift = pass * 4;
 
         let wg = shaders::sorting::WG;
@@ -98,49 +67,60 @@ pub fn radix_argsort(
         SortCount::new().execute(
             &client,
             config,
-            &[from.clone().handle.binding()],
+            &[
+                num_points.handle.clone().binding(),
+                last_out.handle.clone().binding(),
+            ],
             &[count_buf.clone().handle.binding()],
-            [config.num_wgs * wg, 1, 1],
+            [max_num_wgs * wg, 1, 1],
         );
 
-        // Todo: in -> out -> out2
         SortReduce::new().execute(
             &client,
-            config,
-            &[count_buf.clone().handle.binding()],
+            (),
+            &[
+                num_points.handle.clone().binding(),
+                count_buf.clone().handle.binding(),
+            ],
             &[reduced_buf.clone().handle.binding()],
-            [num_reduce_wgs * wg, 1, 1],
+            [max_num_reduce_wgs * wg, 1, 1],
         );
 
         SortScan::new().execute(
             &client,
-            config,
-            &[],
+            (),
+            &[num_points.handle.clone().binding()],
             &[reduced_buf.clone().handle.binding()],
             [1, 1, 1],
         );
 
         SortScanAdd::new().execute(
             &client,
-            config,
-            &[reduced_buf.clone().handle.binding()],
+            (),
+            &[
+                num_points.handle.clone().binding(),
+                reduced_buf.clone().handle.binding(),
+            ],
             &[count_buf.clone().handle.binding()],
-            [num_reduce_wgs * wg, 1, 1],
+            [max_num_reduce_wgs * wg, 1, 1],
         );
 
         SortScatter::new().execute(
             &client,
             config,
             &[
-                from.handle.clone().binding(),
-                from_val.handle.clone().binding(),
+                num_points.handle.clone().binding(),
+                last_out.handle.clone().binding(),
+                last_out_values.handle.clone().binding(),
                 count_buf.handle.clone().binding(),
             ],
             &[to.handle.clone().binding(), to_val.handle.clone().binding()],
-            [config.num_wgs * wg, 1, 1],
+            [max_num_wgs * wg, 1, 1],
         );
+
+        (last_out, last_out_values) = (&to, &to_val);
     }
-    (output_keys, output_values)
+    (last_out.clone(), last_out_values.clone())
 }
 
 mod tests {
@@ -197,9 +177,13 @@ mod tests {
 
             let values = Tensor::<Backend, 1, Int>::from_ints(values_inp.as_slice(), &device)
                 .into_primitive();
+            let num_points = bitcast_tensor(
+                Tensor::<Backend, 1, Int>::from_ints([keys_inp.len() as i32], &device)
+                    .into_primitive(),
+            );
             let values = bitcast_tensor(values);
             let client = keys.client.clone();
-            let (ret_keys, ret_values) = radix_argsort(client, keys, values);
+            let (ret_keys, ret_values) = radix_argsort(client, keys, values, num_points, 32);
 
             let ret_keys = read_buffer_to_u32(&ret_keys.client, ret_keys.handle.binding());
             let ret_values = read_buffer_to_u32(&ret_values.client, ret_values.handle.binding());
@@ -238,16 +222,18 @@ mod tests {
 
         type Backend = BurnBack;
         let device = Default::default();
-        let keys =
-            Tensor::<Backend, 1, Int>::from_ints(keys_inp.as_slice(), &device).into_primitive();
-        let keys = bitcast_tensor(keys);
-
-        let values =
-            Tensor::<Backend, 1, Int>::from_ints(values_inp.as_slice(), &device).into_primitive();
-        let values = bitcast_tensor(values);
+        let keys = bitcast_tensor(
+            Tensor::<Backend, 1, Int>::from_ints(keys_inp.as_slice(), &device).into_primitive(),
+        );
+        let values = bitcast_tensor(
+            Tensor::<Backend, 1, Int>::from_ints(values_inp.as_slice(), &device).into_primitive(),
+        );
+        let num_points = bitcast_tensor(
+            Tensor::<Backend, 1, Int>::from_ints([keys_inp.len() as i32], &device).into_primitive(),
+        );
 
         let client = keys.client.clone();
-        let (ret_keys, ret_values) = radix_argsort(client, keys, values);
+        let (ret_keys, ret_values) = radix_argsort(client, keys, values, num_points, 32);
 
         let ret_keys = read_buffer_to_u32(&ret_keys.client, ret_keys.handle.binding());
         let ret_values = read_buffer_to_u32(&ret_values.client, ret_values.handle.binding());

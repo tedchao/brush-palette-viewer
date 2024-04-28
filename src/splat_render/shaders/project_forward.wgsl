@@ -5,12 +5,17 @@
 @group(0) @binding(1) var<storage, read> means: array<vec4f>;
 @group(0) @binding(2) var<storage, read> scales: array<vec4f>;
 @group(0) @binding(3) var<storage, read> quats: array<vec4f>;
+@group(0) @binding(4) var<storage, read> opacities: array<f32>;
 
-@group(0) @binding(4) var<storage, read_write> xys: array<vec2f>;
-@group(0) @binding(5) var<storage, read_write> depths: array<f32>;
-@group(0) @binding(6) var<storage, read_write> radii: array<u32>;
-@group(0) @binding(7) var<storage, read_write> cov2ds: array<vec4f>;
-@group(0) @binding(8) var<storage, read_write> num_tiles_hit: array<u32>;
+
+@group(0) @binding(5) var<storage, read_write> compact_ids: array<u32>;
+@group(0) @binding(6) var<storage, read_write> remap_ids: array<u32>;
+@group(0) @binding(7) var<storage, read_write> xys: array<vec2f>;
+@group(0) @binding(8) var<storage, read_write> depths: array<f32>;
+@group(0) @binding(9) var<storage, read_write> radii: array<u32>;
+@group(0) @binding(10) var<storage, read_write> cov2ds: array<vec4f>;
+@group(0) @binding(11) var<storage, read_write> num_tiles_hit: array<u32>;
+@group(0) @binding(12) var<storage, read_write> num_visible: array<atomic<u32>>;
 
 struct Uniforms {
     // View matrix transform world to view position.
@@ -50,6 +55,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
     radii[idx] = 0u;
     // Zero out number of tiles hit before cumulative sum.
     num_tiles_hit[idx] = 0u;
+    depths[idx] = 1e30;
 
     let viewmat = uniforms.viewmat;
     let focal = uniforms.focal;
@@ -113,19 +119,38 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
     let radius = u32(ceil(3.0 * sqrt(max(0.0, max(v1, v2)))));
 
     if radius == 0u {
-        // point bbox outside of bounds.
         return;
     }
 
     // compute the projected mean
     let center = project_pix(focal, p_view, pixel_center);
     let tile_minmax = helpers::get_tile_bbox(center, radius, uniforms.tile_bounds);
-    let tile_area = (tile_minmax.z - tile_minmax.x) * (tile_minmax.w - tile_minmax.y);
+    let tile_min = tile_minmax.xy;
+    let tile_max = tile_minmax.zw;
 
-    // Now write all the data to the buffers.
-    num_tiles_hit[idx] = tile_area;
-    depths[idx] = p_view.z;
-    radii[idx] = radius;
-    xys[idx] = center;
-    cov2ds[idx] = vec4f(cov2d, 1.0);
+    let conic = helpers::cov2d_to_conic(cov2d);
+    let opac = opacities[idx];
+
+    var tile_area = 0u;
+    for (var ty = tile_min.y; ty < tile_max.y; ty++) {
+        for (var tx = tile_min.x; tx < tile_max.x; tx++) {
+            if helpers::can_be_visible(vec2u(tx, ty), center, radius) {
+                tile_area += 1u;
+            }
+        }
+    }
+
+    if tile_area > 0u {
+        // Now write all the data to the buffers.
+        let write_id = atomicAdd(&num_visible[0], 1u);
+        // TODO: Remove this when burn fixes int_arange...
+        compact_ids[write_id] = write_id;
+        remap_ids[write_id] = idx;
+
+        depths[write_id] = p_view.z;
+        num_tiles_hit[write_id] = tile_area;
+        radii[write_id] = radius;
+        xys[write_id] = center;
+        cov2ds[write_id] = vec4f(cov2d, 1.0);
+    }
 }

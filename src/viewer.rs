@@ -1,14 +1,16 @@
 use core::ops::DerefMut;
-use std::sync::Arc;
+use std::{
+    sync::Arc,
+    time::{self, Duration},
+};
 
 use crate::{camera::Camera, gaussian_splats::Splats, splat_import, splat_render::BurnBack};
 use anyhow::Result;
 use burn::tensor::Tensor;
-use burn_wgpu::WgpuDevice;
+use burn_wgpu::{RuntimeOptions, WgpuDevice};
 use eframe::{egui_wgpu::WgpuConfiguration, NativeOptions};
 use egui::{pos2, Color32, Rect, TextureId};
 use glam::{Mat3, Mat4, Quat, Vec2, Vec3};
-use tracing::info_span;
 use wgpu::ImageDataLayout;
 
 /// Tags an entity as capable of panning and orbiting.
@@ -131,7 +133,13 @@ impl Viewer {
             state.adapter.clone(),
             state.device.clone(),
             state.queue.clone(),
-            Default::default(),
+            RuntimeOptions {
+                dealloc_strategy: burn_compute::memory_management::DeallocStrategy::PeriodTime {
+                    period: Duration::from_secs(10),
+                    state: time::Instant::now(),
+                },
+                ..Default::default()
+            },
         );
 
         let mut viewer = Viewer {
@@ -142,7 +150,7 @@ impl Viewer {
             device,
             start_transform: glam::Mat4::IDENTITY,
         };
-        viewer.load_splats("../models/bonsai/point_cloud/iteration_30000/point_cloud.ply");
+        viewer.load_splats("../models/stump/point_cloud/iteration_7000/point_cloud.ply");
         viewer
     }
 
@@ -257,10 +265,7 @@ impl eframe::App for Viewer {
 
             if let Some(backbuffer) = &self.backbuffer {
                 if let Some(splats) = &self.splats {
-                    let synced_render = info_span!("Synced render").entered();
                     let (img, _) = splats.render(&self.camera, size, glam::vec3(0.0, 0.0, 0.0));
-                    <BurnBack as burn::prelude::Backend>::sync(&self.device);
-                    drop(synced_render);
                     copy_buffer_to_texture(img, &backbuffer.texture);
                 }
 
@@ -290,7 +295,7 @@ impl eframe::App for Viewer {
 pub(crate) fn start() -> Result<()> {
     // let cameras = dataset_readers::read_viewpoint_data(viewpoints)?;
     let native_options = NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_maximized(true),
+        viewport: egui::ViewportBuilder::default().with_inner_size(egui::Vec2::new(1920.0, 1080.0)),
         wgpu_options: WgpuConfiguration {
             device_descriptor: Arc::new(|adapter| wgpu::DeviceDescriptor {
                 label: Some("egui+burn wgpu device"),

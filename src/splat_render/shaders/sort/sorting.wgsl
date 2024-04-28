@@ -14,12 +14,6 @@
 //
 // Also licensed under MIT license, at your choice.
 struct Config {
-    num_keys: u32,
-    num_blocks_per_wg: u32,
-    num_wgs: u32,
-    num_wgs_with_additional_blocks: u32,
-    num_reduce_wg_per_bin: u32,
-    num_scan_values: u32,
     shift: u32,
 }
 
@@ -37,3 +31,8 @@ const BLOCK_SIZE = WG * ELEMENTS_PER_THREAD;
 // using simple iteration across values in shared memory.
 const WARP_SIZE = 16u;
 const N_WARPS = WG / WARP_SIZE;
+
+
+fn div_ceil(a: u32, b: u32) -> u32 {
+    return (a + b - 1u) / b;
+}

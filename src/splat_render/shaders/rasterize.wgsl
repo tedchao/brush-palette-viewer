@@ -10,17 +10,19 @@ struct Uniforms {
 @group(0) @binding(0) var<storage, read> uniforms: Uniforms;
 
 @group(0) @binding(1) var<storage, read> gaussian_ids_sorted: array<u32>;
-@group(0) @binding(2) var<storage, read> tile_bins: array<vec2u>;
-@group(0) @binding(3) var<storage, read> xys: array<vec2f>;
-@group(0) @binding(4) var<storage, read> cov2ds: array<vec4f>;
-@group(0) @binding(5) var<storage, read> colors: array<vec4f>;
-@group(0) @binding(6) var<storage, read> opacities: array<f32>;
+@group(0) @binding(2) var<storage, read> remap_ids: array<u32>;
+@group(0) @binding(3) var<storage, read> tile_bins: array<vec2u>;
+@group(0) @binding(4) var<storage, read> xys: array<vec2f>;
+@group(0) @binding(5) var<storage, read> cov2ds: array<vec4f>;
+
+@group(0) @binding(6) var<storage, read> colors: array<vec4f>;
+@group(0) @binding(7) var<storage, read> opacities: array<f32>;
 
 #ifdef FORWARD_ONLY
-    @group(0) @binding(7) var<storage, read_write> out_img: array<u32>;
+    @group(0) @binding(8) var<storage, read_write> out_img: array<u32>;
 #else
-    @group(0) @binding(7) var<storage, read_write> out_img: array<vec4f>;
-    @group(0) @binding(8) var<storage, read_write> final_index : array<u32>;
+    @group(0) @binding(8) var<storage, read_write> out_img: array<vec4f>;
+    @group(0) @binding(9) var<storage, read_write> final_index : array<u32>;
 #endif
 
 // Workgroup variables.
@@ -90,9 +92,11 @@ fn main(
         if idx < range.y {
             let g_id = gaussian_ids_sorted[idx];
             xy_batch[local_idx] = xys[g_id];
-            colors_batch[local_idx] = vec4f(colors[g_id].xyz, opacities[g_id]);
             let cov2d = cov2ds[g_id].xyz;
             conic_comp_batch[local_idx] = vec4f(helpers::cov2d_to_conic(cov2d), helpers::cov_compensation(cov2d));
+
+            let remapped_id = remap_ids[g_id];
+            colors_batch[local_idx] = vec4f(colors[remapped_id].xyz, opacities[remapped_id]);
         }
 
         // wait for other threads to collect the gaussians in batch

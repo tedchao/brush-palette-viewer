@@ -33,27 +33,43 @@ where
         executions: [u32; 3],
     ) {
         let _span = info_span!("Executing", "{}", Self::SPAN_NAME).entered();
-        let exec_vec = UVec3::from_array(executions);
-        let group_size = UVec3::from_array(Self::WORKGROUP_SIZE);
-        let execs = uvec3(
-            exec_vec.x.div_ceil(group_size.x),
-            exec_vec.y.div_ceil(group_size.y),
-            exec_vec.z.div_ceil(group_size.z),
-        );
 
-        let kernel = Kernel::Custom(Box::new(SourceKernel::new(
-            self,
-            WorkGroup::new(execs.x, execs.y, execs.z),
-            WorkgroupSize::new(group_size.x, group_size.y, group_size.z),
-        )));
+        {
+            let _span = info_span!("Pre sync", "{}", Self::SPAN_NAME).entered();
+            client.sync();
+        }
 
-        if size_of::<Self::Uniforms>() != 0 {
-            let uniform_data = client.create(bytemuck::bytes_of(&uniforms)).binding();
-            let total_handles = [[uniform_data].as_slice(), read_handles, write_handles].concat();
-            client.execute(kernel, total_handles);
-        } else {
-            let total_handles = [read_handles, write_handles].concat();
-            client.execute(kernel, total_handles);
+        {
+            let _span = info_span!("Setup", "{}", Self::SPAN_NAME).entered();
+
+            let exec_vec = UVec3::from_array(executions);
+            let group_size = UVec3::from_array(Self::WORKGROUP_SIZE);
+            let execs = uvec3(
+                exec_vec.x.div_ceil(group_size.x),
+                exec_vec.y.div_ceil(group_size.y),
+                exec_vec.z.div_ceil(group_size.z),
+            );
+
+            let kernel = Kernel::Custom(Box::new(SourceKernel::new(
+                self,
+                WorkGroup::new(execs.x, execs.y, execs.z),
+                WorkgroupSize::new(group_size.x, group_size.y, group_size.z),
+            )));
+
+            if size_of::<Self::Uniforms>() != 0 {
+                let uniform_data = client.create(bytemuck::bytes_of(&uniforms)).binding();
+                let total_handles =
+                    [[uniform_data].as_slice(), read_handles, write_handles].concat();
+                client.execute(kernel, total_handles);
+            } else {
+                let total_handles = [read_handles, write_handles].concat();
+                client.execute(kernel, total_handles);
+            }
+        }
+
+        {
+            let _span = info_span!("syncing", "{}", Self::SPAN_NAME).entered();
+            client.sync();
         }
     }
 }
@@ -152,7 +168,7 @@ kernel_source_gen!(PrefixSumScanSums {}, prefix_sum_scan_sums, ());
 kernel_source_gen!(PrefixSumAddScannedSums {}, prefix_sum_add_scanned_sums, ());
 
 kernel_source_gen!(SortCount {}, sort_count, sorting::Config);
-kernel_source_gen!(SortReduce {}, sort_reduce, sorting::Config);
-kernel_source_gen!(SortScanAdd {}, sort_scan_add, sorting::Config);
-kernel_source_gen!(SortScan {}, sort_scan, sorting::Config);
+kernel_source_gen!(SortReduce {}, sort_reduce, ());
+kernel_source_gen!(SortScanAdd {}, sort_scan_add, ());
+kernel_source_gen!(SortScan {}, sort_scan, ());
 kernel_source_gen!(SortScatter {}, sort_scatter, sorting::Config);

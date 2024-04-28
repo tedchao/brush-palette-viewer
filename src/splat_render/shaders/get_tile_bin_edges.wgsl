@@ -1,16 +1,18 @@
 #import helpers
 
 @group(0) @binding(0) var<storage> isect_ids_sorted: array<u32>;
-@group(0) @binding(1) var<storage, read_write> tile_bins: array<vec2u>;
+@group(0) @binding(1) var<storage> num_intersections: array<u32>;
+
+@group(0) @binding(2) var<storage, read_write> tile_bins: array<vec2u>;
 
 // kernel to map sorted intersection IDs to tile bins
 // expect that intersection IDs are sorted by increasing tile ID
 // i.e. intersections of a tile are in contiguous chunks
 @compute
-@workgroup_size(helpers::SPLATS_PER_GROUP, 1, 1)
+@workgroup_size(256, 1, 1)
 fn main(@builtin(global_invocation_id) global_id: vec3u) {
     let idx = global_id.x;
-    let num_intersects = arrayLength(&isect_ids_sorted);
+    let num_intersects = num_intersections[0];
 
     if idx >= num_intersects {
         return;
@@ -18,7 +20,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
 
     // Save the indices where the tile_id changes
     // let cur_tile_idx = isect_ids_sorted[idx];
-    let cur_tile_idx = isect_ids_sorted[idx] >> 16u;
+    let cur_tile_idx = isect_ids_sorted[idx];
 
     // handle edge cases.
     if idx == num_intersects - 1u {
@@ -28,7 +30,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
     if idx == 0u {
         tile_bins[cur_tile_idx].x = 0u;
     } else {
-        let prev_tile_idx = isect_ids_sorted[idx - 1u] >> 16u;
+        let prev_tile_idx = isect_ids_sorted[idx - 1u];
 
         if prev_tile_idx != cur_tile_idx {
             tile_bins[prev_tile_idx].y = idx;
