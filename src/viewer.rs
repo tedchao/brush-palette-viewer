@@ -122,6 +122,7 @@ struct Viewer {
     controls: OrbitControls,
     device: WgpuDevice,
     start_transform: Mat4,
+    last_render_time: time::Instant,
 }
 
 impl Viewer {
@@ -149,6 +150,7 @@ impl Viewer {
             controls: OrbitControls::new(15.0),
             device,
             start_transform: glam::Mat4::IDENTITY,
+            last_render_time: time::Instant::now(),
         };
         viewer.load_splats("../models/stump/point_cloud/iteration_7000/point_cloud.ply");
         viewer
@@ -218,6 +220,12 @@ impl eframe::App for Viewer {
             if ui.button("load").clicked() {
                 self.load_splats("../models/bonsai/point_cloud/iteration_30000/point_cloud.ply");
             }
+            let now = time::Instant::now();
+            let ms = (now - self.last_render_time).as_secs_f64() * 1000.0;
+            let fps = 1000.0 / ms;
+            self.last_render_time = now;
+
+            ui.label(format!("FPS: {fps:.0} {ms:.0} ms/frame"));
 
             let size = ui.available_size();
             // Round to 16 pixels for buffer alignment.
@@ -296,6 +304,7 @@ pub(crate) fn start() -> Result<()> {
     // let cameras = dataset_readers::read_viewpoint_data(viewpoints)?;
     let native_options = NativeOptions {
         viewport: egui::ViewportBuilder::default().with_inner_size(egui::Vec2::new(1920.0, 1080.0)),
+        vsync: false,
         wgpu_options: WgpuConfiguration {
             device_descriptor: Arc::new(|adapter| wgpu::DeviceDescriptor {
                 label: Some("egui+burn wgpu device"),
