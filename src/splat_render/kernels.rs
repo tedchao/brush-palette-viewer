@@ -32,12 +32,9 @@ where
         write_handles: &[Binding<S>],
         executions: [u32; 3],
     ) {
-        let _span = info_span!("Executing", "{}", Self::SPAN_NAME).entered();
+        // client.sync();
 
-        {
-            let _span = info_span!("Pre sync", "{}", Self::SPAN_NAME).entered();
-            client.sync();
-        }
+        let _span = info_span!("Executing", "{}", Self::SPAN_NAME).entered();
 
         {
             let _span = info_span!("Setup", "{}", Self::SPAN_NAME).entered();
@@ -69,7 +66,7 @@ where
 
         {
             let _span = info_span!("syncing", "{}", Self::SPAN_NAME).entered();
-            client.sync();
+            // client.sync();
         }
     }
 }

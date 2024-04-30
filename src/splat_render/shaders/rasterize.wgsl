@@ -26,15 +26,19 @@ struct Uniforms {
 #endif
 
 // Workgroup variables.
-var<workgroup> xy_batch: array<vec2f, helpers::TILE_SIZE>;
-var<workgroup> colors_batch: array<vec4f, helpers::TILE_SIZE>;
-var<workgroup> conic_comp_batch: array<vec4f, helpers::TILE_SIZE>;
+
+const GATHER_PER_ITERATION: u32 = 128u;
+
+var<workgroup> xy_batch: array<vec2f, GATHER_PER_ITERATION>;
+var<workgroup> colors_batch: array<vec4f, GATHER_PER_ITERATION>;
+var<workgroup> conic_comp_batch: array<vec4f, GATHER_PER_ITERATION>;
+var<workgroup> fully_done: array<u32, GATHER_PER_ITERATION>;
 
 // kernel function for rasterizing each tile
 // each thread treats a single pixel
 // each thread group uses the same gaussian data in a tile
 @compute
-@workgroup_size(helpers::TILE_WIDTH, helpers::TILE_WIDTH, 1)
+@workgroup_size(16, 16, 1)
 fn main(
     @builtin(global_invocation_id) global_id: vec3u,
     @builtin(local_invocation_id) local_id: vec3u,
@@ -49,7 +53,9 @@ fn main(
 
     // Get index of tile being drawn.
     let tiles_xx = (img_size.x + helpers::TILE_WIDTH - 1u) / helpers::TILE_WIDTH;
-    let tile_id = workgroup_id.x + workgroup_id.y * tiles_xx;
+
+    let tile_loc = global_id.xy / helpers::TILE_WIDTH;
+    let tile_id = tile_loc.x + tile_loc.y * tiles_xx;
 
     let pix_id = global_id.x + global_id.y * img_size.x;
     let pixel_coord = vec2f(global_id.xy);
@@ -60,6 +66,8 @@ fn main(
 
     var done = false;
     if !inside {
+        fully_done[local_idx] = 1u;
+
         // this pixel is done
         done = true;
     }
@@ -68,7 +76,7 @@ fn main(
     // first collect gaussians between range.x and range.y in batches
     // which gaussians to look through in this tile
     var range = tile_bins[tile_id];
-    let num_batches = (range.y - range.x + helpers::TILE_SIZE - 1u) / helpers::TILE_SIZE;
+    let num_batches = (range.y - range.x + GATHER_PER_ITERATION - 1u) / GATHER_PER_ITERATION;
 
     // current visibility left to render
     var T = 1.0;
@@ -86,10 +94,10 @@ fn main(
 
         // each thread fetch 1 gaussian from front to back
         // index of gaussian to load
-        let batch_start = range.x + b * helpers::TILE_SIZE;
+        let batch_start = range.x + b * GATHER_PER_ITERATION;
         let idx = batch_start + local_idx;
 
-        if idx < range.y {
+        if idx < range.y && local_idx < GATHER_PER_ITERATION {
             let g_id = gaussian_ids_sorted[idx];
             xy_batch[local_idx] = xys[g_id];
             let cov2d = cov2ds[g_id].xyz;
@@ -103,7 +111,9 @@ fn main(
         workgroupBarrier();
 
         // process gaussians in the current batch for this pixel
-        let remaining = min(helpers::TILE_SIZE, range.y - batch_start);
+        let remaining = min(GATHER_PER_ITERATION, range.y - batch_start);
+
+        workgroupBarrier();
     
         var t = 0u;
         for (; t < remaining && !done; t++) {
@@ -128,6 +138,7 @@ fn main(
                 // we want to render the last gaussian that contributes and note
                 // that here idx > range.x so we don't underflow
                 done = true;
+                fully_done[local_idx] = 1u;
                 break;
             }
 
