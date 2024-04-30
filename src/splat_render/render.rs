@@ -39,8 +39,6 @@ fn render_forward(
     background: glam::Vec3,
     forward_only: bool,
 ) -> (JitTensor<BurnRuntime, f32, 3>, Aux<BurnBack>) {
-    means.client.sync();
-
     let _span = info_span!("render_gaussians").entered();
 
     let (means, scales, quats, colors, opacity) = (
@@ -236,8 +234,6 @@ fn render_forward(
         &out_handles,
         [img_size.x, img_size.y, 1],
     );
-
-    means.client.sync();
 
     // TODO: Deal with sparsity in backwards pass.
     (
