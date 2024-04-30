@@ -21,8 +21,8 @@ mod radix_sort;
 pub mod render;
 mod shaders;
 
-pub type BurnRuntime = WgpuRuntime<AutoGraphicsApi, f32, i32>;
-pub type BurnBack = JitBackend<BurnRuntime>;
+pub type BurnRuntime = WgpuRuntime<AutoGraphicsApi>;
+pub type BurnBack = JitBackend<BurnRuntime, f32, i32>;
 
 type BurnClient =
     ComputeClient<<BurnRuntime as Runtime>::Server, <BurnRuntime as Runtime>::Channel>;
