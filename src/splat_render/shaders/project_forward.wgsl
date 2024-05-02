@@ -3,19 +3,25 @@
 @group(0) @binding(0) var<storage, read> uniforms: Uniforms;
 
 @group(0) @binding(1) var<storage, read> means: array<vec4f>;
-@group(0) @binding(2) var<storage, read> scales: array<vec4f>;
+@group(0) @binding(2) var<storage, read> log_scales: array<vec4f>;
 @group(0) @binding(3) var<storage, read> quats: array<vec4f>;
-@group(0) @binding(4) var<storage, read> opacities: array<f32>;
+@group(0) @binding(4) var<storage, read> colors: array<vec4f>; // TODO: SH
+@group(0) @binding(5) var<storage, read> opacities: array<f32>;
 
+@group(0) @binding(6) var<storage, read_write> compact_ids: array<u32>;
+@group(0) @binding(7) var<storage, read_write> remap_ids: array<u32>;
+@group(0) @binding(8) var<storage, read_write> xys: array<vec2f>;
+@group(0) @binding(9) var<storage, read_write> depths: array<f32>;
+@group(0) @binding(10) var<storage, read_write> out_colors: array<vec4f>;
 
-@group(0) @binding(5) var<storage, read_write> compact_ids: array<u32>;
-@group(0) @binding(6) var<storage, read_write> remap_ids: array<u32>;
-@group(0) @binding(7) var<storage, read_write> xys: array<vec2f>;
-@group(0) @binding(8) var<storage, read_write> depths: array<f32>;
-@group(0) @binding(9) var<storage, read_write> radii: array<u32>;
-@group(0) @binding(10) var<storage, read_write> cov2ds: array<vec4f>;
-@group(0) @binding(11) var<storage, read_write> num_tiles_hit: array<u32>;
-@group(0) @binding(12) var<storage, read_write> num_visible: array<atomic<u32>>;
+@group(0) @binding(11) var<storage, read_write> radii: array<u32>;
+@group(0) @binding(12) var<storage, read_write> cov2ds: array<vec4f>;
+@group(0) @binding(13) var<storage, read_write> num_tiles_hit: array<u32>;
+@group(0) @binding(14) var<storage, read_write> num_visible: array<atomic<u32>>;
+
+fn sigmoid(x: f32) -> f32 {
+    return 1.0 / (1.0 + exp(-x));
+}
 
 struct Uniforms {
     // View matrix transform world to view position.
@@ -74,7 +80,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
     }
 
     // compute the projected covariance
-    let scale = scales[idx].xyz;
+    let scale = exp(log_scales[idx].xyz);
     let quat = quats[idx];
 
     let R = helpers::quat_to_rotmat(quat);
@@ -128,9 +134,6 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
     let tile_min = tile_minmax.xy;
     let tile_max = tile_minmax.zw;
 
-    let conic = helpers::cov2d_to_conic(cov2d);
-    let opac = opacities[idx];
-
     var tile_area = 0u;
     for (var ty = tile_min.y; ty < tile_max.y; ty++) {
         for (var tx = tile_min.x; tx < tile_max.x; tx++) {
@@ -147,6 +150,8 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
         compact_ids[write_id] = write_id;
         remap_ids[write_id] = idx;
 
+        let opac = sigmoid(opacities[idx]);
+        out_colors[write_id] = vec4f(colors[idx].xyz, opac);
         depths[write_id] = p_view.z;
         num_tiles_hit[write_id] = tile_area;
         radii[write_id] = radius;

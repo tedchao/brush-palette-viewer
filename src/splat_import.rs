@@ -134,7 +134,7 @@ pub fn load_splat_from_ply<B: Backend>(file: &str, device: &B::Device) -> Result
             )
             .require_grad(),
         ),
-        opacity: Param::initialized(
+        raw_opacity: Param::initialized(
             ParamId::new(),
             Tensor::from_data(
                 Data::new(opacity, Shape::new([num_points])).convert(),
@@ -142,7 +142,7 @@ pub fn load_splat_from_ply<B: Backend>(file: &str, device: &B::Device) -> Result
             )
             .require_grad(),
         ),
-        scales: Param::initialized(
+        log_scales: Param::initialized(
             ParamId::new(),
             Tensor::from_data(
                 Data::new(scales, Shape::new([num_points, 4])).convert(),

@@ -54,10 +54,10 @@ pub trait Backend: burn::tensor::backend::Backend {
         cam: &Camera,
         img_size: glam::UVec2,
         means: FloatTensor<Self, 2>,
-        scales: FloatTensor<Self, 2>,
+        log_scales: FloatTensor<Self, 2>,
         quats: FloatTensor<Self, 2>,
         colors: FloatTensor<Self, 2>,
-        opacity: FloatTensor<Self, 1>,
+        raw_opacity: FloatTensor<Self, 1>,
         background: glam::Vec3,
     ) -> (FloatTensor<Self, 3>, Aux<BurnBack>);
 }

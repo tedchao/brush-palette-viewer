@@ -1,7 +1,7 @@
 use burn::{
     config::Config,
     module::{Module, Param, ParamId},
-    tensor::{activation::sigmoid, Data, Device, Shape},
+    tensor::{Data, Device, Shape},
 };
 use tracing::info_span;
 
@@ -42,9 +42,9 @@ pub(crate) struct Splats<B: Backend> {
     // f32[n, 4]. Rotation as quaternion matrices.
     pub(crate) rotation: Param<Tensor<B, 2>>,
     // f32[n]. Opacity parameters.
-    pub(crate) opacity: Param<Tensor<B, 1>>,
+    pub(crate) raw_opacity: Param<Tensor<B, 1>>,
     // f32[n, 3]. Scale matrix coefficients.
-    pub(crate) scales: Param<Tensor<B, 2>>,
+    pub(crate) log_scales: Param<Tensor<B, 2>>,
 }
 
 struct SplatTrainState<B: Backend> {
@@ -126,8 +126,8 @@ impl<B: Backend> Splats<B> {
             means: Param::initialized(ParamId::new(), means.require_grad()),
             colors: Param::initialized(ParamId::new(), colors.require_grad()),
             rotation: Param::initialized(ParamId::new(), init_rotation.require_grad()),
-            opacity: Param::initialized(ParamId::new(), init_opacity.require_grad()),
-            scales: Param::initialized(ParamId::new(), init_scale.require_grad()),
+            raw_opacity: Param::initialized(ParamId::new(), init_opacity.require_grad()),
+            log_scales: Param::initialized(ParamId::new(), init_scale.require_grad()),
         }
     }
 
@@ -442,10 +442,10 @@ impl<B: Backend> Splats<B> {
             camera,
             img_size,
             self.means.val(),
-            self.scales.val().exp(),
+            self.log_scales.val(),
             norm_rotation,
             self.colors.val(),
-            sigmoid(self.opacity.val()),
+            self.raw_opacity.val(),
             bg_color,
         )
     }

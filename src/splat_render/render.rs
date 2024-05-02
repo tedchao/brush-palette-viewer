@@ -32,10 +32,10 @@ fn render_forward(
     camera: &Camera,
     img_size: glam::UVec2,
     means: JitTensor<BurnRuntime, f32, 2>,
-    scales: JitTensor<BurnRuntime, f32, 2>,
+    log_scales: JitTensor<BurnRuntime, f32, 2>,
     quats: JitTensor<BurnRuntime, f32, 2>,
     colors: JitTensor<BurnRuntime, f32, 2>,
-    opacity: JitTensor<BurnRuntime, f32, 1>,
+    raw_opacity: JitTensor<BurnRuntime, f32, 1>,
     background: glam::Vec3,
     forward_only: bool,
 ) -> (JitTensor<BurnRuntime, f32, 3>, Aux<BurnBack>) {
@@ -43,10 +43,10 @@ fn render_forward(
 
     let (means, scales, quats, colors, opacity) = (
         into_contiguous(means.clone()),
-        into_contiguous(scales.clone()),
+        into_contiguous(log_scales.clone()),
         into_contiguous(quats.clone()),
         into_contiguous(colors.clone()),
-        into_contiguous(opacity.clone()),
+        into_contiguous(raw_opacity.clone()),
     );
 
     DimCheck::new()
@@ -68,10 +68,14 @@ fn render_forward(
 
     let num_points = means.shape.dims[0];
 
+    // Projected gaussian values.
     let xys = create_tensor::<f32, 2>(&client, &device, [num_points, 2]);
     let depths = create_tensor::<f32, 1>(&client, &device, [num_points]);
+    let out_colors = create_tensor::<f32, 2>(&client, &device, [num_points, 4]);
     let radii = create_tensor::<u32, 1>(&client, &device, [num_points]);
     let cov2ds = create_tensor::<f32, 2>(&client, &device, [num_points, 4]);
+
+    // Tile rendering setup.
     let num_tiles_hit = BurnBack::int_zeros(Shape::new([num_points]), &device);
     let num_visible = bitcast_tensor(BurnBack::int_zeros(Shape::new([1]), &device));
     let compact_ids = create_tensor::<u32, 1>(&client, &device, [num_points]);
@@ -92,13 +96,15 @@ fn render_forward(
             means.handle.binding(),
             scales.handle.binding(),
             quats.handle.binding(),
-            opacity.handle.clone().binding(),
+            colors.handle.binding(),
+            opacity.handle.binding(),
         ],
         &[
             compact_ids.handle.clone().binding(),
             remap_ids.handle.clone().binding(),
             xys.handle.clone().binding(),
             depths.handle.clone().binding(),
+            out_colors.handle.clone().binding(),
             radii.handle.clone().binding(),
             cov2ds.handle.clone().binding(),
             num_tiles_hit.handle.clone().binding(),
@@ -224,12 +230,10 @@ fn render_forward(
         shaders::rasterize::Uniforms::new(img_size.into(), background.into()),
         &[
             gaussian_ids_sorted.handle.clone().binding(),
-            remap_ids.handle.clone().binding(),
             tile_bins.handle.clone().binding(),
             xys.handle.clone().binding(),
             cov2ds.handle.clone().binding(),
-            colors.handle.binding(),
-            opacity.handle.binding(),
+            out_colors.handle.binding(),
         ],
         &out_handles,
         [img_size.x, img_size.y, 1],
@@ -255,14 +259,22 @@ impl Backend for BurnBack {
         camera: &Camera,
         img_size: glam::UVec2,
         means: FloatTensor<Self, 2>,
-        scales: FloatTensor<Self, 2>,
+        log_scales: FloatTensor<Self, 2>,
         quats: FloatTensor<Self, 2>,
         colors: FloatTensor<Self, 2>,
-        opacity: FloatTensor<Self, 1>,
+        raw_opacity: FloatTensor<Self, 1>,
         background: glam::Vec3,
     ) -> (FloatTensor<Self, 3>, Aux<BurnBack>) {
         render_forward(
-            camera, img_size, means, scales, quats, colors, opacity, background, true,
+            camera,
+            img_size,
+            means,
+            log_scales,
+            quats,
+            colors,
+            raw_opacity,
+            background,
+            true,
         )
     }
 }
@@ -291,19 +303,19 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
         camera: &Camera,
         img_size: glam::UVec2,
         means: FloatTensor<Self, 2>,
-        scales: FloatTensor<Self, 2>,
+        log_scales: FloatTensor<Self, 2>,
         quats: FloatTensor<Self, 2>,
         colors: FloatTensor<Self, 2>,
-        opacity: FloatTensor<Self, 1>,
+        raw_opacity: FloatTensor<Self, 1>,
         background: glam::Vec3,
     ) -> (FloatTensor<Self, 3>, Aux<BurnBack>) {
         let prep_nodes = RenderBackwards
             .prepare::<C>([
                 means.node.clone(),
-                scales.node.clone(),
+                log_scales.node.clone(),
                 quats.node.clone(),
                 colors.node.clone(),
-                opacity.node.clone(),
+                raw_opacity.node.clone(),
             ])
             .compute_bound()
             .stateful();
@@ -313,10 +325,10 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
             camera,
             img_size,
             means.clone().primitive,
-            scales.clone().primitive,
+            log_scales.clone().primitive,
             quats.clone().primitive,
             colors.clone().primitive,
-            opacity.clone().primitive,
+            raw_opacity.clone().primitive,
             background,
             forward_only,
         );
@@ -329,10 +341,10 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
                 let state = GaussianBackwardState {
                     // TODO: Respect checkpointing in this.
                     means: prep.checkpoint(&means),
-                    scales: prep.checkpoint(&scales),
+                    scales: prep.checkpoint(&log_scales),
                     quats: prep.checkpoint(&quats),
                     colors: prep.checkpoint(&colors),
-                    opacity: prep.checkpoint(&opacity),
+                    opacity: prep.checkpoint(&raw_opacity),
                     aux: aux.clone(),
                     cam: camera.clone(),
                     background,
@@ -478,20 +490,20 @@ pub fn render<B: Backend>(
     camera: &Camera,
     img_size: glam::UVec2,
     means: Tensor<B, 2>,
-    scales: Tensor<B, 2>,
+    log_scales: Tensor<B, 2>,
     quats: Tensor<B, 2>,
     colors: Tensor<B, 2>,
-    opacity: Tensor<B, 1>,
+    raw_opacity: Tensor<B, 1>,
     background: glam::Vec3,
 ) -> (Tensor<B, 3>, Aux<BurnBack>) {
     let (img, aux) = B::render_gaussians(
         camera,
         img_size,
         means.clone().into_primitive(),
-        scales.clone().into_primitive(),
+        log_scales.clone().into_primitive(),
         quats.clone().into_primitive(),
         colors.clone().into_primitive(),
-        opacity.clone().into_primitive(),
+        raw_opacity.clone().into_primitive(),
         background,
     );
     (Tensor::from_primitive(img), aux)
