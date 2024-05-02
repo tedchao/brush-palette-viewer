@@ -4,7 +4,9 @@ use std::{
     time::{self, Duration},
 };
 
-use crate::{camera::Camera, gaussian_splats::Splats, splat_import, splat_render::BurnBack};
+use crate::{
+    camera::Camera, dataset_readers, gaussian_splats::Splats, splat_import, splat_render::BurnBack,
+};
 use anyhow::Result;
 use burn::tensor::Tensor;
 use burn_wgpu::{RuntimeOptions, WgpuDevice};
@@ -118,6 +120,7 @@ struct BackBuffer {
 struct Viewer {
     camera: Camera,
     splats: Option<Splats<BurnBack>>,
+    reference_cameras: Option<Vec<Camera>>,
     backbuffer: Option<BackBuffer>,
     controls: OrbitControls,
     device: WgpuDevice,
@@ -146,18 +149,27 @@ impl Viewer {
         let mut viewer = Viewer {
             camera: Camera::new(Vec3::ZERO, Quat::IDENTITY, 500.0, 500.0),
             splats: None,
+            reference_cameras: None,
             backbuffer: None,
             controls: OrbitControls::new(15.0),
             device,
             start_transform: glam::Mat4::IDENTITY,
             last_render_time: time::Instant::now(),
         };
-        viewer.load_splats("../models/stump/point_cloud/iteration_7000/point_cloud.ply");
+        viewer.load_splats(
+            "./models/bicycle/point_cloud/iteration_30000/point_cloud.ply",
+            Some("./models/bicycle/cameras.json"),
+        );
         viewer
     }
 
-    pub fn load_splats(&mut self, path: &str) {
+    pub fn load_splats(&mut self, path: &str, reference_view: Option<&str>) {
+        self.reference_cameras =
+            reference_view.and_then(|s| dataset_readers::read_viewpoint_data(s).ok());
         self.splats = splat_import::load_splat_from_ply::<BurnBack>(path, &self.device).ok();
+        if let Some(refs) = self.reference_cameras.as_ref() {
+            self.camera = refs[0].clone();
+        }
     }
 
     fn update_backbuffer(&mut self, size: glam::UVec2, frame: &mut eframe::Frame) {
@@ -214,12 +226,30 @@ impl Viewer {
 
 impl eframe::App for Viewer {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        egui_extras::install_image_loaders(ctx);
+
+        egui::SidePanel::new(egui::panel::Side::Left, "cam panel").show(ctx, |ui| {
+            if let Some(cameras) = self.reference_cameras.as_ref() {
+                for (i, camera) in cameras.iter().enumerate() {
+                    if ui.button(format!("Camera {i}")).clicked() {
+                        self.camera = camera.clone();
+                        self.controls.position = self.camera.position;
+                        self.controls.rotation = self.camera.rotation;
+                    }
+                }
+            }
+        });
+
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.heading("Brush splat viewer");
 
             if ui.button("load").clicked() {
-                self.load_splats("../models/bonsai/point_cloud/iteration_30000/point_cloud.ply");
+                self.load_splats(
+                    "./models/bonsai/point_cloud/iteration_30000/point_cloud.ply",
+                    Some("./models/bonsai/cameras.json"),
+                );
             }
+
             let now = time::Instant::now();
             let ms = (now - self.last_render_time).as_secs_f64() * 1000.0;
             let fps = 1000.0 / ms;
@@ -231,7 +261,7 @@ impl eframe::App for Viewer {
             // Round to 16 pixels for buffer alignment.
             // TODO: Ideally just alloc a backbuffer that's aligned
             // and render a slice of it.
-            let size = 64 * (glam::uvec2(size.x as u32, size.y as u32) / 64);
+            let size = glam::uvec2((size.x as u32).div_ceil(64) * 64, size.y as u32);
             self.update_backbuffer(size, frame);
 
             let (rect, response) = ui.allocate_exact_size(
@@ -263,7 +293,6 @@ impl eframe::App for Viewer {
                 self.controls.rotation,
                 self.controls.position,
             );
-
             let total_transform = self.start_transform * controls_transform;
             let (_, rot, pos) = total_transform.to_scale_rotation_translation();
             self.camera.position = pos;
@@ -277,6 +306,7 @@ impl eframe::App for Viewer {
                     copy_buffer_to_texture(img, &backbuffer.texture);
                 }
 
+                ui.painter().rect_filled(rect, 0.0, Color32::BLACK);
                 ui.painter().image(
                     backbuffer.id,
                     rect,
@@ -301,7 +331,6 @@ impl eframe::App for Viewer {
 }
 
 pub(crate) fn start() -> Result<()> {
-    // let cameras = dataset_readers::read_viewpoint_data(viewpoints)?;
     let native_options = NativeOptions {
         viewport: egui::ViewportBuilder::default().with_inner_size(egui::Vec2::new(1920.0, 1080.0)),
         vsync: false,

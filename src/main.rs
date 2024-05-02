@@ -4,7 +4,6 @@ mod camera;
 mod dataset_readers;
 mod gaussian_splats;
 mod scene;
-mod spherical_harmonics;
 mod splat_import;
 mod splat_render;
 mod train;

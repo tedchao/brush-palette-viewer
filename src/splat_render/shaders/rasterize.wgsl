@@ -28,7 +28,6 @@ const GATHER_PER_ITERATION: u32 = 128u;
 var<workgroup> xy_batch: array<vec2f, GATHER_PER_ITERATION>;
 var<workgroup> colors_batch: array<vec4f, GATHER_PER_ITERATION>;
 var<workgroup> conic_comp_batch: array<vec4f, GATHER_PER_ITERATION>;
-var<workgroup> fully_done: array<u32, GATHER_PER_ITERATION>;
 
 // kernel function for rasterizing each tile
 // each thread treats a single pixel
@@ -62,7 +61,6 @@ fn main(
 
     var done = false;
     if !inside {
-        fully_done[local_idx] = 1u;
         // this pixel is done
         done = true;
     }
@@ -131,7 +129,6 @@ fn main(
                 // we want to render the last gaussian that contributes and note
                 // that here idx > range.x so we don't underflow
                 done = true;
-                fully_done[local_idx] = 1u;
                 break;
             }
 

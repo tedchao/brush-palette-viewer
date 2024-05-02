@@ -2,6 +2,7 @@ use super::kernels::SplatKernel;
 use super::prefix_sum::prefix_sum;
 use super::radix_sort::radix_argsort;
 use crate::camera::Camera;
+use crate::gaussian_splats::num_sh_coeffs;
 use crate::splat_render::create_tensor;
 use crate::splat_render::dim_check::DimCheck;
 use crate::splat_render::kernels::{
@@ -34,18 +35,18 @@ fn render_forward(
     means: JitTensor<BurnRuntime, f32, 2>,
     log_scales: JitTensor<BurnRuntime, f32, 2>,
     quats: JitTensor<BurnRuntime, f32, 2>,
-    colors: JitTensor<BurnRuntime, f32, 2>,
+    sh_coeffs: JitTensor<BurnRuntime, f32, 2>,
     raw_opacity: JitTensor<BurnRuntime, f32, 1>,
     background: glam::Vec3,
     forward_only: bool,
 ) -> (JitTensor<BurnRuntime, f32, 3>, Aux<BurnBack>) {
     let _span = info_span!("render_gaussians").entered();
 
-    let (means, scales, quats, colors, opacity) = (
+    let (means, scales, quats, sh_coeffs, opacity) = (
         into_contiguous(means.clone()),
         into_contiguous(log_scales.clone()),
         into_contiguous(quats.clone()),
-        into_contiguous(colors.clone()),
+        into_contiguous(sh_coeffs.clone()),
         into_contiguous(raw_opacity.clone()),
     );
 
@@ -53,8 +54,19 @@ fn render_forward(
         .check_dims(&means, ["D".into(), 4.into()])
         .check_dims(&scales, ["D".into(), 4.into()])
         .check_dims(&quats, ["D".into(), 4.into()])
-        .check_dims(&colors, ["D".into(), 4.into()])
+        .check_dims(&sh_coeffs, ["D".into(), "C".into()])
         .check_dims(&opacity, ["D".into()]);
+
+    assert_eq!(sh_coeffs.shape.dims[1] % 3, 0);
+
+    let sh_bases = sh_coeffs.shape.dims[1] / 3;
+    assert!(
+        sh_bases == num_sh_coeffs(0)
+            || sh_bases == num_sh_coeffs(1)
+            || sh_bases == num_sh_coeffs(2)
+            || sh_bases == num_sh_coeffs(3)
+            || sh_bases == num_sh_coeffs(4)
+    );
 
     // Divide screen into blocks.
     let tile_width = shaders::helpers::TILE_WIDTH;
@@ -71,7 +83,7 @@ fn render_forward(
     // Projected gaussian values.
     let xys = create_tensor::<f32, 2>(&client, &device, [num_points, 2]);
     let depths = create_tensor::<f32, 1>(&client, &device, [num_points]);
-    let out_colors = create_tensor::<f32, 2>(&client, &device, [num_points, 4]);
+    let colors = create_tensor::<f32, 2>(&client, &device, [num_points, 4]);
     let radii = create_tensor::<u32, 1>(&client, &device, [num_points]);
     let cov2ds = create_tensor::<f32, 2>(&client, &device, [num_points, 4]);
 
@@ -91,12 +103,14 @@ fn render_forward(
             tile_bounds.into(),
             tile_width,
             0.01,
+            sh_bases as u32,
+            camera.position.into(),
         ),
         &[
             means.handle.binding(),
             scales.handle.binding(),
             quats.handle.binding(),
-            colors.handle.binding(),
+            sh_coeffs.handle.binding(),
             opacity.handle.binding(),
         ],
         &[
@@ -104,7 +118,7 @@ fn render_forward(
             remap_ids.handle.clone().binding(),
             xys.handle.clone().binding(),
             depths.handle.clone().binding(),
-            out_colors.handle.clone().binding(),
+            colors.handle.clone().binding(),
             radii.handle.clone().binding(),
             cov2ds.handle.clone().binding(),
             num_tiles_hit.handle.clone().binding(),
@@ -134,8 +148,9 @@ fn render_forward(
     let cum_tiles_hit = prefix_sum(&client, num_tiles_hit);
 
     // TODO: How do we actually properly deal with this :/
+    // TODO: Look into some more ways of reducing intersections.
     // Ideally render gaussians in chunks, but that might be hell with the backward pass.
-    let max_intersects = num_points * 3;
+    let max_intersects = num_points * 2;
 
     // Each intersection maps to a gaussian.
     let tile_ids_unsorted = create_tensor::<u32, 1>(&client, &device, [max_intersects]);
@@ -233,7 +248,7 @@ fn render_forward(
             tile_bins.handle.clone().binding(),
             xys.handle.clone().binding(),
             cov2ds.handle.clone().binding(),
-            out_colors.handle.binding(),
+            colors.handle.binding(),
         ],
         &out_handles,
         [img_size.x, img_size.y, 1],

@@ -38,7 +38,7 @@ pub(crate) struct Splats<B: Backend> {
     // f32[n, 3]. Position.
     pub(crate) means: Param<Tensor<B, 2>>,
     // f32[n, sh]. SH coefficients for diffuse color.
-    pub(crate) colors: Param<Tensor<B, 2>>,
+    pub(crate) sh_coeffs: Param<Tensor<B, 2>>,
     // f32[n, 4]. Rotation as quaternion matrices.
     pub(crate) rotation: Param<Tensor<B, 2>>,
     // f32[n]. Opacity parameters.
@@ -101,6 +101,14 @@ fn float_to_tensor<B: Backend>(data: Vec<f32>, device: &Device<B>) -> Tensor<B, 
     )
 }
 
+pub const fn num_sh_coeffs(degree: usize) -> usize {
+    if degree == 0 {
+        1
+    } else {
+        2 * degree + 1 + num_sh_coeffs(degree - 1)
+    }
+}
+
 impl<B: Backend> Splats<B> {
     pub(crate) fn new(num_points: usize, aabb_scale: f32, device: &Device<B>) -> Splats<B> {
         let extent = (aabb_scale as f64) / 2.0;
@@ -110,7 +118,13 @@ impl<B: Backend> Splats<B> {
             device,
         );
 
-        let colors = Tensor::random([num_points, 4], Distribution::Uniform(-2.0, 2.0), device);
+        let num_coeffs = num_sh_coeffs(3);
+
+        let sh_coeffs = Tensor::random(
+            [num_points, num_coeffs],
+            Distribution::Uniform(0.0, 1.0),
+            device,
+        );
         let init_rotation = Tensor::from_floats([1.0, 0.0, 0.0, 0.0], device)
             .unsqueeze::<2>()
             .repeat(0, num_points);
@@ -124,7 +138,7 @@ impl<B: Backend> Splats<B> {
         // Model parameters.
         Splats {
             means: Param::initialized(ParamId::new(), means.require_grad()),
-            colors: Param::initialized(ParamId::new(), colors.require_grad()),
+            sh_coeffs: Param::initialized(ParamId::new(), sh_coeffs.require_grad()),
             rotation: Param::initialized(ParamId::new(), init_rotation.require_grad()),
             raw_opacity: Param::initialized(ParamId::new(), init_opacity.require_grad()),
             log_scales: Param::initialized(ParamId::new(), init_scale.require_grad()),
@@ -444,7 +458,7 @@ impl<B: Backend> Splats<B> {
             self.means.val(),
             self.log_scales.val(),
             norm_rotation,
-            self.colors.val(),
+            self.sh_coeffs.val(),
             self.raw_opacity.val(),
             bg_color,
         )
@@ -457,8 +471,8 @@ impl<B: Backend> Splats<B> {
             .axis_iter(Axis(0))
             .map(|c| glam::vec3(c[0], c[1], c[2]));
 
+        // TODO: Fix for SH.
         let colors_data = utils::burn_to_ndarray(self.colors.val());
-
         let colors = colors_data.axis_iter(Axis(0)).map(|c| {
             Color::from_rgb(
                 (c[[0]] * 255.0) as u8,

@@ -8,16 +8,16 @@ use ply_rs::{
 };
 use std::io::BufReader;
 
-use crate::{gaussian_splats::Splats, splat_render::Backend};
+use crate::{gaussian_splats::num_sh_coeffs, gaussian_splats::Splats, splat_render::Backend};
 use anyhow::Result;
 
 #[derive(Default)]
 pub(crate) struct GaussianData {
     means: glam::Vec3,
-    colors: glam::Vec3,
     scale: glam::Vec3,
     opacity: f32,
     rotation: glam::Vec4,
+    sh_coeffs: Vec<f32>,
 }
 
 fn inv_sigmoid(v: f32) -> f32 {
@@ -25,6 +25,7 @@ fn inv_sigmoid(v: f32) -> f32 {
 }
 
 const SH_C0: f32 = 0.28209479;
+const SH_COEFF_COUNT_PER_CHANNEL: usize = num_sh_coeffs(3);
 
 impl PropertyAccess for GaussianData {
     fn new() -> Self {
@@ -38,11 +39,6 @@ impl PropertyAccess for GaussianData {
             ("y", Property::Float(v)) => self.means[1] = v,
             ("z", Property::Float(v)) => self.means[2] = v,
 
-            // TODO: This 0.5 shouldn't be needed anymore once we do full SH?
-            ("f_dc_0", Property::Float(v)) => self.colors[0] = v * SH_C0 + 0.5,
-            ("f_dc_1", Property::Float(v)) => self.colors[1] = v * SH_C0 + 0.5,
-            ("f_dc_2", Property::Float(v)) => self.colors[2] = v * SH_C0 + 0.5,
-
             ("scale_0", Property::Float(v)) => self.scale[0] = v,
             ("scale_1", Property::Float(v)) => self.scale[1] = v,
             ("scale_2", Property::Float(v)) => self.scale[2] = v,
@@ -54,6 +50,36 @@ impl PropertyAccess for GaussianData {
             ("rot_2", Property::Float(v)) => self.rotation[2] = v,
             ("rot_3", Property::Float(v)) => self.rotation[3] = v,
 
+            (_, Property::Float(v)) if key.starts_with("f_rest_") || key.starts_with("f_dc_") => {
+                let (coeff, channel) = if key.starts_with("f_dc_") {
+                    let coeff = 0;
+                    let channel = key.strip_prefix("f_dc_").unwrap().parse::<usize>().unwrap();
+                    (coeff, channel)
+                } else {
+                    let i = key
+                        .strip_prefix("f_rest_")
+                        .unwrap()
+                        .parse::<usize>()
+                        .unwrap();
+
+                    let channel = i / SH_COEFF_COUNT_PER_CHANNEL;
+
+                    let coeff = if SH_COEFF_COUNT_PER_CHANNEL == 1 {
+                        1
+                    } else {
+                        (i % (SH_COEFF_COUNT_PER_CHANNEL - 1)) + 1
+                    };
+                    (coeff, channel)
+                };
+
+                // planar
+                let interleaved_idx = coeff * 3 + channel;
+
+                if self.sh_coeffs.len() < interleaved_idx + 1 {
+                    self.sh_coeffs.resize(interleaved_idx + 1, 0.0);
+                }
+                self.sh_coeffs[interleaved_idx] = v;
+            }
             (_, _) => {}
         }
     }
@@ -93,9 +119,9 @@ pub fn load_splat_from_ply<B: Backend>(file: &str, device: &B::Device) -> Result
         .iter()
         .flat_map(|d| [d.means.x, d.means.y, d.means.z, 0.0])
         .collect::<Vec<_>>();
-    let colors = cloud
+    let sh_coeffs = cloud
         .iter()
-        .flat_map(|d| [d.colors.x, d.colors.y, d.colors.z, 0.0])
+        .flat_map(|d| d.sh_coeffs.iter().copied())
         .collect::<Vec<_>>();
     let rotation = cloud
         .iter()
@@ -109,6 +135,8 @@ pub fn load_splat_from_ply<B: Backend>(file: &str, device: &B::Device) -> Result
 
     let num_points = cloud.len();
 
+    let num_coeffs = cloud.first().unwrap().sh_coeffs.len();
+
     let splats = Splats {
         means: Param::initialized(
             ParamId::new(),
@@ -118,10 +146,10 @@ pub fn load_splat_from_ply<B: Backend>(file: &str, device: &B::Device) -> Result
             )
             .require_grad(),
         ),
-        colors: Param::initialized(
+        sh_coeffs: Param::initialized(
             ParamId::new(),
             Tensor::from_data(
-                Data::new(colors, Shape::new([num_points, 4])).convert(),
+                Data::new(sh_coeffs, Shape::new([num_points, num_coeffs])).convert(),
                 device,
             )
             .require_grad(),
