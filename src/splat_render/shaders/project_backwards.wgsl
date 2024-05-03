@@ -7,28 +7,30 @@ struct Uniforms {
     focal: vec2f,
     // Img resolution (w, h)
     img_size: vec2u,
+    // Degree of sh coeffecients used.
+    sh_degree: u32,
 }
 @group(0) @binding(0) var<storage> uniforms: Uniforms;
 
 @group(0) @binding(1) var<storage> means: array<vec4f>;
 @group(0) @binding(2) var<storage> log_scales: array<vec4f>;
 @group(0) @binding(3) var<storage> quats: array<vec4f>;
+@group(0) @binding(4) var<storage> raw_opacities: array<f32>;
 
-@group(0) @binding(4) var<storage> cov2ds: array<vec4f>;
+@group(0) @binding(5) var<storage> cov2ds: array<vec4f>;
 
-@group(0) @binding(5) var<storage> v_xy: array<vec2f>;
-@group(0) @binding(6) var<storage> v_conic: array<vec4f>;
-@group(0) @binding(7) var<storage> v_colors: array<vec4f>;
+@group(0) @binding(6) var<storage> v_xy: array<vec2f>;
+@group(0) @binding(7) var<storage> v_conic: array<vec4f>;
+@group(0) @binding(8) var<storage> v_colors: array<vec4f>;
 
+@group(0) @binding(9) var<storage> num_visible: array<u32>;
+@group(0) @binding(10) var<storage> remapped_id: array<u32>;
 
-@group(0) @binding(8) var<storage> num_visible: array<u32>;
-@group(0) @binding(9) var<storage> remapped_id: array<u32>;
-
-@group(0) @binding(10) var<storage, read_write> v_means_agg: array<vec4f>;
-@group(0) @binding(11) var<storage, read_write> v_scales_agg: array<vec4f>;
-@group(0) @binding(12) var<storage, read_write> v_quats_agg: array<vec4f>;
-@group(0) @binding(13) var<storage, read_write> v_coeffs_agg: array<f32>;
-@group(0) @binding(14) var<storage, read_write> v_opac_agg: array<f32>;
+@group(0) @binding(11) var<storage, read_write> v_means_agg: array<vec4f>;
+@group(0) @binding(12) var<storage, read_write> v_scales_agg: array<vec4f>;
+@group(0) @binding(13) var<storage, read_write> v_quats_agg: array<vec4f>;
+@group(0) @binding(14) var<storage, read_write> v_coeffs_agg: array<f32>;
+@group(0) @binding(15) var<storage, read_write> v_opac_agg: array<f32>;
 
 
 struct ShCoeffs {
@@ -61,6 +63,10 @@ struct ShCoeffs {
     b4_c6: vec3f,
     b4_c7: vec3f,
     b4_c8: vec3f,
+}
+
+fn num_sh_coeffs(degree: u32) -> u32 {
+    return (degree + 1) * (degree + 1);
 }
 
 fn sh_coeffs_to_color_fast_vjp(
@@ -161,6 +167,12 @@ fn sh_coeffs_to_color_fast_vjp(
     return v_coeffs;
 }
 
+fn write_coeffs(base_id: ptr<function, u32>, val: vec3f) {
+    v_coeffs_agg[*base_id + 0] = val.x;
+    v_coeffs_agg[*base_id + 1] = val.y;
+    v_coeffs_agg[*base_id + 2] = val.z;
+    *base_id += 3u;
+}
 
 fn project_pix_vjp(fxfy: vec2f, p_view: vec3f, v_xy: vec2f) -> vec3f {
     let rw = 1.0f / (p_view.z + 1e-6f);
@@ -377,17 +389,53 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
     let v_R = v_M * S;
     let v_quat = quat_to_rotmat_vjp(quat, v_R);
 
-    v_quats_agg[gg_id] = v_quat * 0.0;
-    v_scales_agg[gg_id] = vec4f(v_scale, 0.0) * 0.0;
-    v_means_agg[gg_id] = vec4f(v_mean, 0.0f) * 0.0;
+    v_quats_agg[gg_id] = v_quat;
+    v_scales_agg[gg_id] = vec4f(v_scale * scale, 0.0);
+    v_means_agg[gg_id] = vec4f(v_mean, 0.0f);
 
     let v_col = v_colors[cg_id];
+
+    // Write SH gradients.
     let v_coeff = sh_coeffs_to_color_fast_vjp(0u, vec3f(0.0, 0.0, 1.0), v_col.xyz);
+    let num_coeffs = num_sh_coeffs(uniforms.sh_degree);
+    var base_id = gg_id * num_coeffs * 3;
 
-    v_coeffs_agg[gg_id * 3 + 0] = v_coeff.b0_c0.x;
-    v_coeffs_agg[gg_id * 3 + 1] = v_coeff.b0_c0.y;
-    v_coeffs_agg[gg_id * 3 + 2] = v_coeff.b0_c0.z;
+    write_coeffs(&base_id, v_coeff.b0_c0);
+    if uniforms.sh_degree > 0 {
+        write_coeffs(&base_id, v_coeff.b1_c0);
+        write_coeffs(&base_id, v_coeff.b1_c1);
+        write_coeffs(&base_id, v_coeff.b1_c2);
+        if uniforms.sh_degree > 1 {
+            write_coeffs(&base_id, v_coeff.b2_c0);
+            write_coeffs(&base_id, v_coeff.b2_c1);
+            write_coeffs(&base_id, v_coeff.b2_c2);
+            write_coeffs(&base_id, v_coeff.b2_c3);
+            write_coeffs(&base_id, v_coeff.b2_c4);
+            if uniforms.sh_degree > 2 {
+                write_coeffs(&base_id, v_coeff.b3_c0);
+                write_coeffs(&base_id, v_coeff.b3_c1);
+                write_coeffs(&base_id, v_coeff.b3_c2);
+                write_coeffs(&base_id, v_coeff.b3_c3);
+                write_coeffs(&base_id, v_coeff.b3_c4);
+                write_coeffs(&base_id, v_coeff.b3_c5);
+                write_coeffs(&base_id, v_coeff.b3_c6);
+                if uniforms.sh_degree > 3 {
+                    write_coeffs(&base_id, v_coeff.b4_c0);
+                    write_coeffs(&base_id, v_coeff.b4_c1);
+                    write_coeffs(&base_id, v_coeff.b4_c2);
+                    write_coeffs(&base_id, v_coeff.b4_c3);
+                    write_coeffs(&base_id, v_coeff.b4_c4);
+                    write_coeffs(&base_id, v_coeff.b4_c5);
+                    write_coeffs(&base_id, v_coeff.b4_c6);
+                    write_coeffs(&base_id, v_coeff.b4_c7);
+                    write_coeffs(&base_id, v_coeff.b4_c8);
+                }
+            }
+        }
+    }
 
-    // let opac = raw_opacities[idx];
-    v_opac_agg[gg_id] = v_col.w * 0.0;
+    // TODO: Could use opacity activation? Doesn't really matter
+    let raw_opac = raw_opacities[cg_id];
+    let v_opac = v_col.w;
+    v_opac_agg[gg_id] = v_opac * v_sigmoid(raw_opac);
 }

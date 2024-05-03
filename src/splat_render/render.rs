@@ -141,7 +141,7 @@ fn render_forward(
     // TODO: How do we actually properly deal with this :/
     // TODO: Look into some more ways of reducing intersections.
     // Ideally render gaussians in chunks, but that might be hell with the backward pass.
-    let max_intersects = num_points * 3;
+    let max_intersects = num_points * 4;
 
     // Each intersection maps to a gaussian.
     let tile_ids_unsorted = create_tensor::<u32, 1>(&client, &device, [max_intersects]);
@@ -294,10 +294,10 @@ struct GaussianBackwardState {
 
     // Splat inputs.
     means: NodeID,
-    scales: NodeID,
+    log_scales: NodeID,
     quats: NodeID,
     colors: NodeID,
-    raw_opacities: NodeID,
+    raw_opac: NodeID,
     sh_degree: usize,
     out_img: FloatTensor<BurnBack, 3>,
     aux: Aux<BurnBack>,
@@ -350,10 +350,10 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
                 let state = GaussianBackwardState {
                     // TODO: Respect checkpointing in this.
                     means: prep.checkpoint(&means),
-                    scales: prep.checkpoint(&log_scales),
+                    log_scales: prep.checkpoint(&log_scales),
                     quats: prep.checkpoint(&quats),
                     colors: prep.checkpoint(&colors),
-                    raw_opacities: prep.checkpoint(&raw_opacity),
+                    raw_opac: prep.checkpoint(&raw_opacity),
                     aux: aux.clone(),
                     cam: camera.clone(),
                     background,
@@ -404,7 +404,9 @@ impl Backward<BurnBack, 3, 5> for RenderBackwards {
         let means = checkpointer.retrieve_node_output::<FloatTensor<BurnBack, 2>>(state.means);
         let quats = checkpointer.retrieve_node_output::<FloatTensor<BurnBack, 2>>(state.quats);
         let log_scales =
-            checkpointer.retrieve_node_output::<FloatTensor<BurnBack, 2>>(state.scales);
+            checkpointer.retrieve_node_output::<FloatTensor<BurnBack, 2>>(state.log_scales);
+        let raw_opac =
+            checkpointer.retrieve_node_output::<FloatTensor<BurnBack, 1>>(state.raw_opac);
         let colors = checkpointer.retrieve_node_output::<FloatTensor<BurnBack, 2>>(state.colors);
 
         let num_points = means.shape.dims[0];
@@ -454,11 +456,13 @@ impl Backward<BurnBack, 3, 5> for RenderBackwards {
                 camera.world_to_local(),
                 camera.center(img_size).into(),
                 img_size.into(),
+                state.sh_degree as u32,
             ),
             &[
                 means.handle.binding(),
                 log_scales.handle.binding(),
                 quats.handle.binding(),
+                raw_opac.handle.binding(),
                 aux.cov2ds.into_primitive().handle.binding(),
                 v_xy.handle.binding(),
                 v_conic.handle.binding(),
