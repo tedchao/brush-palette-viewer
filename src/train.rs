@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use anyhow::Result;
 use burn::lr_scheduler::LrScheduler;
 use burn::nn::loss::MseLoss;
@@ -31,9 +33,9 @@ pub(crate) struct TrainConfig {
     pub lr: f64,
     #[config(default = 1e-2)]
     pub min_lr: f64,
-    #[config(default = 10)]
+    #[config(default = 1)]
     pub visualize_every: u32,
-    #[config(default = 16000)]
+    #[config(default = 32000)]
     pub init_points: usize,
     #[config(default = 2.0)]
     pub init_aabb: f32,
@@ -48,16 +50,6 @@ struct TrainStats<B: Backend> {
     aux: crate::splat_render::Aux<BurnBack>,
 }
 
-// Consists of the following steps.
-//   1. Updating the learning rates
-//   2. Enabling the SH degrees if appropriate
-//   3. Run a forward/backward
-//   4. Run adapative density control
-//   5. Update the parameters
-
-// Args:
-//   scene: The scene that we will do the forward backward.
-//   cfg: A Namespace with all the configuration for training.
 fn train_step<B: AutodiffBackend>(
     scene: &Scene,
     mut splats: Splats<B>,
@@ -152,7 +144,7 @@ where
     let rec = rerun::RecordingStreamBuilder::new("visualize training").spawn()?;
 
     println!("Loading dataset.");
-    let scene = dataset_readers::read_scene(&config.scene_path, None, false);
+    let scene = dataset_readers::read_scene(&config.scene_path, Some(1), false);
     let config_optimizer = AdamConfig::new();
     let mut optim = config_optimizer.init::<B, Splats<B>>();
 
@@ -201,10 +193,6 @@ where
                 "points/total",
                 &rerun::Scalar::new(stats.total_points as f64),
             )?;
-            rec.log(
-                "points/num intersects",
-                &rerun::Scalar::new(stats.aux.num_intersects as f64),
-            )?;
 
             if iter % config.visualize_every == 0 {
                 rec.log(
@@ -231,6 +219,26 @@ where
                     &rerun::Tensor::try_from(tile_depth).unwrap().clone(),
                 )?;
 
+                let num_visible = Array::from_shape_vec(
+                    stats.aux.num_visible.dims(),
+                    stats.aux.num_visible.to_data().convert::<u32>().value,
+                )?;
+
+                rec.log(
+                    "images/num visible",
+                    &rerun::Scalar::new(num_visible[0] as f64).clone(),
+                )?;
+
+                let num_intersects = Array::from_shape_vec(
+                    stats.aux.num_intersects.dims(),
+                    stats.aux.num_intersects.to_data().convert::<u32>().value,
+                )?;
+
+                rec.log(
+                    "images/num intersects",
+                    &rerun::Scalar::new(num_intersects[0] as f64).clone(),
+                )?;
+
                 let pred_image = Array::from_shape_vec(
                     stats.pred_image.dims(),
                     stats.pred_image.to_data().convert::<f32>().value,
@@ -243,7 +251,7 @@ where
                     &rerun::Image::try_from(pred_image).unwrap(),
                 )?;
 
-                let first_cam = &scene.train_data[1].camera;
+                let first_cam = &scene.train_data[0].camera;
 
                 let start_time = Instant::now();
                 let (img, _) =

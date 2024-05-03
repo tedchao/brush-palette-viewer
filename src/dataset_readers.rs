@@ -65,8 +65,6 @@ fn read_synthetic_nerf_data(
         transform.y_axis *= -1.0;
         transform.z_axis *= -1.0;
 
-        //*&mut c2w.slice_mut(s![0..3, 1..3]) *= -1.0;
-
         let (_, rotation, translation) = transform.to_scale_rotation_translation();
 
         let image_file_path = frame
@@ -77,7 +75,7 @@ fn read_synthetic_nerf_data(
 
         let image_path = PathBuf::from(base_path).join(image_file_path.to_string() + extension);
         let image = image::io::Reader::open(image_path)?.decode()?;
-        let image = image.resize(800, 800, image::imageops::FilterType::Lanczos3);
+        let image = image.resize(400, 400, image::imageops::FilterType::Lanczos3);
 
         let im_data = image.to_rgba8().into_vec();
         let tensor = Array3::from_shape_vec(

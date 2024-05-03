@@ -36,7 +36,6 @@ var<workgroup> conic_comp_batch: array<vec4f, GATHER_PER_ITERATION>;
 @workgroup_size(16, 16, 1)
 fn main(
     @builtin(global_invocation_id) global_id: vec3u,
-    @builtin(local_invocation_id) local_id: vec3u,
     @builtin(local_invocation_index) local_idx: u32,
     @builtin(workgroup_id) workgroup_id: vec3u,
 ) {
@@ -47,11 +46,10 @@ fn main(
     // shared tile
 
     // Get index of tile being drawn.
-    let tiles_xx = (img_size.x + helpers::TILE_WIDTH - 1u) / helpers::TILE_WIDTH;
+    let tiles_xx = helpers::ceil_div(img_size.x, helpers::TILE_WIDTH);
 
     let tile_loc = global_id.xy / helpers::TILE_WIDTH;
     let tile_id = tile_loc.x + tile_loc.y * tiles_xx;
-
     let pix_id = global_id.x + global_id.y * img_size.x;
     let pixel_coord = vec2f(global_id.xy);
 
@@ -88,14 +86,14 @@ fn main(
         // each thread fetch 1 gaussian from front to back
         // index of gaussian to load
         let batch_start = range.x + b * GATHER_PER_ITERATION;
-        let idx = batch_start + local_idx;
+        let tg_id = batch_start + local_idx;
 
-        if idx < range.y && local_idx < GATHER_PER_ITERATION {
-            let g_id = gaussian_ids_sorted[idx];
-            xy_batch[local_idx] = xys[g_id];
-            let cov2d = cov2ds[g_id].xyz;
+        if tg_id < range.y && local_idx < GATHER_PER_ITERATION {
+            let cg_id = gaussian_ids_sorted[tg_id];
+            xy_batch[local_idx] = xys[cg_id];
+            let cov2d = cov2ds[cg_id].xyz;
             conic_comp_batch[local_idx] = vec4f(helpers::cov2d_to_conic(cov2d), helpers::cov_compensation(cov2d));
-            colors_batch[local_idx] = colors[g_id];
+            colors_batch[local_idx] = colors[cg_id];
         }
 
         // wait for other threads to collect the gaussians in batch
@@ -125,9 +123,6 @@ fn main(
             let next_T = T * (1.0 - alpha);
 
             if next_T <= 1e-4f { 
-                // this pixel is done
-                // we want to render the last gaussian that contributes and note
-                // that here idx > range.x so we don't underflow
                 done = true;
                 break;
             }

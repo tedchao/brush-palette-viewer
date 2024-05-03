@@ -9,30 +9,35 @@ struct Uniforms {
 
 @group(0) @binding(0) var<storage> uniforms: Uniforms;
 
-@group(0) @binding(1) var<storage> gaussian_ids_sorted: array<u32>;
+@group(0) @binding(1) var<storage> gaussian_per_intersect: array<u32>;
 @group(0) @binding(2) var<storage> tile_bins: array<vec2u>;
 @group(0) @binding(3) var<storage> xys: array<vec2f>;
 @group(0) @binding(4) var<storage> cov2ds: array<vec4f>;
 @group(0) @binding(5) var<storage> colors: array<vec4f>;
-@group(0) @binding(6) var<storage> opacities: array<f32>;
+@group(0) @binding(6) var<storage> radii: array<u32>;
+
 @group(0) @binding(7) var<storage> final_index: array<u32>;
+
 @group(0) @binding(8) var<storage> output: array<vec4f>;
 @group(0) @binding(9) var<storage> v_output: array<vec4f>;
 
 @group(0) @binding(10) var<storage, read_write> v_xy: array<atomic<u32>>;
 @group(0) @binding(11) var<storage, read_write> v_conic: array<atomic<u32>>;
 @group(0) @binding(12) var<storage, read_write> v_colors: array<atomic<u32>>;
-@group(0) @binding(13) var<storage, read_write> v_opacity: array<atomic<u32>>;
 
-var<workgroup> id_batch: array<u32, helpers::TILE_SIZE>;
-var<workgroup> xy_batch: array<vec2f, helpers::TILE_SIZE>;
-var<workgroup> colors_batch: array<vec4f, helpers::TILE_SIZE>;
-var<workgroup> conic_comp_batch: array<vec4f, helpers::TILE_SIZE>;
 
-var<workgroup> v_opacity_local: array<f32, helpers::TILE_SIZE>;
-var<workgroup> v_conic_local: array<vec3f, helpers::TILE_SIZE>;
-var<workgroup> v_xy_local: array<vec2f, helpers::TILE_SIZE>;
-var<workgroup> v_colors_local: array<vec3f, helpers::TILE_SIZE>;
+const GATHER_PER_ITERATION: u32 = 128u;
+
+var<workgroup> id_batch: array<u32, GATHER_PER_ITERATION>;
+var<workgroup> xy_batch: array<vec2f, GATHER_PER_ITERATION>;
+var<workgroup> colors_batch: array<vec4f, GATHER_PER_ITERATION>;
+var<workgroup> conic_comp_batch: array<vec4f, GATHER_PER_ITERATION>;
+
+const WORK_SIZE: u32 = helpers::TILE_SIZE;
+
+var<workgroup> v_conic_local: array<vec3f, WORK_SIZE>;
+var<workgroup> v_xy_local: array<vec2f, WORK_SIZE>;
+var<workgroup> v_colors_local: array<vec4f, WORK_SIZE>;
 
 fn bitAddFloat(cur: u32, add: f32) -> u32 {
     return bitcast<u32>(bitcast<f32>(cur) + add);
@@ -48,9 +53,9 @@ fn main(
     let background = uniforms.background;
     let img_size = uniforms.img_size;
 
-    let tiles_xx = (img_size.x + helpers::TILE_WIDTH - 1u) / helpers::TILE_WIDTH;
-    let tile_id = workgroup_id.x + workgroup_id.y * tiles_xx;
-
+    let tiles_xx = helpers::ceil_div(img_size.x, helpers::TILE_WIDTH);
+    let tile_loc = global_id.xy / helpers::TILE_WIDTH;
+    let tile_id = tile_loc.x + tile_loc.y * tiles_xx;
     let pix_id = global_id.x + global_id.y * img_size.x;
     let pixel_coord = vec2f(global_id.xy);
 
@@ -59,6 +64,7 @@ fn main(
     let inside = global_id.x < img_size.x && global_id.y < img_size.y;
 
     // this is the T AFTER the last gaussian in this pixel
+    // TODO: Is this 1-x ? x?
     let T_final = 1.0 - output[pix_id].w;
     
     var T = T_final;
@@ -79,11 +85,9 @@ fn main(
 
     // collect and process batches of gaussians
     // each thread loads one gaussian at a time before rasterizing
-    var num_batches = (range.y - range.x + helpers::TILE_SIZE - 1u) / helpers::TILE_SIZE;
+    let num_batches = helpers::ceil_div(range.y - range.x, GATHER_PER_ITERATION);
 
-    for(var batch = 0u; batch < num_batches; batch++) {
-        let batch_end  = range.y - 1u - batch * helpers::TILE_SIZE;
-
+    for (var b = 0u; b < num_batches; b++) {
         // resync all threads before writing next batch of shared mem
         workgroupBarrier();
         
@@ -91,73 +95,69 @@ fn main(
         // 0 index will be furthest back in batch
         // index of gaussian to load
         // batch end is the index of the last gaussian in the batch
-        let fetch_idx = batch_end - local_idx;
+        let batch_end  = range.y - 1u - b * GATHER_PER_ITERATION;
+        let tg_id = batch_end - local_idx;
 
-        if fetch_idx >= range.x {
-            let g_id = gaussian_ids_sorted[fetch_idx];
-            id_batch[local_idx] = g_id;
-            xy_batch[local_idx] = xys[g_id];
-
-            colors_batch[local_idx] = vec4f(colors[g_id].xyz, opacities[g_id]);
-            let cov2d = cov2ds[g_id].xyz;
+        if tg_id >= range.x && tg_id < range.y && local_idx < GATHER_PER_ITERATION {
+            let cg_id = gaussian_per_intersect[tg_id];
+            xy_batch[local_idx] = xys[cg_id];
+            let cov2d = cov2ds[cg_id].xyz;
             conic_comp_batch[local_idx] = vec4f(helpers::cov2d_to_conic(cov2d), helpers::cov_compensation(cov2d));
+            colors_batch[local_idx] = colors[cg_id];
+            id_batch[local_idx] = cg_id;
         }
     
         // wait for other threads to collect the gaussians in batch
         workgroupBarrier();
 
-        // TODO: WGSL lacks warp intrinsics, quite a bit more contention here
-        // than needed. Might be some other ways to reduce it?
-        let batch_size = min(helpers::TILE_SIZE, batch_end + 1u - range.x);
+        let remaining = min(GATHER_PER_ITERATION, batch_end + 1u - range.x);
+
+        workgroupBarrier();
 
         // reset local accumulations.
-        for (var t = 0u; t < batch_size; t++) {
-            
+        for (var t = 0u; t < remaining; t++) {
             // Don't overwrite data before all the gradients have been scattered to the gaussians.
             workgroupBarrier();
 
-            v_opacity_local[local_idx] = 0.0;
             v_xy_local[local_idx] = vec2f(0.0);
             v_conic_local[local_idx] = vec3f(0.0);
-            v_colors_local[local_idx] = vec3f(0.0);
+            v_colors_local[local_idx] = vec4f(0.0);
 
             let batch_idx = batch_end - t;
 
             if inside && batch_idx >= range.x && batch_idx <= bin_final {
                 let conic_comp = conic_comp_batch[t];
                 let conic = conic_comp.xyz;
-                let color = colors_batch[t];
-                let xy = xy_batch[t];
                 // TODO: Re-enable compensation.
-                let compensation = conic_comp.w;
-                let opac = color.w;
+                // let compensation = conic_comp.w;
+                let xy = xy_batch[t];
+                let opac = colors_batch[t].w;
                 let delta = xy - pixel_coord;
-                var sigma = 0.5f * (conic.x * delta.x * delta.x + conic.z * delta.y * delta.y) + conic.y * delta.x * delta.y;
+                let sigma = 0.5f * (conic.x * delta.x * delta.x + conic.z * delta.y * delta.y) + conic.y * delta.x * delta.y;
                 let vis = exp(-sigma);
-
                 let alpha = min(0.99f, opac * vis);
 
-                if (sigma > 0.0 && alpha > 1.0 / 255.0) {
+                if sigma >= 0.0 && alpha >= 1.0 / 255.0 {
+                    let color = colors_batch[t].xyz;
+
                     // compute the current T for this gaussian
                     let ra = 1.0 / (1.0 - alpha);
                     T *= ra;
 
                     // update v_colors for this gaussian
                     let fac = alpha * T;
-                    v_colors_local[local_idx] = fac * v_out.xyz;
 
                     var v_alpha = 0.0;
 
-                    let color = color.xyz;
                     // contribution from this pixel
-                    v_alpha += dot(color * T - buffer * ra, v_out.xyz);
+                    v_alpha += dot(color.xyz * T - buffer * ra, v_out.xyz);
                     // TODO: Now that we store alpha instea of transmission, flip this?
                     // v_alpha += T_final * ra * v_out.w;
                     // contribution from background pixel
                     v_alpha -= dot(T_final * ra * background, v_out.xyz);
 
                     // update the running sum
-                    buffer += color * fac;
+                    buffer += color.xyz * fac;
 
                     let v_sigma = -opac * vis * v_alpha;
 
@@ -169,8 +169,7 @@ fn main(
                         conic.x * delta.x + conic.y * delta.y, 
                         conic.y * delta.x + conic.z * delta.y
                     );
-
-                    v_opacity_local[local_idx] = vis * v_alpha;
+                    v_colors_local[local_idx] = vec4f(fac * v_out.xyz, vis * v_alpha);
                 }
             }
 
@@ -179,19 +178,20 @@ fn main(
             workgroupBarrier();
 
             if local_idx == 0u {
-                let g_id = id_batch[t];
+                let cg_id = id_batch[t];
+
+                let center = xy_batch[t];
+                let radius = radii[cg_id];
 
                 // Gather workgroup sums.
-                var v_colors_sum = vec3f(0.0);
+                var v_colors_sum = vec4f(0.0);
                 var v_conic_sum = vec3f(0.0);
                 var v_xy_sum = vec2f(0.0);
-                var v_opacity_sum = 0.0;
                 
-                for(var i = 0u; i < helpers::TILE_SIZE; i++) {
+                for(var i = 0u; i < WORK_SIZE; i++) {
                     v_colors_sum += v_colors_local[i];
                     v_conic_sum += v_conic_local[i];
                     v_xy_sum += v_xy_local[i];
-                    v_opacity_sum += v_opacity_local[i];
                 }
 
                 // Write out results atomically. This is... truly awful :)
@@ -214,67 +214,66 @@ fn main(
 
                 // v_colors.
                 loop {
-                    let old = v_colors[g_id * 4u + 0u];
-                    if atomicCompareExchangeWeak(&v_colors[g_id * 4u + 0u], old, bitAddFloat(old, v_colors_sum.x)).exchanged {
+                    let old = v_colors[cg_id * 4u + 0u];
+                    if atomicCompareExchangeWeak(&v_colors[cg_id * 4u + 0u], old, bitAddFloat(old, v_colors_sum.x)).exchanged {
                         break;
                     }
                 }
 
                 loop {
-                    let old = v_colors[g_id * 4u + 1u];
-                    if atomicCompareExchangeWeak(&v_colors[g_id * 4u + 1u], old, bitAddFloat(old, v_colors_sum.y)).exchanged {
+                    let old = v_colors[cg_id * 4u + 1u];
+                    if atomicCompareExchangeWeak(&v_colors[cg_id * 4u + 1u], old, bitAddFloat(old, v_colors_sum.y)).exchanged {
                         break;
                     }
                 }
 
                 loop {
-                    let old = v_colors[g_id * 4u + 2u];
-                    if atomicCompareExchangeWeak(&v_colors[g_id * 4u + 2u], old, bitAddFloat(old, v_colors_sum.z)).exchanged {
+                    let old = v_colors[cg_id * 4u + 2u];
+                    if atomicCompareExchangeWeak(&v_colors[cg_id * 4u + 2u], old, bitAddFloat(old, v_colors_sum.z)).exchanged {
+                        break;
+                    }
+                }
+
+                loop {
+                    let old = v_colors[cg_id * 4u + 3u];
+                    if atomicCompareExchangeWeak(&v_colors[cg_id * 4u + 3u], old, bitAddFloat(old, v_colors_sum.w)).exchanged {
                         break;
                     }
                 }
 
                 // v_conic.
                 loop {
-                    let old = v_conic[g_id * 4u + 0u];
-                    if atomicCompareExchangeWeak(&v_conic[g_id * 4u + 0u], old, bitAddFloat(old, v_conic_sum.x)).exchanged {
+                    let old = v_conic[cg_id * 4u + 0u];
+                    if atomicCompareExchangeWeak(&v_conic[cg_id * 4u + 0u], old, bitAddFloat(old, v_conic_sum.x)).exchanged {
                         break;
                     }
                 }
 
                 loop {
-                    let old = v_conic[g_id * 4u + 1u];
-                    if atomicCompareExchangeWeak(&v_conic[g_id * 4u + 1u], old, bitAddFloat(old, v_conic_sum.y)).exchanged {
+                    let old = v_conic[cg_id * 4u + 1u];
+                    if atomicCompareExchangeWeak(&v_conic[cg_id * 4u + 1u], old, bitAddFloat(old, v_conic_sum.y)).exchanged {
                         break;
                     }
                 }
 
                 loop {
-                    let old = v_conic[g_id * 4u + 2u];
-                    if atomicCompareExchangeWeak(&v_conic[g_id * 4u + 2u], old, bitAddFloat(old, v_conic_sum.z)).exchanged {
+                    let old = v_conic[cg_id * 4u + 2u];
+                    if atomicCompareExchangeWeak(&v_conic[cg_id * 4u + 2u], old, bitAddFloat(old, v_conic_sum.z)).exchanged {
                         break;
                     }
                 }
 
                 // v_xy.
                 loop {
-                    let old = v_xy[g_id * 2u + 0u];
-                    if atomicCompareExchangeWeak(&v_xy[g_id * 2u + 0u], old, bitAddFloat(old, v_xy_sum.x)).exchanged {
+                    let old = v_xy[cg_id * 2u + 0u];
+                    if atomicCompareExchangeWeak(&v_xy[cg_id * 2u + 0u], old, bitAddFloat(old, v_xy_sum.x)).exchanged {
                         break;
                     }
                 }
 
                 loop {
-                    let old = v_xy[g_id * 2u + 1u];
-                    if atomicCompareExchangeWeak(&v_xy[g_id * 2u + 1u], old, bitAddFloat(old, v_xy_sum.y)).exchanged {
-                        break;
-                    }
-                }
-
-                // v_opacity
-                loop {
-                    let old = v_opacity[g_id];
-                    if atomicCompareExchangeWeak(&v_opacity[g_id], old, bitAddFloat(old, v_opacity_sum)).exchanged {
+                    let old = v_xy[cg_id * 2u + 1u];
+                    if atomicCompareExchangeWeak(&v_xy[cg_id * 2u + 1u], old, bitAddFloat(old, v_xy_sum.y)).exchanged {
                         break;
                     }
                 }

@@ -6,7 +6,7 @@
 @group(0) @binding(2) var<storage, read> log_scales: array<vec4f>;
 @group(0) @binding(3) var<storage, read> quats: array<vec4f>;
 @group(0) @binding(4) var<storage, read> coeffs: array<f32>;
-@group(0) @binding(5) var<storage, read> opacities: array<f32>;
+@group(0) @binding(5) var<storage, read> raw_opacities: array<f32>;
 
 @group(0) @binding(6) var<storage, read_write> compact_ids: array<u32>;
 @group(0) @binding(7) var<storage, read_write> remap_ids: array<u32>;
@@ -200,10 +200,10 @@ fn sh_coeffs_to_color(
 @compute
 @workgroup_size(helpers::SPLATS_PER_GROUP, 1, 1)
 fn main(@builtin(global_invocation_id) global_id: vec3u) {
-    let idx = global_id.x;
+    let gg_id = global_id.x;
     let num_points = arrayLength(&means);
 
-    if idx >= num_points {
+    if gg_id >= num_points {
         return;
     }
 
@@ -220,7 +220,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
     let clip_thresh = uniforms.clip_thresh;
 
     // Project world space to camera space.
-    let p_world = means[idx].xyz;
+    let p_world = means[gg_id].xyz;
 
     let W = mat3x3f(viewmat[0].xyz, viewmat[1].xyz, viewmat[2].xyz);
     let p_view = W * p_world + viewmat[3].xyz;
@@ -230,8 +230,8 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
     }
 
     // compute the projected covariance
-    let scale = exp(log_scales[idx].xyz);
-    let quat = quats[idx];
+    let scale = exp(log_scales[gg_id].xyz);
+    let quat = quats[gg_id];
 
     let R = helpers::quat_to_rotmat(quat);
     let S = helpers::scale_to_mat(scale);
@@ -298,13 +298,12 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
         let write_id = atomicAdd(&num_visible[0], 1u);
         // TODO: Remove this when burn fixes int_arange...
         compact_ids[write_id] = write_id;
-        remap_ids[write_id] = idx;
+        remap_ids[write_id] = gg_id;
 
         let num_coeffs = num_sh_coeffs(uniforms.sh_degree);
-        var base_id = idx * num_coeffs * 3;
+        var base_id = gg_id * num_coeffs * 3;
 
         var sh = ShCoeffs();
-
         sh.b0_c0 = read_coeffs(&base_id);
 
         if uniforms.sh_degree > 0 {
@@ -343,9 +342,8 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
             }
         }
 
-        let opac = sigmoid(opacities[idx]);
+        let opac = sigmoid(raw_opacities[gg_id]);
 
-        // let viewdir = p_world - uniforms.camera_point;
         let viewdir = p_world - uniforms.camera_point;
         let color = max(sh_coeffs_to_color(uniforms.sh_degree, viewdir, sh) + vec3f(0.5), vec3f(0.0));
         colors[write_id] = vec4f(color, opac);

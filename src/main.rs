@@ -10,8 +10,11 @@ mod train;
 mod utils;
 mod viewer;
 
+use burn::backend::Autodiff;
 #[cfg(feature = "tracy")]
 use tracing_subscriber::layer::SubscriberExt;
+
+use crate::{splat_render::BurnBack, train::TrainConfig};
 
 fn main() -> anyhow::Result<()> {
     #[cfg(feature = "tracy")]
@@ -20,17 +23,12 @@ fn main() -> anyhow::Result<()> {
     )
     .expect("Failed to setup tracy layer");
 
-    // type BackGPU = Wgpu<AutoGraphicsApi, f32, i32>;
-    // type BackGPU = JitBackend<WgpuRuntime<AutoGraphicsApi, f32, i32>>;
-    // type DiffBack = Autodiff<BackGPU>;
-    // let config = TrainConfig::new("../nerf_synthetic/lego/".to_owned());
-    // TODDO: When training with viewer enabled, needs to be existing UI device.. ?
-    // let device = Default::default();
-    // train::train::<DiffBack>(&config, &device)?;
-    viewer::start()?;
+    type DiffBack = Autodiff<BurnBack>;
+    let config = TrainConfig::new("../nerf_synthetic/lego/".to_owned());
+    let device = Default::default();
+    train::train::<DiffBack>(&config, &device)?;
 
-    // "../models/bonsai/point_cloud/iteration_30000/point_cloud.ply",
-    // "../models/bonsai/cameras.json",
+    // viewer::start()?;
 
     Ok(())
 }

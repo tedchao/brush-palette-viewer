@@ -102,10 +102,17 @@ fn float_to_tensor<B: Backend>(data: Vec<f32>, device: &Device<B>) -> Tensor<B, 
 }
 
 pub const fn num_sh_coeffs(degree: usize) -> usize {
-    if degree == 0 {
-        1
-    } else {
-        2 * degree + 1 + num_sh_coeffs(degree - 1)
+    (degree + 1).pow(2)
+}
+
+pub const fn sh_basis_from_coeffs(degree: usize) -> usize {
+    match degree {
+        1 => 0,
+        4 => 1,
+        9 => 2,
+        16 => 3,
+        25 => 4,
+        _ => panic!("Too many sh bases"),
     }
 }
 
@@ -118,18 +125,19 @@ impl<B: Backend> Splats<B> {
             device,
         );
 
-        let num_coeffs = num_sh_coeffs(3);
+        let num_coeffs = num_sh_coeffs(0);
 
         let sh_coeffs = Tensor::random(
-            [num_points, num_coeffs],
-            Distribution::Uniform(0.0, 1.0),
+            [num_points, num_coeffs * 3],
+            Distribution::Uniform(-0.5, 0.5),
             device,
         );
         let init_rotation = Tensor::from_floats([1.0, 0.0, 0.0, 0.0], device)
             .unsqueeze::<2>()
             .repeat(0, num_points);
 
-        let init_opacity = Tensor::random([num_points], Distribution::Uniform(-4.0, -2.0), device);
+        let init_raw_opacity =
+            Tensor::random([num_points], Distribution::Uniform(-4.0, -2.0), device);
 
         // TODO: Fancy KNN init.
         let init_scale = Tensor::random([num_points, 4], Distribution::Uniform(-5.0, -3.0), device);
@@ -140,7 +148,7 @@ impl<B: Backend> Splats<B> {
             means: Param::initialized(ParamId::new(), means.require_grad()),
             sh_coeffs: Param::initialized(ParamId::new(), sh_coeffs.require_grad()),
             rotation: Param::initialized(ParamId::new(), init_rotation.require_grad()),
-            raw_opacity: Param::initialized(ParamId::new(), init_opacity.require_grad()),
+            raw_opacity: Param::initialized(ParamId::new(), init_raw_opacity.require_grad()),
             log_scales: Param::initialized(ParamId::new(), init_scale.require_grad()),
         }
     }
@@ -466,13 +474,18 @@ impl<B: Backend> Splats<B> {
 
     #[cfg(feature = "rerun")]
     pub(crate) fn visualize(&self, rec: &RecordingStream) -> Result<()> {
+        use crate::utils;
+        use ndarray::Axis;
         let means_data = utils::burn_to_ndarray(self.means.val());
         let means = means_data
             .axis_iter(Axis(0))
             .map(|c| glam::vec3(c[0], c[1], c[2]));
 
+        let num_points = self.sh_coeffs.shape().dims[0];
+        let base_rgb = self.sh_coeffs.val().slice([0..num_points, 0..3]) + 0.5;
+
         // TODO: Fix for SH.
-        let colors_data = utils::burn_to_ndarray(self.colors.val());
+        let colors_data = utils::burn_to_ndarray(base_rgb);
         let colors = colors_data.axis_iter(Axis(0)).map(|c| {
             Color::from_rgb(
                 (c[[0]] * 255.0) as u8,
@@ -481,7 +494,7 @@ impl<B: Backend> Splats<B> {
             )
         });
 
-        let scales_data = utils::burn_to_ndarray(self.scales.val().exp());
+        let scales_data = utils::burn_to_ndarray(self.log_scales.val().exp());
         let radii = scales_data
             .axis_iter(Axis(0))
             .map(|c| 0.5 * 0.33 * (c[0] * c[0] + c[1] * c[1] + c[2] * c[2]).sqrt());

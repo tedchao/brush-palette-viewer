@@ -11,21 +11,156 @@ struct Uniforms {
 @group(0) @binding(0) var<storage> uniforms: Uniforms;
 
 @group(0) @binding(1) var<storage> means: array<vec4f>;
-@group(0) @binding(2) var<storage> scales: array<vec4f>;
+@group(0) @binding(2) var<storage> log_scales: array<vec4f>;
 @group(0) @binding(3) var<storage> quats: array<vec4f>;
 
-@group(0) @binding(4) var<storage> radii: array<i32>;
-@group(0) @binding(5) var<storage> cov2ds: array<vec4f>;
-@group(0) @binding(6) var<storage> v_xy: array<vec2f>;
-@group(0) @binding(7) var<storage> v_conic: array<vec4f>;
-@group(0) @binding(8) var<storage> v_opacity: array<f32>;
+@group(0) @binding(4) var<storage> cov2ds: array<vec4f>;
 
-@group(0) @binding(9) var<storage, read_write> v_means: array<vec4f>;
-@group(0) @binding(10) var<storage, read_write> v_scales: array<vec4f>;
-@group(0) @binding(11) var<storage, read_write> v_quats: array<vec4f>;
+@group(0) @binding(5) var<storage> v_xy: array<vec2f>;
+@group(0) @binding(6) var<storage> v_conic: array<vec4f>;
+@group(0) @binding(7) var<storage> v_colors: array<vec4f>;
 
-// TODO: presumably this is only relevant when supervising depths?
-// @group(0) @binding(11) var<storage> v_depth: array<f32>;
+
+@group(0) @binding(8) var<storage> num_visible: array<u32>;
+@group(0) @binding(9) var<storage> remapped_id: array<u32>;
+
+@group(0) @binding(10) var<storage, read_write> v_means_agg: array<vec4f>;
+@group(0) @binding(11) var<storage, read_write> v_scales_agg: array<vec4f>;
+@group(0) @binding(12) var<storage, read_write> v_quats_agg: array<vec4f>;
+@group(0) @binding(13) var<storage, read_write> v_coeffs_agg: array<f32>;
+@group(0) @binding(14) var<storage, read_write> v_opac_agg: array<f32>;
+
+
+struct ShCoeffs {
+    b0_c0: vec3f,
+
+    b1_c0: vec3f,
+    b1_c1: vec3f,
+    b1_c2: vec3f,
+
+    b2_c0: vec3f,
+    b2_c1: vec3f,
+    b2_c2: vec3f,
+    b2_c3: vec3f,
+    b2_c4: vec3f,
+
+    b3_c0: vec3f,
+    b3_c1: vec3f,
+    b3_c2: vec3f,
+    b3_c3: vec3f,
+    b3_c4: vec3f,
+    b3_c5: vec3f,
+    b3_c6: vec3f,
+
+    b4_c0: vec3f,
+    b4_c1: vec3f,
+    b4_c2: vec3f,
+    b4_c3: vec3f,
+    b4_c4: vec3f,
+    b4_c5: vec3f,
+    b4_c6: vec3f,
+    b4_c7: vec3f,
+    b4_c8: vec3f,
+}
+
+fn sh_coeffs_to_color_fast_vjp(
+    degree: u32,
+    viewdir: vec3f,
+    v_colors: vec3f,
+) -> ShCoeffs {
+    var v_coeffs = ShCoeffs();
+
+    // Expects v_colors to be len CHANNELS
+    // and v_coeffs to be num_bases * CHANNELS
+    v_coeffs.b0_c0 = 0.2820947917738781f * v_colors;
+
+    if (degree < 1) {
+        return v_coeffs;
+    }
+    let norm = normalize(viewdir);
+    let x = viewdir.x;
+    let y = viewdir.y;
+    let z = viewdir.z;
+
+    let fTmp0A = 0.48860251190292f;
+    v_coeffs.b1_c0 = -fTmp0A * y * v_colors;
+    v_coeffs.b1_c1 = fTmp0A * z * v_colors;
+    v_coeffs.b1_c2 = -fTmp0A * x * v_colors;
+
+    if (degree < 2) {
+        return v_coeffs;
+    }
+
+    let z2 = z * z;
+    let fTmp0B = -1.092548430592079f * z;
+    let fTmp1A = 0.5462742152960395f;
+    let fC1 = x * x - y * y;
+    let fS1 = 2.f * x * y;
+    let pSH6 = (0.9461746957575601f * z2 - 0.3153915652525201f);
+    let pSH7 = fTmp0B * x;
+    let pSH5 = fTmp0B * y;
+    let pSH8 = fTmp1A * fC1;
+    let pSH4 = fTmp1A * fS1;
+    v_coeffs.b2_c0 = pSH4 * v_colors;
+    v_coeffs.b2_c1 = pSH5 * v_colors;
+    v_coeffs.b2_c2 = pSH6 * v_colors;
+    v_coeffs.b2_c3 = pSH7 * v_colors;
+    v_coeffs.b2_c4 = pSH8 * v_colors;
+
+    if (degree < 3) {
+        return v_coeffs;
+    }
+
+    let fTmp0C = -2.285228997322329f * z2 + 0.4570457994644658f;
+    let fTmp1B = 1.445305721320277f * z;
+    let fTmp2A = -0.5900435899266435f;
+    let fC2 = x * fC1 - y * fS1;
+    let fS2 = x * fS1 + y * fC1;
+    let pSH12 = z * (1.865881662950577f * z2 - 1.119528997770346f);
+    let pSH13 = fTmp0C * x;
+    let pSH11 = fTmp0C * y;
+    let pSH14 = fTmp1B * fC1;
+    let pSH10 = fTmp1B * fS1;
+    let pSH15 = fTmp2A * fC2;
+    let pSH9  = fTmp2A * fS2;
+    v_coeffs.b3_c0 = pSH9 * v_colors;
+    v_coeffs.b3_c1 = pSH10 * v_colors;
+    v_coeffs.b3_c2 = pSH11 * v_colors;
+    v_coeffs.b3_c3 = pSH12 * v_colors;
+    v_coeffs.b3_c4 = pSH13 * v_colors;
+    v_coeffs.b3_c5 = pSH14 * v_colors;
+    v_coeffs.b3_c6 = pSH15 * v_colors;
+    if (degree < 4) {
+        return v_coeffs;
+    }
+
+    let fTmp0D = z * (-4.683325804901025f * z2 + 2.007139630671868f);
+    let fTmp1C = 3.31161143515146f * z2 - 0.47308734787878f;
+    let fTmp2B = -1.770130769779931f * z;
+    let fTmp3A = 0.6258357354491763f;
+    let fC3 = x * fC2 - y * fS2;
+    let fS3 = x * fS2 + y * fC2;
+    let pSH20 = (1.984313483298443f * z * pSH12 + -1.006230589874905f * pSH6);
+    let pSH21 = fTmp0D * x;
+    let pSH19 = fTmp0D * y;
+    let pSH22 = fTmp1C * fC1;
+    let pSH18 = fTmp1C * fS1;
+    let pSH23 = fTmp2B * fC2;
+    let pSH17 = fTmp2B * fS2;
+    let pSH24 = fTmp3A * fC3;
+    let pSH16 = fTmp3A * fS3;
+    v_coeffs.b4_c0 = pSH16 * v_colors;
+    v_coeffs.b4_c1 = pSH17 * v_colors;
+    v_coeffs.b4_c2 = pSH18 * v_colors;
+    v_coeffs.b4_c3 = pSH19 * v_colors;
+    v_coeffs.b4_c4 = pSH20 * v_colors;
+    v_coeffs.b4_c5 = pSH21 * v_colors;
+    v_coeffs.b4_c6 = pSH22 * v_colors;
+    v_coeffs.b4_c7 = pSH23 * v_colors;
+    v_coeffs.b4_c8 = pSH24 * v_colors;
+    return v_coeffs;
+}
+
 
 fn project_pix_vjp(fxfy: vec2f, p_view: vec3f, v_xy: vec2f) -> vec3f {
     let rw = 1.0f / (p_view.z + 1e-6f);
@@ -86,35 +221,35 @@ fn cov2d_to_conic_vjp(conic: vec3f, v_conic: vec3f) -> vec3f {
     );
 }
 
+fn sigmoid(x: f32) -> f32 {
+    return 1.0 / (1.0 + exp(-x));
+}
+
+fn v_sigmoid(x: f32) -> f32 {
+    return sigmoid(x) * (1.0 - sigmoid(x));
+}
+
 @compute
 @workgroup_size(helpers::SPLATS_PER_GROUP, 1, 1)
 fn main(@builtin(global_invocation_id) global_id: vec3u) {
-    let idx = global_id.x;
+    let cg_id = global_id.x;
 
-    let num_points = arrayLength(&means);
-
-    if idx >= num_points || radii[idx] == 0 {
+    if cg_id >= num_visible[0] {
         return;
     }
 
-    v_quats[idx] = vec4f(0.0);
-    v_scales[idx] = vec4f(0.0);
-    v_means[idx] = vec4f(0.0);
-
-    if radii[idx] == 0 {
-        return;
-    }
+    let gg_id = remapped_id[cg_id];
 
     let viewmat = uniforms.viewmat;
     let focal = uniforms.focal;
 
-    let mean = means[idx].xyz;
-    let scale = scales[idx].xyz;
-    let quat = quats[idx];
+    let mean = means[gg_id].xyz;
+    let scale = exp(log_scales[gg_id].xyz);
+    let quat = quats[gg_id];
 
     let W = mat3x3f(viewmat[0].xyz, viewmat[1].xyz, viewmat[2].xyz);
     let p_view = W * mean + viewmat[3].xyz;
-    var v_mean = transpose(W) * project_pix_vjp(focal, p_view, v_xy[idx]);
+    var v_mean = transpose(W) * project_pix_vjp(focal, p_view, v_xy[cg_id]);
 
     // get v_mean3d from v_xy
     // get z gradient contribution to mean3d gradient
@@ -128,29 +263,29 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
     // compute vjp from df/d_conic to df/c_cov2d
     // conic = inverse cov2d
     // df/d_cov2d = -conic * df/d_conic * conic
-    let cov2d = cov2ds[idx].xyz;
+    let cov2d = cov2ds[cg_id].xyz;
     let compensation = helpers::cov_compensation(cov2d);
     let conic = helpers::cov2d_to_conic(cov2d);
-    let v_conic = v_conic[idx].xyz;
+    let v_conic = v_conic[cg_id].xyz;
     var v_cov2d = cov2d_to_conic_vjp(conic, v_conic);
     
-    // Compensation is applied as opac * comp
-    // so deriv is v_opac.
-    // TODO: Re-enable compensation.
-    let v_compensation = v_opacity[idx] * 0.0;
+    // // Compensation is applied as opac * comp
+    // // so deriv is v_opac.
+    // // TODO: Re-enable compensation.
+    // let v_compensation = v_opacity[idx] * 0.0;
 
-    // comp = sqrt(det(cov2d - 0.3 I) / det(cov2d))
-    // conic = inverse(cov2d)
-    // df / d_cov2d = df / d comp * 0.5 / comp * [ d comp^2 / d cov2d ]
-    // d comp^2 / d cov2d = (1 - comp^2) * conic - 0.3 I * det(conic)
-    let inv_det = conic.x * conic.z - conic.y * conic.y;
-    let one_minus_sqr_comp = 1.0 - compensation * compensation;
-    let v_sqr_comp = v_compensation * 0.5 / (compensation + 1e-6);
-    v_cov2d += vec3f(
-        v_sqr_comp * (one_minus_sqr_comp * conic.x - helpers::COV_BLUR * inv_det),
-        2.0 * v_sqr_comp * (one_minus_sqr_comp * conic.y),
-        v_sqr_comp * (one_minus_sqr_comp * conic.z - helpers::COV_BLUR * inv_det)
-    );
+    // // comp = sqrt(det(cov2d - 0.3 I) / det(cov2d))
+    // // conic = inverse(cov2d)
+    // // df / d_cov2d = df / d comp * 0.5 / comp * [ d comp^2 / d cov2d ]
+    // // d comp^2 / d cov2d = (1 - comp^2) * conic - 0.3 I * det(conic)
+    // let inv_det = conic.x * conic.z - conic.y * conic.y;
+    // let one_minus_sqr_comp = 1.0 - compensation * compensation;
+    // let v_sqr_comp = v_compensation * 0.5 / (compensation + 1e-6);
+    // v_cov2d += vec3f(
+    //     v_sqr_comp * (one_minus_sqr_comp * conic.x - helpers::COV_BLUR * inv_det),
+    //     2.0 * v_sqr_comp * (one_minus_sqr_comp * conic.y),
+    //     v_sqr_comp * (one_minus_sqr_comp * conic.z - helpers::COV_BLUR * inv_det)
+    // );
 
     // get v_cov3d (and v_mean3d contribution)
     let rz = 1.0 / p_view.z;
@@ -242,7 +377,17 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
     let v_R = v_M * S;
     let v_quat = quat_to_rotmat_vjp(quat, v_R);
 
-    v_quats[idx] = v_quat;
-    v_scales[idx] = vec4f(v_scale, 0.0);
-    v_means[idx] = vec4f(v_mean, 0.0f);
+    v_quats_agg[gg_id] = v_quat * 0.0;
+    v_scales_agg[gg_id] = vec4f(v_scale, 0.0) * 0.0;
+    v_means_agg[gg_id] = vec4f(v_mean, 0.0f) * 0.0;
+
+    let v_col = v_colors[cg_id];
+    let v_coeff = sh_coeffs_to_color_fast_vjp(0u, vec3f(0.0, 0.0, 1.0), v_col.xyz);
+
+    v_coeffs_agg[gg_id * 3 + 0] = v_coeff.b0_c0.x;
+    v_coeffs_agg[gg_id * 3 + 1] = v_coeff.b0_c0.y;
+    v_coeffs_agg[gg_id * 3 + 2] = v_coeff.b0_c0.z;
+
+    // let opac = raw_opacities[idx];
+    v_opac_agg[gg_id] = v_col.w * 0.0;
 }

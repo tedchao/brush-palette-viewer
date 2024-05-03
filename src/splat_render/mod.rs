@@ -1,4 +1,5 @@
 use crate::camera::Camera;
+use burn::backend::Autodiff;
 use burn::prelude::Int;
 use burn::{
     backend::wgpu::{AutoGraphicsApi, JitBackend, WgpuRuntime},
@@ -34,13 +35,15 @@ type IntTensor<B, const D: usize> = <B as burn::tensor::backend::Backend>::IntTe
 
 #[derive(Debug, Clone)]
 pub(crate) struct Aux<B: Backend> {
+    pub num_visible: Tensor<B, 1, Int>,
+    pub num_intersects: Tensor<B, 1, Int>,
     pub tile_bins: Tensor<B, 3, Int>,
     pub radii: Tensor<B, 1>,
-    pub gaussian_ids_sorted: Tensor<B, 1, Int>,
+    pub gaussian_per_intersect: Tensor<B, 1, Int>,
     pub xys: Tensor<B, 2>,
     pub cov2ds: Tensor<B, 2>,
     pub final_index: Option<Tensor<B, 2, Int>>,
-    pub num_intersects: u32,
+    pub remap_ids: Tensor<B, 1, Int>,
 }
 
 /// We create our own Backend trait that extends the Burn backend trait.
@@ -62,7 +65,10 @@ pub trait Backend: burn::tensor::backend::Backend {
     ) -> (FloatTensor<Self, 3>, Aux<BurnBack>);
 }
 
+// TODO: In rust 1.80 having a trait bound here on the inner backend would be great.
+// For now all code using it will need to specify this bound itself.
 pub trait AutodiffBackend: Backend + burn::tensor::backend::AutodiffBackend {}
+impl AutodiffBackend for Autodiff<BurnBack> {}
 
 fn create_tensor<E: JitElement, const D: usize>(
     client: &BurnClient,
