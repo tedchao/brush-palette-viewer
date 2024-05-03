@@ -39,9 +39,13 @@ struct Uniforms {
     // Near clip threshold.
     clip_thresh: f32,
     // num of sh coefficients per channel.
-    num_sh_coeffs: u32,
+    sh_degree: u32,
     // World position of camera
     camera_point: vec3f,
+}
+
+fn num_sh_coeffs(degree: u32) -> u32 {
+    return (degree + 1) * (degree + 1);
 }
 
 fn project_pix(fxfy: vec2f, p_view: vec3f, pp: vec2f) -> vec2f {
@@ -49,44 +53,42 @@ fn project_pix(fxfy: vec2f, p_view: vec3f, pp: vec2f) -> vec2f {
     return p_proj * fxfy + pp;
 }
 
-struct Sh0 {
-    c0: vec3f,
+fn read_coeffs(base_id: ptr<function, u32>) -> vec3f {
+    let ret = vec3f(coeffs[*base_id + 0], coeffs[*base_id + 1], coeffs[*base_id + 2]);
+    *base_id += 3u;
+    return ret;
 }
 
-struct Sh1 {
-    c0: vec3f,
-    c1: vec3f,
-    c2: vec3f,
-}
+struct ShCoeffs {
+    b0_c0: vec3f,
 
-struct Sh2 {
-    c0: vec3f,
-    c1: vec3f,
-    c2: vec3f,
-    c3: vec3f,
-    c4: vec3f,
-}
+    b1_c0: vec3f,
+    b1_c1: vec3f,
+    b1_c2: vec3f,
 
-struct Sh3 {
-    c0: vec3f,
-    c1: vec3f,
-    c2: vec3f,
-    c3: vec3f,
-    c4: vec3f,
-    c5: vec3f,
-    c6: vec3f,
-}
+    b2_c0: vec3f,
+    b2_c1: vec3f,
+    b2_c2: vec3f,
+    b2_c3: vec3f,
+    b2_c4: vec3f,
 
-struct Sh4 {
-    c0: vec3f,
-    c1: vec3f,
-    c2: vec3f,
-    c3: vec3f,
-    c4: vec3f,
-    c5: vec3f,
-    c6: vec3f,
-    c7: vec3f,
-    c8: vec3f,
+    b3_c0: vec3f,
+    b3_c1: vec3f,
+    b3_c2: vec3f,
+    b3_c3: vec3f,
+    b3_c4: vec3f,
+    b3_c5: vec3f,
+    b3_c6: vec3f,
+
+    b4_c0: vec3f,
+    b4_c1: vec3f,
+    b4_c2: vec3f,
+    b4_c3: vec3f,
+    b4_c4: vec3f,
+    b4_c5: vec3f,
+    b4_c6: vec3f,
+    b4_c7: vec3f,
+    b4_c8: vec3f,
 }
 
 // Evaluate spherical harmonics bases at unit direction for high orders using approach described by
@@ -95,13 +97,9 @@ struct Sh4 {
 fn sh_coeffs_to_color(
     degree: u32,
     viewdir: vec3f,
-    sh0: Sh0,
-    sh1: Sh1,
-    sh2: Sh2,
-    sh3: Sh3,
-    sh4: Sh4,
+    sh: ShCoeffs,
 ) -> vec3f {
-    var colors = 0.2820947917738781f * sh0.c0;
+    var colors = 0.2820947917738781f * sh.b0_c0;
 
     if (degree < 1) {
         return colors;
@@ -115,9 +113,9 @@ fn sh_coeffs_to_color(
 
     let fTmp0A = 0.48860251190292f;
     colors += fTmp0A *
-                    (-y * sh1.c0 +
-                    z * sh1.c1 -
-                    x * sh1.c2);
+                    (-y * sh.b1_c0 +
+                    z * sh.b1_c1 -
+                    x * sh.b1_c2);
 
     if (degree < 2) {
         return colors;
@@ -136,11 +134,11 @@ fn sh_coeffs_to_color(
 
 
     colors +=
-        pSH4 * sh2.c0 + 
-        pSH5 * sh2.c1 +
-        pSH6 * sh2.c2 + 
-        pSH7 * sh2.c3 +
-        pSH8 * sh2.c4;
+        pSH4 * sh.b2_c0 + 
+        pSH5 * sh.b2_c1 +
+        pSH6 * sh.b2_c2 + 
+        pSH7 * sh.b2_c3 +
+        pSH8 * sh.b2_c4;
 
     if (degree < 3) {
         return colors;
@@ -158,13 +156,13 @@ fn sh_coeffs_to_color(
     let pSH10 = fTmp1B * fS1;
     let pSH15 = fTmp2A * fC2;
     let pSH9  = fTmp2A * fS2;
-    colors +=   pSH9  * sh3.c0 +
-                pSH10 * sh3.c1 +
-                pSH11 * sh3.c2 +
-                pSH12 * sh3.c3 +
-                pSH13 * sh3.c4 +
-                pSH14 * sh3.c5 +
-                pSH15 * sh3.c6;
+    colors +=   pSH9  * sh.b3_c0 +
+                pSH10 * sh.b3_c1 +
+                pSH11 * sh.b3_c2 +
+                pSH12 * sh.b3_c3 +
+                pSH13 * sh.b3_c4 +
+                pSH14 * sh.b3_c5 +
+                pSH15 * sh.b3_c6;
     
     if (degree < 4) {
         return colors;
@@ -185,22 +183,16 @@ fn sh_coeffs_to_color(
     let pSH17 = fTmp2B * fS2;
     let pSH24 = fTmp3A * fC3;
     let pSH16 = fTmp3A * fS3;
-    colors += pSH16 * sh4.c0 +
-                pSH17 * sh4.c1 +
-                pSH18 * sh4.c2 +
-                pSH19 * sh4.c3 +
-                pSH20 * sh4.c4 +
-                pSH21 * sh4.c5 +
-                pSH22 * sh4.c6 +
-                pSH23 * sh4.c7 +
-                pSH24 * sh4.c8;
+    colors += pSH16 * sh.b4_c0 +
+                pSH17 * sh.b4_c1 +
+                pSH18 * sh.b4_c2 +
+                pSH19 * sh.b4_c3 +
+                pSH20 * sh.b4_c4 +
+                pSH21 * sh.b4_c5 +
+                pSH22 * sh.b4_c6 +
+                pSH23 * sh.b4_c7 +
+                pSH24 * sh.b4_c8;
     return colors;
-}
-
-fn read_coeffs(base_id: ptr<function, u32>) -> vec3f {
-    let ret = vec3f(coeffs[*base_id + 0], coeffs[*base_id + 1], coeffs[*base_id + 2]);
-    *base_id += 3u;
-    return ret;
 }
 
 // Kernel function for projecting gaussians.
@@ -308,53 +300,44 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
         compact_ids[write_id] = write_id;
         remap_ids[write_id] = idx;
 
-        var base_id = idx * uniforms.num_sh_coeffs * 3;
+        let num_coeffs = num_sh_coeffs(uniforms.sh_degree);
+        var base_id = idx * num_coeffs * 3;
 
-        var sh0 = Sh0();
-        var sh1 = Sh1();
-        var sh2 = Sh2();
-        var sh3 = Sh3();
-        var sh4 = Sh4();
+        var sh = ShCoeffs();
 
-        var degree = 0u;
-        sh0.c0 = read_coeffs(&base_id);
+        sh.b0_c0 = read_coeffs(&base_id);
 
-        if uniforms.num_sh_coeffs > 1 {
-            degree = 1u;
-            sh1.c0 = read_coeffs(&base_id);
-            sh1.c1 = read_coeffs(&base_id);
-            sh1.c2 = read_coeffs(&base_id);
+        if uniforms.sh_degree > 0 {
+            sh.b1_c0 = read_coeffs(&base_id);
+            sh.b1_c1 = read_coeffs(&base_id);
+            sh.b1_c2 = read_coeffs(&base_id);
 
-            if uniforms.num_sh_coeffs > 4 {
-                degree = 2u;
-                sh2.c0 = read_coeffs(&base_id);
-                sh2.c1 = read_coeffs(&base_id);
-                sh2.c2 = read_coeffs(&base_id);
-                sh2.c3 = read_coeffs(&base_id);
-                sh2.c4 = read_coeffs(&base_id);
+            if uniforms.sh_degree > 1 {
+                sh.b2_c0 = read_coeffs(&base_id);
+                sh.b2_c1 = read_coeffs(&base_id);
+                sh.b2_c2 = read_coeffs(&base_id);
+                sh.b2_c3 = read_coeffs(&base_id);
+                sh.b2_c4 = read_coeffs(&base_id);
 
-                if uniforms.num_sh_coeffs > 9 {
-                    degree = 3u;
-                    sh3.c0 = read_coeffs(&base_id);
-                    sh3.c1 = read_coeffs(&base_id);
-                    sh3.c2 = read_coeffs(&base_id);
-                    sh3.c3 = read_coeffs(&base_id);
-                    sh3.c4 = read_coeffs(&base_id);
-                    sh3.c5 = read_coeffs(&base_id);
-                    sh3.c6 = read_coeffs(&base_id);
+                if uniforms.sh_degree > 2 {
+                    sh.b3_c0 = read_coeffs(&base_id);
+                    sh.b3_c1 = read_coeffs(&base_id);
+                    sh.b3_c2 = read_coeffs(&base_id);
+                    sh.b3_c3 = read_coeffs(&base_id);
+                    sh.b3_c4 = read_coeffs(&base_id);
+                    sh.b3_c5 = read_coeffs(&base_id);
+                    sh.b3_c6 = read_coeffs(&base_id);
 
-                    if uniforms.num_sh_coeffs > 16 {
-                        degree = 4u;
-
-                        sh4.c0 = read_coeffs(&base_id);
-                        sh4.c1 = read_coeffs(&base_id);
-                        sh4.c2 = read_coeffs(&base_id);
-                        sh4.c3 = read_coeffs(&base_id);
-                        sh4.c4 = read_coeffs(&base_id);
-                        sh4.c5 = read_coeffs(&base_id);
-                        sh4.c6 = read_coeffs(&base_id);
-                        sh4.c7 = read_coeffs(&base_id);
-                        sh4.c8 = read_coeffs(&base_id);
+                    if uniforms.sh_degree > 3 {
+                        sh.b4_c0 = read_coeffs(&base_id);
+                        sh.b4_c1 = read_coeffs(&base_id);
+                        sh.b4_c2 = read_coeffs(&base_id);
+                        sh.b4_c3 = read_coeffs(&base_id);
+                        sh.b4_c4 = read_coeffs(&base_id);
+                        sh.b4_c5 = read_coeffs(&base_id);
+                        sh.b4_c6 = read_coeffs(&base_id);
+                        sh.b4_c7 = read_coeffs(&base_id);
+                        sh.b4_c8 = read_coeffs(&base_id);
                     }
                 }
             }
@@ -364,7 +347,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
 
         // let viewdir = p_world - uniforms.camera_point;
         let viewdir = p_world - uniforms.camera_point;
-        let color = max(sh_coeffs_to_color(degree, viewdir, sh0, sh1, sh2, sh3, sh4) + vec3f(0.5), vec3f(0.0));
+        let color = max(sh_coeffs_to_color(uniforms.sh_degree, viewdir, sh) + vec3f(0.5), vec3f(0.0));
         colors[write_id] = vec4f(color, opac);
         depths[write_id] = p_view.z;
         num_tiles_hit[write_id] = tile_area;
