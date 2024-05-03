@@ -141,7 +141,7 @@ fn render_forward(
     // TODO: How do we actually properly deal with this :/
     // TODO: Look into some more ways of reducing intersections.
     // Ideally render gaussians in chunks, but that might be hell with the backward pass.
-    let max_intersects = num_points * 8;
+    let max_intersects = num_points * 3;
 
     // Each intersection maps to a gaussian.
     let tile_ids_unsorted = create_tensor::<u32, 1>(&client, &device, [max_intersects]);

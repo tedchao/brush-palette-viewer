@@ -208,10 +208,10 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
     }
 
     // 0 buffer to mark gaussian as not visible.
-    radii[idx] = 0u;
+    radii[gg_id] = 0u;
     // Zero out number of tiles hit before cumulative sum.
-    num_tiles_hit[idx] = 0u;
-    depths[idx] = 1e30;
+    num_tiles_hit[gg_id] = 0u;
+    depths[gg_id] = 1e30;
 
     let viewmat = uniforms.viewmat;
     let focal = uniforms.focal;
