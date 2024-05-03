@@ -69,8 +69,8 @@ fn main(
     // first collect gaussians between range.x and range.y in batches
     // which gaussians to look through in this tile
     var range = tile_bins[tile_id];
-    let num_batches = (range.y - range.x + GATHER_PER_ITERATION - 1u) / GATHER_PER_ITERATION;
 
+    let num_batches = helpers::ceil_div(range.y - range.x, GATHER_PER_ITERATION);
     // current visibility left to render
     var T = 1.0;
 
@@ -137,9 +137,8 @@ fn main(
             let c = colors_batch[t].xyz;
             pix_out += c * vis;
             T = next_T;
+            final_idx = batch_start + t;
         }
-
-        final_idx = batch_start + t;
     }
 
     if inside {

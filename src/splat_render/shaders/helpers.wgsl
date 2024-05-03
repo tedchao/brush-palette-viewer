@@ -86,3 +86,8 @@ fn can_be_visible(tile: vec2u, xy: vec2f, radii: u32) -> bool {
     let rsqr = dot(dif, dif);
     return rsqr <= f32(radii * radii);
 }
+
+
+fn ceil_div(a: u32, b: u32) -> u32 {
+    return (a + b - 1) / b;
+}
