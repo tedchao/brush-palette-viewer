@@ -243,12 +243,16 @@ impl eframe::App for Viewer {
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.heading("Brush splat viewer");
 
-            if ui.button("load").clicked() {
-                self.load_splats(
-                    "./models/bonsai/point_cloud/iteration_30000/point_cloud.ply",
-                    Some("./models/bonsai/cameras.json"),
-                );
-            }
+            ui.horizontal(|ui| {
+                for r in ["bonsai", "stump", "counter", "garden", "truck"] {
+                    if ui.button(r.to_string()).clicked() {
+                        self.load_splats(
+                            &format!("./models/{r}/point_cloud/iteration_30000/point_cloud.ply"),
+                            Some(&format!("./models/{r}/cameras.json")),
+                        );
+                    }
+                }
+            });
 
             let now = time::Instant::now();
             let ms = (now - self.last_render_time).as_secs_f64() * 1000.0;
