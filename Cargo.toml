@@ -50,6 +50,8 @@ egui_extras = { version = "*", features = ["all_loaders"] }
 tracy = ["dep:tracing-tracy"]
 rerun = ["dep:rerun"]
 
+default = ["tracy", "rerun"]
+
 [build-dependencies]
 wgsl_bindgen = { path = "../wgsl-bindgen/wgsl_bindgen" }
 miette = { version = "7.2.0", features = ["fancy"] }
