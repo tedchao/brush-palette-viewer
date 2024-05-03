@@ -24,7 +24,8 @@ impl Scene {
 
         for (i, data) in self.train_data.iter().enumerate() {
             let path = format!("world/dataset/camera/{i}");
-            let vis_size = glam::uvec2(512, 512);
+            let (width, height, _) = data.view.image.dim();
+            let vis_size = glam::uvec2(width as u32, height as u32);
             let rerun_camera = rerun::Pinhole::from_focal_length_and_resolution(
                 data.camera.focal(vis_size),
                 glam::vec2(vis_size.x as f32, vis_size.y as f32),
