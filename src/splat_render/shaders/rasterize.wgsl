@@ -23,6 +23,9 @@ struct Uniforms {
     @group(0) @binding(8) var<storage, read_write> final_index : array<u32>;
 #endif
 
+const GROUPS_PER_TILE = 2u;
+const GROUP_SIZE = helpers::TILE_WIDTH / GROUPS_PER_TILE;
+
 // Workgroup variables.
 const GATHER_PER_ITERATION: u32 = 128u;
 
@@ -30,11 +33,12 @@ var<workgroup> xy_batch: array<vec2f, GATHER_PER_ITERATION>;
 var<workgroup> colors_batch: array<vec4f, GATHER_PER_ITERATION>;
 var<workgroup> conic_comp_batch: array<vec4f, GATHER_PER_ITERATION>;
 
+
 // kernel function for rasterizing each tile
 // each thread treats a single pixel
 // each thread group uses the same gaussian data in a tile
 @compute
-@workgroup_size(16, 16, 1)
+@workgroup_size(GROUP_SIZE, GROUP_SIZE, 1)
 fn main(
     @builtin(global_invocation_id) global_id: vec3u,
     @builtin(local_invocation_index) local_idx: u32,
@@ -50,7 +54,7 @@ fn main(
     let tile_bounds = vec2u(helpers::ceil_div(img_size.x, helpers::TILE_WIDTH),  
                             helpers::ceil_div(img_size.y, helpers::TILE_WIDTH));
 
-    let tile_loc = global_id.xy / helpers::TILE_WIDTH;
+    let tile_loc = workgroup_id.xy / GROUPS_PER_TILE;
     let tile_id = tile_loc.x + tile_loc.y * tile_bounds.x;
     let pix_id = global_id.x + global_id.y * img_size.x;
     let pixel_coord = vec2f(global_id.xy);

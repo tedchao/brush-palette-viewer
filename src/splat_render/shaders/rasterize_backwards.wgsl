@@ -53,7 +53,7 @@ fn main(
     let tile_bounds = vec2u(helpers::ceil_div(img_size.x, helpers::TILE_WIDTH),  
                             helpers::ceil_div(img_size.y, helpers::TILE_WIDTH));
 
-    let tile_loc = global_id.xy / helpers::TILE_WIDTH;
+    let tile_loc = workgroup_id.xy;
     let tile_id = tile_loc.x + tile_loc.y * tile_bounds.x;
     let pix_id = global_id.x + global_id.y * img_size.x;
     let pixel_coord = vec2f(global_id.xy);
