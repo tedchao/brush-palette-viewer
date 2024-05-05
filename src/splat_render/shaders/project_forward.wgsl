@@ -230,6 +230,8 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
 
     // compute the projected covariance
     let scale = exp(log_scales[global_gid].xyz);
+    let opac = sigmoid(raw_opacities[global_gid]);
+
     let quat = quats[global_gid];
 
     let R = helpers::quat_to_rotmat(quat);
@@ -261,17 +263,32 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
     // add a little blur along axes and save upper triangular elements
     let cov2d = vec3f(c00 + helpers::COV_BLUR, c01, c11 + helpers::COV_BLUR);
     let det = cov2d.x * cov2d.z - cov2d.y * cov2d.y;
+    
+    // Calculate tbe pixel radius.
 
-    // inverse of 2x2 cov2d matrix
-    let b = 0.5 * (cov2d.x + cov2d.z);
-    let v1 = b + sqrt(max(0.1f, b * b - det));
-    let v2 = b - sqrt(max(0.1f, b * b - det));
+    // Original implementation:
+    // let b = 0.5 * (cov2d.x + cov2d.z);
+    // let v1 = b + sqrt(max(0.1f, b * b - det));
+    // let v2 = b - sqrt(max(0.1f, b * b - det));
+    // let radius = u32(ceil(3.0 * sqrt(max(0.0, max(v1, v2)))));
 
-    // Render 3 sigma of covariance.
-    // TODO: Make this a setting? Could save a good amount of pixels
-    // that need to be rendered. Also: pick gaussians that REALLY clip to 0.
-    // TODO: Is rounding down better? Eg. for gaussians <pixel size, just skip?
-    let radius = u32(ceil(3.0 * sqrt(max(0.0, max(v1, v2)))));
+    // I think we can do better and derive an exact bound when we hit some eps threshold.
+    // Also, we should take into account the opoacity of the gaussian.
+    // So, opac * exp(-0.5 * x^T Sigma^-1 x) = eps  (with eps being e.g. 1.0 / 255.0).
+    // x^T Sigma^-1 x = -2 * log(eps / opac)
+    // Find maximal |x| using quadratic form
+    // |x|^2 = c / lambd_min.
+    let conic = helpers::cov2d_to_conic(cov2d);
+
+    // Find smallest eigen value of matrix.
+    let trace = conic.x + conic.z;
+    let determinant = conic.x * conic.z - conic.y * conic.y;
+    let l_min = 0.5 * (trace - sqrt(trace * trace - 4 * determinant));
+
+    // Now solve for maximal |r|.
+    let eps_const = -2.0 * log(1.0 / (opac * 255.0));
+    let fradius = sqrt(eps_const / l_min);
+    let radius = u32(ceil(fradius));
 
     if radius == 0u {
         return;
@@ -339,7 +356,6 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
             }
         }
 
-        let opac = sigmoid(raw_opacities[global_gid]);
         let viewdir = p_world - uniforms.camera_point;
         let color = max(sh_coeffs_to_color(uniforms.sh_degree, viewdir, sh) + vec3f(0.5), vec3f(0.0));
         colors[write_id] = vec4f(color, opac);
