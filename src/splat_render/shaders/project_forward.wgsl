@@ -288,11 +288,12 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
     // Now solve for maximal |r|.
     let eps_const = -2.0 * log(1.0 / (opac * 255.0));
     let fradius = sqrt(eps_const / l_min);
-    let radius = u32(ceil(fradius));
 
-    if radius == 0u {
+    if fradius <= 1.0 {
         return;
     }
+
+    let radius = u32(ceil(fradius));
 
     // compute the projected mean
     let center = project_pix(focal, p_view, pixel_center);
