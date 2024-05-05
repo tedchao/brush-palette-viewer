@@ -29,11 +29,6 @@ use burn::backend::{
 };
 use glam::{uvec2, Vec3};
 
-fn max_intersections(num_points: usize) -> usize {
-    // TODO: This is all round terrible.
-    (num_points * 64).max(1024)
-}
-
 fn render_forward(
     camera: &Camera,
     img_size: glam::UVec2,
@@ -163,7 +158,7 @@ fn render_forward(
     // TODO: How do we actually properly deal with this :/
     // TODO: Look into some more ways of reducing intersections.
     // Ideally render gaussians in chunks, but that might be hell with the backward pass.
-    let max_intersects = max_intersections(num_points);
+    let max_intersects = (num_points * ((tile_bounds.x * tile_bounds.y) as usize)).min(256 * 65535);
 
     // Each intersection maps to a gaussian.
     let tile_id_from_isect = create_tensor::<u32, 1>(&client, &device, [max_intersects]);
@@ -413,6 +408,7 @@ impl Backward<BurnBack, 3, 5> for RenderBackwards {
         let _span = info_span!("render_gaussians backwards").entered();
 
         let state = ops.state;
+        let aux = state.aux;
 
         let img_dimgs = state.out_img.shape.dims;
         let img_size = glam::uvec2(img_dimgs[1] as u32, img_dimgs[0] as u32);
@@ -432,12 +428,10 @@ impl Backward<BurnBack, 3, 5> for RenderBackwards {
 
         let num_points = means.shape.dims[0];
 
-        let max_intersects = max_intersections(num_points);
+        let max_intersects = aux.depthsort_gid_from_isect.shape().dims[0];
         let v_xy_scatter = BurnBack::float_zeros(Shape::new([max_intersects, 2]), device);
         let v_conic_scatter = BurnBack::float_zeros(Shape::new([max_intersects, 4]), device);
         let v_colors_scatter = BurnBack::float_zeros(Shape::new([max_intersects, 4]), device);
-
-        let aux = state.aux;
 
         RasterizeBackwards::new().execute(
             client,
