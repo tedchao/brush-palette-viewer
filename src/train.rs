@@ -1,3 +1,5 @@
+use std::time;
+
 use anyhow::Result;
 use burn::lr_scheduler::LrScheduler;
 use burn::nn::loss::MseLoss;
@@ -168,6 +170,7 @@ where
     for iter in 0..config.train_steps {
         let lr = LrScheduler::<B>::step(&mut scheduler);
 
+        let start_time = time::Instant::now();
         let (new_splats, stats) = train_step(
             &scene, splats, iter, lr, config, &loss, &mut optim, &mut rng, device,
         );
@@ -186,6 +189,12 @@ where
             rec.log(
                 "points/total",
                 &rerun::Scalar::new(splats.cur_num_points() as f64),
+            )?;
+
+            rec.log(
+                "performance/step_ms",
+                &rerun::Scalar::new((time::Instant::now() - start_time).as_secs_f64() * 1000.0)
+                    .clone(),
             )?;
 
             if iter % config.visualize_every == 0 {
