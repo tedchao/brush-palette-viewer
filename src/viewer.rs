@@ -156,8 +156,8 @@ impl Viewer {
             last_render_time: time::Instant::now(),
         };
         viewer.load_splats(
-            "./models/bonsai/point_cloud/iteration_30000/point_cloud.ply",
-            Some("./models/bonsai/cameras.json"),
+            "./models/counter/point_cloud/iteration_30000/point_cloud.ply",
+            Some("./models/counter/cameras.json"),
         );
         viewer
     }

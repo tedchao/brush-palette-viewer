@@ -26,9 +26,11 @@ fn main() -> anyhow::Result<()> {
     type DiffBack = Autodiff<BurnBack>;
     let config = TrainConfig::new("../nerf_synthetic/lego/".to_owned());
     let device = Default::default();
-    train::train::<DiffBack>(&config, &device)?;
 
-    // viewer::start()?;
-
+    if true {
+        train::train::<DiffBack>(&config, &device)?;
+    } else {
+        viewer::start()?;
+    }
     Ok(())
 }
