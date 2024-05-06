@@ -32,8 +32,6 @@ where
         write_handles: &[Binding<S>],
         executions: [u32; 3],
     ) {
-        // client.sync();
-
         let _span = info_span!("Executing", "{}", Self::SPAN_NAME).entered();
 
         {
@@ -62,11 +60,6 @@ where
                 let total_handles = [read_handles, write_handles].concat();
                 client.execute(kernel, total_handles);
             }
-        }
-
-        {
-            let _span = info_span!("syncing", "{}", Self::SPAN_NAME).entered();
-            // client.sync();
         }
     }
 }
