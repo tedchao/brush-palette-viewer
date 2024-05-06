@@ -78,8 +78,6 @@ fn create_tensor<E: JitElement, const D: usize>(
     device: &<BurnRuntime as Runtime>::Device,
     shape: [usize; D],
 ) -> JitTensor<BurnRuntime, E, D> {
-    let _span = info_span!("Create tensor").entered();
-
     let shape = Shape::new(shape);
     let bufsize = shape.num_elements() * core::mem::size_of::<E>();
     let buffer = client.empty(bufsize);
