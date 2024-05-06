@@ -13,7 +13,7 @@ struct Uniforms {
 @group(0) @binding(2) var<storage> compact_from_depthsort_gid: array<u32>;
 @group(0) @binding(3) var<storage, read> tile_bins: array<vec2u>;
 @group(0) @binding(4) var<storage, read> xys: array<vec2f>;
-@group(0) @binding(5) var<storage, read> cov2ds: array<vec4f>;
+@group(0) @binding(5) var<storage, read> conic_comps: array<vec4f>;
 @group(0) @binding(6) var<storage, read> colors: array<vec4f>;
 
 #ifdef FORWARD_ONLY
@@ -23,22 +23,15 @@ struct Uniforms {
     @group(0) @binding(8) var<storage, read_write> final_index : array<u32>;
 #endif
 
-const GROUPS_PER_TILE = 2u;
-const GROUP_SIZE = helpers::TILE_WIDTH / GROUPS_PER_TILE;
-
-// Workgroup variables.
-const GATHER_PER_ITERATION: u32 = 128u;
-
-var<workgroup> xy_batch: array<vec2f, GATHER_PER_ITERATION>;
-var<workgroup> colors_batch: array<vec4f, GATHER_PER_ITERATION>;
-var<workgroup> conic_comp_batch: array<vec4f, GATHER_PER_ITERATION>;
-
+var<workgroup> xy_batch: array<vec2f, helpers::TILE_SIZE>;
+var<workgroup> colors_batch: array<vec4f, helpers::TILE_SIZE>;
+var<workgroup> conic_comp_batch: array<vec4f, helpers::TILE_SIZE>;
 
 // kernel function for rasterizing each tile
 // each thread treats a single pixel
 // each thread group uses the same gaussian data in a tile
 @compute
-@workgroup_size(GROUP_SIZE, GROUP_SIZE, 1)
+@workgroup_size(helpers::TILE_WIDTH, helpers::TILE_WIDTH, 1)
 fn main(
     @builtin(global_invocation_id) global_id: vec3u,
     @builtin(local_invocation_index) local_idx: u32,
@@ -47,15 +40,11 @@ fn main(
     let background = uniforms.background;
     let img_size = uniforms.img_size;
 
-    // each thread draws one pixel, but also timeshares caching gaussians in a
-    // shared tile
-
     // Get index of tile being drawn.
     let tile_bounds = vec2u(helpers::ceil_div(img_size.x, helpers::TILE_WIDTH),  
                             helpers::ceil_div(img_size.y, helpers::TILE_WIDTH));
 
-    let tile_loc = workgroup_id.xy / GROUPS_PER_TILE;
-    let tile_id = tile_loc.x + tile_loc.y * tile_bounds.x;
+    let tile_id = workgroup_id.x + workgroup_id.y * tile_bounds.x;
     let pix_id = global_id.x + global_id.y * img_size.x;
     let pixel_coord = vec2f(global_id.xy);
 
@@ -85,31 +74,34 @@ fn main(
     // each thread loads one gaussian at a time before rasterizing its
     // designated pixel
     for (var b = 0u; b < num_batches; b++) {
-        // resync all threads before beginning next batch
-        workgroupBarrier();
-
         // each thread fetch 1 gaussian from front to back
         // index of gaussian to load
         let batch_start = range.x + b * GATHER_PER_ITERATION;
         let isect_id = batch_start + local_idx;
 
+        var xy_local = vec2f(0.0);
+        var conic_comp_local = vec4f(0.0);
+        var colors_local = vec4f(0.0);
+
         if isect_id <= range.y && local_idx < GATHER_PER_ITERATION {
             let depthsort_gid = depthsort_gid_from_isect[isect_id];
             let compact_gid = compact_from_depthsort_gid[depthsort_gid];
-
-            xy_batch[local_idx] = xys[compact_gid];
-            let cov2d = cov2ds[compact_gid].xyz;
-            conic_comp_batch[local_idx] = vec4f(helpers::cov2d_to_conic(cov2d), helpers::cov_compensation(cov2d));
-            colors_batch[local_idx] = colors[compact_gid];
+            xy_local = xys[compact_gid];
+            conic_comp_local = conic_comps[compact_gid];
+            colors_local = colors[compact_gid];
         }
 
-        // wait for other threads to collect the gaussians in batch
+        // Write gathered results to shared memory, and synchronize access.
+        workgroupBarrier();
+        if isect_id <= range.y && local_idx < GATHER_PER_ITERATION {
+            xy_batch[local_idx] = xy_local;
+            conic_comp_batch[local_idx] = conic_comp_local;
+            colors_batch[local_idx] = colors_local;
+        }
         workgroupBarrier();
 
         // process gaussians in the current batch for this pixel
         let remaining = min(GATHER_PER_ITERATION, range.y - batch_start);
-
-        workgroupBarrier();
     
         var t = 0u;
         for (; t < remaining && !done; t++) {

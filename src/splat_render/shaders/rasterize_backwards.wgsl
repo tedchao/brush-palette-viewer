@@ -14,7 +14,7 @@ struct Uniforms {
 @group(0) @binding(3) var<storage> tile_bins: array<vec2u>;
 @group(0) @binding(4) var<storage> xys: array<vec2f>;
 @group(0) @binding(5) var<storage> cum_tiles_hit: array<u32>;
-@group(0) @binding(6) var<storage> cov2ds: array<vec4f>;
+@group(0) @binding(6) var<storage> conic_comps: array<vec4f>;
 @group(0) @binding(7) var<storage> colors: array<vec4f>;
 @group(0) @binding(8) var<storage> radii: array<u32>;
 
@@ -104,8 +104,7 @@ fn main(
             let compact_gid = compact_from_depthsort_gid[depthsort_gid];
 
             xy_batch[local_idx] = xys[compact_gid];
-            let cov2d = cov2ds[compact_gid].xyz;
-            conic_comp_batch[local_idx] = vec4f(helpers::cov2d_to_conic(cov2d), helpers::cov_compensation(cov2d));
+            conic_comp_batch[local_idx] = conic_comps[compact_gid];
             colors_batch[local_idx] = colors[compact_gid];
         }
 

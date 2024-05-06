@@ -13,7 +13,6 @@ use burn_compute::{
 };
 use burn_jit::{JitElement, Runtime};
 use burn_wgpu::JitTensor;
-use tracing::info_span;
 
 mod dim_check;
 mod kernels;
@@ -43,7 +42,7 @@ pub(crate) struct Aux<B: Backend> {
     pub compact_from_depthsort_gid: Tensor<B, 1, Int>,
     pub xys: Tensor<B, 2>,
     pub cum_tiles_hit: Tensor<B, 1, Int>,
-    pub cov2ds: Tensor<B, 2>,
+    pub conic_comps: Tensor<B, 2>,
     pub colors: Tensor<B, 2>,
     pub final_index: Option<Tensor<B, 2, Int>>,
     pub global_from_compact_gid: Tensor<B, 1, Int>,

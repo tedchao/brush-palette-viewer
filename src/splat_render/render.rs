@@ -42,6 +42,8 @@ fn render_forward(
 ) -> (JitTensor<BurnRuntime, f32, 3>, Aux<BurnBack>) {
     let _span = info_span!("render_gaussians").entered();
 
+    let setup = info_span!("setup").entered();
+
     let (means, log_scales, quats, sh_coeffs, raw_opacities) = (
         into_contiguous(means.clone()),
         into_contiguous(log_scales.clone()),
@@ -69,6 +71,12 @@ fn render_forward(
     let client = means.client.clone();
     let device = means.device.clone();
 
+    let sync = || {
+        if false {
+            client.sync()
+        }
+    };
+
     let num_points = means.shape.dims[0];
 
     // Projected gaussian values.
@@ -76,7 +84,7 @@ fn render_forward(
     let depths = create_tensor::<f32, 1>(&client, &device, [num_points]);
     let colors = create_tensor::<f32, 2>(&client, &device, [num_points, 4]);
     let radii = create_tensor::<u32, 1>(&client, &device, [num_points]);
-    let cov2ds = create_tensor::<f32, 2>(&client, &device, [num_points, 4]);
+    let conic_comps = create_tensor::<f32, 2>(&client, &device, [num_points, 4]);
 
     // A note on some confusing naming that'll be used throughout this function:
     // Gaussians are stored in various states of buffers, eg. at the start they're all in one big bufffer,
@@ -100,40 +108,49 @@ fn render_forward(
     // CPU operation and is way too slow. I could also make this a special case in the radix sort.
     let arranged_ids = create_tensor::<u32, 1>(&client, &device, [num_points]);
 
-    ProjectSplats::new().execute(
-        &client,
-        shaders::project_forward::Uniforms::new(
-            camera.world_to_local(),
-            camera.focal(img_size).into(),
-            camera.center(img_size).into(),
-            img_size.into(),
-            tile_bounds.into(),
-            tile_width,
-            0.01,
-            sh_degree as u32,
-            camera.position.into(),
-        ),
-        &[
-            means.handle.binding(),
-            log_scales.handle.binding(),
-            quats.handle.binding(),
-            sh_coeffs.handle.binding(),
-            raw_opacities.handle.binding(),
-        ],
-        &[
-            arranged_ids.handle.clone().binding(),
-            global_from_compact_gid.handle.clone().binding(),
-            xys.handle.clone().binding(),
-            depths.handle.clone().binding(),
-            colors.handle.clone().binding(),
-            radii.handle.clone().binding(),
-            cov2ds.handle.clone().binding(),
-            num_tiles_hit.handle.clone().binding(),
-            num_visible.handle.clone().binding(),
-        ],
-        [num_points as u32, 1, 1],
-    );
+    drop(setup);
 
+    {
+        let _span = info_span!("ProjectSplats").entered();
+
+        ProjectSplats::new().execute(
+            &client,
+            shaders::project_forward::Uniforms::new(
+                camera.world_to_local(),
+                camera.focal(img_size).into(),
+                camera.center(img_size).into(),
+                img_size.into(),
+                tile_bounds.into(),
+                tile_width,
+                0.01,
+                sh_degree as u32,
+                camera.position.into(),
+            ),
+            &[
+                means.handle.binding(),
+                log_scales.handle.binding(),
+                quats.handle.binding(),
+                sh_coeffs.handle.binding(),
+                raw_opacities.handle.binding(),
+            ],
+            &[
+                arranged_ids.handle.clone().binding(),
+                global_from_compact_gid.handle.clone().binding(),
+                xys.handle.clone().binding(),
+                depths.handle.clone().binding(),
+                colors.handle.clone().binding(),
+                radii.handle.clone().binding(),
+                conic_comps.handle.clone().binding(),
+                num_tiles_hit.handle.clone().binding(),
+                num_visible.handle.clone().binding(),
+            ],
+            [num_points as u32, 1, 1],
+        );
+
+        sync();
+    }
+
+    let depth_sort_span = info_span!("DepthSort").entered();
     // Interpret depth as u32. This is fine with radix sort, as long as depth > 0.0,
     // which we know to be the case given how we cull.
     let (_, compact_from_depthsort_gid) = radix_argsort(
@@ -143,6 +160,11 @@ fn render_forward(
         num_visible.clone(),
         32,
     );
+    sync();
+
+    drop(depth_sort_span);
+
+    let cum_hit_span = info_span!("TilesPermute").entered();
 
     // Permute the number of tiles hit for the sorted gaussians.
     // This means num_tiles_hit is not stored per compact_gid, but per depthsort_gid.
@@ -151,7 +173,6 @@ fn render_forward(
         bitcast_tensor(num_tiles_hit),
         bitcast_tensor(compact_from_depthsort_gid.clone()),
     ));
-
     // Calculate cumulative sums as offsets for the intersections buffer.
     let cum_tiles_hit = prefix_sum(&client, num_tiles_hit);
 
@@ -164,36 +185,45 @@ fn render_forward(
     let tile_id_from_isect = create_tensor::<u32, 1>(&client, &device, [max_intersects]);
     let depthsort_gid_from_isect = create_tensor::<u32, 1>(&client, &device, [max_intersects]);
 
-    let num_intersects = bitcast_tensor(BurnBack::int_gather(
-        0,
+    let num_intersects = bitcast_tensor(BurnBack::int_slice(
         bitcast_tensor(cum_tiles_hit.clone()),
-        BurnBack::int_add_scalar(bitcast_tensor(num_visible.clone()), -1),
+        #[allow(clippy::single_range_in_vec_init)]
+        [num_points - 1..num_points],
     ));
+    sync();
+    drop(cum_hit_span);
 
-    // Dispatch one thread per point.
-    // TODO: Really want to do an indirect dispatch here for num_visible.
-    MapGaussiansToIntersect::new().execute(
-        &client,
-        shaders::map_gaussian_to_intersects::Uniforms::new(tile_bounds.into()),
-        &[
-            compact_from_depthsort_gid.handle.clone().binding(),
-            xys.handle.clone().binding(),
-            cov2ds.handle.clone().binding(),
-            radii.handle.clone().binding(),
-            cum_tiles_hit.handle.clone().binding(),
-            num_visible.handle.clone().binding(),
-        ],
-        &[
-            tile_id_from_isect.handle.clone().binding(),
-            depthsort_gid_from_isect.handle.clone().binding(),
-        ],
-        [num_points as u32, 1, 1],
-    );
+    {
+        let _span = info_span!("MapGaussiansToIntersect").entered();
+
+        // Dispatch one thread per point.
+        // TODO: Really want to do an indirect dispatch here for num_visible.
+        MapGaussiansToIntersect::new().execute(
+            &client,
+            shaders::map_gaussian_to_intersects::Uniforms::new(tile_bounds.into()),
+            &[
+                compact_from_depthsort_gid.handle.clone().binding(),
+                xys.handle.clone().binding(),
+                conic_comps.handle.clone().binding(),
+                radii.handle.clone().binding(),
+                cum_tiles_hit.handle.clone().binding(),
+                num_visible.handle.clone().binding(),
+            ],
+            &[
+                tile_id_from_isect.handle.clone().binding(),
+                depthsort_gid_from_isect.handle.clone().binding(),
+            ],
+            [num_points as u32, 1, 1],
+        );
+        sync();
+    }
 
     // We're sorting by tile ID, but we know beforehand what the maximum value
     // can be. We don't need to sort all the leading 0 bits!
     let num_tiles: u32 = tile_bounds[0] * tile_bounds[1];
     let bits = u32::BITS - num_tiles.leading_zeros();
+
+    let tile_sort_span = info_span!("Tile sort").entered();
     let (tile_id_from_isect, depthsort_gid_from_isect) = radix_argsort(
         client.clone(),
         bitcast_tensor(tile_id_from_isect),
@@ -201,6 +231,10 @@ fn render_forward(
         num_intersects.clone(),
         bits,
     );
+    sync();
+    drop(tile_sort_span);
+
+    let tile_edge_span = info_span!("GetTileBinEdges").entered();
 
     let tile_bins = BurnBack::int_zeros(
         Shape::new([tile_bounds[0] as usize, tile_bounds[1] as usize, 2]),
@@ -216,6 +250,10 @@ fn render_forward(
         &[tile_bins.handle.clone().binding()],
         [max_intersects as u32, 1, 1],
     );
+    sync();
+    drop(tile_edge_span);
+
+    let tile_edge_span = info_span!("Rasterize").entered();
 
     let out_img = if forward_only {
         // Channels are packed into 1 byte - aka one u32 element.
@@ -256,12 +294,14 @@ fn render_forward(
             compact_from_depthsort_gid.handle.clone().binding(),
             tile_bins.handle.clone().binding(),
             xys.handle.clone().binding(),
-            cov2ds.handle.clone().binding(),
+            conic_comps.handle.clone().binding(),
             colors.handle.clone().binding(),
         ],
         &out_handles,
         [img_size.x, img_size.y, 1],
     );
+    sync();
+    drop(tile_edge_span);
 
     (
         out_img,
@@ -271,7 +311,7 @@ fn render_forward(
             tile_bins: Tensor::from_primitive(bitcast_tensor(tile_bins)),
             cum_tiles_hit: Tensor::from_primitive(bitcast_tensor(cum_tiles_hit)),
             radii: Tensor::from_primitive(bitcast_tensor(radii)),
-            cov2ds: Tensor::from_primitive(bitcast_tensor(cov2ds)),
+            conic_comps: Tensor::from_primitive(bitcast_tensor(conic_comps)),
             colors: Tensor::from_primitive(colors),
             xys: Tensor::from_primitive(bitcast_tensor(xys)),
             final_index: final_index.map(|f| Tensor::from_primitive(bitcast_tensor(f))),
@@ -449,7 +489,7 @@ impl Backward<BurnBack, 3, 5> for RenderBackwards {
                 aux.tile_bins.into_primitive().handle.binding(),
                 aux.xys.into_primitive().handle.binding(),
                 aux.cum_tiles_hit.clone().into_primitive().handle.binding(),
-                aux.cov2ds.clone().into_primitive().handle.binding(),
+                aux.conic_comps.clone().into_primitive().handle.binding(),
                 aux.colors.clone().into_primitive().handle.binding(),
                 aux.radii.into_primitive().handle.binding(),
                 aux.final_index.unwrap().into_primitive().handle.binding(),
@@ -487,7 +527,7 @@ impl Backward<BurnBack, 3, 5> for RenderBackwards {
                 log_scales.handle.binding(),
                 quats.handle.binding(),
                 raw_opac.handle.binding(),
-                aux.cov2ds.into_primitive().handle.binding(),
+                aux.conic_comps.into_primitive().handle.binding(),
                 aux.cum_tiles_hit.into_primitive().handle.clone().binding(),
                 v_xy_scatter.handle.binding(),
                 v_conic_scatter.handle.binding(),

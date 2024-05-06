@@ -8,7 +8,7 @@ struct Uniforms {
 @group(0) @binding(0) var<storage> uniforms: Uniforms;
 @group(0) @binding(1) var<storage> compact_from_depthsort_gid: array<u32>;
 @group(0) @binding(2) var<storage> xys: array<vec2f>;
-@group(0) @binding(3) var<storage> cov2ds: array<vec4f>;
+@group(0) @binding(3) var<storage> conic_comp: array<vec4f>;
 
 @group(0) @binding(4) var<storage> radii: array<u32>;
 @group(0) @binding(5) var<storage> cum_tiles_hit: array<u32>;
@@ -37,7 +37,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
     let tile_min = tile_minmax.xy;
     let tile_max = tile_minmax.zw;
 
-    let conic = helpers::cov2d_to_conic(cov2ds[compact_gid].xyz);
+    let conic = conic_comp[compact_gid].xyz;
 
     // Get exclusive prefix sum of tiles hit.
     var isect_id = 0u;

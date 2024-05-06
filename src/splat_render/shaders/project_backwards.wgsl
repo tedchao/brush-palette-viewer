@@ -17,7 +17,7 @@ struct Uniforms {
 @group(0) @binding(3) var<storage> quats: array<vec4f>;
 @group(0) @binding(4) var<storage> raw_opacities: array<f32>;
 
-@group(0) @binding(5) var<storage> cov2ds: array<vec4f>;
+@group(0) @binding(5) var<storage> conic_comps: array<vec4f>;
 
 @group(0) @binding(6) var<storage> cum_tiles_hit: array<u32>;
 @group(0) @binding(7) var<storage> v_xy: array<vec2f>;
@@ -291,9 +291,9 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
     // compute vjp from df/d_conic to df/c_cov2d
     // conic = inverse cov2d
     // df/d_cov2d = -conic * df/d_conic * conic
-    let cov2d = cov2ds[compact_gid].xyz;
-    let compensation = helpers::cov_compensation(cov2d);
-    let conic = helpers::cov2d_to_conic(cov2d);
+    let conic_comp = conic_comps[compact_gid];
+    let conic = conic_comp.xyz;
+    let compensation = conic_comp.w;
     var v_cov2d = cov2d_to_conic_vjp(conic, v_conic_agg);
     
     // // Compensation is applied as opac * comp

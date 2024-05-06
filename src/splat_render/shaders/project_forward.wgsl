@@ -15,7 +15,7 @@
 @group(0) @binding(10) var<storage, read_write> colors: array<vec4f>;
 
 @group(0) @binding(11) var<storage, read_write> radii: array<u32>;
-@group(0) @binding(12) var<storage, read_write> cov2ds: array<vec4f>;
+@group(0) @binding(12) var<storage, read_write> conic_comps: array<vec4f>;
 @group(0) @binding(13) var<storage, read_write> num_tiles_hit: array<u32>;
 @group(0) @binding(14) var<storage, read_write> num_visible: array<atomic<u32>>;
 
@@ -202,7 +202,7 @@ fn sh_coeffs_to_color(
 fn main(@builtin(global_invocation_id) global_id: vec3u) {
     let global_gid = global_id.x;
 
-    if global_gid >=  arrayLength(&means) {
+    if global_gid >= arrayLength(&means) {
         return;
     }
 
@@ -231,16 +231,13 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
     // compute the projected covariance
     let scale = exp(log_scales[global_gid].xyz);
     let opac = sigmoid(raw_opacities[global_gid]);
-
     let quat = quats[global_gid];
-
     let R = helpers::quat_to_rotmat(quat);
     let S = helpers::scale_to_mat(scale);
     let M = R * S;
     let V = M * transpose(M);
     
     let tan_fov = 0.5 * vec2f(uniforms.img_size.xy) / focal;
-    
     let lims = 1.3 * tan_fov;
     // Get ndc coords +- clipped to the frustum.
     let t = p_view.z * clamp(p_view.xy / p_view.z, -lims, lims);
@@ -359,11 +356,12 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
 
         let viewdir = p_world - uniforms.camera_point;
         let color = max(sh_coeffs_to_color(uniforms.sh_degree, viewdir, sh) + vec3f(0.5), vec3f(0.0));
+        let comp = helpers::cov_compensation(cov2d);
         colors[write_id] = vec4f(color, opac);
         depths[write_id] = p_view.z;
         num_tiles_hit[write_id] = tile_area;
         radii[write_id] = radius;
         xys[write_id] = center;
-        cov2ds[write_id] = vec4f(cov2d, 1.0);
+        conic_comps[write_id] = vec4f(conic, comp);
     }
 }
