@@ -1,4 +1,4 @@
-use std::time::Instant;
+use std::time;
 
 use anyhow::Result;
 use burn::lr_scheduler::LrScheduler;
@@ -29,13 +29,13 @@ pub(crate) struct TrainConfig {
     pub(crate) train_steps: u32,
     #[config(default = false)]
     pub(crate) random_bck_color: bool,
-    #[config(default = 2e-2)]
+    #[config(default = 5e-3)]
     pub lr: f64,
-    #[config(default = 1e-2)]
+    #[config(default = 5e-3)]
     pub min_lr: f64,
-    #[config(default = 1)]
+    #[config(default = 10)]
     pub visualize_every: u32,
-    #[config(default = 32000)]
+    #[config(default = 8)]
     pub init_points: usize,
     #[config(default = 2.0)]
     pub init_aabb: f32,
@@ -43,7 +43,6 @@ pub(crate) struct TrainConfig {
 }
 
 struct TrainStats<B: Backend> {
-    total_points: usize,
     pred_image: Tensor<B, 3>,
     gt_image: Array3<f32>,
     loss: Array1<f32>,
@@ -118,11 +117,9 @@ where
     // Update the model using the optimizer.
     splats = optim.step(cur_lr, splats, grads);
 
-    let num_points = splats.cur_num_points();
     (
         splats,
         TrainStats {
-            total_points: num_points,
             aux,
             gt_image: viewpoint.view.image.clone(),
             loss: Array::from_shape_vec(loss_scalar.dims(), loss_scalar.to_data().convert().value)
@@ -170,9 +167,10 @@ where
     let loss = MseLoss::new();
 
     // By default use 8 second window with 16 accumulators
-    for iter in 0..config.train_steps + 1 {
+    for iter in 0..config.train_steps {
         let lr = LrScheduler::<B>::step(&mut scheduler);
 
+        let start_time = time::Instant::now();
         let (new_splats, stats) = train_step(
             &scene, splats, iter, lr, config, &loss, &mut optim, &mut rng, device,
         );
@@ -188,10 +186,15 @@ where
             rec.set_time_sequence("iterations", iter);
             rec.log("losses/main", &rerun::Scalar::new(stats.loss[[0]] as f64))?;
             rec.log("lr/current", &rerun::Scalar::new(lr))?;
-
             rec.log(
                 "points/total",
-                &rerun::Scalar::new(stats.total_points as f64),
+                &rerun::Scalar::new(splats.cur_num_points() as f64),
+            )?;
+
+            rec.log(
+                "performance/step_ms",
+                &rerun::Scalar::new((time::Instant::now() - start_time).as_secs_f64() * 1000.0)
+                    .clone(),
             )?;
 
             if iter % config.visualize_every == 0 {
@@ -253,18 +256,10 @@ where
 
                 let first_cam = &scene.train_data[0].camera;
 
-                let start_time = Instant::now();
                 let (img, _) =
                     splats.render(first_cam, glam::uvec2(512, 512), glam::vec3(0.0, 0.0, 0.0));
                 let img = Array::from_shape_vec(img.dims(), img.to_data().convert::<f32>().value)
                     .unwrap();
-                rec.log(
-                    "performance/render ms",
-                    &rerun::Scalar::new(
-                        (Instant::now() - start_time).as_secs_f32() as f64 * 1000.0,
-                    ),
-                )?;
-
                 let img = img.map(|x| (*x * 255.0).clamp(0.0, 255.0) as u8);
                 rec.log(
                     "images/fixed camera render",

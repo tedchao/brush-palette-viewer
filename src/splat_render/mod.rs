@@ -39,11 +39,14 @@ pub(crate) struct Aux<B: Backend> {
     pub num_intersects: Tensor<B, 1, Int>,
     pub tile_bins: Tensor<B, 3, Int>,
     pub radii: Tensor<B, 1>,
-    pub gaussian_per_intersect: Tensor<B, 1, Int>,
+    pub depthsort_gid_from_isect: Tensor<B, 1, Int>,
+    pub compact_from_depthsort_gid: Tensor<B, 1, Int>,
     pub xys: Tensor<B, 2>,
-    pub cov2ds: Tensor<B, 2>,
+    pub cum_tiles_hit: Tensor<B, 1, Int>,
+    pub conic_comps: Tensor<B, 2>,
+    pub colors: Tensor<B, 2>,
     pub final_index: Option<Tensor<B, 2, Int>>,
-    pub remap_ids: Tensor<B, 1, Int>,
+    pub global_from_compact_gid: Tensor<B, 1, Int>,
 }
 
 /// We create our own Backend trait that extends the Burn backend trait.
@@ -75,8 +78,6 @@ fn create_tensor<E: JitElement, const D: usize>(
     device: &WgpuDevice,
     shape: [usize; D],
 ) -> JitTensor<BurnRuntime, E, D> {
-    let _span = info_span!("Create tensor").entered();
-
     let shape = Shape::new(shape);
     let bufsize = shape.num_elements() * core::mem::size_of::<E>();
     let buffer = client.empty(bufsize);

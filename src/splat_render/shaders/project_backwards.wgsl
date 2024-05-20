@@ -7,29 +7,32 @@ struct Uniforms {
     focal: vec2f,
     // Img resolution (w, h)
     img_size: vec2u,
+    // Degree of sh coeffecients used.
+    sh_degree: u32,
 }
 @group(0) @binding(0) var<storage> uniforms: Uniforms;
 
 @group(0) @binding(1) var<storage> means: array<vec4f>;
 @group(0) @binding(2) var<storage> log_scales: array<vec4f>;
 @group(0) @binding(3) var<storage> quats: array<vec4f>;
+@group(0) @binding(4) var<storage> raw_opacities: array<f32>;
 
-@group(0) @binding(4) var<storage> cov2ds: array<vec4f>;
+@group(0) @binding(5) var<storage> conic_comps: array<vec4f>;
 
-@group(0) @binding(5) var<storage> v_xy: array<vec2f>;
-@group(0) @binding(6) var<storage> v_conic: array<vec4f>;
-@group(0) @binding(7) var<storage> v_colors: array<vec4f>;
+@group(0) @binding(6) var<storage> cum_tiles_hit: array<u32>;
+@group(0) @binding(7) var<storage> v_xy: array<vec2f>;
+@group(0) @binding(8) var<storage> v_conic: array<vec4f>;
+@group(0) @binding(9) var<storage> v_colors: array<vec4f>;
 
+@group(0) @binding(10) var<storage> num_visible: array<u32>;
+@group(0) @binding(11) var<storage> global_from_compact_gid: array<u32>;
+@group(0) @binding(12) var<storage> compact_from_depthsort_gid: array<u32>;
 
-@group(0) @binding(8) var<storage> num_visible: array<u32>;
-@group(0) @binding(9) var<storage> remapped_id: array<u32>;
-
-@group(0) @binding(10) var<storage, read_write> v_means_agg: array<vec4f>;
-@group(0) @binding(11) var<storage, read_write> v_scales_agg: array<vec4f>;
-@group(0) @binding(12) var<storage, read_write> v_quats_agg: array<vec4f>;
-@group(0) @binding(13) var<storage, read_write> v_coeffs_agg: array<f32>;
-@group(0) @binding(14) var<storage, read_write> v_opac_agg: array<f32>;
-
+@group(0) @binding(13) var<storage, read_write> v_means_agg: array<vec4f>;
+@group(0) @binding(14) var<storage, read_write> v_scales_agg: array<vec4f>;
+@group(0) @binding(15) var<storage, read_write> v_quats_agg: array<vec4f>;
+@group(0) @binding(16) var<storage, read_write> v_coeffs_agg: array<f32>;
+@group(0) @binding(17) var<storage, read_write> v_opac_agg: array<f32>;
 
 struct ShCoeffs {
     b0_c0: vec3f,
@@ -61,6 +64,10 @@ struct ShCoeffs {
     b4_c6: vec3f,
     b4_c7: vec3f,
     b4_c8: vec3f,
+}
+
+fn num_sh_coeffs(degree: u32) -> u32 {
+    return (degree + 1) * (degree + 1);
 }
 
 fn sh_coeffs_to_color_fast_vjp(
@@ -161,6 +168,12 @@ fn sh_coeffs_to_color_fast_vjp(
     return v_coeffs;
 }
 
+fn write_coeffs(base_id: ptr<function, u32>, val: vec3f) {
+    v_coeffs_agg[*base_id + 0] = val.x;
+    v_coeffs_agg[*base_id + 1] = val.y;
+    v_coeffs_agg[*base_id + 2] = val.z;
+    *base_id += 3u;
+}
 
 fn project_pix_vjp(fxfy: vec2f, p_view: vec3f, v_xy: vec2f) -> vec3f {
     let rw = 1.0f / (p_view.z + 1e-6f);
@@ -232,26 +245,41 @@ fn v_sigmoid(x: f32) -> f32 {
 @compute
 @workgroup_size(helpers::SPLATS_PER_GROUP, 1, 1)
 fn main(@builtin(global_invocation_id) global_id: vec3u) {
-    let cg_id = global_id.x;
+    let depthsort_gid = global_id.x;
 
-    if cg_id >= num_visible[0] {
+    if depthsort_gid >= num_visible[0] {
         return;
     }
 
-    let gg_id = remapped_id[cg_id];
+    let compact_gid = compact_from_depthsort_gid[depthsort_gid];
+
+    // Aggregate the gradients that are written per tile.
+    var v_xy_agg = vec2f(0.0);
+    var v_conic_agg = vec3f(0.0);
+    var v_colors_agg = vec4f(0.0);
+
+    var grad_idx = 0u;
+    if depthsort_gid > 0 {
+        grad_idx = cum_tiles_hit[depthsort_gid - 1u];
+    }
+    for(; grad_idx < cum_tiles_hit[depthsort_gid]; grad_idx++) {
+        v_xy_agg += v_xy[grad_idx];
+        v_conic_agg += v_conic[grad_idx].xyz;
+        v_colors_agg += v_colors[grad_idx];
+    }
 
     let viewmat = uniforms.viewmat;
     let focal = uniforms.focal;
 
-    let mean = means[gg_id].xyz;
-    let scale = exp(log_scales[gg_id].xyz);
-    let quat = quats[gg_id];
+    let global_gid = global_from_compact_gid[compact_gid];
+    let mean = means[global_gid].xyz;
+    let scale = exp(log_scales[global_gid].xyz);
+    let quat = quats[global_gid];
 
     let W = mat3x3f(viewmat[0].xyz, viewmat[1].xyz, viewmat[2].xyz);
     let p_view = W * mean + viewmat[3].xyz;
-    var v_mean = transpose(W) * project_pix_vjp(focal, p_view, v_xy[cg_id]);
+    var v_mean = transpose(W) * project_pix_vjp(focal, p_view, v_xy_agg);
 
-    // get v_mean3d from v_xy
     // get z gradient contribution to mean3d gradient
     // TODO: Is this indeed only active if depth is supervised?
     // z = viemwat[8] * mean3d.x + viewmat[9] * mean3d.y + viewmat[10] *
@@ -263,11 +291,10 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
     // compute vjp from df/d_conic to df/c_cov2d
     // conic = inverse cov2d
     // df/d_cov2d = -conic * df/d_conic * conic
-    let cov2d = cov2ds[cg_id].xyz;
-    let compensation = helpers::cov_compensation(cov2d);
-    let conic = helpers::cov2d_to_conic(cov2d);
-    let v_conic = v_conic[cg_id].xyz;
-    var v_cov2d = cov2d_to_conic_vjp(conic, v_conic);
+    let conic_comp = conic_comps[compact_gid];
+    let conic = conic_comp.xyz;
+    let compensation = conic_comp.w;
+    var v_cov2d = cov2d_to_conic_vjp(conic, v_conic_agg);
     
     // // Compensation is applied as opac * comp
     // // so deriv is v_opac.
@@ -377,17 +404,51 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
     let v_R = v_M * S;
     let v_quat = quat_to_rotmat_vjp(quat, v_R);
 
-    v_quats_agg[gg_id] = v_quat * 0.0;
-    v_scales_agg[gg_id] = vec4f(v_scale, 0.0) * 0.0;
-    v_means_agg[gg_id] = vec4f(v_mean, 0.0f) * 0.0;
+    v_quats_agg[global_gid] = v_quat;
+    v_scales_agg[global_gid] = vec4f(v_scale * scale, 0.0);
+    v_means_agg[global_gid] = vec4f(v_mean, 0.0f);
 
-    let v_col = v_colors[cg_id];
-    let v_coeff = sh_coeffs_to_color_fast_vjp(0u, vec3f(0.0, 0.0, 1.0), v_col.xyz);
+    // Write SH gradients.
+    // TODO: Get real viewdir.
+    let v_coeff = sh_coeffs_to_color_fast_vjp(uniforms.sh_degree, vec3f(0.0, 0.0, 1.0), v_colors_agg.xyz);
+    let num_coeffs = num_sh_coeffs(uniforms.sh_degree);
+    var base_id = global_gid * num_coeffs * 3;
 
-    v_coeffs_agg[gg_id * 3 + 0] = v_coeff.b0_c0.x;
-    v_coeffs_agg[gg_id * 3 + 1] = v_coeff.b0_c0.y;
-    v_coeffs_agg[gg_id * 3 + 2] = v_coeff.b0_c0.z;
+    write_coeffs(&base_id, v_coeff.b0_c0);
+    if uniforms.sh_degree > 0 {
+        write_coeffs(&base_id, v_coeff.b1_c0);
+        write_coeffs(&base_id, v_coeff.b1_c1);
+        write_coeffs(&base_id, v_coeff.b1_c2);
+        if uniforms.sh_degree > 1 {
+            write_coeffs(&base_id, v_coeff.b2_c0);
+            write_coeffs(&base_id, v_coeff.b2_c1);
+            write_coeffs(&base_id, v_coeff.b2_c2);
+            write_coeffs(&base_id, v_coeff.b2_c3);
+            write_coeffs(&base_id, v_coeff.b2_c4);
+            if uniforms.sh_degree > 2 {
+                write_coeffs(&base_id, v_coeff.b3_c0);
+                write_coeffs(&base_id, v_coeff.b3_c1);
+                write_coeffs(&base_id, v_coeff.b3_c2);
+                write_coeffs(&base_id, v_coeff.b3_c3);
+                write_coeffs(&base_id, v_coeff.b3_c4);
+                write_coeffs(&base_id, v_coeff.b3_c5);
+                write_coeffs(&base_id, v_coeff.b3_c6);
+                if uniforms.sh_degree > 3 {
+                    write_coeffs(&base_id, v_coeff.b4_c0);
+                    write_coeffs(&base_id, v_coeff.b4_c1);
+                    write_coeffs(&base_id, v_coeff.b4_c2);
+                    write_coeffs(&base_id, v_coeff.b4_c3);
+                    write_coeffs(&base_id, v_coeff.b4_c4);
+                    write_coeffs(&base_id, v_coeff.b4_c5);
+                    write_coeffs(&base_id, v_coeff.b4_c6);
+                    write_coeffs(&base_id, v_coeff.b4_c7);
+                    write_coeffs(&base_id, v_coeff.b4_c8);
+                }
+            }
+        }
+    }
 
-    // let opac = raw_opacities[idx];
-    v_opac_agg[gg_id] = v_col.w * 0.0;
+    // TODO: Could use opacity activation? Doesn't really matter
+    let raw_opac = raw_opacities[global_gid];
+    v_opac_agg[global_gid] = v_colors_agg.w * v_sigmoid(raw_opac);
 }

@@ -140,7 +140,7 @@ impl<B: Backend> Splats<B> {
             Tensor::random([num_points], Distribution::Uniform(-4.0, -2.0), device);
 
         // TODO: Fancy KNN init.
-        let init_scale = Tensor::random([num_points, 4], Distribution::Uniform(-5.0, -3.0), device);
+        let init_scale = Tensor::random([num_points, 4], Distribution::Uniform(-1.0, -1.0), device);
 
         // TODO: Support lazy loading.
         // Model parameters.

@@ -23,12 +23,14 @@ fn main() -> anyhow::Result<()> {
     )
     .expect("Failed to setup tracy layer");
 
-    // type DiffBack = Autodiff<BurnBack>;
-    // let config = TrainConfig::new("../nerf_synthetic/lego/".to_owned());
-    // let device = Default::default();
-    // train::train::<DiffBack>(&config, &device)?;
+    type DiffBack = Autodiff<BurnBack>;
+    let config = TrainConfig::new("../nerf_synthetic/lego/".to_owned());
+    let device = Default::default();
 
-    viewer::start()?;
-
+    if true {
+        train::train::<DiffBack>(&config, &device)?;
+    } else {
+        viewer::start()?;
+    }
     Ok(())
 }

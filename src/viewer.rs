@@ -1,18 +1,17 @@
-use core::ops::DerefMut;
-use std::{
-    sync::Arc,
-    time::{self, Duration},
-};
-
 use crate::{
     camera::Camera, dataset_readers, gaussian_splats::Splats, splat_import, splat_render::BurnBack,
 };
 use anyhow::Result;
 use burn::tensor::Tensor;
 use burn_wgpu::{RuntimeOptions, WgpuDevice};
+use core::ops::DerefMut;
 use eframe::{egui_wgpu::WgpuConfiguration, NativeOptions};
 use egui::{pos2, Color32, Rect, TextureId};
 use glam::{Mat3, Mat4, Quat, Vec2, Vec3};
+use std::{
+    sync::Arc,
+    time::{self, Duration},
+};
 use wgpu::ImageDataLayout;
 
 /// Tags an entity as capable of panning and orbiting.
@@ -157,8 +156,8 @@ impl Viewer {
             last_render_time: time::Instant::now(),
         };
         viewer.load_splats(
-            "./models/bonsai/point_cloud/iteration_30000/point_cloud.ply",
-            Some("./models/bonsai/cameras.json"),
+            "./models/counter/point_cloud/iteration_30000/point_cloud.ply",
+            Some("./models/counter/cameras.json"),
         );
         viewer
     }
