@@ -63,7 +63,7 @@ fn cov2d_to_conic(cov2d: vec3f) -> vec3f {
     return vec3f(cov2d.z, -cov2d.y, cov2d.x) / det;
 }
 
-// TODO: Is this 0.3 good? Make it configurable?
+// TODO: Is this 0.3 good? Make this configurable?
 const COV_BLUR: f32 = 0.3;
 
 fn cov_compensation(cov2d: vec3f) -> f32 {
@@ -86,7 +86,6 @@ fn can_be_visible(tile: vec2u, xy: vec2f, radii: u32) -> bool {
     let rsqr = dot(dif, dif);
     return rsqr <= f32(radii * radii);
 }
-
 
 fn ceil_div(a: u32, b: u32) -> u32 {
     return (a + b - 1) / b;

@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 
-use super::{BurnBack, BurnRuntime, FloatTensor};
+use burn_wgpu::WgpuDevice;
+
+use super::{BurnBack, FloatTensor};
 
 #[derive(Clone, Copy)]
 pub enum DimBound {
@@ -11,7 +13,7 @@ pub enum DimBound {
 
 pub struct DimCheck<'a> {
     bound: HashMap<&'a str, usize>,
-    device: Option<&'a <BurnRuntime as burn_jit::Runtime>::Device>,
+    device: Option<WgpuDevice>,
 }
 
 impl<'a> DimCheck<'a> {
@@ -29,8 +31,8 @@ impl<'a> DimCheck<'a> {
     ) -> Self {
         let dims = tensor.shape.dims;
 
-        match self.device {
-            None => self.device = Some(&tensor.device),
+        match self.device.as_ref() {
+            None => self.device = Some(tensor.device.clone()),
             Some(d) => assert_eq!(d, &tensor.device),
         }
 

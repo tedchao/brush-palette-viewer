@@ -16,10 +16,11 @@ burn = { path = "../burn/crates/burn", features = [
 burn-compute = { path = "../burn/crates/burn-compute" }
 burn-jit = { path = "../burn/crates/burn-jit" }
 burn-wgpu = { path = "../burn/crates/burn-wgpu" }
+burn-cube = { path = "../burn/crates/burn-cube" }
 
 bytemuck = "1.15"
 ndarray = "0.15"
-rerun = { version = "0.15", default-features = false, features = [
+rerun = { version = "0.16", default-features = false, features = [
     'sdk',
     'glam',
 ], optional = true }
@@ -34,17 +35,17 @@ serde = "1.0"
 serde_json = "1.0"
 rand = "0.8.5"
 anyhow = "1.0.81"
-wgpu = { version = "0.19", features = ["naga"] }
-naga_oil = "0.13"
-naga = "0.19"
+wgpu = { version = "0.20", features = ["naga"] }
+naga_oil = { git = "https://github.com/Elabajaba/naga_oil.git", branch="wgpu-0.20"}
+naga = "0.20"
 miette = "7.2.0"
 running-average = "0.1.0"
 ply-rs = "0.1.3"
 tracing = "0.1.40"
 tracing-subscriber = "0.3.18"
-egui = "0.27"
-eframe = { version = "0.27", features = ["wgpu"] }
-egui_extras = { version = "*", features = ["all_loaders"] }
+egui = { git = "https://github.com/emilk/egui.git" }
+eframe = { git = "https://github.com/emilk/egui.git", features = ["wgpu"] }
+egui_extras = { git = "https://github.com/emilk/egui.git", features = ["all_loaders"] }
 
 [features]
 tracy = ["dep:tracing-tracy"]

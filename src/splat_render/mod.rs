@@ -9,10 +9,11 @@ use burn_compute::server::Binding;
 use burn_compute::{
     channel::ComputeChannel,
     client::ComputeClient,
-    server::{ComputeServer, Handle},
+    server::ComputeServer,
 };
-use burn_jit::{JitElement, Runtime};
-use burn_wgpu::JitTensor;
+use burn_cube::Runtime;
+use burn_jit::JitElement;
+use burn_wgpu::{JitTensor, WgpuDevice};
 use tracing::info_span;
 
 mod dim_check;
@@ -22,12 +23,11 @@ mod radix_sort;
 pub mod render;
 mod shaders;
 
-pub type BurnRuntime = WgpuRuntime<AutoGraphicsApi>;
 pub type BurnBack = JitBackend<BurnRuntime, f32, i32>;
 
+pub type BurnRuntime = WgpuRuntime<AutoGraphicsApi>;
 type BurnClient =
     ComputeClient<<BurnRuntime as Runtime>::Server, <BurnRuntime as Runtime>::Channel>;
-type BufferHandle = Handle<<BurnRuntime as Runtime>::Server>;
 
 type FloatTensor<B, const D: usize> =
     <B as burn::tensor::backend::Backend>::FloatTensorPrimitive<D>;
@@ -72,7 +72,7 @@ impl AutodiffBackend for Autodiff<BurnBack> {}
 
 fn create_tensor<E: JitElement, const D: usize>(
     client: &BurnClient,
-    device: &<BurnRuntime as Runtime>::Device,
+    device: &WgpuDevice,
     shape: [usize; D],
 ) -> JitTensor<BurnRuntime, E, D> {
     let _span = info_span!("Create tensor").entered();

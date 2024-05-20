@@ -90,7 +90,7 @@ fn copy_buffer_to_texture(img: Tensor<BurnBack, 3>, texture: &wgpu::Texture) {
         // Now copy the buffer to the texture.
         encoder.copy_buffer_to_texture(
             wgpu::ImageCopyBuffer {
-                buffer: &img_res.buffer,
+                buffer: img_res.buffer.as_ref(),
                 layout: ImageDataLayout {
                     offset: 0,
                     bytes_per_row,
