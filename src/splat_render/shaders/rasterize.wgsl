@@ -23,6 +23,11 @@ struct Uniforms {
     @group(0) @binding(8) var<storage, read_write> final_index : array<u32>;
 #endif
 
+// It's possible to gather less gaussians per iteration than the # of threads.
+// for high tile sizes, there's so much contention things actually slow down instead
+// of speed up.
+const GATHER_PER_ITERATION = helpers::TILE_SIZE;
+
 var<workgroup> xy_batch: array<vec2f, helpers::TILE_SIZE>;
 var<workgroup> colors_batch: array<vec4f, helpers::TILE_SIZE>;
 var<workgroup> conic_comp_batch: array<vec4f, helpers::TILE_SIZE>;
