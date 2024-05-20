@@ -6,15 +6,10 @@ use burn::{
     tensor::{Shape, Tensor},
 };
 use burn_compute::server::Binding;
-use burn_compute::{
-    channel::ComputeChannel,
-    client::ComputeClient,
-    server::ComputeServer,
-};
+use burn_compute::{channel::ComputeChannel, client::ComputeClient, server::ComputeServer};
 use burn_cube::Runtime;
 use burn_jit::JitElement;
 use burn_wgpu::{JitTensor, WgpuDevice};
-use tracing::info_span;
 
 mod dim_check;
 mod kernels;

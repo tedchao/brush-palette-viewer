@@ -20,7 +20,7 @@ impl Scene {
 
     #[cfg(feature = "rerun")]
     pub(crate) fn visualize(&self, rec: &rerun::RecordingStream) -> anyhow::Result<()> {
-        rec.log_timeless("world", &rerun::ViewCoordinates::RIGHT_HAND_Z_UP)?;
+        rec.log_static("world", &rerun::ViewCoordinates::RIGHT_HAND_Z_UP)?;
 
         for (i, data) in self.train_data.iter().enumerate() {
             let path = format!("world/dataset/camera/{i}");
@@ -30,15 +30,15 @@ impl Scene {
                 data.camera.focal(vis_size),
                 glam::vec2(vis_size.x as f32, vis_size.y as f32),
             );
-            rec.log_timeless(path.clone(), &rerun_camera)?;
-            rec.log_timeless(
+            rec.log_static(path.clone(), &rerun_camera)?;
+            rec.log_static(
                 path.clone(),
                 &rerun::Transform3D::from_translation_rotation(
                     data.camera.position,
                     data.camera.rotation,
                 ),
             )?;
-            rec.log_timeless(
+            rec.log_static(
                 path + "/image",
                 &rerun::Image::try_from(data.view.image.clone())?,
             )?;
