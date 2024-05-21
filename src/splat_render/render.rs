@@ -41,7 +41,6 @@ fn render_forward(
     forward_only: bool,
 ) -> (JitTensor<BurnRuntime, f32, 3>, Aux<BurnBack>) {
     let _span = info_span!("render_gaussians").entered();
-
     let setup = info_span!("setup").entered();
 
     let (means, log_scales, quats, sh_coeffs, raw_opacities) = (
@@ -603,4 +602,155 @@ pub fn render<B: Backend>(
         background,
     );
     (Tensor::from_primitive(img), aux)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::num;
+
+    use super::*;
+    use assert_approx_eq::assert_approx_eq;
+    use burn_wgpu::WgpuDevice;
+
+    type DiffBack = Autodiff<BurnBack>;
+
+    // TODO: Add some reference renders.
+    #[test]
+    fn renders_at_all() {
+        // Check if rendering doesn't hard crash or anything.
+        // These are some zero-sized gaussians, so we know
+        // what the result should look like.
+        let cam = Camera::new(glam::vec3(0.0, 0.0, 0.0), glam::Quat::IDENTITY, 0.5, 0.5);
+        let img_size = glam::uvec2(32, 32);
+        let device = WgpuDevice::BestAvailable;
+
+        let num_points = 8;
+        let means = Tensor::<DiffBack, 2, _>::zeros([num_points, 4], &device);
+        let log_scales = Tensor::ones([num_points, 4], &device) * 2.0;
+        let quats = Tensor::from_data(glam::Quat::IDENTITY.to_array(), &device)
+            .unsqueeze_dim(0)
+            .repeat(0, num_points);
+        let sh_coeffs = Tensor::ones([num_points, 4], &device);
+        let raw_opacity = Tensor::zeros([num_points], &device);
+        let (output, _) = render(
+            &cam,
+            img_size,
+            means,
+            log_scales,
+            quats,
+            sh_coeffs,
+            raw_opacity,
+            glam::vec3(0.123, 0.123, 0.123),
+        );
+
+        let rgb = output.clone().slice([0..32, 0..32, 0..3]);
+        let alpha = output.clone().slice([0..32, 0..32, 3..4]);
+
+        // TODO: Maybe use all_close from burn - but that seems to be
+        // broken atm.
+        assert_approx_eq!(rgb.clone().min().to_data().value[0], 0.123);
+        assert_approx_eq!(rgb.clone().max().to_data().value[0], 0.123);
+        assert_approx_eq!(alpha.clone().min().to_data().value[0], 0.0);
+        assert_approx_eq!(alpha.clone().max().to_data().value[0], 0.0);
+    }
+
+    // TODO: This doesn't work yet for some reason. Are the gradients wrong? Or?
+    #[test]
+    fn test_mean_grads() {
+        let cam = Camera::new(glam::vec3(0.0, 0.0, -5.0), glam::Quat::IDENTITY, 0.5, 0.5);
+        let num_points = 1;
+
+        let img_size = glam::uvec2(16, 16);
+        let device = WgpuDevice::BestAvailable;
+
+        let means = Tensor::<DiffBack, 2, _>::zeros([num_points, 4], &device).require_grad();
+        let log_scales = Tensor::ones([num_points, 4], &device).require_grad();
+        let quats = Tensor::from_data(glam::Quat::IDENTITY.to_array(), &device)
+            .unsqueeze_dim(0)
+            .repeat(0, num_points)
+            .require_grad();
+        let sh_coeffs = Tensor::zeros([num_points, 4], &device).require_grad();
+        let raw_opacity = Tensor::zeros([num_points], &device).require_grad();
+
+        let mut dloss_dmeans_stat = Tensor::zeros([num_points], &device);
+
+        // Calculate a stochasic gradient estimation by perturbing random dimensions.
+        let num_iters = 50;
+
+        for _ in 0..num_iters {
+            let eps = 1e-2;
+
+            let flip_vec = Tensor::<DiffBack, 1>::random(
+                [num_points],
+                burn::tensor::Distribution::Uniform(-1.0, 1.0),
+                &device,
+            );
+            let seps = flip_vec * eps;
+
+            let l1 = render(
+                &cam,
+                img_size,
+                means.clone(),
+                log_scales.clone(),
+                quats.clone(),
+                sh_coeffs.clone(),
+                raw_opacity.clone() - seps.clone(),
+                glam::Vec3::ZERO,
+            )
+            .0
+            .mean();
+
+            let l2 = render(
+                &cam,
+                img_size,
+                means.clone(),
+                log_scales.clone(),
+                quats.clone(),
+                sh_coeffs.clone(),
+                raw_opacity.clone() + seps.clone(),
+                glam::Vec3::ZERO,
+            )
+            .0
+            .mean();
+
+            let df = l2 - l1;
+            dloss_dmeans_stat = dloss_dmeans_stat + df * (seps * 2.0).recip();
+        }
+
+        dloss_dmeans_stat = dloss_dmeans_stat / (num_iters as f32);
+        let dloss_dmeans_stat = dloss_dmeans_stat.into_data().value;
+
+        let loss = render(
+            &cam,
+            img_size,
+            means.clone(),
+            log_scales.clone(),
+            quats.clone(),
+            sh_coeffs.clone(),
+            raw_opacity.clone(),
+            glam::Vec3::ZERO,
+        )
+        .0
+        .mean();
+        // calculate numerical gradients.
+        // Compare to reference value.
+
+        // Check if rendering doesn't hard crash or anything.
+        // These are some zero-sized gaussians, so we know
+        // what the result should look like.
+        let grads = loss.backward();
+
+        // Get the gradient of the rendered image.
+        let dloss_dmeans = (Tensor::<BurnBack, 1>::from_primitive(
+            grads.get(&raw_opacity.clone().into_primitive()).unwrap(),
+        ))
+        .into_data()
+        .value;
+
+        println!("Stat grads {dloss_dmeans_stat:.5?}");
+        println!("Calc grads {dloss_dmeans:.5?}");
+
+        // TODO: These results don't make sense at all currently, which is either
+        // mildly bad news or very bad news :)
+    }
 }

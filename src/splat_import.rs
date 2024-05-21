@@ -25,7 +25,6 @@ fn inv_sigmoid(v: f32) -> f32 {
 }
 
 const SH_C0: f32 = 0.28209479;
-const SH_COEFF_COUNT_PER_CHANNEL: usize = num_sh_coeffs(3);
 
 impl PropertyAccess for GaussianData {
     fn new() -> Self {
@@ -33,6 +32,8 @@ impl PropertyAccess for GaussianData {
     }
 
     fn set_property(&mut self, key: String, property: Property) {
+        let sh_coeff_per_channel: usize = num_sh_coeffs(3);
+
         match (key.as_ref(), property) {
             // TODO: SH.
             ("x", Property::Float(v)) => self.means[0] = v,
@@ -62,12 +63,12 @@ impl PropertyAccess for GaussianData {
                         .parse::<usize>()
                         .unwrap();
 
-                    let channel = i / SH_COEFF_COUNT_PER_CHANNEL;
+                    let channel = i / sh_coeff_per_channel;
 
-                    let coeff = if SH_COEFF_COUNT_PER_CHANNEL == 1 {
+                    let coeff = if sh_coeff_per_channel == 1 {
                         1
                     } else {
-                        (i % (SH_COEFF_COUNT_PER_CHANNEL - 1)) + 1
+                        (i % (sh_coeff_per_channel - 1)) + 1
                     };
                     (coeff, channel)
                 };

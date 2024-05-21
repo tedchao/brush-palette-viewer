@@ -101,18 +101,18 @@ fn float_to_tensor<B: Backend>(data: Vec<f32>, device: &Device<B>) -> Tensor<B, 
     )
 }
 
-pub const fn num_sh_coeffs(degree: usize) -> usize {
+pub fn num_sh_coeffs(degree: usize) -> usize {
     (degree + 1).pow(2)
 }
 
-pub const fn sh_basis_from_coeffs(degree: usize) -> usize {
+pub fn sh_basis_from_coeffs(degree: usize) -> usize {
     match degree {
         1 => 0,
         4 => 1,
         9 => 2,
         16 => 3,
         25 => 4,
-        _ => panic!("Too many sh bases"),
+        _ => panic!("Invalid nr. of sh bases {degree}"),
     }
 }
 
@@ -140,7 +140,7 @@ impl<B: Backend> Splats<B> {
             Tensor::random([num_points], Distribution::Uniform(-4.0, -2.0), device);
 
         // TODO: Fancy KNN init.
-        let init_scale = Tensor::random([num_points, 4], Distribution::Uniform(-1.0, -1.0), device);
+        let init_scale = Tensor::random([num_points, 4], Distribution::Uniform(-5.0, -3.0), device);
 
         // TODO: Support lazy loading.
         // Model parameters.
