@@ -1,7 +1,7 @@
 use burn::{
     config::Config,
     module::{Module, Param, ParamId},
-    tensor::{Data, Device, Shape},
+    tensor::Device,
 };
 use tracing::info_span;
 
