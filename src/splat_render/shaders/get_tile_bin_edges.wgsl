@@ -11,7 +11,7 @@
 @compute
 @workgroup_size(256, 1, 1)
 fn main(@builtin(global_invocation_id) global_id: vec3u) {
-    let isect_id = global_id.x;
+    let isect_id = global_id.x * 64 + global_id.y;
     let num_intersects = num_intersections[0];
 
     if isect_id >= num_intersects {

@@ -16,9 +16,6 @@ fn main(
     let num_wgs = sorting::div_ceil(num_keys, sorting::BLOCK_SIZE);
     let num_reduce_wgs = sorting::BIN_COUNT * sorting::div_ceil(num_wgs, sorting::BLOCK_SIZE);
 
-    // We only dispatch a single wg, so I think this is always 0
-    let base_index = sorting::BLOCK_SIZE * group_id.x;
-
     for (var i = 0u; i < sorting::ELEMENTS_PER_THREAD; i++) {
         let data_index = i * sorting::WG + local_id.x;
         let col = (i * sorting::WG + local_id.x) / sorting::ELEMENTS_PER_THREAD;

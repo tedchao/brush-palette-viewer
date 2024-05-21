@@ -176,9 +176,9 @@ fn render_forward(
     let cum_tiles_hit = prefix_sum(&client, num_tiles_hit);
 
     // TODO: How do we actually properly deal with this :/
-    // TODO: Look into some more ways of reducing intersections.
     // Ideally render gaussians in chunks, but that might be hell with the backward pass.
-    let max_intersects = (num_points * ((tile_bounds.x * tile_bounds.y) as usize)).min(256 * 65535);
+    let num_tiles = tile_bounds[0] * tile_bounds[1];
+    let max_intersects = (num_points * (num_tiles as usize)).min(256 * 8 * 65535);
 
     // Each intersection maps to a gaussian.
     let tile_id_from_isect = create_tensor::<u32, 1>(&client, &device, [max_intersects]);
@@ -219,7 +219,6 @@ fn render_forward(
 
     // We're sorting by tile ID, but we know beforehand what the maximum value
     // can be. We don't need to sort all the leading 0 bits!
-    let num_tiles: u32 = tile_bounds[0] * tile_bounds[1];
     let bits = u32::BITS - num_tiles.leading_zeros();
 
     let tile_sort_span = info_span!("Tile sort").entered();
@@ -247,7 +246,7 @@ fn render_forward(
             num_intersects.handle.clone().binding(),
         ],
         &[tile_bins.handle.clone().binding()],
-        [max_intersects as u32, 1, 1],
+        [(max_intersects.div_ceil(64)) as u32, 64, 1],
     );
     sync();
     drop(tile_edge_span);

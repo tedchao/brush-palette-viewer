@@ -17,20 +17,22 @@ var<workgroup> local_histogram: array<atomic<u32>, sorting::BIN_COUNT>;
 @workgroup_size(sorting::WG, 1, 1)
 fn main(
     @builtin(local_invocation_id) local_id: vec3<u32>,
-    @builtin(workgroup_id) group_id: vec3<u32>,
+    @builtin(workgroup_id) gid: vec3<u32>,
 ) {
     let num_keys = num_keys_arr[0];
     let num_wgs = sorting::div_ceil(num_keys, sorting::BLOCK_SIZE);
 
-    if group_id.x >= num_wgs {
+    let group_id = sorting::group_id_from_gid(gid);
+
+    if group_id >= num_wgs {
         return;
     }
 
     if local_id.x < sorting::BIN_COUNT {
-        bin_offset_cache[local_id.x] = counts[local_id.x * num_wgs + group_id.x];
+        bin_offset_cache[local_id.x] = counts[local_id.x * num_wgs + group_id];
     }
     workgroupBarrier();
-    let wg_block_start = sorting::BLOCK_SIZE * group_id.x;
+    let wg_block_start = sorting::BLOCK_SIZE * group_id;
     // TODO: handle additional as above
     let block_index = wg_block_start + local_id.x;
     var data_index = block_index;

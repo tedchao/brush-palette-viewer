@@ -18,21 +18,28 @@ struct Config {
 }
 
 const OFFSET = 42u;
-const WG = 256u;
+const WG_SIDE = 16u;
+const WG = WG_SIDE * WG_SIDE;
+
+
+
 const BITS_PER_PASS = 4u;
 const BIN_COUNT = 1u << BITS_PER_PASS;
 const HISTOGRAM_SIZE = WG * BIN_COUNT;
 const ELEMENTS_PER_THREAD = 4u;
+
 const BLOCK_SIZE = WG * ELEMENTS_PER_THREAD;
-
-// An implementation of warp-local multisplit. See the Onesweep paper.
-// Since WGSL doesn't yet have subgroups, we use the terms "warp" and "lane"
-// to describe the arrangement of data, and simulate the warp ballot operation
-// using simple iteration across values in shared memory.
-const WARP_SIZE = 16u;
-const N_WARPS = WG / WARP_SIZE;
-
 
 fn div_ceil(a: u32, b: u32) -> u32 {
     return (a + b - 1u) / b;
+}
+
+// To get around the 65k dispatch limit, we dispatch a number of groups
+// in the y direction. This means we get N times more capacity, at the cost of
+// some of these groups being launched needlessly. Given that we only really need
+// a factor ~2 or so more capacity, this is not a massive deal.
+const VERTICAL_GROUPS = 64u;
+
+fn group_id_from_gid(gid: vec3u) -> u32 {
+    return gid.x * VERTICAL_GROUPS + gid.y;
 }

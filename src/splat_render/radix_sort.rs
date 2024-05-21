@@ -33,12 +33,12 @@ pub fn radix_argsort(
     let max_n = input_keys.shape.dims[0] as u32;
 
     // compute buffer and dispatch sizes
-    let max_num_wgs = max_n.div_ceil(BLOCK_SIZE);
-    let max_num_reduce_wgs = BIN_COUNT * max_num_wgs.div_ceil(BLOCK_SIZE);
+    let max_needed_wgs = max_n.div_ceil(BLOCK_SIZE);
+    let max_num_reduce_wgs = BIN_COUNT * max_needed_wgs.div_ceil(BLOCK_SIZE);
 
     let device = &input_keys.device.clone();
 
-    let count_buf = BurnBack::int_zeros(Shape::new([(max_num_wgs as usize) * 16]), device);
+    let count_buf = BurnBack::int_zeros(Shape::new([(max_needed_wgs as usize) * 16]), device);
     let reduced_buf = BurnBack::int_zeros(Shape::new([BLOCK_SIZE as usize]), device);
 
     let output_keys = input_keys;
@@ -64,6 +64,7 @@ pub fn radix_argsort(
 
         let wg = shaders::sorting::WG;
 
+        let effective_wg_vert = max_needed_wgs.div_ceil(shaders::sorting::VERTICAL_GROUPS);
         SortCount::new().execute(
             &client,
             config,
@@ -72,7 +73,7 @@ pub fn radix_argsort(
                 last_out.handle.clone().binding(),
             ],
             &[count_buf.clone().handle.binding()],
-            [max_num_wgs * wg, 1, 1],
+            [effective_wg_vert * wg, shaders::sorting::VERTICAL_GROUPS, 1],
         );
 
         SortReduce::new().execute(
@@ -115,7 +116,7 @@ pub fn radix_argsort(
                 count_buf.handle.clone().binding(),
             ],
             &[to.handle.clone().binding(), to_val.handle.clone().binding()],
-            [max_num_wgs * wg, 1, 1],
+            [effective_wg_vert * wg, shaders::sorting::VERTICAL_GROUPS, 1],
         );
 
         (last_out, last_out_values) = (&to, &to_val);
