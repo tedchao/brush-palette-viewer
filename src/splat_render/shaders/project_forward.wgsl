@@ -2,8 +2,9 @@
 
 @group(0) @binding(0) var<storage, read> uniforms: Uniforms;
 
-@group(0) @binding(1) var<storage, read> means: array<vec4f>;
-@group(0) @binding(2) var<storage, read> log_scales: array<vec4f>;
+@group(0) @binding(1) var<storage, read> means: array<f32>; // packed vec3
+@group(0) @binding(2) var<storage, read> log_scales: array<f32>; // packed vec3
+
 @group(0) @binding(3) var<storage, read> quats: array<vec4f>;
 @group(0) @binding(4) var<storage, read> coeffs: array<f32>;
 @group(0) @binding(5) var<storage, read> raw_opacities: array<f32>;
@@ -202,7 +203,7 @@ fn sh_coeffs_to_color(
 fn main(@builtin(global_invocation_id) global_id: vec3u) {
     let global_gid = global_id.x;
 
-    if global_gid >= arrayLength(&means) {
+    if global_gid >= arrayLength(&raw_opacities) {
         return;
     }
 
@@ -219,7 +220,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
     let clip_thresh = uniforms.clip_thresh;
 
     // Project world space to camera space.
-    let p_world = means[global_gid].xyz;
+    let p_world = vec3f(means[global_gid * 3 + 0], means[global_gid * 3 + 1], means[global_gid * 3 + 2]);
 
     let W = mat3x3f(viewmat[0].xyz, viewmat[1].xyz, viewmat[2].xyz);
     let p_view = W * p_world + viewmat[3].xyz;
@@ -229,8 +230,9 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
     }
 
     // compute the projected covariance
-    let scale = exp(log_scales[global_gid].xyz);
+    let scale = exp(vec3f(log_scales[global_gid * 3 + 0], log_scales[global_gid * 3 + 1], log_scales[global_gid * 3 + 2]));
     let opac = sigmoid(raw_opacities[global_gid]);
+
     let quat = quats[global_gid];
     let R = helpers::quat_to_rotmat(quat);
     let S = helpers::scale_to_mat(scale);

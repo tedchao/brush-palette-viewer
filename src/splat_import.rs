@@ -118,7 +118,7 @@ pub fn load_splat_from_ply<B: Backend>(file: &str, device: &B::Device) -> Result
     // TODO: This is all terribly space inefficient.
     let means = cloud
         .iter()
-        .flat_map(|d| [d.means.x, d.means.y, d.means.z, 0.0])
+        .flat_map(|d| [d.means.x, d.means.y, d.means.z])
         .collect::<Vec<_>>();
     let sh_coeffs = cloud
         .iter()
@@ -131,7 +131,7 @@ pub fn load_splat_from_ply<B: Backend>(file: &str, device: &B::Device) -> Result
     let opacity = cloud.iter().map(|d| d.opacity).collect::<Vec<_>>();
     let scales = cloud
         .iter()
-        .flat_map(|d| [d.scale.x, d.scale.y, d.scale.z, 0.0])
+        .flat_map(|d| [d.scale.x, d.scale.y, d.scale.z])
         .collect::<Vec<_>>();
 
     let num_points = cloud.len();
@@ -142,7 +142,7 @@ pub fn load_splat_from_ply<B: Backend>(file: &str, device: &B::Device) -> Result
         means: Param::initialized(
             ParamId::new(),
             Tensor::from_data(
-                Data::new(means, Shape::new([num_points, 4])).convert(),
+                Data::new(means, Shape::new([num_points, 3])).convert(),
                 device,
             )
             .require_grad(),
@@ -174,7 +174,7 @@ pub fn load_splat_from_ply<B: Backend>(file: &str, device: &B::Device) -> Result
         log_scales: Param::initialized(
             ParamId::new(),
             Tensor::from_data(
-                Data::new(scales, Shape::new([num_points, 4])).convert(),
+                Data::new(scales, Shape::new([num_points, 3])).convert(),
                 device,
             )
             .require_grad(),

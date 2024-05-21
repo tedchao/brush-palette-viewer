@@ -120,7 +120,7 @@ impl<B: Backend> Splats<B> {
     pub(crate) fn new(num_points: usize, aabb_scale: f32, device: &Device<B>) -> Splats<B> {
         let extent = (aabb_scale as f64) / 2.0;
         let means = Tensor::random(
-            [num_points, 4],
+            [num_points, 3],
             Distribution::Uniform(-extent, extent),
             device,
         );
@@ -457,6 +457,7 @@ impl<B: Backend> Splats<B> {
         let _span = info_span!("Splats render").entered();
         let cur_rot = self.rotation.val();
 
+        // TODO: Norm after grad, not on render.
         let norms = Tensor::sum_dim(cur_rot.clone() * cur_rot.clone(), 1).sqrt();
         let norm_rotation = cur_rot / Tensor::clamp_min(norms, 1e-6);
 

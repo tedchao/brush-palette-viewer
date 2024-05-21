@@ -52,8 +52,8 @@ fn render_forward(
     );
 
     DimCheck::new()
-        .check_dims(&means, ["D".into(), 4.into()])
-        .check_dims(&log_scales, ["D".into(), 4.into()])
+        .check_dims(&means, ["D".into(), 3.into()])
+        .check_dims(&log_scales, ["D".into(), 3.into()])
         .check_dims(&quats, ["D".into(), 4.into()])
         .check_dims(&sh_coeffs, ["D".into(), "C".into()])
         .check_dims(&raw_opacities, ["D".into()]);
@@ -71,7 +71,7 @@ fn render_forward(
     let device = means.device.clone();
 
     let sync = || {
-        if false {
+        if true {
             client.sync()
         }
     };
@@ -504,8 +504,8 @@ impl Backward<BurnBack, 3, 5> for RenderBackwards {
         );
 
         // TODO: Can't this be done for just visible points
-        let v_means = BurnBack::float_zeros(Shape::new([num_points, 4]), device);
-        let v_scales = BurnBack::float_zeros(Shape::new([num_points, 4]), device);
+        let v_means = BurnBack::float_zeros(Shape::new([num_points, 3]), device);
+        let v_scales = BurnBack::float_zeros(Shape::new([num_points, 3]), device);
         let v_quats = BurnBack::float_zeros(Shape::new([num_points, 4]), device);
         let v_coeffs = BurnBack::float_zeros(
             Shape::new([num_points, num_sh_coeffs(state.sh_degree) * 3]),
@@ -606,8 +606,6 @@ pub fn render<B: Backend>(
 
 #[cfg(test)]
 mod tests {
-    use std::num;
-
     use super::*;
     use assert_approx_eq::assert_approx_eq;
     use burn_wgpu::WgpuDevice;
@@ -625,8 +623,8 @@ mod tests {
         let device = WgpuDevice::BestAvailable;
 
         let num_points = 8;
-        let means = Tensor::<DiffBack, 2, _>::zeros([num_points, 4], &device);
-        let log_scales = Tensor::ones([num_points, 4], &device) * 2.0;
+        let means = Tensor::<DiffBack, 2, _>::zeros([num_points, 3], &device);
+        let log_scales = Tensor::ones([num_points, 3], &device) * 2.0;
         let quats = Tensor::from_data(glam::Quat::IDENTITY.to_array(), &device)
             .unsqueeze_dim(0)
             .repeat(0, num_points);
@@ -663,8 +661,8 @@ mod tests {
         let img_size = glam::uvec2(16, 16);
         let device = WgpuDevice::BestAvailable;
 
-        let means = Tensor::<DiffBack, 2, _>::zeros([num_points, 4], &device).require_grad();
-        let log_scales = Tensor::ones([num_points, 4], &device).require_grad();
+        let means = Tensor::<DiffBack, 2, _>::zeros([num_points, 3], &device).require_grad();
+        let log_scales = Tensor::ones([num_points, 3], &device).require_grad();
         let quats = Tensor::from_data(glam::Quat::IDENTITY.to_array(), &device)
             .unsqueeze_dim(0)
             .repeat(0, num_points)

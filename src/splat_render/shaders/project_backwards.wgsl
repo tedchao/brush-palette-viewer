@@ -12,8 +12,8 @@ struct Uniforms {
 }
 @group(0) @binding(0) var<storage> uniforms: Uniforms;
 
-@group(0) @binding(1) var<storage> means: array<vec4f>;
-@group(0) @binding(2) var<storage> log_scales: array<vec4f>;
+@group(0) @binding(1) var<storage> means: array<f32>; // packed vec3
+@group(0) @binding(2) var<storage> log_scales: array<f32>; // packed vec3
 @group(0) @binding(3) var<storage> quats: array<vec4f>;
 @group(0) @binding(4) var<storage> raw_opacities: array<f32>;
 
@@ -28,8 +28,9 @@ struct Uniforms {
 @group(0) @binding(11) var<storage> global_from_compact_gid: array<u32>;
 @group(0) @binding(12) var<storage> compact_from_depthsort_gid: array<u32>;
 
-@group(0) @binding(13) var<storage, read_write> v_means_agg: array<vec4f>;
-@group(0) @binding(14) var<storage, read_write> v_scales_agg: array<vec4f>;
+@group(0) @binding(13) var<storage, read_write> v_means_agg: array<f32>; // packed vec3
+@group(0) @binding(14) var<storage, read_write> v_scales_agg: array<f32>; // packed vec3
+
 @group(0) @binding(15) var<storage, read_write> v_quats_agg: array<vec4f>;
 @group(0) @binding(16) var<storage, read_write> v_coeffs_agg: array<f32>;
 @group(0) @binding(17) var<storage, read_write> v_opac_agg: array<f32>;
@@ -272,8 +273,8 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
     let focal = uniforms.focal;
 
     let global_gid = global_from_compact_gid[compact_gid];
-    let mean = means[global_gid].xyz;
-    let scale = exp(log_scales[global_gid].xyz);
+    let mean = vec3f(means[global_gid * 3 + 0], means[global_gid * 3 + 1], means[global_gid * 3 + 2]);
+    let scale = exp(vec3f(log_scales[global_gid * 3 + 0], log_scales[global_gid * 3 + 1], log_scales[global_gid * 3 + 2]));
     let quat = quats[global_gid];
 
     let W = mat3x3f(viewmat[0].xyz, viewmat[1].xyz, viewmat[2].xyz);
@@ -399,14 +400,20 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
         dot(R[0], v_M[0]),
         dot(R[1], v_M[1]),
         dot(R[2], v_M[2]),
-    );
+    ) * scale;
 
     let v_R = v_M * S;
     let v_quat = quat_to_rotmat_vjp(quat, v_R);
 
     v_quats_agg[global_gid] = v_quat;
-    v_scales_agg[global_gid] = vec4f(v_scale * scale, 0.0);
-    v_means_agg[global_gid] = vec4f(v_mean, 0.0f);
+
+    v_scales_agg[global_gid * 3 + 0] = v_scale.x;
+    v_scales_agg[global_gid * 3 + 1] = v_scale.y;
+    v_scales_agg[global_gid * 3 + 2] = v_scale.z;
+
+    v_means_agg[global_gid * 3 + 0] = v_mean.x;
+    v_means_agg[global_gid * 3 + 1] = v_mean.y;
+    v_means_agg[global_gid * 3 + 2] = v_mean.y;
 
     // Write SH gradients.
     // TODO: Get real viewdir.
