@@ -72,35 +72,6 @@ impl<B: Backend> SplatTrainState<B> {
     }
 }
 
-fn vec3_to_tensor4<B: Backend>(data: Vec<glam::Vec3>, device: &Device<B>) -> Tensor<B, 2> {
-    let mean_vec = data
-        .iter()
-        .flat_map(|v| [v.x, v.y, v.z, 0.0])
-        .collect::<Vec<_>>();
-    Tensor::from_data(
-        Data::new(mean_vec, Shape::new([data.len(), 4])).convert(),
-        device,
-    )
-}
-
-fn vec4_to_tensor4<B: Backend>(data: Vec<glam::Vec4>, device: &Device<B>) -> Tensor<B, 2> {
-    let mean_vec = data
-        .iter()
-        .flat_map(|v| [v.x, v.y, v.z, v.w])
-        .collect::<Vec<_>>();
-    Tensor::from_data(
-        Data::new(mean_vec, Shape::new([data.len(), 4])).convert(),
-        device,
-    )
-}
-
-fn float_to_tensor<B: Backend>(data: Vec<f32>, device: &Device<B>) -> Tensor<B, 1> {
-    Tensor::from_data(
-        Data::new(data.clone(), Shape::new([data.len()])).convert(),
-        device,
-    )
-}
-
 pub fn num_sh_coeffs(degree: usize) -> usize {
     (degree + 1).pow(2)
 }
@@ -140,7 +111,7 @@ impl<B: Backend> Splats<B> {
             Tensor::random([num_points], Distribution::Uniform(-4.0, -2.0), device);
 
         // TODO: Fancy KNN init.
-        let init_scale = Tensor::random([num_points, 4], Distribution::Uniform(-5.0, -3.0), device);
+        let init_scale = Tensor::random([num_points, 3], Distribution::Uniform(-5.0, -3.0), device);
 
         // TODO: Support lazy loading.
         // Model parameters.

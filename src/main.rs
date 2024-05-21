@@ -27,7 +27,7 @@ fn main() -> anyhow::Result<()> {
     let config = TrainConfig::new("../nerf_synthetic/lego/".to_owned());
     let device = Default::default();
 
-    if false {
+    if true {
         train::train::<DiffBack>(&config, &device)?;
     } else {
         viewer::start()?;
