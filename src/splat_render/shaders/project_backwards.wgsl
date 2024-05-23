@@ -273,8 +273,10 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
     let focal = uniforms.focal;
 
     let global_gid = global_from_compact_gid[compact_gid];
+    
     let mean = vec3f(means[global_gid * 3 + 0], means[global_gid * 3 + 1], means[global_gid * 3 + 2]);
     let scale = exp(vec3f(log_scales[global_gid * 3 + 0], log_scales[global_gid * 3 + 1], log_scales[global_gid * 3 + 2]));
+
     let quat = quats[global_gid];
 
     let W = mat3x3f(viewmat[0].xyz, viewmat[1].xyz, viewmat[2].xyz);
@@ -287,7 +289,6 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
     // mean3d.z + viewmat[11]
     // let v_z = v_depth[idx];
     // v_mean += viewmat[2].xyz * v_z;
-
     // get v_cov2d
     // compute vjp from df/d_conic to df/c_cov2d
     // conic = inverse cov2d
@@ -407,13 +408,13 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
 
     v_quats_agg[global_gid] = v_quat;
 
-    v_scales_agg[global_gid * 3 + 0] = v_scale.x;
-    v_scales_agg[global_gid * 3 + 1] = v_scale.y;
-    v_scales_agg[global_gid * 3 + 2] = v_scale.z;
-
-    v_means_agg[global_gid * 3 + 0] = v_mean.x;
-    v_means_agg[global_gid * 3 + 1] = v_mean.y;
-    v_means_agg[global_gid * 3 + 2] = v_mean.y;
+    // Write out components of scale/mean gradients.
+    for(var i = 0u; i < 3; i++) {
+        v_scales_agg[global_gid * 3 + i] = v_scale[i];
+    }
+    for(var i = 0u; i < 3; i++) {
+        v_means_agg[global_gid * 3 + i] = v_mean[i];
+    }
 
     // Write SH gradients.
     // TODO: Get real viewdir.
