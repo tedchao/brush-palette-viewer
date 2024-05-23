@@ -5,13 +5,15 @@
 
 @group(0) @binding(2) var<storage, read_write> tile_bins: array<vec2u>;
 
+const VERTICAL_GROUPS: u32 = 64;
+
 // kernel to map sorted intersection IDs to tile bins
 // expect that intersection IDs are sorted by increasing tile ID
 // i.e. intersections of a tile are in contiguous chunks
 @compute
 @workgroup_size(256, 1, 1)
 fn main(@builtin(global_invocation_id) global_id: vec3u) {
-    let isect_id = global_id.x * 64 + global_id.y;
+    let isect_id = global_id.x * VERTICAL_GROUPS + global_id.y;
     let num_intersects = num_intersections[0];
 
     if isect_id >= num_intersects {

@@ -17,16 +17,13 @@ struct Config {
     shift: u32,
 }
 
-const OFFSET = 42u;
-const WG_SIDE = 16u;
-const WG = WG_SIDE * WG_SIDE;
+const OFFSET: u32 = 42;
+const WG: u32 = 256;
 
-
-
-const BITS_PER_PASS = 4u;
-const BIN_COUNT = 1u << BITS_PER_PASS;
-const HISTOGRAM_SIZE = WG * BIN_COUNT;
-const ELEMENTS_PER_THREAD = 4u;
+const BITS_PER_PASS: u32 = 4;
+const BIN_COUNT: u32 = 1u << BITS_PER_PASS;
+const HISTOGRAM_SIZE: u32 = WG * BIN_COUNT;
+const ELEMENTS_PER_THREAD: u32 = 4;
 
 const BLOCK_SIZE = WG * ELEMENTS_PER_THREAD;
 
