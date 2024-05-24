@@ -421,10 +421,7 @@ impl<B: Backend> Splats<B> {
         camera: &Camera,
         img_size: glam::UVec2,
         bg_color: glam::Vec3,
-    ) -> (
-        Tensor<B, 3>,
-        crate::splat_render::Aux<crate::splat_render::BurnBack>,
-    ) {
+    ) -> (Tensor<B, 3>, crate::splat_render::Aux<B>) {
         let _span = info_span!("Splats render").entered();
         let cur_rot = self.rotation.val();
 

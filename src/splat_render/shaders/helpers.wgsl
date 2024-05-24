@@ -23,29 +23,27 @@ fn get_tile_bbox(pix_center: vec2f, pix_radius: u32, tile_bounds: vec2u) -> vec4
 // device helper to get 3D covariance from scale and quat parameters
 fn quat_to_rotmat(quat: vec4f) -> mat3x3f {
     // quat to rotation matrix
-    let quat_norm = normalize(quat);
-
-    let w = quat_norm.x;
-    let x = quat_norm.y;
-    let y = quat_norm.z;
-    let z = quat_norm.w;
+    let w = quat.x;
+    let x = quat.y;
+    let y = quat.z;
+    let z = quat.w;
 
     // See https://www.songho.ca/opengl/gl_quaternion.html
     return mat3x3f(
         vec3f(
-            1.f - 2.f * (y * y + z * z),
-            2.f * (x * y + w * z),
-            2.f * (x * z - w * y),
+            1.0 - 2.0f * (y * y + z * z),
+            2.0 * (x * y + w * z),
+            2.0 * (x * z - w * y),
         ),
         vec3f(
-            2.f * (x * y - w * z),
-            1.f - 2.f * (x * x + z * z),
-            2.f * (y * z + w * x),
+            2.0 * (x * y - w * z),
+            1.0 - 2.0 * (x * x + z * z),
+            2.0 * (y * z + w * x),
         ),
         vec3f(
-            2.f * (x * z + w * y),
-            2.f * (y * z - w * x),
-            1.f - 2.f * (x * x + y * y)
+            2.0 * (x * z + w * y),
+            2.0 * (y * z - w * x),
+            1.0 - 2.0 * (x * x + y * y)
         ),
     );
 }
@@ -56,11 +54,6 @@ fn scale_to_mat(scale: vec3f) -> mat3x3f {
         vec3f(0.0, scale.y, 0.0), 
         vec3f(0.0, 0.0, scale.z)
     );
-}
-
-fn cov2d_to_conic(cov2d: vec3f) -> vec3f {
-    let det = cov2d.x * cov2d.z - cov2d.y * cov2d.y;
-    return vec3f(cov2d.z, -cov2d.y, cov2d.x) / det;
 }
 
 // TODO: Is this 0.3 good? Make this configurable?
@@ -79,12 +72,15 @@ fn calc_sigma(conic: vec3f, xy: vec2f, pixel_coord: vec2f) -> f32 {
 }
 
 fn can_be_visible(tile: vec2u, xy: vec2f, radii: u32) -> bool {
+    return true;
+    /*
     let tile_min = vec2f(tile * TILE_WIDTH);
     let tile_max = vec2f(tile * TILE_WIDTH) + vec2f(TILE_WIDTH);
     let closest = min(max(xy, tile_min), tile_max);
     let dif = xy - closest;
     let rsqr = dot(dif, dif);
     return rsqr <= f32(radii * radii);
+    */
 }
 
 fn ceil_div(a: u32, b: u32) -> u32 {

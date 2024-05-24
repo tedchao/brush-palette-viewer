@@ -41,8 +41,6 @@ struct Uniforms {
     clip_thresh: f32,
     // num of sh coefficients per channel.
     sh_degree: u32,
-    // World position of camera
-    camera_point: vec3f,
 }
 
 fn num_sh_coeffs(degree: u32) -> u32 {
@@ -106,11 +104,9 @@ fn sh_coeffs_to_color(
         return colors;
     }
 
-
-    let viewdir_norm = normalize(viewdir);
-    let x = viewdir_norm.x;
-    let y = viewdir_norm.y;
-    let z = viewdir_norm.z;
+    let x = viewdir.x;
+    let y = viewdir.y;
+    let z = viewdir.z;
 
     let fTmp0A = 0.48860251190292f;
     colors += fTmp0A *
@@ -220,10 +216,10 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
     let clip_thresh = uniforms.clip_thresh;
 
     // Project world space to camera space.
-    let p_world = vec3f(means[global_gid * 3 + 0], means[global_gid * 3 + 1], means[global_gid * 3 + 2]);
+    let mean = vec3f(means[global_gid * 3 + 0], means[global_gid * 3 + 1], means[global_gid * 3 + 2]);
 
     let W = mat3x3f(viewmat[0].xyz, viewmat[1].xyz, viewmat[2].xyz);
-    let p_view = W * p_world + viewmat[3].xyz;
+    let p_view = W * mean + viewmat[3].xyz;
 
     if p_view.z <= clip_thresh {
         return;
@@ -231,13 +227,29 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
 
     // compute the projected covariance
     let scale = exp(vec3f(log_scales[global_gid * 3 + 0], log_scales[global_gid * 3 + 1], log_scales[global_gid * 3 + 2]));
+    let quat = quats[global_gid];
+
     let opac = sigmoid(raw_opacities[global_gid]);
 
-    let quat = quats[global_gid];
     let R = helpers::quat_to_rotmat(quat);
     let S = helpers::scale_to_mat(scale);
     let M = R * S;
-    let V = M * transpose(M);
+
+    // Force the 3D covariance to by symmetric.
+    let v_raw = M * transpose(M);
+    let V = mat3x3f(
+        v_raw[0][0],
+        v_raw[0][1],
+        v_raw[0][2],
+
+        v_raw[0][1],
+        v_raw[1][1],
+        v_raw[1][2],
+        
+        v_raw[0][2],
+        v_raw[1][2],
+        v_raw[2][2]
+    );
     
     let tan_fov = 0.5 * vec2f(uniforms.img_size.xy) / focal;
     let lims = 1.3 * tan_fov;
@@ -262,6 +274,10 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
     // add a little blur along axes and save upper triangular elements
     let cov2d = vec3f(c00 + helpers::COV_BLUR, c01, c11 + helpers::COV_BLUR);
     let det = cov2d.x * cov2d.z - cov2d.y * cov2d.y;
+
+    if det == 0.0 {
+        return;
+    }
     
     // Calculate tbe pixel radius.
 
@@ -277,29 +293,32 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
     // x^T Sigma^-1 x = -2 * log(eps / opac)
     // Find maximal |x| using quadratic form
     // |x|^2 = c / lambd_min.
-    let conic = helpers::cov2d_to_conic(cov2d);
 
-    // Find smallest eigen value of matrix.
-    let trace = conic.x + conic.z;
-    let determinant = conic.x * conic.z - conic.y * conic.y;
-    let l_min = 0.5 * (trace - sqrt(trace * trace - 4 * determinant));
+    let conic = vec3f(cov2d.z, -cov2d.y, cov2d.x) * (1.0 / det);
 
-    // Now solve for maximal |r|.
-    let eps_const = -2.0 * log(1.0 / (opac * 255.0));
-    let fradius = sqrt(eps_const / l_min);
+    // let trace = conic.x + conic.z;
+    // let determinant = conic.x * conic.z - conic.y * conic.y;
+    // let l_min = 0.5 * (trace - sqrt(trace * trace - 4 * determinant));
 
-    if fradius <= 1.0 {
-        return;
-    }
+    // // Now solve for maximal |r| such that min alpha = 1.0 / 255.0.
+    // //
+    // // we actually go for 2.0 / 255.0 or so to match the cutoff from gsplat better.
+    // // maybe can be more precise here if we don't need 1:1 compat with gsplat anymore.
+    // let eps_const = -2.0 * log(1.0 / (opac * 512.0));
+    // let radius = u32(sqrt(eps_const / l_min));
 
-    let radius = u32(ceil(fradius));
+    // Original radius:
+    let b = 0.5f * (cov2d.x + cov2d.z);
+    let v1 = b + sqrt(max(0.1f, b * b - det));
+    let v2 = b - sqrt(max(0.1f, b * b - det));
+    // take 3 sigma of covariance
+    let radius = u32(ceil(3.0 * sqrt(max(v1, v2))));
 
     // compute the projected mean
     let center = project_pix(focal, p_view, pixel_center);
     let tile_minmax = helpers::get_tile_bbox(center, radius, uniforms.tile_bounds);
     let tile_min = tile_minmax.xy;
     let tile_max = tile_minmax.zw;
-
     var tile_area = 0u;
     for (var ty = tile_min.y; ty < tile_max.y; ty++) {
         for (var tx = tile_min.x; tx < tile_max.x; tx++) {
@@ -308,62 +327,64 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
             }
         }
     }
+    
+    if tile_area == 0u {
+        return;
+    }
 
-    if tile_area > 0u {
-        // Now write all the data to the buffers.
-        let write_id = atomicAdd(&num_visible[0], 1u);
-        global_from_compact_gid[write_id] = global_gid;
+    // Now write all the data to the buffers.
+    let write_id = atomicAdd(&num_visible[0], 1u);
+    global_from_compact_gid[write_id] = global_gid;
 
-        let num_coeffs = num_sh_coeffs(uniforms.sh_degree);
-        var base_id = global_gid * num_coeffs * 3;
+    let num_coeffs = num_sh_coeffs(uniforms.sh_degree);
+    var base_id = global_gid * num_coeffs * 3;
 
-        var sh = ShCoeffs();
-        sh.b0_c0 = read_coeffs(&base_id);
+    var sh = ShCoeffs();
+    sh.b0_c0 = read_coeffs(&base_id);
 
-        if uniforms.sh_degree > 0 {
-            sh.b1_c0 = read_coeffs(&base_id);
-            sh.b1_c1 = read_coeffs(&base_id);
-            sh.b1_c2 = read_coeffs(&base_id);
+    if uniforms.sh_degree > 0 {
+        sh.b1_c0 = read_coeffs(&base_id);
+        sh.b1_c1 = read_coeffs(&base_id);
+        sh.b1_c2 = read_coeffs(&base_id);
 
-            if uniforms.sh_degree > 1 {
-                sh.b2_c0 = read_coeffs(&base_id);
-                sh.b2_c1 = read_coeffs(&base_id);
-                sh.b2_c2 = read_coeffs(&base_id);
-                sh.b2_c3 = read_coeffs(&base_id);
-                sh.b2_c4 = read_coeffs(&base_id);
+        if uniforms.sh_degree > 1 {
+            sh.b2_c0 = read_coeffs(&base_id);
+            sh.b2_c1 = read_coeffs(&base_id);
+            sh.b2_c2 = read_coeffs(&base_id);
+            sh.b2_c3 = read_coeffs(&base_id);
+            sh.b2_c4 = read_coeffs(&base_id);
 
-                if uniforms.sh_degree > 2 {
-                    sh.b3_c0 = read_coeffs(&base_id);
-                    sh.b3_c1 = read_coeffs(&base_id);
-                    sh.b3_c2 = read_coeffs(&base_id);
-                    sh.b3_c3 = read_coeffs(&base_id);
-                    sh.b3_c4 = read_coeffs(&base_id);
-                    sh.b3_c5 = read_coeffs(&base_id);
-                    sh.b3_c6 = read_coeffs(&base_id);
+            if uniforms.sh_degree > 2 {
+                sh.b3_c0 = read_coeffs(&base_id);
+                sh.b3_c1 = read_coeffs(&base_id);
+                sh.b3_c2 = read_coeffs(&base_id);
+                sh.b3_c3 = read_coeffs(&base_id);
+                sh.b3_c4 = read_coeffs(&base_id);
+                sh.b3_c5 = read_coeffs(&base_id);
+                sh.b3_c6 = read_coeffs(&base_id);
 
-                    if uniforms.sh_degree > 3 {
-                        sh.b4_c0 = read_coeffs(&base_id);
-                        sh.b4_c1 = read_coeffs(&base_id);
-                        sh.b4_c2 = read_coeffs(&base_id);
-                        sh.b4_c3 = read_coeffs(&base_id);
-                        sh.b4_c4 = read_coeffs(&base_id);
-                        sh.b4_c5 = read_coeffs(&base_id);
-                        sh.b4_c6 = read_coeffs(&base_id);
-                        sh.b4_c7 = read_coeffs(&base_id);
-                        sh.b4_c8 = read_coeffs(&base_id);
-                    }
+                if uniforms.sh_degree > 3 {
+                    sh.b4_c0 = read_coeffs(&base_id);
+                    sh.b4_c1 = read_coeffs(&base_id);
+                    sh.b4_c2 = read_coeffs(&base_id);
+                    sh.b4_c3 = read_coeffs(&base_id);
+                    sh.b4_c4 = read_coeffs(&base_id);
+                    sh.b4_c5 = read_coeffs(&base_id);
+                    sh.b4_c6 = read_coeffs(&base_id);
+                    sh.b4_c7 = read_coeffs(&base_id);
+                    sh.b4_c8 = read_coeffs(&base_id);
                 }
             }
         }
-
-        let viewdir = p_world - uniforms.camera_point;
-        let color = max(sh_coeffs_to_color(uniforms.sh_degree, viewdir, sh) + vec3f(0.5), vec3f(0.0));
-        let comp = helpers::cov_compensation(cov2d);
-        colors[write_id] = vec4f(color, opac);
-        depths[write_id] = p_view.z;
-        num_tiles_hit[write_id] = tile_area;
-        radii[write_id] = radius;
-        xys[write_id] = center;
-        conic_comps[write_id] = vec4f(conic, comp);
     }
+
+    let viewdir = normalize(mean - viewmat[3].xyz);
+    let color = max(sh_coeffs_to_color(uniforms.sh_degree, viewdir, sh) + vec3f(0.5), vec3f(0.0));
+    let comp = helpers::cov_compensation(cov2d);
+    colors[write_id] = vec4f(color, opac);
+    depths[write_id] = p_view.z;
+    num_tiles_hit[write_id] = u32(tile_area);
+    radii[write_id] = radius;
+    xys[write_id] = center;
+    conic_comps[write_id] = vec4f(conic, comp);
 }

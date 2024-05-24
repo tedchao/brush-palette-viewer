@@ -36,6 +36,7 @@ pub(crate) struct Aux<B: Backend> {
     pub radii: Tensor<B, 1>,
     pub depthsort_gid_from_isect: Tensor<B, 1, Int>,
     pub compact_from_depthsort_gid: Tensor<B, 1, Int>,
+    pub depths: Tensor<B, 1>,
     pub xys: Tensor<B, 2>,
     pub cum_tiles_hit: Tensor<B, 1, Int>,
     pub conic_comps: Tensor<B, 2>,
@@ -60,7 +61,7 @@ pub trait Backend: burn::tensor::backend::Backend {
         colors: FloatTensor<Self, 2>,
         raw_opacity: FloatTensor<Self, 1>,
         background: glam::Vec3,
-    ) -> (FloatTensor<Self, 3>, Aux<BurnBack>);
+    ) -> (FloatTensor<Self, 3>, Aux<Self>);
 }
 
 // TODO: In rust 1.80 having a trait bound here on the inner backend would be great.

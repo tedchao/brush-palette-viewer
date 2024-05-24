@@ -16,22 +16,21 @@ struct Uniforms {
 @group(0) @binding(5) var<storage> cum_tiles_hit: array<u32>;
 @group(0) @binding(6) var<storage> conic_comps: array<vec4f>;
 @group(0) @binding(7) var<storage> colors: array<vec4f>;
-@group(0) @binding(8) var<storage> radii: array<u32>;
 
-@group(0) @binding(9) var<storage> final_index: array<u32>;
+@group(0) @binding(8) var<storage> final_index: array<u32>;
 
-@group(0) @binding(10) var<storage> output: array<vec4f>;
-@group(0) @binding(11) var<storage> v_output: array<vec4f>;
+@group(0) @binding(9) var<storage> output: array<vec4f>;
+@group(0) @binding(10) var<storage> v_output: array<vec4f>;
 
-@group(0) @binding(12) var<storage, read_write> v_xy: array<vec2f>;
-@group(0) @binding(13) var<storage, read_write> v_conic: array<vec4f>;
-@group(0) @binding(14) var<storage, read_write> v_colors: array<vec4f>;
+@group(0) @binding(11) var<storage, read_write> v_xy: array<vec2f>;
+@group(0) @binding(12) var<storage, read_write> v_conic: array<vec4f>;
+@group(0) @binding(13) var<storage, read_write> v_colors: array<vec4f>;
 
-const GATHER_PER_ITERATION: u32 = 128u;
+@group(0) @binding(14) var<storage, read_write> hit_ids: array<atomic<u32>>;
 
-var<workgroup> xy_batch: array<vec2f, GATHER_PER_ITERATION>;
-var<workgroup> colors_batch: array<vec4f, GATHER_PER_ITERATION>;
-var<workgroup> conic_comp_batch: array<vec4f, GATHER_PER_ITERATION>;
+var<workgroup> xy_batch: array<vec2f, helpers::TILE_SIZE>;
+var<workgroup> colors_batch: array<vec4f, helpers::TILE_SIZE>;
+var<workgroup> conic_comp_batch: array<vec4f, helpers::TILE_SIZE>;
 
 var<workgroup> v_conic_local: array<vec3f, helpers::TILE_SIZE>;
 var<workgroup> v_xy_local: array<vec2f, helpers::TILE_SIZE>;
@@ -56,7 +55,7 @@ fn main(
     let tile_loc = workgroup_id.xy;
     let tile_id = tile_loc.x + tile_loc.y * tile_bounds.x;
     let pix_id = global_id.x + global_id.y * img_size.x;
-    let pixel_coord = vec2f(global_id.xy);
+    let pixel_coord = vec2f(global_id.xy) + 0.5;
 
     // return if out of bounds
     // keep not rasterizing threads around for reading data
@@ -72,11 +71,11 @@ fn main(
     // first collect gaussians between bin_start and bin_final in batches
     // which gaussians to look through in this tile
     var range = tile_bins[tile_id];
-    let num_batches = helpers::ceil_div(range.y - range.x, GATHER_PER_ITERATION);
+    let num_batches = helpers::ceil_div(range.y - range.x, helpers::TILE_SIZE);
     // current visibility left to render
     var T = T_final;
 
-    var bin_final = range.y;
+    var bin_final = 0u;
     var buffer = vec3f(0.0);
 
     if inside {
@@ -96,10 +95,10 @@ fn main(
         // each thread fetch 1 gaussian from back to front
         // 0 index will be furthest back in batch
         // index of gaussian to load
-        let batch_end  = range.y - 1u - b * GATHER_PER_ITERATION;
+        let batch_end  = range.y - 1u - b * helpers::TILE_SIZE;
         let isect_id = batch_end - local_idx;
 
-        if isect_id >= range.x && local_idx < GATHER_PER_ITERATION {
+        if isect_id >= range.x {
             let depthsort_gid = depthsort_gid_from_isect[isect_id];
             let compact_gid = compact_from_depthsort_gid[depthsort_gid];
 
@@ -112,7 +111,7 @@ fn main(
         workgroupBarrier();
 
         // process gaussians in the current batch for this pixel
-        let remaining = min(GATHER_PER_ITERATION, batch_end + 1u - range.x);
+        let remaining = min(helpers::TILE_SIZE, batch_end + 1u - range.x);
 
         workgroupBarrier();
 
@@ -139,26 +138,23 @@ fn main(
 
                 // Nb: Don't continue; here - local_idx == 0 always
                 // needs to write out gradients.
-                if sigma >= 0.0 && alpha >= 1.0 / 255.0 {
-                    // compute the current T for this gaussian
+                // compute the current T for this gaussian
+                if (sigma >= 0.0 && alpha >= 1.0 / 255.0) {
                     let ra = 1.0 / (1.0 - alpha);
                     T *= ra;
-
                     // update v_colors for this gaussian
                     let fac = alpha * T;
-                    let c = colors_batch[t].xyz;
-
                     var v_alpha = 0.0;
 
+                    let rgb = colors_batch[t].xyz;
                     // contribution from this pixel
-                    v_alpha += dot(c.xyz * T - buffer * ra, v_out.xyz);
-                    // TODO: Now that we store alpha instea of transmission, flip this?
-                    // v_alpha += T_final * ra * v_out.w;
+                    v_alpha += dot(rgb * T - buffer * ra, v_out.xyz);
+                    v_alpha += T_final * ra * v_out.w;
                     // contribution from background pixel
                     v_alpha -= dot(T_final * ra * background, v_out.xyz);
 
                     // update the running sum
-                    buffer += c.xyz * fac;
+                    buffer += rgb.xyz * fac;
 
                     let v_sigma = -opac * vis * v_alpha;
 
@@ -196,36 +192,9 @@ fn main(
                 if depthsort_gid > 0 {
                     offset = cum_tiles_hit[depthsort_gid - 1];
                 }
+                let hit_id = atomicAdd(&hit_ids[compact_gid], 1u);
 
                 // Scatter the gradients to the gradient per intersection buffer.
-
-                // TODO: Seems a bit brittle to use this as a mechanism to ensure noone stamps
-                // on other gradients. Could instead use an atomic count per gaussian or something, 
-                // but then unnecesary writes also doesn't seem great...
-                var hit_id = 0u;
-                let center = xy_batch[t];
-                let radius = radii[compact_gid];
-                let tile_minmax = helpers::get_tile_bbox(center, radius, tile_bounds);
-                let tile_min = tile_minmax.xy;
-                let tile_max = tile_minmax.zw;
-
-                var found_tile = false;
-                for (var ty = tile_min.y; ty < tile_max.y; ty++) {
-                    for (var tx = tile_min.x; tx < tile_max.x; tx++) {
-                        if tx == tile_loc.x && ty == tile_loc.y {
-                            found_tile = true;
-                            break;
-                        }
-
-                        if helpers::can_be_visible(vec2u(tx, ty), center, radius) {
-                            hit_id += 1u;
-                        }
-                    }
-                    if found_tile { 
-                        break;
-                    }
-                }
-
                 let write_id = offset + hit_id;
                 v_xy[write_id] = v_xy_sum;
                 v_conic[write_id] = vec4f(v_conic_sum, 0.0);

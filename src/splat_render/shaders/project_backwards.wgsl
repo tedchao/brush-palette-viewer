@@ -178,17 +178,15 @@ fn write_coeffs(base_id: ptr<function, u32>, val: vec3f) {
 
 fn project_pix_vjp(fxfy: vec2f, p_view: vec3f, v_xy: vec2f) -> vec3f {
     let rw = 1.0f / (p_view.z + 1e-6f);
-    let v_proj = vec2f(fxfy.x * v_xy.x, fxfy.y * v_xy.y);
+    let v_proj = fxfy * v_xy;
     return vec3f(v_proj.x * rw, v_proj.y * rw, -(v_proj.x * p_view.x + v_proj.y * p_view.y) * rw * rw);
 }
 
 fn quat_to_rotmat_vjp(quat: vec4f, v_R: mat3x3f) -> vec4f {
-    let quat_norm = normalize(quat);
-
-    let w = quat_norm.x;
-    let x = quat_norm.y;
-    let y = quat_norm.z;
-    let z = quat_norm.w;
+    let w = quat.x;
+    let x = quat.y;
+    let y = quat.z;
+    let z = quat.w;
 
     return vec4f(
         // w element stored in x field
@@ -253,6 +251,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
     }
 
     let compact_gid = compact_from_depthsort_gid[depthsort_gid];
+    let global_gid = global_from_compact_gid[compact_gid];
 
     // Aggregate the gradients that are written per tile.
     var v_xy_agg = vec2f(0.0);
@@ -268,15 +267,14 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
         v_conic_agg += v_conic[grad_idx].xyz;
         v_colors_agg += v_colors[grad_idx];
     }
+    v_xys_agg[global_gid] = v_xy_agg;
+    v_conics_agg[global_gid] = v_conic_agg;
 
     let viewmat = uniforms.viewmat;
     let focal = uniforms.focal;
-
-    let global_gid = global_from_compact_gid[compact_gid];
     
     let mean = vec3f(means[global_gid * 3 + 0], means[global_gid * 3 + 1], means[global_gid * 3 + 2]);
     let scale = exp(vec3f(log_scales[global_gid * 3 + 0], log_scales[global_gid * 3 + 1], log_scales[global_gid * 3 + 2]));
-
     let quat = quats[global_gid];
 
     let W = mat3x3f(viewmat[0].xyz, viewmat[1].xyz, viewmat[2].xyz);
@@ -368,7 +366,11 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
             focal.y * rz2 * v_J[1][1] + 2.0 * focal.y * p_view.y * rz3 * v_J[2][1]
     );
 
-    v_mean += vec3f(dot(v_t, W[0]), dot(v_t, W[1]), dot(v_t, W[2]));
+    v_mean += vec3f(
+        dot(v_t, W[0]), 
+        dot(v_t, W[1]), 
+        dot(v_t, W[2])
+    );
 
     // cov3d is upper triangular elements of matrix
     // off-diagonal elements count grads from both ij and ji elements,
@@ -401,7 +403,8 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
         dot(R[0], v_M[0]),
         dot(R[1], v_M[1]),
         dot(R[2], v_M[2]),
-    ) * scale;
+    );
+    let v_scale_exp = v_scale * scale;
 
     let v_R = v_M * S;
     let v_quat = quat_to_rotmat_vjp(quat, v_R);
@@ -410,7 +413,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
 
     // Write out components of scale/mean gradients.
     for(var i = 0u; i < 3; i++) {
-        v_scales_agg[global_gid * 3 + i] = v_scale[i];
+        v_scales_agg[global_gid * 3 + i] = v_scale_exp[i];
     }
     for(var i = 0u; i < 3; i++) {
         v_means_agg[global_gid * 3 + i] = v_mean[i];

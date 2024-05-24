@@ -12,7 +12,7 @@ use ndarray::{Array, Array1, Array3};
 use rand::{rngs::StdRng, SeedableRng};
 use tracing::info_span;
 
-use crate::splat_render::{self, AutodiffBackend, Backend, BurnBack};
+use crate::splat_render::{self, AutodiffBackend, Backend};
 use crate::{
     dataset_readers,
     gaussian_splats::{Splats, SplatsConfig},
@@ -33,9 +33,9 @@ pub(crate) struct TrainConfig {
     pub lr: f64,
     #[config(default = 5e-3)]
     pub min_lr: f64,
-    #[config(default = 10)]
+    #[config(default = 25)]
     pub visualize_every: u32,
-    #[config(default = 16000)]
+    #[config(default = 12000)]
     pub init_points: usize,
     #[config(default = 2.0)]
     pub init_aabb: f32,
@@ -46,7 +46,7 @@ struct TrainStats<B: Backend> {
     pred_image: Tensor<B, 3>,
     gt_image: Array3<f32>,
     loss: Array1<f32>,
-    aux: crate::splat_render::Aux<BurnBack>,
+    aux: crate::splat_render::Aux<B>,
 }
 
 fn train_step<B: AutodiffBackend>(

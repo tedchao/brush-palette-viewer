@@ -51,7 +51,7 @@ fn main(
 
     let tile_id = workgroup_id.x + workgroup_id.y * tile_bounds.x;
     let pix_id = global_id.x + global_id.y * img_size.x;
-    let pixel_coord = vec2f(global_id.xy);
+    let pixel_coord = vec2f(global_id.xy) + 0.5;
 
     // return if out of bounds
     // keep not rasterizing threads around for reading data
@@ -119,7 +119,7 @@ fn main(
             let delta = xy - pixel_coord;
             let sigma = 0.5f * (conic.x * delta.x * delta.x + conic.z * delta.y * delta.y) + conic.y * delta.x * delta.y;
             let vis = exp(-sigma);
-            let alpha = min(0.99f, opac * vis);
+            let alpha = min(0.999f, opac * vis);
 
             if sigma >= 0.0 && alpha >= 1.0 / 255.0 {
                 let next_T = T * (1.0 - alpha);
