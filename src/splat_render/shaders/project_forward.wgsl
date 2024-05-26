@@ -48,7 +48,7 @@ fn num_sh_coeffs(degree: u32) -> u32 {
 }
 
 fn project_pix(fxfy: vec2f, p_view: vec3f, pp: vec2f) -> vec2f {
-    let p_proj = p_view.xy / max(p_view.z, 1e-6f);
+    let p_proj = p_view.xy / (p_view.z + 1e-6f);
     return p_proj * fxfy + pp;
 }
 
@@ -230,50 +230,33 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
     let quat = quats[global_gid];
 
     let opac = sigmoid(raw_opacities[global_gid]);
-
-    let R = helpers::quat_to_rotmat(quat);
-    let S = helpers::scale_to_mat(scale);
-    let M = R * S;
-
-    // Force the 3D covariance to by symmetric.
-    let v_raw = M * transpose(M);
-    let V = mat3x3f(
-        v_raw[0][0],
-        v_raw[0][1],
-        v_raw[0][2],
-
-        v_raw[0][1],
-        v_raw[1][1],
-        v_raw[1][2],
-        
-        v_raw[0][2],
-        v_raw[1][2],
-        v_raw[2][2]
-    );
-    
     let tan_fov = 0.5 * vec2f(uniforms.img_size.xy) / focal;
     let lims = 1.3 * tan_fov;
     // Get ndc coords +- clipped to the frustum.
     let t = p_view.z * clamp(p_view.xy / p_view.z, -lims, lims);
-    let rz = 1.0 / p_view.z;
-    let rz2 = rz * rz;
+    
+    var M = helpers::quat_to_rotmat(quat);
+    M[0] *= scale.x;
+    M[1] *= scale.y;
+    M[2] *= scale.z;
+    var V = M * transpose(M);
 
     let J = mat3x3f(
-        vec3f(focal.x * rz, 0.0, 0.0),
-        vec3f(0.0, focal.y * rz, 0.0),
-        vec3f(-focal.x * t.x * rz2, -focal.y * t.y * rz2, 0.0)
-    );
+        vec3f(focal.x, 0.0, 0.0),
+        vec3f(0.0, focal.y, 0.0),
+        vec3f(-focal * t / p_view.z, 0.0)
+    ) * (1.0 / p_view.z);
 
     let T = J * W;
     let cov = T * V * transpose(T);
 
-    let c00 = cov[0][0];
-    let c11 = cov[1][1];
+    let c00 = cov[0][0] + helpers::COV_BLUR;
+    let c11 = cov[1][1] + helpers::COV_BLUR;
     let c01 = cov[0][1];
 
     // add a little blur along axes and save upper triangular elements
-    let cov2d = vec3f(c00 + helpers::COV_BLUR, c01, c11 + helpers::COV_BLUR);
-    let det = cov2d.x * cov2d.z - cov2d.y * cov2d.y;
+    let det = c00 * c11 - c01 * c01;
+    let cov2d = vec3f(c00, c01, c11);
 
     if det == 0.0 {
         return;

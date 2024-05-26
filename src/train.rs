@@ -25,17 +25,17 @@ use rand::seq::SliceRandom;
 pub(crate) struct TrainConfig {
     #[config(default = 42)]
     pub(crate) seed: u64,
-    #[config(default = 15000)]
+    #[config(default = 25000)]
     pub(crate) train_steps: u32,
     #[config(default = false)]
     pub(crate) random_bck_color: bool,
-    #[config(default = 5e-3)]
+    #[config(default = 3e-2)]
     pub lr: f64,
     #[config(default = 5e-3)]
     pub min_lr: f64,
     #[config(default = 25)]
     pub visualize_every: u32,
-    #[config(default = 12000)]
+    #[config(default = 20000)]
     pub init_points: usize,
     #[config(default = 2.0)]
     pub init_aabb: f32,
@@ -141,7 +141,7 @@ where
     let rec = rerun::RecordingStreamBuilder::new("visualize training").spawn()?;
 
     println!("Loading dataset.");
-    let scene = dataset_readers::read_scene(&config.scene_path, Some(1), false);
+    let scene = dataset_readers::read_scene(&config.scene_path, None, false);
     let config_optimizer = AdamConfig::new();
     let mut optim = config_optimizer.init::<B, Splats<B>>();
 

@@ -642,7 +642,6 @@ mod tests {
 
     type DiffBack = Autodiff<BurnBack>;
 
-    use image::GenericImageView;
     use safetensors::tensor::TensorView;
     use safetensors::SafeTensors;
 
@@ -681,7 +680,7 @@ mod tests {
         let alpha = output.clone().slice([0..32, 0..32, 3..4]);
         // TODO: Maybe use all_close from burn - but that seems to be
         // broken atm.
-        assert_approx_eq!(rgb.clone().mean().to_data().value[0], 0.123);
+        assert_approx_eq!(rgb.clone().mean().to_data().value[0], 0.123, 1e-5);
         assert_approx_eq!(alpha.clone().mean().to_data().value[0], 0.0);
     }
 
@@ -722,9 +721,9 @@ mod tests {
     }
 
     #[test]
-    fn test_basic_case() -> Result<()> {
+    fn test_reference() -> Result<()> {
         let device = WgpuDevice::BestAvailable;
-
+        #[cfg(feature = "rerun")]
         let rec = rerun::RecordingStreamBuilder::new("visualize training").spawn()?;
 
         let crab_img = image::open("./test_cases/crab.png")?;
@@ -860,23 +859,14 @@ mod tests {
                 safe_tensor_to_burn2::<DiffBack>(tensors.tensor("v_means")?, &device).inner();
             let v_means = means.grad(&grads).context("means grad")?;
 
-            dbg!(xys.all_close(xys_ref, Some(1e-3), Some(1e-11)));
-
-            dbg!(
-                (conics.clone() - conics_ref.clone())
-                    .abs()
-                    .max()
-                    .to_data()
-                    .value
-            );
-
-            dbg!(conics.all_close(conics_ref, Some(1e-3), Some(1e-11)));
-            dbg!(out_rgb.clone().all_close(img_ref, Some(1e-3), Some(1e-11)));
-            dbg!(v_opacities.all_close(v_opacities_ref, Some(1e-3), Some(1e-11)));
-            dbg!(v_coeffs.all_close(v_coeffs_ref, Some(1e-3), Some(1e-11)));
-            dbg!(v_quats.all_close(v_quats_ref, Some(1e-3), Some(1e-11)));
-            dbg!(v_scales.all_close(v_scales_ref, Some(1e-3), Some(1e-11)));
-            dbg!(v_means.all_close(v_means_ref, Some(1e-3), Some(1e-11)));
+            assert!(xys.all_close(xys_ref, Some(1e-5), Some(1e-5)));
+            assert!(conics.all_close(conics_ref, Some(1e-5), Some(1e-6)));
+            assert!(out_rgb.clone().all_close(img_ref, Some(1e-5), Some(1e-6)));
+            assert!(v_opacities.all_close(v_opacities_ref, Some(1e-5), Some(1e-6)));
+            assert!(v_coeffs.all_close(v_coeffs_ref, Some(1e-5), Some(1e-6)));
+            assert!(v_quats.all_close(v_quats_ref, Some(1e-5), Some(1e-6)));
+            assert!(v_scales.all_close(v_scales_ref, Some(1e-5), Some(1e-6)));
+            assert!(v_means.all_close(v_means_ref, Some(1e-5), Some(1e-6)));
         }
         Ok(())
     }
@@ -905,7 +895,7 @@ mod tests {
     //     let num_iters = 50;
 
     //     for _ in 0..num_iters {
-    //         let eps = 1e-3;
+    //         let eps = 1e-4;
 
     //         let flip_vec = Tensor::<DiffBack, 1>::random(
     //             [num_points],

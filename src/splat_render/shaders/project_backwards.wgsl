@@ -222,8 +222,9 @@ fn quat_to_rotmat_vjp(quat: vec4f, v_R: mat3x3f) -> vec4f {
 fn cov2d_to_conic_vjp(conic: vec3f, v_conic: vec3f) -> vec3f {
     // conic = inverse cov2d
     // df/d_cov2d = -conic * df/d_conic * conic
-    let X = mat2x2f(conic.x, conic.y, conic.y, conic.z);
-    let G = mat2x2f(v_conic.x, v_conic.y / 2.0, v_conic.y / 2.0, v_conic.z);
+    let X = mat2x2f(vec2f(conic.x, conic.y), vec2f(conic.y, conic.z));
+    let G = mat2x2f(vec2f(v_conic.x, v_conic.y / 2.0), 
+                    vec2f(v_conic.y / 2.0, v_conic.z));
     let v_Sigma = X * G * X;
 
     return -vec3f(
@@ -267,8 +268,6 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
         v_conic_agg += v_conic[grad_idx].xyz;
         v_colors_agg += v_colors[grad_idx];
     }
-    v_xys_agg[global_gid] = v_xy_agg;
-    v_conics_agg[global_gid] = v_conic_agg;
 
     let viewmat = uniforms.viewmat;
     let focal = uniforms.focal;
@@ -300,7 +299,6 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
     // // so deriv is v_opac.
     // // TODO: Re-enable compensation.
     // let v_compensation = v_opacity[idx] * 0.0;
-
     // // comp = sqrt(det(cov2d - 0.3 I) / det(cov2d))
     // // conic = inverse(cov2d)
     // // df / d_cov2d = df / d comp * 0.5 / comp * [ d comp^2 / d cov2d ]

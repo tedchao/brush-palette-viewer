@@ -31,7 +31,7 @@ fn quat_to_rotmat(quat: vec4f) -> mat3x3f {
     // See https://www.songho.ca/opengl/gl_quaternion.html
     return mat3x3f(
         vec3f(
-            1.0 - 2.0f * (y * y + z * z),
+            1.0 - 2.0 * (y * y + z * z),
             2.0 * (x * y + w * z),
             2.0 * (x * z - w * y),
         ),

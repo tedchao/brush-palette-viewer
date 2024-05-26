@@ -108,10 +108,10 @@ impl<B: Backend> Splats<B> {
             .repeat(0, num_points);
 
         let init_raw_opacity =
-            Tensor::random([num_points], Distribution::Uniform(-4.0, -2.0), device);
+            Tensor::random([num_points], Distribution::Uniform(-3.0, -1.0), device);
 
         // TODO: Fancy KNN init.
-        let init_scale = Tensor::random([num_points, 3], Distribution::Uniform(-5.0, -3.0), device);
+        let init_scale = Tensor::random([num_points, 3], Distribution::Uniform(-4.0, -3.0), device);
 
         // TODO: Support lazy loading.
         // Model parameters.
