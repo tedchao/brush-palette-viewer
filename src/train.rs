@@ -2,13 +2,13 @@ use std::time;
 
 use anyhow::Result;
 use burn::lr_scheduler::LrScheduler;
-use burn::nn::loss::MseLoss;
+use burn::tensor::ElementConversion;
 use burn::{
     config::Config,
     optim::{AdamConfig, GradientsParams, Optimizer},
     tensor::Tensor,
 };
-use ndarray::{Array, Array1, Array3};
+use ndarray::{Array, Array3};
 use rand::{rngs::StdRng, SeedableRng};
 use tracing::info_span;
 
@@ -45,8 +45,8 @@ pub(crate) struct TrainConfig {
 struct TrainStats<B: Backend> {
     pred_image: Tensor<B, 3>,
     loss: Tensor<B, 1>,
+    psnr: Tensor<B, 1>,
     aux: crate::splat_render::Aux<B>,
-
     gt_image: Array3<f32>,
 }
 
@@ -105,6 +105,7 @@ where
             .unsqueeze::<3>();
 
     let mse = (rgb_img - gt_image).powf_scalar(2.0).mean();
+    let psnr = mse.clone().recip().log() * 10.0 / std::f32::consts::LN_10;
 
     let grads = mse.backward();
 
@@ -119,8 +120,8 @@ where
         TrainStats {
             aux,
             gt_image: viewpoint.view.image.clone(),
-            loss: Array::from_shape_vec(loss_scalar.dims(), loss_scalar.to_data().convert().value)
-                .unwrap(),
+            loss: mse,
+            psnr,
             pred_image: pred_img,
         },
     )
@@ -179,16 +180,33 @@ where
         #[cfg(feature = "rerun")]
         {
             rec.set_time_sequence("iterations", iter);
-            rec.log("losses/main", &rerun::Scalar::new(stats.loss[[0]] as f64))?;
-            rec.log("lr/current", &rerun::Scalar::new(lr))?;
             rec.log(
-                "points/total",
-                &rerun::Scalar::new(splats.cur_num_points() as f64),
+                "losses/main",
+                &rerun::Scalar::new(utils::burn_to_scalar(stats.loss).elem::<f64>()),
             )?;
+
+            rec.log(
+                "stats/PSNR",
+                &rerun::Scalar::new(utils::burn_to_scalar(stats.psnr).elem::<f64>()),
+            )?;
+
+            rec.log("lr/current", &rerun::Scalar::new(lr))?;
 
             rec.log(
                 "performance/step_ms",
                 &rerun::Scalar::new((time::Instant::now() - start_time).as_secs_f64() * 1000.0)
+                    .clone(),
+            )?;
+
+            rec.log(
+                "tiling/num intersects",
+                &rerun::Scalar::new(utils::burn_to_scalar(stats.aux.num_intersects).elem::<f64>())
+                    .clone(),
+            )?;
+
+            rec.log(
+                "tiling/num visible",
+                &rerun::Scalar::new(utils::burn_to_scalar(stats.aux.num_visible).elem::<f64>())
                     .clone(),
             )?;
 
@@ -215,26 +233,6 @@ where
                 rec.log(
                     "images/tile depth",
                     &rerun::Tensor::try_from(tile_depth).unwrap().clone(),
-                )?;
-
-                let num_visible = Array::from_shape_vec(
-                    stats.aux.num_visible.dims(),
-                    stats.aux.num_visible.to_data().convert::<u32>().value,
-                )?;
-
-                rec.log(
-                    "images/num visible",
-                    &rerun::Scalar::new(num_visible[0] as f64).clone(),
-                )?;
-
-                let num_intersects = Array::from_shape_vec(
-                    stats.aux.num_intersects.dims(),
-                    stats.aux.num_intersects.to_data().convert::<u32>().value,
-                )?;
-
-                rec.log(
-                    "images/num intersects",
-                    &rerun::Scalar::new(num_intersects[0] as f64).clone(),
                 )?;
 
                 let pred_image = Array::from_shape_vec(

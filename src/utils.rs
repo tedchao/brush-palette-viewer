@@ -1,5 +1,5 @@
 // Utilities to go from ndarray -> image and the other way around.
-use burn::tensor::{backend::Backend, BasicOps, Data, Element, Shape, Tensor};
+use burn::tensor::{backend::Backend, BasicOps, Data, Element, Shape, Tensor, TensorKind};
 use ndarray::{Array, Dim, Dimension, StrideShape};
 
 pub(crate) fn ndarray_to_burn<E: Element, B: Backend, const D: usize, K: BasicOps<B>>(
@@ -25,8 +25,12 @@ where
     Array::from_shape_vec(tensor.dims().into(), burn_data.convert::<f32>().value).unwrap()
 }
 
-pub fn inverse_sigmoid<B: Backend, const D: usize>(x: Tensor<B, D>) -> Tensor<B, D> {
-    Tensor::log(x.clone() / (x.neg() + 1.0))
+pub(crate) fn burn_to_scalar<B: Backend, K: TensorKind<B>>(tensor: Tensor<B, 1, K>) -> K::Elem
+where
+    K: burn::tensor::BasicOps<B>,
+{
+    assert_eq!(tensor.dims()[0], 1);
+    tensor.into_data().value[0]
 }
 
 // fn lookat_to_rt(

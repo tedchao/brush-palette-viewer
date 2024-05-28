@@ -477,7 +477,7 @@ impl<B: Backend> Splats<B> {
         Ok(())
     }
 
-    pub(crate) fn cur_num_points(&self) -> usize {
+    pub(crate) fn num_splats(&self) -> usize {
         self.means.dims()[0]
     }
 }
