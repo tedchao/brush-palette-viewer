@@ -1,3 +1,4 @@
+#![allow(clippy::single_range_in_vec_init)]
 use crate::camera::Camera;
 use burn::backend::Autodiff;
 use burn::prelude::Int;
