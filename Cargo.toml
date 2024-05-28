@@ -36,7 +36,7 @@ serde_json = "1.0"
 rand = "0.8.5"
 anyhow = "1.0.81"
 wgpu = { version = "0.20", features = ["naga"] }
-naga_oil = { git = "https://github.com/Elabajaba/naga_oil.git", branch = "wgpu-0.20" }
+naga_oil = "0.14"
 naga = "0.20"
 miette = "7.2.0"
 running-average = "0.1.0"

@@ -1,5 +1,5 @@
 const SPLATS_PER_GROUP: u32 = 512u;
-const TILE_WIDTH: u32 = 16u;
+const TILE_WIDTH: u32 = 8u;
 const TILE_SIZE: u32 = TILE_WIDTH * TILE_WIDTH;
 
 fn get_bbox(center: vec2f, dims: vec2f, bounds: vec2u) -> vec4u {
@@ -73,14 +73,13 @@ fn calc_sigma(conic: vec3f, xy: vec2f, pixel_coord: vec2f) -> f32 {
 
 fn can_be_visible(tile: vec2u, xy: vec2f, radii: u32) -> bool {
     return true;
-    /*
-    let tile_min = vec2f(tile * TILE_WIDTH);
-    let tile_max = vec2f(tile * TILE_WIDTH) + vec2f(TILE_WIDTH);
-    let closest = min(max(xy, tile_min), tile_max);
-    let dif = xy - closest;
-    let rsqr = dot(dif, dif);
-    return rsqr <= f32(radii * radii);
-    */
+    
+    // let tile_min = vec2f(tile * TILE_WIDTH);
+    // let tile_max = vec2f(tile * TILE_WIDTH) + vec2f(TILE_WIDTH);
+    // let closest = min(max(xy, tile_min), tile_max);
+    // let dif = xy - closest;
+    // let rsqr = dot(dif, dif);
+    // return rsqr <= f32(radii * radii);
 }
 
 fn ceil_div(a: u32, b: u32) -> u32 {

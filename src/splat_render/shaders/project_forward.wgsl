@@ -262,13 +262,16 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
         return;
     }
     
+    let conic = vec3f(cov2d.z, -cov2d.y, cov2d.x) * (1.0 / det);
+
+
     // Calculate tbe pixel radius.
 
     // Original implementation:
-    // let b = 0.5 * (cov2d.x + cov2d.z);
-    // let v1 = b + sqrt(max(0.1f, b * b - det));
-    // let v2 = b - sqrt(max(0.1f, b * b - det));
-    // let radius = u32(ceil(3.0 * sqrt(max(0.0, max(v1, v2)))));
+    let b = 0.5 * (cov2d.x + cov2d.z);
+    let v1 = b + sqrt(max(0.1f, b * b - det));
+    let v2 = b - sqrt(max(0.1f, b * b - det));
+    let radius = u32(ceil(3.0 * sqrt(max(0.0, max(v1, v2)))));
 
     // I think we can do better and derive an exact bound when we hit some eps threshold.
     // Also, we should take into account the opoacity of the gaussian.
@@ -276,8 +279,6 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
     // x^T Sigma^-1 x = -2 * log(eps / opac)
     // Find maximal |x| using quadratic form
     // |x|^2 = c / lambd_min.
-
-    let conic = vec3f(cov2d.z, -cov2d.y, cov2d.x) * (1.0 / det);
 
     // let trace = conic.x + conic.z;
     // let determinant = conic.x * conic.z - conic.y * conic.y;
@@ -287,15 +288,8 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
     // //
     // // we actually go for 2.0 / 255.0 or so to match the cutoff from gsplat better.
     // // maybe can be more precise here if we don't need 1:1 compat with gsplat anymore.
-    // let eps_const = -2.0 * log(1.0 / (opac * 512.0));
-    // let radius = u32(sqrt(eps_const / l_min));
-
-    // Original radius:
-    let b = 0.5f * (cov2d.x + cov2d.z);
-    let v1 = b + sqrt(max(0.1f, b * b - det));
-    let v2 = b - sqrt(max(0.1f, b * b - det));
-    // take 3 sigma of covariance
-    let radius = u32(ceil(3.0 * sqrt(max(v1, v2))));
+    // let eps_const = -2.0 * log(1.0 / (opac * 128.0));
+    // let radius = u32(ceil(sqrt(eps_const / l_min)));
 
     // compute the projected mean
     let center = project_pix(focal, p_view, pixel_center);

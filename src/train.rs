@@ -25,17 +25,17 @@ use rand::seq::SliceRandom;
 pub(crate) struct TrainConfig {
     #[config(default = 42)]
     pub(crate) seed: u64,
-    #[config(default = 25000)]
+    #[config(default = 50000)]
     pub(crate) train_steps: u32,
     #[config(default = false)]
     pub(crate) random_bck_color: bool,
-    #[config(default = 3e-2)]
+    #[config(default = 1e-2)]
     pub lr: f64,
-    #[config(default = 5e-3)]
+    #[config(default = 1e-3)]
     pub min_lr: f64,
     #[config(default = 25)]
     pub visualize_every: u32,
-    #[config(default = 20000)]
+    #[config(default = 3000)]
     pub init_points: usize,
     #[config(default = 2.0)]
     pub init_aabb: f32,
@@ -44,9 +44,10 @@ pub(crate) struct TrainConfig {
 
 struct TrainStats<B: Backend> {
     pred_image: Tensor<B, 3>,
-    gt_image: Array3<f32>,
-    loss: Array1<f32>,
+    loss: Tensor<B, 1>,
     aux: crate::splat_render::Aux<B>,
+
+    gt_image: Array3<f32>,
 }
 
 fn train_step<B: AutodiffBackend>(
@@ -55,7 +56,6 @@ fn train_step<B: AutodiffBackend>(
     _iteration: u32,
     cur_lr: f64,
     config: &TrainConfig,
-    loss: &MseLoss<B>,
     optim: &mut impl Optimizer<Splats<B>, B>,
     rng: &mut StdRng,
     device: &B::Device,
@@ -104,12 +104,9 @@ where
             )
             .unsqueeze::<3>();
 
-    let loss_scalar = loss.forward(
-        rgb_img.clone(),
-        gt_image.clone(),
-        burn::nn::loss::Reduction::Auto,
-    );
-    let grads = loss_scalar.backward();
+    let mse = (rgb_img - gt_image).powf_scalar(2.0).mean();
+
+    let grads = mse.backward();
 
     // Gradients linked to each parameter of the model.
     let grads = GradientsParams::from_grads(grads, &splats);
@@ -164,15 +161,13 @@ where
 
     println!("Start training.");
 
-    let loss = MseLoss::new();
-
     // By default use 8 second window with 16 accumulators
     for iter in 0..config.train_steps {
         let lr = LrScheduler::<B>::step(&mut scheduler);
 
         let start_time = time::Instant::now();
         let (new_splats, stats) = train_step(
-            &scene, splats, iter, lr, config, &loss, &mut optim, &mut rng, device,
+            &scene, splats, iter, lr, config, &mut optim, &mut rng, device,
         );
 
         // Replace current model.
