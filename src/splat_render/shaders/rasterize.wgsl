@@ -16,12 +16,13 @@ struct Uniforms {
 @group(0) @binding(5) var<storage, read> conic_comps: array<vec4f>;
 @group(0) @binding(6) var<storage, read> colors: array<vec4f>;
 
-#ifdef FORWARD_ONLY
+#ifdef RASTER_U32
     @group(0) @binding(7) var<storage, read_write> out_img: array<u32>;
 #else
     @group(0) @binding(7) var<storage, read_write> out_img: array<vec4f>;
     @group(0) @binding(8) var<storage, read_write> final_index : array<u32>;
 #endif
+
 
 // It's possible to gather less gaussians per iteration than the # of threads.
 // for high tile sizes, there's so much contention things actually slow down instead
@@ -129,7 +130,6 @@ fn main(
                 }
 
                 let fac = alpha * T;
-
                 let c = colors_batch[t].xyz;
                 pix_out += c * fac;
                 T = next_T;
@@ -139,16 +139,15 @@ fn main(
     }
 
     if inside {
-        // add background
-        let final_color = pix_out + T * background;
+        let final_color = vec4f(pix_out + T * background, 1.0 - T);
 
-        #ifdef FORWARD_ONLY
-            let colors_u = vec4u(clamp(vec4f(final_color, 1.0 - T) * 255.0, vec4f(0.0), vec4f(255.0)));
-            let packed = colors_u.x | (colors_u.y << 8u) | (colors_u.z << 16u) | (colors_u.w << 24u);
+        #ifdef RASTER_U32
+            let colors_u = vec4u(clamp(final_color * 255.0, vec4f(0.0), vec4f(255.0)));
+            let packed: u32 = colors_u.x | (colors_u.y << 8u) | (colors_u.z << 16u) | (colors_u.w << 24u);
             out_img[pix_id] = packed;
         #else 
-            final_index[pix_id] = final_idx; // index of in bin of last gaussian in this pixel
-            out_img[pix_id] = vec4f(final_color, 1.0 - T);
+            out_img[pix_id] = final_color;
+            final_index[pix_id] = final_idx; 
         #endif
     }
 }

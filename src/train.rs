@@ -148,7 +148,7 @@ where
         let view_image = &viewpoint.view.image;
         let img_size = glam::uvec2(view_image.shape()[1] as u32, view_image.shape()[0] as u32);
 
-        let (pred_img, aux) = splats.render(camera, img_size, background_color);
+        let (pred_img, aux) = splats.render(camera, img_size, background_color, false);
         let dims = pred_img.dims();
 
         let rgb_img = pred_img.clone().slice([0..dims[0], 0..dims[1], 0..3]);
@@ -325,11 +325,22 @@ where
 
                 let first_cam = &scene.train_data[0].camera;
 
-                let (img, _) =
-                    splats.render(first_cam, glam::uvec2(512, 512), glam::vec3(0.0, 0.0, 0.0));
-                let img = Array::from_shape_vec(img.dims(), img.to_data().convert::<f32>().value)
-                    .unwrap();
-                let img = img.map(|x| (*x * 255.0).clamp(0.0, 255.0) as u8);
+                // TODO: Could render a u32 texture here and decode?
+                let (img, _) = splats.render(
+                    first_cam,
+                    glam::uvec2(512, 512),
+                    glam::vec3(0.0, 0.0, 0.0),
+                    true,
+                );
+
+                let bytes = img
+                    .to_data()
+                    .value
+                    .iter()
+                    .flat_map(|x| x.elem::<u32>().to_le_bytes())
+                    .collect::<Vec<_>>();
+
+                let img = Array::from_shape_vec([512, 512, 4], bytes).unwrap();
                 rec.log(
                     "images/fixed camera render",
                     &rerun::Image::try_from(img).unwrap(),

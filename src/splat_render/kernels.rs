@@ -141,7 +141,7 @@ kernel_source_gen!(
     map_gaussian_to_intersects::Uniforms
 );
 kernel_source_gen!(GetTileBinEdges {}, get_tile_bin_edges, ());
-kernel_source_gen!(Rasterize { forward_only }, rasterize, rasterize::Uniforms);
+kernel_source_gen!(Rasterize { raster_u32 }, rasterize, rasterize::Uniforms);
 kernel_source_gen!(
     RasterizeBackwards {},
     rasterize_backwards,

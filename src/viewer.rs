@@ -1,83 +1,30 @@
 use crate::{
-    camera::Camera, dataset_readers, gaussian_splats::Splats, splat_import, splat_render::BurnBack,
+    camera::Camera,
+    dataset_readers,
+    gaussian_splats::Splats,
+    orbit_controls::OrbitControls,
+    splat_import,
+    splat_render::{BurnBack, BurnDiffBack},
 };
 use anyhow::Result;
-use burn::tensor::Tensor;
+use burn::tensor::{backend::Backend, Tensor};
 use burn_wgpu::{RuntimeOptions, WgpuDevice};
 use core::ops::DerefMut;
 use eframe::{egui_wgpu::WgpuConfiguration, NativeOptions};
 use egui::{pos2, Color32, Rect, TextureId};
-use glam::{Mat3, Mat4, Quat, Vec2, Vec3};
+use glam::{Mat4, Quat, Vec2, Vec3};
 use std::{
     sync::Arc,
     time::{self, Duration},
 };
 use wgpu::ImageDataLayout;
 
-/// Tags an entity as capable of panning and orbiting.
-struct OrbitControls {
-    pub focus: Vec3,
-    pub radius: f32,
-    pub rotation: glam::Quat,
-    pub position: glam::Vec3,
-}
-
-impl OrbitControls {
-    fn new(radius: f32) -> Self {
-        Self {
-            focus: Vec3::ZERO,
-            radius,
-            rotation: Quat::IDENTITY,
-            position: Vec3::NEG_Z * radius,
-        }
-    }
-}
-
-impl OrbitControls {
-    /// Pan the camera with middle mouse click, zoom with scroll wheel, orbit with right mouse click.
-    fn pan_orbit_camera(&mut self, pan: Vec2, rotate: Vec2, scroll: f32, window: Vec2) {
-        let mut any = false;
-        if rotate.length_squared() > 0.0 {
-            any = true;
-            let delta_x = rotate.x * std::f32::consts::PI * 2.0 / window.x;
-            let delta_y = rotate.y * std::f32::consts::PI / window.y;
-            let yaw = Quat::from_rotation_y(delta_x);
-            let pitch = Quat::from_rotation_x(-delta_y);
-            self.rotation = yaw * self.rotation * pitch;
-        } else if pan.length_squared() > 0.0 {
-            any = true;
-            // make panning distance independent of resolution and FOV,
-            let scaled_pan = pan * Vec2::new(1.0 / window.x, 1.0 / window.y);
-
-            // translate by local axes
-            let right = self.rotation * Vec3::X * -scaled_pan.x;
-            let up = self.rotation * Vec3::Y * -scaled_pan.y;
-
-            // make panning proportional to distance away from focus point
-            let translation = (right + up) * self.radius;
-            self.focus += translation;
-        } else if scroll.abs() > 0.0 {
-            any = true;
-            self.radius -= scroll * self.radius * 0.2;
-            // dont allow zoom to reach zero or you get stuck
-            self.radius = f32::max(self.radius, 0.05);
-        }
-
-        if any {
-            // emulating parent/child to make the yaw/y-axis rotation behave like a turntable
-            // parent = x and y rotation
-            // child = z-offset
-            let rot_matrix = Mat3::from_quat(self.rotation);
-            self.position = self.focus + rot_matrix.mul_vec3(Vec3::new(0.0, 0.0, -self.radius));
-        }
-    }
-}
-
 // TODO: This probably doesn't belong here but meh.
-fn copy_buffer_to_texture(img: Tensor<BurnBack, 3>, texture: &wgpu::Texture) {
-    let client = img.clone().into_primitive().client.clone();
+fn copy_buffer_to_texture(img: Tensor<BurnDiffBack, 3>, texture: &wgpu::Texture) {
+    let primitive = img.clone().inner().into_primitive();
+    let client = primitive.client.clone();
     let [height, width, _] = img.shape().dims;
-    let img_handle = img.into_primitive().handle;
+    let img_handle = primitive.handle;
 
     client.run_custom_command(move |server| {
         let img_res = server.get_resource_binding(img_handle.clone().binding());
@@ -118,7 +65,7 @@ struct BackBuffer {
 
 struct Viewer {
     camera: Camera,
-    splats: Option<Splats<BurnBack>>,
+    splats: Option<Splats<BurnDiffBack>>,
     reference_cameras: Option<Vec<Camera>>,
     backbuffer: Option<BackBuffer>,
     controls: OrbitControls,
@@ -165,10 +112,16 @@ impl Viewer {
     pub fn load_splats(&mut self, path: &str, reference_view: Option<&str>) {
         self.reference_cameras =
             reference_view.and_then(|s| dataset_readers::read_viewpoint_data(s).ok());
-        self.splats = splat_import::load_splat_from_ply::<BurnBack>(path, &self.device).ok();
+
         if let Some(refs) = self.reference_cameras.as_ref() {
             self.camera = refs[0].clone();
         }
+
+        self.splats = splat_import::load_splat_from_ply(path, &self.device).ok();
+    }
+
+    pub fn set_splats(&mut self, splats: Splats<BurnDiffBack>) {
+        self.splats = Some(splats);
     }
 
     fn update_backbuffer(&mut self, size: glam::UVec2, frame: &mut eframe::Frame) {
@@ -305,7 +258,8 @@ impl eframe::App for Viewer {
 
             if let Some(backbuffer) = &self.backbuffer {
                 if let Some(splats) = &self.splats {
-                    let (img, _) = splats.render(&self.camera, size, glam::vec3(0.0, 0.0, 0.0));
+                    let (img, _) =
+                        splats.render(&self.camera, size, glam::vec3(0.0, 0.0, 0.0), true);
                     copy_buffer_to_texture(img, &backbuffer.texture);
                 }
 

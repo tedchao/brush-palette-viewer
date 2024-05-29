@@ -17,7 +17,9 @@ use burn::tensor::{Shape, Tensor};
 use burn_wgpu::JitTensor;
 use tracing::info_span;
 
-use super::{bitcast_tensor, shaders, Aux, Backend, BurnBack, BurnRuntime, FloatTensor};
+use super::{
+    bitcast_tensor, read_buffer_as_u32, shaders, Aux, Backend, BurnBack, BurnRuntime, FloatTensor,
+};
 use burn::backend::{
     autodiff::{
         checkpoint::{base::Checkpointer, strategy::CheckpointStrategy},
@@ -39,7 +41,7 @@ fn render_forward(
     sh_coeffs: JitTensor<BurnRuntime, f32, 2>,
     raw_opacity: JitTensor<BurnRuntime, f32, 1>,
     background: glam::Vec3,
-    forward_only: bool,
+    raster_u32: bool,
 ) -> (JitTensor<BurnRuntime, f32, 3>, Aux<BurnBack>) {
     let _span = info_span!("render_gaussians").entered();
     let setup = info_span!("setup").entered();
@@ -72,7 +74,7 @@ fn render_forward(
     let device = means.device.clone();
 
     let sync = || {
-        if true {
+        if false {
             client.sync()
         }
     };
@@ -175,20 +177,23 @@ fn render_forward(
     // Calculate cumulative sums as offsets for the intersections buffer.
     let cum_tiles_hit = prefix_sum(&client, num_tiles_hit);
 
-    // TODO: How do we actually properly deal with this :/
-    // Ideally render gaussians in chunks, but that might be hell with the backward pass.
-    let num_tiles = tile_bounds[0] * tile_bounds[1];
-    let max_intersects = (num_points * (num_tiles as usize)).min(256 * 8 * 65535);
-
-    // Each intersection maps to a gaussian.
-    let tile_id_from_isect = create_tensor::<u32, 1>(&client, &device, [max_intersects]);
-    let depthsort_gid_from_isect = create_tensor::<u32, 1>(&client, &device, [max_intersects]);
-
     let num_intersects = bitcast_tensor(BurnBack::int_slice(
         bitcast_tensor(cum_tiles_hit.clone()),
         #[allow(clippy::single_range_in_vec_init)]
         [num_points - 1..num_points],
     ));
+
+    let num_tiles = tile_bounds[0] * tile_bounds[1];
+
+    // TODO: How do we actually properly deal with this :/
+    let max_intersects =
+        read_buffer_as_u32(&client, num_intersects.clone().handle.binding())[0] as usize;
+    // let max_intersects = (num_points * (num_tiles as usize)).min(256 * 4 * 65535);
+
+    // Each intersection maps to a gaussian.
+    let tile_id_from_isect = create_tensor::<u32, 1>(&client, &device, [max_intersects]);
+    let depthsort_gid_from_isect = create_tensor::<u32, 1>(&client, &device, [max_intersects]);
+
     sync();
     drop(cum_hit_span);
 
@@ -257,7 +262,7 @@ fn render_forward(
 
     let tile_edge_span = info_span!("Rasterize").entered();
 
-    let out_img = if forward_only {
+    let out_img = if raster_u32 {
         // Channels are packed into 1 byte - aka one u32 element.
         create_tensor(
             &client,
@@ -272,23 +277,16 @@ fn render_forward(
         )
     };
 
-    let final_index = if forward_only {
-        None
-    } else {
-        Some(create_tensor::<u32, 2>(
-            &client,
-            &device,
-            [img_size.y as usize, img_size.x as usize],
-        ))
-    };
+    let final_index =
+        create_tensor::<u32, 2>(&client, &device, [img_size.y as usize, img_size.x as usize]);
 
-    let mut out_handles = vec![out_img.handle.clone().binding()];
+    let mut out_binds = vec![out_img.handle.clone().binding()];
 
-    if let Some(f) = final_index.as_ref() {
-        out_handles.push(f.handle.clone().binding());
+    if !raster_u32 {
+        out_binds.push(final_index.handle.clone().binding());
     }
 
-    Rasterize::new(forward_only).execute(
+    Rasterize::new(raster_u32).execute(
         &client,
         shaders::rasterize::Uniforms::new(img_size.into(), background.into()),
         &[
@@ -299,7 +297,7 @@ fn render_forward(
             conic_comps.handle.clone().binding(),
             colors.handle.clone().binding(),
         ],
-        &out_handles,
+        out_binds.as_slice(),
         [img_size.x, img_size.y, 1],
     );
     sync();
@@ -317,7 +315,7 @@ fn render_forward(
             colors: Tensor::from_primitive(colors),
             depths: Tensor::from_primitive(depths),
             xys: Tensor::from_primitive(bitcast_tensor(xys)),
-            final_index: final_index.map(|f| Tensor::from_primitive(bitcast_tensor(f))),
+            final_index: Tensor::from_primitive(bitcast_tensor(final_index)),
             depthsort_gid_from_isect: Tensor::from_primitive(bitcast_tensor(
                 depthsort_gid_from_isect,
             )),
@@ -342,6 +340,7 @@ impl Backend for BurnBack {
         sh_coeffs: FloatTensor<Self, 2>,
         raw_opacity: FloatTensor<Self, 1>,
         background: glam::Vec3,
+        render_u32_buffer: bool,
     ) -> (FloatTensor<Self, 3>, Aux<BurnBack>) {
         render_forward(
             camera,
@@ -353,7 +352,7 @@ impl Backend for BurnBack {
             sh_coeffs,
             raw_opacity,
             background,
-            true,
+            render_u32_buffer,
         )
     }
 }
@@ -387,6 +386,7 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
         sh_coeffs: FloatTensor<Self, 2>,
         raw_opacity: FloatTensor<Self, 1>,
         background: glam::Vec3,
+        render_u32_buffer: bool,
     ) -> (FloatTensor<Self, 3>, Aux<Self>) {
         let (out_img, aux) = render_forward(
             camera,
@@ -398,7 +398,7 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
             sh_coeffs.clone().primitive,
             raw_opacity.clone().primitive,
             background,
-            false,
+            render_u32_buffer,
         );
 
         let prep_nodes = RenderBackwards
@@ -427,18 +427,19 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
             cum_tiles_hit: Tensor::from_inner(aux.cum_tiles_hit),
             conic_comps: Tensor::from_inner(aux.conic_comps),
             colors: Tensor::from_inner(aux.colors),
-            final_index: aux.final_index.map(Tensor::from_inner),
+            final_index: Tensor::from_inner(aux.final_index),
             global_from_compact_gid: Tensor::from_inner(aux.global_from_compact_gid),
         };
 
         let sh_degree = sh_basis_from_coeffs(sh_coeffs.primitive.shape.dims[1] / 3);
+
         // Prepare a stateful operation with each variable node and corresponding graph.
         //
         // Each node can be fetched with `ops.parents` in the same order as defined here.
         match prep_nodes {
             OpsKind::Tracked(mut prep) => {
+                // Grads need floating point buffer.
                 let state = GaussianBackwardState {
-                    // TODO: Respect checkpointing in this.
                     means: prep.checkpoint(&means),
                     log_scales: prep.checkpoint(&log_scales),
                     quats: prep.checkpoint(&quats),
@@ -518,7 +519,7 @@ impl Backward<BurnBack, 3, 6> for RenderBackwards {
                 aux.cum_tiles_hit.clone().into_primitive().handle.binding(),
                 aux.conic_comps.clone().into_primitive().handle.binding(),
                 aux.colors.clone().into_primitive().handle.binding(),
-                aux.final_index.unwrap().into_primitive().handle.binding(),
+                aux.final_index.into_primitive().handle.binding(),
                 state.out_img.into_primitive().handle.binding(),
                 v_output.handle.binding(),
             ],
@@ -586,7 +587,6 @@ impl Backward<BurnBack, 3, 6> for RenderBackwards {
         );
 
         // Register gradients for parent nodes.
-        // TODO: Optimise cases where only some gradients are tracked.
         let [mean_parent, xys_parent, log_scales_parent, quats_parent, coeffs_parent, raw_opacity_parent] =
             ops.parents;
 
@@ -626,6 +626,7 @@ pub fn render<B: Backend>(
     sh_coeffs: Tensor<B, 2>,
     raw_opacity: Tensor<B, 1>,
     background: glam::Vec3,
+    render_u32_buffer: bool,
 ) -> (Tensor<B, 3>, Aux<B>) {
     let (img, aux) = B::render_gaussians(
         camera,
@@ -637,6 +638,7 @@ pub fn render<B: Backend>(
         sh_coeffs.clone().into_primitive(),
         raw_opacity.clone().into_primitive(),
         background,
+        render_u32_buffer,
     );
     (Tensor::from_primitive(img), aux)
 }
@@ -690,6 +692,7 @@ mod tests {
             sh_coeffs,
             raw_opacity,
             glam::vec3(0.123, 0.123, 0.123),
+            false,
         );
 
         let rgb = output.clone().slice([0..32, 0..32, 0..3]);
@@ -808,6 +811,7 @@ mod tests {
                 coeffs.clone(),
                 opacities.clone(),
                 glam::vec3(0.0, 0.0, 0.0),
+                false,
             );
 
             let out_rgb = out.clone().slice([0..img_dims[0], 0..img_dims[1], 0..3]);
@@ -879,7 +883,6 @@ mod tests {
             let v_xys_ref =
                 safe_tensor_to_burn2::<DiffBack>(tensors.tensor("v_xy")?, &device).inner();
 
-            println!("{:?}", xy_dummy.grad(&grads));
             let v_xys = xy_dummy.grad(&grads).context("no xys grad")?;
 
             assert!(xys.all_close(xys_ref, Some(1e-5), Some(1e-5)));

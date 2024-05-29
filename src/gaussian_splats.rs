@@ -125,25 +125,12 @@ impl<B: Backend> Splats<B> {
         }
     }
 
-    // Renders an image by splatting the gaussians.
-    // Args:
-    //   camera: Camera to render.
-    //   bg_color: Background color.
-    // Returns:
-    //   A tuple of which the first element is the rendered image and the second
-    //   elements is a dictionary consisting of statistics that we need to keep
-    //   track
-    //   during training. More specifically:
-    //   * screenspace_points: a tensor that "holds" the viewspace positional
-    //     gradients
-    //   * visibility_filter: a boolean tensor that indicates which gaussians
-    //     participated in the rendering.
-    //   * radii: the maximum screenspace radius of each gaussian
     pub(crate) fn render(
         &self,
         camera: &Camera,
         img_size: glam::UVec2,
         bg_color: glam::Vec3,
+        render_u32_buffer: bool,
     ) -> (Tensor<B, 3>, crate::splat_render::Aux<B>) {
         let _span = info_span!("Splats render").entered();
         let cur_rot = self.rotation.val();
@@ -162,6 +149,7 @@ impl<B: Backend> Splats<B> {
             self.sh_coeffs.val(),
             self.raw_opacity.val(),
             bg_color,
+            render_u32_buffer,
         )
     }
 

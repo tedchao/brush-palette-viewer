@@ -82,7 +82,7 @@ pub fn prefix_sum(
 mod tests {
     #[allow(unused_imports)]
     use crate::splat_render::{
-        prefix_sum::prefix_sum, radix_sort::radix_argsort, read_buffer_to_u32, BurnBack,
+        prefix_sum::prefix_sum, radix_sort::radix_argsort, read_buffer_as_u32, BurnBack,
     };
     #[allow(unused_imports)]
     use burn::tensor::{Int, Tensor};
@@ -104,7 +104,7 @@ mod tests {
         let keys = JitTensor::new(keys.client, keys.device, keys.shape, keys.handle);
         let client = &keys.client.clone();
         let summed = prefix_sum(client, keys);
-        let summed = read_buffer_to_u32(client, summed.handle.binding());
+        let summed = read_buffer_as_u32(client, summed.handle.binding());
 
         let prefix_sum_ref: Vec<_> = data
             .into_iter()

@@ -144,42 +144,37 @@ pub fn load_splat_from_ply<B: Backend>(file: &str, device: &B::Device) -> Result
             Tensor::from_data(
                 Data::new(means, Shape::new([num_points, 3])).convert(),
                 device,
-            )
-            .require_grad(),
+            ),
         ),
         sh_coeffs: Param::initialized(
             ParamId::new(),
             Tensor::from_data(
                 Data::new(sh_coeffs, Shape::new([num_points, num_coeffs])).convert(),
                 device,
-            )
-            .require_grad(),
+            ),
         ),
         rotation: Param::initialized(
             ParamId::new(),
             Tensor::from_data(
                 Data::new(rotation, Shape::new([num_points, 4])).convert(),
                 device,
-            )
-            .require_grad(),
+            ),
         ),
         raw_opacity: Param::initialized(
             ParamId::new(),
             Tensor::from_data(
                 Data::new(opacity, Shape::new([num_points])).convert(),
                 device,
-            )
-            .require_grad(),
+            ),
         ),
         log_scales: Param::initialized(
             ParamId::new(),
             Tensor::from_data(
                 Data::new(scales, Shape::new([num_points, 3])).convert(),
                 device,
-            )
-            .require_grad(),
+            ),
         ),
-        xys_dummy: Tensor::zeros([num_points, 2], device).require_grad(),
+        xys_dummy: Tensor::zeros([num_points, 2], device),
     };
 
     Ok(splats)

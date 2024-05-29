@@ -133,7 +133,7 @@ mod tests {
 
     #[allow(unused_imports)]
     use crate::splat_render::{
-        bitcast_tensor, radix_sort::radix_argsort, read_buffer_to_u32, BurnBack,
+        bitcast_tensor, radix_sort::radix_argsort, read_buffer_as_u32, BurnBack,
     };
 
     #[allow(unused_imports)]
@@ -186,8 +186,8 @@ mod tests {
             let client = keys.client.clone();
             let (ret_keys, ret_values) = radix_argsort(client, keys, values, num_points, 32);
 
-            let ret_keys = read_buffer_to_u32(&ret_keys.client, ret_keys.handle.binding());
-            let ret_values = read_buffer_to_u32(&ret_values.client, ret_values.handle.binding());
+            let ret_keys = read_buffer_as_u32(&ret_keys.client, ret_keys.handle.binding());
+            let ret_values = read_buffer_as_u32(&ret_values.client, ret_values.handle.binding());
 
             let inds = argsort(&keys_inp);
 
@@ -236,8 +236,8 @@ mod tests {
         let client = keys.client.clone();
         let (ret_keys, ret_values) = radix_argsort(client, keys, values, num_points, 32);
 
-        let ret_keys = read_buffer_to_u32(&ret_keys.client, ret_keys.handle.binding());
-        let ret_values = read_buffer_to_u32(&ret_values.client, ret_values.handle.binding());
+        let ret_keys = read_buffer_as_u32(&ret_keys.client, ret_keys.handle.binding());
+        let ret_values = read_buffer_as_u32(&ret_values.client, ret_values.handle.binding());
 
         let inds = argsort(&keys_inp);
 

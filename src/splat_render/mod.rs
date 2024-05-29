@@ -19,6 +19,7 @@ pub mod render;
 mod shaders;
 
 pub type BurnBack = JitBackend<BurnRuntime, f32, i32>;
+pub type BurnDiffBack = Autodiff<JitBackend<BurnRuntime, f32, i32>>;
 
 pub type BurnRuntime = WgpuRuntime<AutoGraphicsApi>;
 type BurnClient =
@@ -40,7 +41,7 @@ pub(crate) struct Aux<B: Backend> {
     pub cum_tiles_hit: Tensor<B, 1, Int>,
     pub conic_comps: Tensor<B, 2>,
     pub colors: Tensor<B, 2>,
-    pub final_index: Option<Tensor<B, 2, Int>>,
+    pub final_index: Tensor<B, 2, Int>,
     pub global_from_compact_gid: Tensor<B, 1, Int>,
     pub xys: Tensor<B, 2>,
 }
@@ -62,13 +63,14 @@ pub trait Backend: burn::tensor::backend::Backend {
         colors: FloatTensor<Self, 2>,
         raw_opacity: FloatTensor<Self, 1>,
         background: glam::Vec3,
+        render_u32_buffer: bool,
     ) -> (FloatTensor<Self, 3>, Aux<Self>);
 }
 
 // TODO: In rust 1.80 having a trait bound here on the inner backend would be great.
 // For now all code using it will need to specify this bound itself.
 pub trait AutodiffBackend: Backend + burn::tensor::backend::AutodiffBackend {}
-impl AutodiffBackend for Autodiff<BurnBack> {}
+impl AutodiffBackend for BurnDiffBack {}
 
 fn create_tensor<E: JitElement, const D: usize>(
     client: &BurnClient,
@@ -87,7 +89,7 @@ fn bitcast_tensor<const D: usize, EIn: JitElement, EOut: JitElement>(
     JitTensor::new(tensor.client, tensor.device, tensor.shape, tensor.handle)
 }
 
-pub(crate) fn read_buffer_to_u32<S: ComputeServer, C: ComputeChannel<S>>(
+pub(crate) fn read_buffer_as_u32<S: ComputeServer, C: ComputeChannel<S>>(
     client: &ComputeClient<S, C>,
     binding: Binding<S>,
 ) -> Vec<u32> {
@@ -97,7 +99,7 @@ pub(crate) fn read_buffer_to_u32<S: ComputeServer, C: ComputeChannel<S>>(
         .collect()
 }
 
-fn read_buffer_to_f32<S: ComputeServer, C: ComputeChannel<S>>(
+fn read_buffer_as_f32<S: ComputeServer, C: ComputeChannel<S>>(
     client: &ComputeClient<S, C>,
     binding: Binding<S>,
 ) -> Vec<f32> {
@@ -111,7 +113,7 @@ fn assert_buffer_is_finite<S: ComputeServer, C: ComputeChannel<S>>(
     client: &ComputeClient<S, C>,
     binding: Binding<S>,
 ) {
-    for (i, elem) in read_buffer_to_f32(client, binding).iter().enumerate() {
+    for (i, elem) in read_buffer_as_f32(client, binding).iter().enumerate() {
         if !elem.is_finite() {
             panic!("Elem {elem} at {i} is invalid!");
         }

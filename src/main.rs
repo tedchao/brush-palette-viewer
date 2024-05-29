@@ -5,6 +5,7 @@
 mod camera;
 mod dataset_readers;
 mod gaussian_splats;
+mod orbit_controls;
 mod scene;
 mod splat_import;
 mod splat_render;
@@ -35,7 +36,7 @@ fn main() -> anyhow::Result<()> {
     );
     let device = Default::default();
 
-    if true {
+    if false {
         train::train::<DiffBack>(&config, &device)?;
     } else {
         viewer::start()?;
