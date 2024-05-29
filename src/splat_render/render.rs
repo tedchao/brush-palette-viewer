@@ -33,6 +33,7 @@ fn render_forward(
     camera: &Camera,
     img_size: glam::UVec2,
     means: JitTensor<BurnRuntime, f32, 2>,
+    _xy_dummy: JitTensor<BurnRuntime, f32, 2>,
     log_scales: JitTensor<BurnRuntime, f32, 2>,
     quats: JitTensor<BurnRuntime, f32, 2>,
     sh_coeffs: JitTensor<BurnRuntime, f32, 2>,
@@ -335,6 +336,7 @@ impl Backend for BurnBack {
         camera: &Camera,
         img_size: glam::UVec2,
         means: FloatTensor<Self, 2>,
+        xy_dummy: FloatTensor<Self, 2>,
         log_scales: FloatTensor<Self, 2>,
         quats: FloatTensor<Self, 2>,
         sh_coeffs: FloatTensor<Self, 2>,
@@ -345,6 +347,7 @@ impl Backend for BurnBack {
             camera,
             img_size,
             means,
+            xy_dummy,
             log_scales,
             quats,
             sh_coeffs,
@@ -378,28 +381,18 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
         camera: &Camera,
         img_size: glam::UVec2,
         means: FloatTensor<Self, 2>,
+        xy_dummy: FloatTensor<Self, 2>,
         log_scales: FloatTensor<Self, 2>,
         quats: FloatTensor<Self, 2>,
         sh_coeffs: FloatTensor<Self, 2>,
         raw_opacity: FloatTensor<Self, 1>,
         background: glam::Vec3,
     ) -> (FloatTensor<Self, 3>, Aux<Self>) {
-        let prep_nodes = RenderBackwards
-            .prepare::<C>([
-                means.node.clone(),
-                log_scales.node.clone(),
-                quats.node.clone(),
-                sh_coeffs.node.clone(),
-                raw_opacity.node.clone(),
-            ])
-            .compute_bound()
-            .stateful();
-
-        // let forward_only = matches!(prep_nodes, OpsKind::UnTracked(_));
         let (out_img, aux) = render_forward(
             camera,
             img_size,
             means.clone().primitive,
+            xy_dummy.clone().primitive,
             log_scales.clone().primitive,
             quats.clone().primitive,
             sh_coeffs.clone().primitive,
@@ -407,6 +400,18 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
             background,
             false,
         );
+
+        let prep_nodes = RenderBackwards
+            .prepare::<C>([
+                means.node.clone(),
+                xy_dummy.node.clone(),
+                log_scales.node.clone(),
+                quats.node.clone(),
+                sh_coeffs.node.clone(),
+                raw_opacity.node.clone(),
+            ])
+            .compute_bound()
+            .stateful();
 
         let orig_aux = aux.clone();
 
@@ -456,12 +461,12 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
     }
 }
 
-impl Backward<BurnBack, 3, 5> for RenderBackwards {
+impl Backward<BurnBack, 3, 6> for RenderBackwards {
     type State = GaussianBackwardState;
 
     fn backward(
         self,
-        ops: Ops<Self::State, 5>,
+        ops: Ops<Self::State, 6>,
         grads: &mut Gradients,
         checkpointer: &mut Checkpointer,
     ) {
@@ -536,6 +541,7 @@ impl Backward<BurnBack, 3, 5> for RenderBackwards {
             device,
         );
         let v_opac = BurnBack::float_zeros(Shape::new([num_points]), device);
+        let v_xys = BurnBack::float_zeros(Shape::new([num_points, 2]), device);
 
         ProjectBackwards::new().execute(
             client,
@@ -570,6 +576,7 @@ impl Backward<BurnBack, 3, 5> for RenderBackwards {
             ],
             &[
                 v_means.handle.clone().binding(),
+                v_xys.handle.clone().binding(),
                 v_scales.handle.clone().binding(),
                 v_quats.handle.clone().binding(),
                 v_coeffs.handle.clone().binding(),
@@ -580,7 +587,7 @@ impl Backward<BurnBack, 3, 5> for RenderBackwards {
 
         // Register gradients for parent nodes.
         // TODO: Optimise cases where only some gradients are tracked.
-        let [mean_parent, log_scales_parent, quats_parent, coeffs_parent, raw_opacity_parent] =
+        let [mean_parent, xys_parent, log_scales_parent, quats_parent, coeffs_parent, raw_opacity_parent] =
             ops.parents;
 
         if let Some(node) = mean_parent {
@@ -602,6 +609,10 @@ impl Backward<BurnBack, 3, 5> for RenderBackwards {
         if let Some(node) = raw_opacity_parent {
             grads.register::<BurnBack, 1>(node.id, v_opac);
         }
+
+        if let Some(node) = xys_parent {
+            grads.register::<BurnBack, 2>(node.id, v_xys);
+        }
     }
 }
 
@@ -609,6 +620,7 @@ pub fn render<B: Backend>(
     camera: &Camera,
     img_size: glam::UVec2,
     means: Tensor<B, 2>,
+    xy_dummy: Tensor<B, 2>,
     log_scales: Tensor<B, 2>,
     quats: Tensor<B, 2>,
     sh_coeffs: Tensor<B, 2>,
@@ -619,6 +631,7 @@ pub fn render<B: Backend>(
         camera,
         img_size,
         means.clone().into_primitive(),
+        xy_dummy.clone().into_primitive(),
         log_scales.clone().into_primitive(),
         quats.clone().into_primitive(),
         sh_coeffs.clone().into_primitive(),
@@ -659,6 +672,8 @@ mod tests {
 
         let num_points = 8;
         let means = Tensor::<DiffBack, 2, _>::zeros([num_points, 3], &device);
+        let xy_dummy = Tensor::<DiffBack, 2, _>::zeros([num_points, 2], &device);
+
         let log_scales = Tensor::ones([num_points, 3], &device) * 2.0;
         let quats = Tensor::from_data(glam::Quat::IDENTITY.to_array(), &device)
             .unsqueeze_dim(0)
@@ -669,6 +684,7 @@ mod tests {
             &cam,
             img_size,
             means,
+            xy_dummy,
             log_scales,
             quats,
             sh_coeffs,
@@ -741,8 +757,6 @@ mod tests {
         .reshape([crab_img.height() as usize, crab_img.width() as usize, 3]);
 
         for path in ["basic_case", "mix_case"] {
-            println!("{path}");
-
             let mut buffer = Vec::new();
             let _ =
                 File::open(format!("./test_cases/{path}.safetensors"))?.read_to_end(&mut buffer)?;
@@ -751,6 +765,8 @@ mod tests {
             let means =
                 safe_tensor_to_burn2::<DiffBack>(tensors.tensor("means")?, &device).require_grad();
             let num_points = means.dims()[0];
+
+            let xy_dummy = Tensor::zeros([num_points, 2], &device).require_grad();
 
             let log_scales =
                 safe_tensor_to_burn2::<DiffBack>(tensors.tensor("scales")?, &device).require_grad();
@@ -786,6 +802,7 @@ mod tests {
                 &cam,
                 glam::uvec2(img_dims[1] as u32, img_dims[0] as u32),
                 means.clone(),
+                xy_dummy.clone(),
                 log_scales.clone(),
                 quats.clone(),
                 coeffs.clone(),
@@ -859,9 +876,17 @@ mod tests {
                 safe_tensor_to_burn2::<DiffBack>(tensors.tensor("v_means")?, &device).inner();
             let v_means = means.grad(&grads).context("means grad")?;
 
+            let v_xys_ref =
+                safe_tensor_to_burn2::<DiffBack>(tensors.tensor("v_xy")?, &device).inner();
+
+            println!("{:?}", xy_dummy.grad(&grads));
+            let v_xys = xy_dummy.grad(&grads).context("no xys grad")?;
+
             assert!(xys.all_close(xys_ref, Some(1e-5), Some(1e-5)));
             assert!(conics.all_close(conics_ref, Some(1e-5), Some(1e-6)));
-            assert!(out_rgb.clone().all_close(img_ref, Some(1e-5), Some(1e-6)));
+            assert!(out_rgb.all_close(img_ref, Some(1e-5), Some(1e-6)));
+
+            assert!(v_xys.all_close(v_xys_ref, Some(1e-5), Some(1e-6)));
             assert!(v_opacities.all_close(v_opacities_ref, Some(1e-5), Some(1e-6)));
             assert!(v_coeffs.all_close(v_coeffs_ref, Some(1e-5), Some(1e-6)));
             assert!(v_quats.all_close(v_quats_ref, Some(1e-5), Some(1e-6)));

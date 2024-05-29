@@ -29,11 +29,13 @@ struct Uniforms {
 @group(0) @binding(12) var<storage> compact_from_depthsort_gid: array<u32>;
 
 @group(0) @binding(13) var<storage, read_write> v_means_agg: array<f32>; // packed vec3
-@group(0) @binding(14) var<storage, read_write> v_scales_agg: array<f32>; // packed vec3
+@group(0) @binding(14) var<storage, read_write> v_xys_agg: array<vec2f>;
+@group(0) @binding(15) var<storage, read_write> v_scales_agg: array<f32>; // packed vec3
 
-@group(0) @binding(15) var<storage, read_write> v_quats_agg: array<vec4f>;
-@group(0) @binding(16) var<storage, read_write> v_coeffs_agg: array<f32>;
-@group(0) @binding(17) var<storage, read_write> v_opac_agg: array<f32>;
+@group(0) @binding(16) var<storage, read_write> v_quats_agg: array<vec4f>;
+@group(0) @binding(17) var<storage, read_write> v_coeffs_agg: array<f32>;
+@group(0) @binding(18) var<storage, read_write> v_opac_agg: array<f32>;
+
 
 struct ShCoeffs {
     b0_c0: vec3f,
@@ -268,6 +270,8 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
         v_conic_agg += v_conic[grad_idx].xyz;
         v_colors_agg += v_colors[grad_idx];
     }
+
+    v_xys_agg[global_gid] = v_xy_agg;
 
     let viewmat = uniforms.viewmat;
     let focal = uniforms.focal;

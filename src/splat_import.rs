@@ -179,6 +179,7 @@ pub fn load_splat_from_ply<B: Backend>(file: &str, device: &B::Device) -> Result
             )
             .require_grad(),
         ),
+        xys_dummy: Tensor::zeros([num_points, 2], device).require_grad(),
     };
 
     Ok(splats)

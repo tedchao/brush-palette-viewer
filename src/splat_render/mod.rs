@@ -1,4 +1,3 @@
-#![allow(clippy::single_range_in_vec_init)]
 use crate::camera::Camera;
 use burn::backend::Autodiff;
 use burn::prelude::Int;
@@ -38,12 +37,12 @@ pub(crate) struct Aux<B: Backend> {
     pub depthsort_gid_from_isect: Tensor<B, 1, Int>,
     pub compact_from_depthsort_gid: Tensor<B, 1, Int>,
     pub depths: Tensor<B, 1>,
-    pub xys: Tensor<B, 2>,
     pub cum_tiles_hit: Tensor<B, 1, Int>,
     pub conic_comps: Tensor<B, 2>,
     pub colors: Tensor<B, 2>,
     pub final_index: Option<Tensor<B, 2, Int>>,
     pub global_from_compact_gid: Tensor<B, 1, Int>,
+    pub xys: Tensor<B, 2>,
 }
 
 /// We create our own Backend trait that extends the Burn backend trait.
@@ -57,6 +56,7 @@ pub trait Backend: burn::tensor::backend::Backend {
         cam: &Camera,
         img_size: glam::UVec2,
         means: FloatTensor<Self, 2>,
+        xy_dummy: FloatTensor<Self, 2>,
         log_scales: FloatTensor<Self, 2>,
         quats: FloatTensor<Self, 2>,
         colors: FloatTensor<Self, 2>,

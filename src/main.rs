@@ -1,5 +1,7 @@
 #![allow(dead_code)]
 #![allow(clippy::too_many_arguments)]
+#![allow(clippy::single_range_in_vec_init)]
+
 mod camera;
 mod dataset_readers;
 mod gaussian_splats;
