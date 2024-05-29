@@ -1,6 +1,7 @@
 use std::time;
 
 use anyhow::Result;
+use burn::lr_scheduler::cosine::CosineAnnealingLrSchedulerConfig;
 use burn::lr_scheduler::LrScheduler;
 use burn::tensor::ElementConversion;
 use burn::{
@@ -11,7 +12,9 @@ use burn::{
 use ndarray::{Array, Array3};
 use rand::{rngs::StdRng, SeedableRng};
 
-use crate::gaussian_splats::{self, SplatsTrainState};
+use crate::gaussian_splats::{
+    densify_and_prune, prune_invisible_points, reset_opacity, SplatsTrainState,
+};
 use crate::splat_render::{self, Backend};
 use crate::{
     dataset_readers,
@@ -21,20 +24,49 @@ use crate::{
 use rand::seq::SliceRandom;
 
 #[derive(Config)]
+pub(crate) struct LrConfig {
+    #[config(default = 3e-3)]
+    min_lr: f64,
+    #[config(default = 3e-3)]
+    max_lr: f64,
+}
+
+#[derive(Config)]
 pub(crate) struct TrainConfig {
+    pub lr_mean: LrConfig,
+    pub lr_opac: LrConfig,
+    pub lr_rest: LrConfig,
+
     #[config(default = 42)]
     pub(crate) seed: u64,
-    #[config(default = 50000)]
+    #[config(default = 400)]
+    pub(crate) warmup_steps: u32,
+    #[config(default = 100)]
+    pub(crate) refine_every: u32,
+    // threshold of opacity for culling gaussians. One can set it to a lower value (e.g. 0.005) for higher quality."""
+    #[config(default = 0.01)]
+    pub(crate) cull_alpha_thresh: f32,
+    #[config(default = 0.0015)]
+    pub(crate) clone_split_grad_threshold: f32,
+
+    #[config(default = 0.05)]
+    pub(crate) split_clone_size_threshold: f32,
+
+    // threshold of scale for culling huge gaussians.
+    #[config(default = 0.5)]
+    pub(crate) cull_scale_thresh: f32,
+    #[config(default = 0.15)]
+    pub(crate) cull_screen_size: f32,
+    #[config(default = 20)]
+    pub(crate) reset_alpha_every: u32,
+    #[config(default = 10000)]
     pub(crate) train_steps: u32,
     #[config(default = false)]
     pub(crate) random_bck_color: bool,
-    #[config(default = 1e-2)]
-    pub lr: f64,
-    #[config(default = 1e-3)]
-    pub min_lr: f64,
+
     #[config(default = 25)]
     pub visualize_every: u32,
-    #[config(default = 3000)]
+    #[config(default = 5000)]
     pub init_points: usize,
     #[config(default = 2.0)]
     pub init_aabb: f32,
@@ -62,8 +94,8 @@ where
 
     println!("Loading dataset.");
     let scene = dataset_readers::read_scene(&config.scene_path, None, false);
-    let config_optimizer = AdamConfig::new();
-    let mut optim = config_optimizer.init::<B, Splats<B>>();
+    let opt_config = AdamConfig::new().with_epsilon(1e-15);
+    let mut optim = opt_config.init::<B, Splats<B>>();
 
     B::seed(config.seed);
     let mut rng = StdRng::from_seed([10; 32]);
@@ -76,20 +108,25 @@ where
 
     let mut state: SplatsTrainState<B> = SplatsTrainState::new(config.init_points, device);
 
-    // TODO: Original implementation has differennt learning rates for almost all params.
-    let mut scheduler = burn::lr_scheduler::cosine::CosineAnnealingLrSchedulerConfig::new(
-        config.lr,
-        config.train_steps as usize,
-    )
-    .with_min_lr(config.min_lr)
-    .init();
+    let mut sched_mean =
+        CosineAnnealingLrSchedulerConfig::new(config.lr_mean.max_lr, config.train_steps as usize)
+            .with_min_lr(config.lr_mean.min_lr)
+            .init();
+
+    let mut sched_opac =
+        CosineAnnealingLrSchedulerConfig::new(config.lr_opac.max_lr, config.train_steps as usize)
+            .with_min_lr(config.lr_opac.min_lr)
+            .init();
+
+    let mut sched_rest =
+        CosineAnnealingLrSchedulerConfig::new(config.lr_rest.max_lr, config.train_steps as usize)
+            .with_min_lr(config.lr_rest.min_lr)
+            .init();
 
     println!("Start training.");
 
     // By default use 8 second window with 16 accumulators
     for iter in 0..config.train_steps {
-        let lr = LrScheduler::<B>::step(&mut scheduler);
-
         let start_time = time::Instant::now();
 
         // Get a random camera
@@ -135,12 +172,42 @@ where
         let psnr = mse.clone().recip().log() * 10.0 / std::f32::consts::LN_10;
 
         let mut grads = mse.backward();
+
         // get viewspace grads & remove it from the struct.
         let xys_grad = Tensor::from_inner(splats.xys_dummy.grad_remove(&mut grads).unwrap());
 
-        // Gradients linked to each parameter of the model.
-        let grads = GradientsParams::from_grads(grads, &splats);
-        splats = optim.step(lr, splats, grads);
+        let mut grad_means = GradientsParams::new();
+        let mut grad_opac = GradientsParams::new();
+        let mut grad_rest = GradientsParams::new();
+
+        grad_means.register(
+            splats.means.clone().consume().0,
+            splats.means.grad_remove(&mut grads).unwrap(),
+        );
+        grad_rest.register(
+            splats.sh_coeffs.clone().consume().0,
+            splats.sh_coeffs.grad_remove(&mut grads).unwrap(),
+        );
+        grad_rest.register(
+            splats.rotation.clone().consume().0,
+            splats.rotation.grad_remove(&mut grads).unwrap(),
+        );
+        grad_rest.register(
+            splats.log_scales.clone().consume().0,
+            splats.log_scales.grad_remove(&mut grads).unwrap(),
+        );
+        grad_opac.register(
+            splats.raw_opacity.clone().consume().0,
+            splats.raw_opacity.grad_remove(&mut grads).unwrap(),
+        );
+
+        let lr_mean = LrScheduler::<B>::step(&mut sched_mean);
+        let lr_opac = LrScheduler::<B>::step(&mut sched_opac);
+        let lr_rest = LrScheduler::<B>::step(&mut sched_rest);
+
+        splats = optim.step(lr_mean, splats, grad_means);
+        splats = optim.step(lr_opac, splats, grad_opac);
+        splats = optim.step(lr_rest, splats, grad_rest);
 
         state.update_stats(&aux, xys_grad);
 
@@ -152,11 +219,28 @@ where
             pred_image: pred_img,
         };
 
-        if iter % 100 == 0 {
-            splats = gaussian_splats::prune_invisible_point(splats, &mut state, 0.05);
-            // Need to reset the optimizer - otherwise it tries to add the gradients from the old points.
-            // Is there a way to keep the momentum instead?
-            optim = config_optimizer.init::<B, Splats<B>>();
+        if iter % config.refine_every == 0 {
+            // Remove barely visible gaussians.
+            prune_invisible_points(&mut splats, &mut state, config.cull_alpha_thresh);
+
+            if iter > config.warmup_steps {
+                densify_and_prune(
+                    &mut splats,
+                    &mut state,
+                    config.clone_split_grad_threshold / (img_size.x.max(img_size.y) as f32),
+                    Some(config.cull_screen_size * (dims[0] as f32)),
+                    Some(config.cull_scale_thresh),
+                    config.split_clone_size_threshold,
+                    device,
+                );
+
+                if iter % (config.refine_every * config.reset_alpha_every) == 0 {
+                    reset_opacity(&mut splats);
+                }
+            }
+            state = SplatsTrainState::new(splats.num_splats(), device);
+
+            optim = opt_config.init::<B, Splats<B>>();
         }
 
         #[cfg(not(feature = "rerun"))]
@@ -175,7 +259,9 @@ where
                 &rerun::Scalar::new(utils::burn_to_scalar(stats.psnr).elem::<f64>()),
             )?;
 
-            rec.log("lr/current", &rerun::Scalar::new(lr))?;
+            rec.log("lr/mean", &rerun::Scalar::new(lr_mean))?;
+            rec.log("lr/opac", &rerun::Scalar::new(lr_opac))?;
+            rec.log("lr/rest", &rerun::Scalar::new(lr_rest))?;
 
             rec.log(
                 "performance/step_ms",
@@ -184,15 +270,20 @@ where
             )?;
 
             rec.log(
-                "tiling/num intersects",
+                "splats/num_intersects",
                 &rerun::Scalar::new(utils::burn_to_scalar(stats.aux.num_intersects).elem::<f64>())
                     .clone(),
             )?;
 
             rec.log(
-                "tiling/num visible",
+                "splats/num_visible",
                 &rerun::Scalar::new(utils::burn_to_scalar(stats.aux.num_visible).elem::<f64>())
                     .clone(),
+            )?;
+
+            rec.log(
+                "splats/num",
+                &rerun::Scalar::new(splats.num_splats() as f64).clone(),
             )?;
 
             if iter % config.visualize_every == 0 {

@@ -1,13 +1,13 @@
 use burn::{
     config::Config,
     module::{Module, Param, ParamId},
-    tensor::{activation::sigmoid, Device},
+    tensor::{activation::sigmoid, Bool, Device},
 };
 use tracing::info_span;
 
 use crate::{
     camera::Camera,
-    splat_render::{self, Aux, Backend},
+    splat_render::{self, AutodiffBackend, Aux, Backend},
 };
 use burn::tensor::Distribution;
 use burn::tensor::Tensor;
@@ -61,9 +61,6 @@ pub struct SplatsTrainState<B: Backend> {
     // Sum of gradient norms for each Gaussian in pixel-units. This accumulator
     // is incremented when a Gaussian is visible in a training batch.
     xy_grad_norm_accum: Tensor<B, 1>,
-
-    // Number of times a Gaussian was visible so far.
-    denom: Tensor<B, 1>,
 }
 
 impl<B: Backend> SplatsTrainState<B> {
@@ -71,7 +68,6 @@ impl<B: Backend> SplatsTrainState<B> {
         Self {
             max_radii_2d: Tensor::zeros([num_points], device),
             xy_grad_norm_accum: Tensor::zeros([num_points], device),
-            denom: Tensor::zeros([num_points], device),
         }
     }
 }
@@ -112,7 +108,7 @@ impl<B: Backend> Splats<B> {
             .repeat(0, num_points);
 
         let init_raw_opacity =
-            Tensor::random([num_points], Distribution::Uniform(-4.0, 4.0), device);
+            Tensor::random([num_points], Distribution::Uniform(-2.0, -1.0), device);
 
         // TODO: Fancy KNN init.
         let init_scale = Tensor::random([num_points, 3], Distribution::Uniform(-3.0, -2.0), device);
@@ -128,177 +124,6 @@ impl<B: Backend> Splats<B> {
             xys_dummy: Tensor::zeros([num_points, 2], device).require_grad(),
         }
     }
-
-    // // Densifies and prunes the Gaussians.
-    // // Args:
-    // //   max_grad: See densify_by_clone() and densify_by_split().
-    // //   min_opacity_threshold: Gaussians with an opacity lower than this will be
-    // //     deleted.
-    // //   max_pixel_threshold: Optional. If specified, prune Gaussians whose radius
-    // //     is larger than this in pixel-units.
-    // //   max_world_size_threshold: Optional. If specified, prune Gaussians whose
-    // //     radius is larger than this in world coordinates.
-    // //   clone_vs_split_size_threshold: See densify_by_clone() and
-    // //     densify_by_split().
-    // fn densify_and_prune(
-    //     &mut self,
-    //     max_grad: f32,
-    //     min_opacity_threshold: f32,
-    //     max_pixel_threshold: f32,
-    //     max_world_size_threshold: f32,
-    //     clone_vs_split_size_threshold: f32,
-    //     device: &Device<B>,
-    // ) {
-    //   // f32[n,1]. Compute average magnitude of the gradient for each Gaussian in
-    //   // pixel-units while accounting for the number of times each Gaussian was
-    //   // seen during training.
-    //   let grads = self.mean_grads / self.denom;
-    //   grads[grads.isnan()] = 0.0;
-
-    //   self.densify_by_clone(grads, max_grad, clone_vs_split_size_threshold, device);
-    //   self.densify_by_split(grads, max_grad, clone_vs_split_size_threshold, 2, device);
-
-    //   // bool[n]. If True, delete these Gaussians.
-    //   let prune_mask = (
-    //       self.opacity_activation(self.opacity) < min_opacity_threshold
-    //   ).squeeze();
-
-    //   if let Some(threshold) = max_pixel_threshold {
-    //     // Delete Gaussians with too large of a radius in pixel-units.
-    //     let big_points_vs = self.max_radii_2d > max_pixel_threshold;
-
-    //     // Delete Gaussians with too large of a radius in world-units.
-    //     let big_points_ws =
-    //         self.scale_activation(self.scale).max_dim(1).values
-    //         > max_world_size_threshold;
-
-    //     let prune_mask = Tensor::logical_or(
-    //         Tensor::logical_or(prune_mask, big_points_vs), big_points_ws
-    //     );
-    // }
-
-    //   self.prune_points(prune_mask);
-    // }
-
-    // // // Densifies Gaussians by splitting.
-    // // Args:
-    // //   grads: f32[n,1]. Average squared magnitude of the gradient for each
-    // //     Gaussian in pixel-units.
-    // //   grad_threshold: Minimum gradient magnitude for
-    // //   clone_vs_split_size_threshold: Threshold on scale in world units.
-    // //     Gaussians which meet the gradient condition and have a scale larger than
-    // //     this are split into `n_splits` new Gaussians.
-    // //   n_splits: Number of new Gaussians to create for each split Gaussian.
-    // fn densify_by_split(
-    //     &mut self,
-    //     grads: Tensor<B, 2>,
-    //     grad_threshold: f32,
-    //     clone_vs_split_size_threshold: f32,
-    //     n_splits: i32,
-    //     device: &Device<B>
-    // ) {
-    //   let n_init_points = self.num_splats();
-
-    //   // f32[n]. Extract points that satisfy the gradient condition.
-    //   let padded_grad = Tensor::zeros([n_init_points], device);
-    //   padded_grad.slice_assign([0..grads.dims()[0]], grads);
-
-    //   // Decide which Gaussians are eligible for splitting or cloning based on
-    //   // their gradient magnitude.
-    //   // Gaussians are split if their radius in world-units exceeds a threshold.
-    //   selected_pts_mask = Tensor::logical_and(
-    //     padded_grad >= grad_threshold,
-    //       Tensor::max_dim(self.scale_activation(self.scale), 1).values  > clone_vs_split_size_threshold,
-    //   );
-
-    //   // Sample position of each new Gaussian.
-    //   let stds = self.scale_activation(self.scale[selected_pts_mask]).repeat(
-    //       n_splits, 1
-    //   );
-    //   let means = torch.zeros((stds.size(0), 3), device);
-    //   let samples = torch.normal(mean=means, std=stds);
-    //   let rots = gs_utils.qvec2rotmat(self.rotation[selected_pts_mask]).repeat(
-    //       n_splits, 1, 1
-    //   );
-    //   let new_xyz = torch.bmm(rots, samples.unsqueeze(-1)).squeeze(-1) + self.xyz[
-    //       selected_pts_mask
-    //   ].repeat(n_splits, 1);
-
-    //   // Set the scale of each new Gaussian to approximately 1/k of its parent.
-    //   let new_scale = self.inverse_scale_activation(
-    //       self.scale_activation(self.scale[selected_pts_mask]).repeat(n_splits, 1)
-    //       / (0.8 * n_splits)
-    //   );
-
-    //   // Split Gaussians inherit remaining properties from their parent.
-    //   let new_rotation = self.rotation[selected_pts_mask].repeat(n_splits, 1);
-    //   let new_sh_dc = self.sh_dc[selected_pts_mask].repeat(n_splits, 1, 1);
-    //   let new_sh_rest = self.sh_rest[selected_pts_mask].repeat(n_splits, 1, 1);
-    //   let new_opacity = self.opacity[selected_pts_mask].repeat(n_splits, 1);
-
-    //   self.densification_postfix(
-    //         new_xyz,
-    //         new_sh_dc,
-    //         new_sh_rest,
-    //         new_opacity,
-    //         new_scale,
-    //         new_rotation,
-    //   );
-
-    //   let prune_filter = torch.cat((
-    //       selected_pts_mask,
-    //       torch.zeros(
-    //           n_splits * selected_pts_mask.sum()
-    //       ),
-    //   ));
-
-    //   self.prune_points(prune_filter);
-    // }
-
-    // // Densifies Gaussians by cloning.
-    // //
-    // // Args:
-    // //   grads: f32[n,1]. Average squared magnitude of the gradient for each
-    // //     Gaussian in pixel-units.
-    // //   grad_threshold: Minimum gradient magnitude for
-    // //   clone_vs_split_size_threshold: Threshold on scale in world units.
-    // //     Gaussians which meet the gradient condition and have a scale smaller
-    // //     than this are cloned with the exact same parameters.
-    // fn densify_by_clone(
-    //     &mut self,
-    //     xy_grads: Tensor<B, 2>,
-    //     grad_threshold: f32,
-    //     clone_vs_split_size_threshold: f32,
-    //     device: &Device<B>,
-    // ) {
-    //   // Extract points that satisfy the gradient condition
-    //   let selected_pts_mask = Tensor::where(
-    //       torch.norm(xy_grads, dim=-1) >= grad_threshold, true, false
-    //   );
-
-    //   // From those choose only the ones that are small enough to be cloned
-    //   selected_pts_mask = Tensor::logical_and(
-    //       selected_pts_mask,
-    //       Tensor::max_dim(self.scale_activation(self.scale), 1).values
-    //       <= clone_vs_split_size_threshold,
-    //   );
-
-    //   let new_xyz = self.xyz[selected_pts_mask];
-    //   let new_sh_dc = self.sh_dc[selected_pts_mask];
-    //   let new_sh_rest = self.sh_rest[selected_pts_mask];
-    //   let new_opacities = self.opacity[selected_pts_mask];
-    //   let new_scale = self.scale[selected_pts_mask];
-    //   let new_rotation = self.rotation[selected_pts_mask];
-
-    //   self.densification_postfix(
-    //       new_xyz,
-    //       new_sh_dc,
-    //       new_sh_rest,
-    //       new_opacities,
-    //       new_scale,
-    //       new_rotation,
-    //   );
-    // }
 
     // Renders an image by splatting the gaussians.
     // Args:
@@ -388,51 +213,234 @@ impl<B: Backend> SplatsTrainState<B> {
     //     values mean higher learning rates.
 
     // Updates rolling statistics that we capture during rendering.
-    pub(crate) fn update_stats(&mut self, aux_data: &Aux<B>, xys_grad: Tensor<B, 2>) {
-        let visible = aux_data.radii.clone().greater_elem(0.0);
-        self.max_radii_2d = Tensor::max_pair(self.max_radii_2d.clone(), aux_data.radii.clone());
+    pub(crate) fn update_stats(&mut self, aux: &Aux<B>, xys_grad: Tensor<B, 2>) {
+        let radii = Tensor::zeros_like(&aux.radii_compact).select_assign(
+            0,
+            aux.global_from_compact_gid.clone(),
+            aux.radii_compact.clone(),
+        );
 
-        self.xy_grad_norm_accum = self.xy_grad_norm_accum.clone()
-            + xys_grad
+        self.max_radii_2d = Tensor::max_pair(self.max_radii_2d.clone(), radii.clone());
+
+        self.xy_grad_norm_accum = Tensor::max_pair(
+            self.xy_grad_norm_accum.clone(),
+            xys_grad
                 .clone()
                 .mul(xys_grad.clone())
                 .sum_dim(1)
                 .squeeze(1)
-                .sqrt();
+                .sqrt(),
+        );
+    }
+}
 
-        self.denom = self.denom.clone() + visible.float();
+// Densifies and prunes the Gaussians.
+// Args:
+//   max_grad: See densify_by_clone() and densify_by_split().
+//   max_pixel_threshold: Optional. If specified, prune Gaussians whose radius
+//     is larger than this in pixel-units.
+//   max_world_size_threshold: Optional. If specified, prune Gaussians whose
+//     radius is larger than this in world coordinates.
+//   clone_vs_split_size_threshold: See densify_by_clone() and
+//     densify_by_split().
+pub fn densify_and_prune<B: AutodiffBackend>(
+    splats: &mut Splats<B>,
+    state: &mut SplatsTrainState<B>,
+    grad_threshold: f32,
+    max_pixel_threshold: Option<f32>,
+    max_world_size_threshold: Option<f32>,
+    clone_vs_split_size_threshold: f32,
+    device: &Device<B>,
+) {
+    if let Some(threshold) = max_pixel_threshold {
+        // Delete Gaussians with too large of a radius in pixel-units.
+        let big_splats_mask = state.max_radii_2d.clone().greater_elem(threshold);
+        prune_points(splats, state, big_splats_mask)
     }
 
-    fn reset(&mut self) {
-        self.xy_grad_norm_accum = Tensor::zeros_like(&self.xy_grad_norm_accum);
-        self.denom = Tensor::zeros_like(&self.denom);
-        self.max_radii_2d = Tensor::zeros_like(&self.max_radii_2d);
+    if let Some(threshold) = max_world_size_threshold {
+        // Delete Gaussians with too large of a radius in world-units.
+        let prune_mask = splats
+            .log_scales
+            .val()
+            .exp()
+            .max_dim(1)
+            .squeeze(1)
+            .greater_elem(threshold);
+        prune_points(splats, state, prune_mask);
     }
+
+    // Compute average magnitude of the gradient for each Gaussian in
+    // pixel-units while accounting for the number of times each Gaussian was
+    // seen during training.
+    let grads = state.xy_grad_norm_accum.clone();
+
+    // self.densify_by_clone(grads, max_grad, clone_vs_split_size_threshold, device);
+
+    let big_grad_mask = grads.greater_equal_elem(grad_threshold);
+    let split_clone_size_mask = splats
+        .log_scales
+        .val()
+        .exp()
+        .max_dim(1)
+        .squeeze(1)
+        .lower_elem(clone_vs_split_size_threshold);
+
+    let clone_mask = Tensor::stack::<2>(
+        vec![split_clone_size_mask.clone(), big_grad_mask.clone()],
+        1,
+    )
+    .all_dim(1)
+    .squeeze::<1>(1);
+    let split_mask = Tensor::stack::<2>(vec![split_clone_size_mask.bool_not(), big_grad_mask], 1)
+        .all_dim(1)
+        .squeeze::<1>(1);
+
+    // Need to be very careful not to do any operations with this tensor, as it might be
+    // less than the minimum size wgpu can support :/
+    let clone_where = clone_mask.clone().argwhere();
+
+    if clone_where.dims()[0] >= 4 {
+        let clone_inds = clone_where.squeeze(1);
+
+        // Extract points that satisfy the gradient condition
+        // let selected_pts_mask = Tensor::where(
+        //     torch.norm(xy_grads, dim=-1) >= grad_threshold, true, false
+        // );
+
+        //  Clone inds.
+        // let new_xyz = self.xyz[selected_pts_mask];
+        // let new_sh_dc = self.sh_dc[selected_pts_mask];
+        // let new_sh_rest = self.sh_rest[selected_pts_mask];
+        // let new_opacities = self.opacity[selected_pts_mask];
+        // let new_scale = self.scale[selected_pts_mask];
+        // let new_rotation = self.rotation[selected_pts_mask];
+
+        let new_means = splats.means.val().select(0, clone_inds.clone());
+        let new_rots = splats.rotation.val().select(0, clone_inds.clone());
+        let new_coeffs = splats.sh_coeffs.val().select(0, clone_inds.clone());
+        let new_opac = splats.raw_opacity.val().select(0, clone_inds.clone());
+        let new_scales = splats.log_scales.val().select(0, clone_inds.clone());
+
+        merge_splats(
+            splats, new_means, new_rots, new_coeffs, new_opac, new_scales,
+        );
+    }
+
+    let split_where = split_mask.clone().argwhere();
+    if split_where.dims()[0] >= 4 {
+        // self.densify_by_split(grads, max_grad, clone_vs_split_size_threshold, 2, device);
+
+        // f32[n]. Extract points that satisfy the gradient condition.
+        // let padded_grad = Tensor::zeros([n_init_points], device);
+        // padded_grad.slice_assign([0..grads.dims()[0]], grads);
+        let split_inds = split_where.squeeze(1);
+        let samps = split_inds.dims()[0];
+
+        let scaled_samples = splats
+            .log_scales
+            .val()
+            .select(0, split_inds.clone())
+            .repeat(0, 2)
+            .exp()
+            * Tensor::random([samps * 2, 3], Distribution::Normal(0.0, 1.0), device);
+
+        // Remove original points we're splitting.
+        // TODO: Could just replace them? Maybe?
+
+        let repeats = 2;
+
+        // TODO: Rotate samples
+        let new_means = scaled_samples
+            + splats
+                .means
+                .val()
+                .select(0, split_inds.clone())
+                .repeat(0, repeats);
+        let new_rots = splats
+            .rotation
+            .val()
+            .select(0, split_inds.clone())
+            .repeat(0, repeats);
+        let new_coeffs = splats
+            .sh_coeffs
+            .val()
+            .select(0, split_inds.clone())
+            .repeat(0, repeats);
+        let new_opac = splats
+            .raw_opacity
+            .val()
+            .select(0, split_inds.clone())
+            .repeat(0, repeats);
+        let new_scales = (splats.log_scales.val().select(0, split_inds.clone()).exp() / 1.6)
+            .log()
+            .repeat(0, repeats);
+        prune_points(splats, state, split_mask.clone());
+
+        merge_splats(
+            splats, new_means, new_rots, new_coeffs, new_opac, new_scales,
+        );
+    }
+}
+
+pub(crate) fn reset_opacity<B: AutodiffBackend>(splats: &mut Splats<B>) {
+    splats.raw_opacity = splats
+        .raw_opacity
+        .clone()
+        .map(|x| Tensor::from_inner((x - 2.0).inner()).require_grad());
+}
+
+pub fn merge_splats<B: AutodiffBackend>(
+    splats: &mut Splats<B>,
+    new_means: Tensor<B, 2>,
+    new_rots: Tensor<B, 2>,
+    sh_coeffs: Tensor<B, 2>,
+    raw_opacity: Tensor<B, 1>,
+    log_scales: Tensor<B, 2>,
+) {
+    // Concat new params.
+    splats.means = splats.means.clone().map(|x| {
+        Tensor::from_inner(Tensor::cat(vec![x, new_means.clone()], 0).inner()).require_grad()
+    });
+    splats.rotation = splats.rotation.clone().map(|x| {
+        Tensor::from_inner(Tensor::cat(vec![x, new_rots.clone()], 0).inner()).require_grad()
+    });
+    splats.sh_coeffs = splats.sh_coeffs.clone().map(|x| {
+        Tensor::from_inner(Tensor::cat(vec![x, sh_coeffs.clone()], 0).inner()).require_grad()
+    });
+    splats.raw_opacity = splats.raw_opacity.clone().map(|x| {
+        Tensor::from_inner(Tensor::cat(vec![x, raw_opacity.clone()], 0).inner()).require_grad()
+    });
+    splats.log_scales = splats.log_scales.clone().map(|x| {
+        Tensor::from_inner(Tensor::cat(vec![x, log_scales.clone()], 0).inner()).require_grad()
+    });
+}
+
+pub fn prune_invisible_points<B: AutodiffBackend>(
+    splats: &mut Splats<B>,
+    state: &mut SplatsTrainState<B>,
+    cull_alpha_thresh: f32,
+) {
+    let alpha_mask = sigmoid(splats.raw_opacity.val()).lower_elem(cull_alpha_thresh);
+    prune_points(splats, state, alpha_mask);
 }
 
 // Prunes points based on the given mask.
 //
 // Args:
 //   mask: bool[n]. If True, prune this Gaussian.
-pub fn prune_invisible_point<B: splat_render::AutodiffBackend>(
-    splats: Splats<B>,
+pub fn prune_points<B: AutodiffBackend>(
+    splats: &mut Splats<B>,
     train_state: &mut SplatsTrainState<B>,
-    min_opacity_threshold: f32,
-) -> Splats<B> {
-    println!("{:?}", splats.means.dims());
-
+    prune: Tensor<B, 1, Bool>,
+) {
     // bool[n]. If True, delete these Gaussians.
-    let valid_inds = sigmoid(splats.raw_opacity.clone().val())
-        .greater_elem(min_opacity_threshold)
-        .argwhere()
-        .squeeze(1);
+    let valid_inds = prune.bool_not().argwhere().squeeze(1);
 
     let start_splats = splats.num_splats();
     let new_points = valid_inds.dims()[0];
 
     if new_points < start_splats {
-        println!("Pruned {:?} splats", start_splats - new_points);
-
         train_state.max_radii_2d = train_state
             .max_radii_2d
             .clone()
@@ -441,26 +449,26 @@ pub fn prune_invisible_point<B: splat_render::AutodiffBackend>(
             .xy_grad_norm_accum
             .clone()
             .select(0, valid_inds.clone());
-        train_state.denom = train_state.denom.clone().select(0, valid_inds.clone());
 
-        return Splats {
-            means: splats.means.map(|x| {
-                Tensor::from_inner(x.select(0, valid_inds.clone()).inner()).require_grad()
-            }),
-            sh_coeffs: splats.sh_coeffs.map(|x| {
-                Tensor::from_inner(x.select(0, valid_inds.clone()).inner()).require_grad()
-            }),
-            rotation: splats.rotation.map(|x| {
-                Tensor::from_inner(x.select(0, valid_inds.clone()).inner()).require_grad()
-            }),
-            raw_opacity: splats.raw_opacity.map(|x| {
-                Tensor::from_inner(x.select(0, valid_inds.clone()).inner()).require_grad()
-            }),
-            log_scales: splats.log_scales.map(|x| {
-                Tensor::from_inner(x.select(0, valid_inds.clone()).inner()).require_grad()
-            }),
-            xys_dummy: splats.xys_dummy,
-        };
+        splats.means = splats
+            .means
+            .clone()
+            .map(|x| Tensor::from_inner(x.select(0, valid_inds.clone()).inner()).require_grad());
+        splats.sh_coeffs = splats
+            .sh_coeffs
+            .clone()
+            .map(|x| Tensor::from_inner(x.select(0, valid_inds.clone()).inner()).require_grad());
+        splats.rotation = splats
+            .rotation
+            .clone()
+            .map(|x| Tensor::from_inner(x.select(0, valid_inds.clone()).inner()).require_grad());
+        splats.raw_opacity = splats
+            .raw_opacity
+            .clone()
+            .map(|x| Tensor::from_inner(x.select(0, valid_inds.clone()).inner()).require_grad());
+        splats.log_scales = splats
+            .log_scales
+            .clone()
+            .map(|x| Tensor::from_inner(x.select(0, valid_inds.clone()).inner()).require_grad());
     }
-    splats
 }
