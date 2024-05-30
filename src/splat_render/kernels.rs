@@ -1,4 +1,4 @@
-use std::mem::size_of;
+use std::{hash::Hash, mem::size_of};
 
 use burn_compute::{
     channel::ComputeChannel,
@@ -6,9 +6,8 @@ use burn_compute::{
     server::{Binding, ComputeServer},
 };
 
-use burn::backend::wgpu::{
-    Kernel, KernelSource, SourceKernel, SourceTemplate, WorkGroup, WorkgroupSize,
-};
+use burn::backend::wgpu::{Kernel, WorkGroup, WorkgroupSize};
+use burn_cube::{CompiledKernel, JitKernel};
 
 use super::shaders::*;
 use bytemuck::NoUninit;
@@ -16,15 +15,18 @@ use glam::{uvec3, UVec3};
 use naga_oil::compose::ShaderDefValue;
 use tracing::info_span;
 
-pub(crate) trait SplatKernel<S: ComputeServer<Kernel = Kernel>, C: ComputeChannel<S>>
+pub(crate) trait SplatKernel
 where
-    Self: KernelSource + Sized + Copy + Clone + 'static,
+    Self: Sized + Clone + Send + Sync + 'static,
 {
     const SPAN_NAME: &'static str;
     const WORKGROUP_SIZE: [u32; 3];
     type Uniforms: NoUninit;
 
-    fn execute(
+    fn id(&self) -> String;
+    fn source(&self) -> String;
+
+    fn execute<S: ComputeServer<Kernel = Kernel>, C: ComputeChannel<S>>(
         self,
         client: &ComputeClient<S, C>,
         uniforms: Self::Uniforms,
@@ -45,11 +47,12 @@ where
                 exec_vec.z.div_ceil(group_size.z),
             );
 
-            let kernel = Kernel::Custom(Box::new(SourceKernel::new(
-                self,
-                WorkGroup::new(execs.x, execs.y, execs.z),
-                WorkgroupSize::new(group_size.x, group_size.y, group_size.z),
-            )));
+            let wg = WorkGroup::new(execs[0], execs[1], execs[2]);
+
+            let kernel = Kernel::Custom(Box::new(WrapKernel {
+                workgroup: wg,
+                splat: self,
+            }));
 
             if size_of::<Self::Uniforms>() != 0 {
                 let uniform_data = client.create(bytemuck::bytes_of(&uniforms)).binding();
@@ -60,6 +63,35 @@ where
                 let total_handles = [read_handles, write_handles].concat();
                 client.execute(kernel, total_handles);
             }
+        }
+    }
+}
+
+struct WrapKernel<T> {
+    workgroup: WorkGroup,
+    splat: T,
+}
+
+impl<T: SplatKernel> JitKernel for WrapKernel<T> {
+    fn id(&self) -> String {
+        self.splat.id()
+    }
+
+    fn compile(&self) -> CompiledKernel {
+        CompiledKernel {
+            source: self.splat.source(),
+            workgroup_size: WorkgroupSize::new(
+                T::WORKGROUP_SIZE[0],
+                T::WORKGROUP_SIZE[1],
+                T::WORKGROUP_SIZE[2],
+            ),
+            shared_mem_bytes: 0,
+        }
+    }
+
+    fn launch_settings(&self) -> burn_cube::LaunchSettings {
+        burn_cube::LaunchSettings {
+            workgroup: self.workgroup.clone(),
         }
     }
 }
@@ -96,8 +128,12 @@ macro_rules! kernel_source_gen {
             }
         }
 
-        impl KernelSource for $struct_name {
-            fn source(&self) -> SourceTemplate {
+        impl SplatKernel for $struct_name {
+            const SPAN_NAME: &'static str = stringify!($struct_name);
+            type Uniforms = $uniforms;
+            const WORKGROUP_SIZE: [u32; 3] = $module::compute::MAIN_WORKGROUP_SIZE;
+
+            fn source(&self) -> String {
                 let mut composer = naga_oil::compose::Composer::default();
                 let shader_defs = self.create_shader_hashmap();
                 $module::load_shader_modules_embedded(
@@ -120,16 +156,23 @@ macro_rules! kernel_source_gen {
                     wgpu::naga::back::wgsl::WriterFlags::EXPLICIT_TYPES,
                 )
                 .expect("failed to convert naga module to source");
-                SourceTemplate::new(shader_string)
+                shader_string
             }
-        }
 
-        impl<S: ComputeServer<Kernel = Kernel>, C: ComputeChannel<S>> SplatKernel<S, C>
-            for $struct_name
-        {
-            const SPAN_NAME: &'static str = stringify!($struct_name);
-            type Uniforms = $uniforms;
-            const WORKGROUP_SIZE: [u32; 3] = $module::compute::MAIN_WORKGROUP_SIZE;
+            fn id(&self) -> String {
+                let ids = stringify!($struct_name).to_owned();
+                $(
+                    let mut ids = ids;
+                    ids.push(
+                        if self.$field_name {
+                            '0'
+                        } else {
+                            '1'
+                        }
+                    );
+                )*
+                ids
+            }
         }
     };
 }
