@@ -30,7 +30,7 @@ type FloatTensor<B, const D: usize> =
 type IntTensor<B, const D: usize> = <B as burn::tensor::backend::Backend>::IntTensorPrimitive<D>;
 
 #[derive(Debug, Clone)]
-pub(crate) struct Aux<B: Backend> {
+pub(crate) struct RenderAux<B: Backend> {
     pub num_visible: Tensor<B, 1, Int>,
     pub num_intersects: Tensor<B, 1, Int>,
     pub tile_bins: Tensor<B, 3, Int>,
@@ -64,7 +64,7 @@ pub trait Backend: burn::tensor::backend::Backend {
         raw_opacity: FloatTensor<Self, 1>,
         background: glam::Vec3,
         render_u32_buffer: bool,
-    ) -> (FloatTensor<Self, 3>, Aux<Self>);
+    ) -> (FloatTensor<Self, 3>, RenderAux<Self>);
 }
 
 // TODO: In rust 1.80 having a trait bound here on the inner backend would be great.

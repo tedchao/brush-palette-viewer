@@ -1,6 +1,12 @@
 use crate::{
-    camera::Camera, dataset_readers, gaussian_splats::Splats, orbit_controls::OrbitControls,
-    splat_import, splat_render::BurnDiffBack,
+    camera::Camera,
+    dataset_readers,
+    gaussian_splats::Splats,
+    orbit_controls::OrbitControls,
+    scene::Scene,
+    splat_import,
+    splat_render::BurnDiffBack,
+    train::{LrConfig, SplatTrainer, TrainConfig},
 };
 use burn::tensor::Tensor;
 use burn_wgpu::{RuntimeOptions, WgpuDevice};
@@ -57,6 +63,9 @@ struct BackBuffer {
 pub struct Viewer {
     camera: Camera,
     splats: Option<Splats<BurnDiffBack>>,
+    scene: Option<Scene>,
+    trainer: Option<SplatTrainer<BurnDiffBack>>,
+    rec: rerun::RecordingStream,
     reference_cameras: Option<Vec<Camera>>,
     backbuffer: Option<BackBuffer>,
     controls: OrbitControls,
@@ -83,36 +92,25 @@ impl Viewer {
             },
         );
 
-        let mut viewer = Viewer {
+        Viewer {
             camera: Camera::new(Vec3::ZERO, Quat::IDENTITY, 500.0, 500.0),
             splats: None,
+            trainer: None,
+            scene: None,
             reference_cameras: None,
             backbuffer: None,
             controls: OrbitControls::new(15.0),
             device,
             start_transform: glam::Mat4::IDENTITY,
             last_render_time: time::Instant::now(),
-        };
-        viewer.load_splats(
-            "./brush_data/pretrained/bonsai/point_cloud/iteration_30000/point_cloud.ply",
-            Some("./brush_data/pretrained/bonsai/cameras.json"),
-        );
-        viewer
-
-        // type DiffBack = Autodiff<BurnBack>;
-        // let config = TrainConfig::new(
-        //     LrConfig::new().with_max_lr(5e-6).with_min_lr(1e-6),
-        //     LrConfig::new().with_max_lr(5e-2).with_min_lr(1e-2),
-        //     LrConfig::new().with_max_lr(1e-2).with_min_lr(1e-3),
-        //     "../nerf_synthetic/lego/".to_owned(),
-        // );
-
-        // train::train::<DiffBack>(&config, &device)?;
-
-        // let device = Default::default();
+            rec: rerun::RecordingStreamBuilder::new("visualize training")
+                .spawn()
+                .unwrap(),
+        }
     }
 
     pub fn load_splats(&mut self, path: &str, reference_view: Option<&str>) {
+        self.trainer = None;
         self.reference_cameras =
             reference_view.and_then(|s| dataset_readers::read_viewpoint_data(s).ok());
 
@@ -124,6 +122,27 @@ impl Viewer {
     }
 
     pub fn set_splats(&mut self, splats: Splats<BurnDiffBack>) {
+        self.splats = Some(splats);
+    }
+
+    pub fn start_train(&mut self) {
+        let config = TrainConfig::new(
+            LrConfig::new().with_max_lr(5e-6).with_min_lr(1e-6),
+            LrConfig::new().with_max_lr(5e-2).with_min_lr(1e-2),
+            LrConfig::new().with_max_lr(1e-2).with_min_lr(1e-3),
+            "./brush_data/nerf_synthetic/lego/".to_owned(),
+        );
+
+        let splats = Splats::<BurnDiffBack>::new(5000, 2.0, &self.device);
+
+        println!("Loading dataset.");
+        let scene = dataset_readers::read_scene(&config.scene_path, None, false);
+
+        #[cfg(feature = "rerun")]
+        scene.visualize(&self.rec).unwrap();
+
+        self.scene = Some(scene);
+        self.trainer = Some(SplatTrainer::new(5000, &config, &splats));
         self.splats = Some(splats);
     }
 
@@ -209,6 +228,14 @@ impl eframe::App for Viewer {
                 }
             });
 
+            ui.horizontal(|ui| {
+                for r in ["bulldozer"] {
+                    if ui.button(r.to_string()).clicked() {
+                        self.start_train()
+                    }
+                }
+            });
+
             let now = time::Instant::now();
             let ms = (now - self.last_render_time).as_secs_f64() * 1000.0;
             let fps = 1000.0 / ms;
@@ -258,6 +285,18 @@ impl eframe::App for Viewer {
             self.camera.rotation = rot;
             self.camera.fovx = 0.5;
             self.camera.fovy = 0.5 * (size.y as f32) / (size.x as f32);
+
+            if let Some(train) = self.trainer.as_mut() {
+                self.splats = Some(
+                    train
+                        .step(
+                            self.scene.as_ref().unwrap(),
+                            self.splats.take().unwrap(),
+                            &self.rec,
+                        )
+                        .unwrap(),
+                );
+            }
 
             if let Some(backbuffer) = &self.backbuffer {
                 if let Some(splats) = &self.splats {

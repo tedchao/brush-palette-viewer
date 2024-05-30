@@ -18,7 +18,8 @@ use burn_wgpu::JitTensor;
 use tracing::info_span;
 
 use super::{
-    bitcast_tensor, read_buffer_as_u32, shaders, Aux, Backend, BurnBack, BurnRuntime, FloatTensor,
+    bitcast_tensor, read_buffer_as_u32, shaders, Backend, BurnBack, BurnRuntime, FloatTensor,
+    RenderAux,
 };
 use burn::backend::{
     autodiff::{
@@ -42,7 +43,7 @@ fn render_forward(
     raw_opacity: JitTensor<BurnRuntime, f32, 1>,
     background: glam::Vec3,
     raster_u32: bool,
-) -> (JitTensor<BurnRuntime, f32, 3>, Aux<BurnBack>) {
+) -> (JitTensor<BurnRuntime, f32, 3>, RenderAux<BurnBack>) {
     let _span = info_span!("render_gaussians").entered();
     let setup = info_span!("setup").entered();
 
@@ -305,7 +306,7 @@ fn render_forward(
 
     (
         out_img,
-        Aux {
+        RenderAux {
             num_visible: Tensor::from_primitive(bitcast_tensor(num_visible)),
             num_intersects: Tensor::from_primitive(bitcast_tensor(num_intersects)),
             tile_bins: Tensor::from_primitive(bitcast_tensor(tile_bins)),
@@ -341,7 +342,7 @@ impl Backend for BurnBack {
         raw_opacity: FloatTensor<Self, 1>,
         background: glam::Vec3,
         render_u32_buffer: bool,
-    ) -> (FloatTensor<Self, 3>, Aux<BurnBack>) {
+    ) -> (FloatTensor<Self, 3>, RenderAux<BurnBack>) {
         render_forward(
             camera,
             img_size,
@@ -369,7 +370,7 @@ struct GaussianBackwardState {
     raw_opac: NodeID,
     sh_degree: usize,
     out_img: Tensor<BurnBack, 3>,
-    aux: Aux<BurnBack>,
+    aux: RenderAux<BurnBack>,
 }
 
 #[derive(Debug)]
@@ -387,7 +388,7 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
         raw_opacity: FloatTensor<Self, 1>,
         background: glam::Vec3,
         render_u32_buffer: bool,
-    ) -> (FloatTensor<Self, 3>, Aux<Self>) {
+    ) -> (FloatTensor<Self, 3>, RenderAux<Self>) {
         let (out_img, aux) = render_forward(
             camera,
             img_size,
@@ -415,7 +416,7 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
 
         let orig_aux = aux.clone();
 
-        let wrap_aux = Aux::<Self> {
+        let wrap_aux = RenderAux::<Self> {
             num_visible: Tensor::from_inner(aux.num_visible),
             num_intersects: Tensor::from_inner(aux.num_intersects),
             tile_bins: Tensor::from_inner(aux.tile_bins),
@@ -627,7 +628,7 @@ pub fn render<B: Backend>(
     raw_opacity: Tensor<B, 1>,
     background: glam::Vec3,
     render_u32_buffer: bool,
-) -> (Tensor<B, 3>, Aux<B>) {
+) -> (Tensor<B, 3>, RenderAux<B>) {
     let (img, aux) = B::render_gaussians(
         camera,
         img_size,

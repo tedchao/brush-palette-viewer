@@ -1,4 +1,4 @@
-use std::{hash::Hash, mem::size_of};
+use std::mem::size_of;
 
 use burn_compute::{
     channel::ComputeChannel,
