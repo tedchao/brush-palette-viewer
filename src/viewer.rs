@@ -1,22 +1,13 @@
 use crate::{
-    camera::Camera,
-    dataset_readers,
-    gaussian_splats::Splats,
-    orbit_controls::OrbitControls,
-    splat_import,
-    splat_render::{BurnBack, BurnDiffBack},
+    camera::Camera, dataset_readers, gaussian_splats::Splats, orbit_controls::OrbitControls,
+    splat_import, splat_render::BurnDiffBack,
 };
-use anyhow::Result;
-use burn::tensor::{backend::Backend, Tensor};
+use burn::tensor::Tensor;
 use burn_wgpu::{RuntimeOptions, WgpuDevice};
 use core::ops::DerefMut;
-use eframe::{egui_wgpu::WgpuConfiguration, NativeOptions};
 use egui::{pos2, Color32, Rect, TextureId};
 use glam::{Mat4, Quat, Vec2, Vec3};
-use std::{
-    sync::Arc,
-    time::{self, Duration},
-};
+use std::time::{self, Duration};
 use wgpu::ImageDataLayout;
 
 // TODO: This probably doesn't belong here but meh.
@@ -63,7 +54,7 @@ struct BackBuffer {
     id: TextureId,
 }
 
-struct Viewer {
+pub struct Viewer {
     camera: Camera,
     splats: Option<Splats<BurnDiffBack>>,
     reference_cameras: Option<Vec<Camera>>,
@@ -107,6 +98,18 @@ impl Viewer {
             Some("./models/counter/cameras.json"),
         );
         viewer
+
+        // type DiffBack = Autodiff<BurnBack>;
+        // let config = TrainConfig::new(
+        //     LrConfig::new().with_max_lr(5e-6).with_min_lr(1e-6),
+        //     LrConfig::new().with_max_lr(5e-2).with_min_lr(1e-2),
+        //     LrConfig::new().with_max_lr(1e-2).with_min_lr(1e-3),
+        //     "../nerf_synthetic/lego/".to_owned(),
+        // );
+
+        // train::train::<DiffBack>(&config, &device)?;
+
+        // let device = Default::default();
     }
 
     pub fn load_splats(&mut self, path: &str, reference_view: Option<&str>) {
@@ -285,29 +288,4 @@ impl eframe::App for Viewer {
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
         [0.0, 0.0, 0.0, 1.0]
     }
-}
-
-pub(crate) fn start() -> Result<()> {
-    let native_options = NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_inner_size(egui::Vec2::new(1920.0, 1080.0)),
-        vsync: false,
-        wgpu_options: WgpuConfiguration {
-            device_descriptor: Arc::new(|adapter| wgpu::DeviceDescriptor {
-                label: Some("egui+burn wgpu device"),
-                required_features: wgpu::Features::default(),
-                required_limits: adapter.limits(),
-            }),
-            ..Default::default()
-        },
-        ..Default::default()
-    };
-
-    eframe::run_native(
-        "My egui App",
-        native_options,
-        Box::new(move |cc| Box::new(Viewer::new(cc))),
-    )
-    .unwrap();
-
-    Ok(())
 }

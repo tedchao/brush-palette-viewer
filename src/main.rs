@@ -13,12 +13,12 @@ mod train;
 mod utils;
 mod viewer;
 
-use burn::backend::Autodiff;
+use std::sync::Arc;
+
+use eframe::{egui_wgpu::WgpuConfiguration, NativeOptions};
 #[cfg(feature = "tracy")]
 use tracing_subscriber::layer::SubscriberExt;
-use train::LrConfig;
-
-use crate::{splat_render::BurnBack, train::TrainConfig};
+use viewer::Viewer;
 
 fn main() -> anyhow::Result<()> {
     #[cfg(feature = "tracy")]
@@ -27,19 +27,26 @@ fn main() -> anyhow::Result<()> {
     )
     .expect("Failed to setup tracy layer");
 
-    type DiffBack = Autodiff<BurnBack>;
-    let config = TrainConfig::new(
-        LrConfig::new().with_max_lr(5e-6).with_min_lr(1e-6),
-        LrConfig::new().with_max_lr(5e-2).with_min_lr(1e-2),
-        LrConfig::new().with_max_lr(1e-2).with_min_lr(1e-3),
-        "../nerf_synthetic/lego/".to_owned(),
-    );
-    let device = Default::default();
+    let native_options = NativeOptions {
+        viewport: egui::ViewportBuilder::default().with_inner_size(egui::Vec2::new(1920.0, 1080.0)),
+        vsync: false,
+        wgpu_options: WgpuConfiguration {
+            device_descriptor: Arc::new(|adapter| wgpu::DeviceDescriptor {
+                label: Some("egui+burn wgpu device"),
+                required_features: wgpu::Features::default(),
+                required_limits: adapter.limits(),
+            }),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
 
-    if false {
-        train::train::<DiffBack>(&config, &device)?;
-    } else {
-        viewer::start()?;
-    }
+    eframe::run_native(
+        "My egui App",
+        native_options,
+        Box::new(move |cc| Box::new(Viewer::new(cc))),
+    )
+    .unwrap();
+
     Ok(())
 }
