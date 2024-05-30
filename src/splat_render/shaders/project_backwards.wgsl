@@ -422,8 +422,9 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
     }
 
     // Write SH gradients.
-    // TODO: Get real viewdir.
-    let v_coeff = sh_coeffs_to_color_fast_vjp(uniforms.sh_degree, vec3f(0.0, 0.0, 1.0), v_colors_agg.xyz);
+    let viewdir = normalize(-viewmat[3].xyz - mean);
+
+    let v_coeff = sh_coeffs_to_color_fast_vjp(uniforms.sh_degree, viewdir, v_colors_agg.xyz);
     let num_coeffs = num_sh_coeffs(uniforms.sh_degree);
     var base_id = global_gid * num_coeffs * 3;
 

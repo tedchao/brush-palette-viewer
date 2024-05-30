@@ -355,7 +355,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
         }
     }
 
-    let viewdir = normalize(mean - viewmat[3].xyz);
+    let viewdir = normalize(-viewmat[3].xyz - mean);
     let color = max(sh_coeffs_to_color(uniforms.sh_degree, viewdir, sh) + vec3f(0.5), vec3f(0.0));
     let comp = helpers::cov_compensation(cov2d);
     colors[write_id] = vec4f(color, opac);
