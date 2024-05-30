@@ -23,7 +23,6 @@ struct Uniforms {
     @group(0) @binding(8) var<storage, read_write> final_index : array<u32>;
 #endif
 
-
 // It's possible to gather less gaussians per iteration than the # of threads.
 // for high tile sizes, there's so much contention things actually slow down instead
 // of speed up.

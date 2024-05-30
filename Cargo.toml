@@ -8,15 +8,15 @@ edition = "2021"
 [dependencies]
 glam = "0.22"
 
-burn = { path = "../burn/crates/burn", features = [
+burn = { git = "https://github.com/ArthurBrussee/burn.git", features = [
     'wgpu',
     'autodiff',
     'template',
 ] }
-burn-compute = { path = "../burn/crates/burn-compute" }
-burn-jit = { path = "../burn/crates/burn-jit" }
-burn-wgpu = { path = "../burn/crates/burn-wgpu" }
-burn-cube = { path = "../burn/crates/burn-cube" }
+burn-compute = { git = "https://github.com/ArthurBrussee/burn.git" }
+burn-jit = { git = "https://github.com/ArthurBrussee/burn.git" }
+burn-wgpu = { git = "https://github.com/ArthurBrussee/burn.git" }
+burn-cube = { git = "https://github.com/ArthurBrussee/burn.git" }
 
 bytemuck = "1.15"
 ndarray = "0.15"
@@ -60,7 +60,7 @@ rerun = ["dep:rerun"]
 default = ["tracy", "rerun"]
 
 [build-dependencies]
-wgsl_bindgen = { path = "../wgsl-bindgen/wgsl_bindgen" }
+wgsl_bindgen = { git = "https://github.com/ArthurBrussee/wgsl-bindgen.git", branch = "updates" }
 miette = { version = "7.2.0", features = ["fancy"] }
 
 [profile.dev]
