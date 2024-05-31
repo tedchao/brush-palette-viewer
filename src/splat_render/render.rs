@@ -9,6 +9,7 @@ use crate::splat_render::kernels::{
     GetTileBinEdges, MapGaussiansToIntersect, ProjectBackwards, ProjectSplats, Rasterize,
     RasterizeBackwards,
 };
+use crate::splat_render::shaders::get_tile_bin_edges::VERTICAL_GROUPS;
 use burn::backend::autodiff::NodeID;
 use burn::tensor::ops::IntTensorOps;
 use burn::tensor::{Shape, Tensor};
@@ -53,11 +54,10 @@ fn render_forward(
         .check_dims(&sh_coeffs, ["D".into(), "C".into()])
         .check_dims(&raw_opacities, ["D".into()]);
 
-    // Divide screen into blocks.
-    let tile_width = shaders::helpers::TILE_WIDTH;
+    // Divide screen into tiles.
     let tile_bounds = uvec2(
-        img_size.x.div_ceil(tile_width),
-        img_size.y.div_ceil(tile_width),
+        img_size.x.div_ceil(shaders::helpers::TILE_WIDTH),
+        img_size.y.div_ceil(shaders::helpers::TILE_WIDTH),
     );
 
     let client = &means.client;
@@ -89,7 +89,9 @@ fn render_forward(
 
     // Number of tiles hit per splat.
     let num_tiles_hit = BurnBack::int_zeros([num_points].into(), device);
+    // Atomic counter of number of visible splats.
     let num_visible = bitcast_tensor(BurnBack::int_zeros([1].into(), device));
+    // Compaction buffer permutation.
     let global_from_compact_gid = create_tensor::<u32, 1>([num_points], device, client);
 
     // TODO: This should just be:
@@ -112,7 +114,6 @@ fn render_forward(
                 camera.focal(img_size).into(),
                 camera.center(img_size).into(),
                 img_size.into(),
-                tile_width,
                 0.01,
                 sh_degree as u32,
             ),
@@ -226,7 +227,7 @@ fn render_forward(
     let tile_edge_span = info_span!("GetTileBinEdges").entered();
 
     let tile_bins = BurnBack::int_zeros(
-        Shape::new([tile_bounds[0] as usize, tile_bounds[1] as usize, 2]),
+        [tile_bounds.y as usize, tile_bounds.x as usize, 2].into(),
         device,
     );
     GetTileBinEdges::new().execute(
@@ -239,7 +240,7 @@ fn render_forward(
         &[tile_bins.handle.clone().binding()],
         [
             (max_intersects as u32).div_ceil(shaders::get_tile_bin_edges::VERTICAL_GROUPS),
-            shaders::get_tile_bin_edges::VERTICAL_GROUPS,
+            VERTICAL_GROUPS,
             1,
         ],
     );

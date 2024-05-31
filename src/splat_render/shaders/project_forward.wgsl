@@ -33,8 +33,6 @@ struct Uniforms {
     pixel_center: vec2f,
     // Img resolution (w, h)
     img_size: vec2u,
-    // Width of blocks image is divided into.
-    block_width: u32,
     // Near clip threshold.
     clip_thresh: f32,
     // num of sh coefficients per channel.
@@ -289,14 +287,14 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
     // let radius = u32(ceil(sqrt(eps_const / l_min)));
 
     // compute the projected mean
-    let center = project_pix(focal, p_view, pixel_center);
-    let tile_minmax = helpers::get_tile_bbox(center, radius, tile_bounds);
+    let xy = project_pix(focal, p_view, pixel_center);
+    let tile_minmax = helpers::get_tile_bbox(xy, radius, tile_bounds);
     let tile_min = tile_minmax.xy;
     let tile_max = tile_minmax.zw;
     var tile_area = 0u;
     for (var ty = tile_min.y; ty < tile_max.y; ty++) {
         for (var tx = tile_min.x; tx < tile_max.x; tx++) {
-            if helpers::can_be_visible(vec2u(tx, ty), center, radius) {
+            if helpers::can_be_visible(vec2u(tx, ty), xy, radius) {
                 tile_area += 1u;
             }
         }
@@ -359,6 +357,6 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
     depths[write_id] = p_view.z;
     num_tiles_hit[write_id] = u32(tile_area);
     radii[write_id] = radius;
-    xys[write_id] = center;
+    xys[write_id] = xy;
     conic_comps[write_id] = vec4f(conic, comp);
 }

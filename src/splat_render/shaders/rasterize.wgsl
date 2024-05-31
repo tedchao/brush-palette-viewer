@@ -23,11 +23,6 @@ struct Uniforms {
     @group(0) @binding(8) var<storage, read_write> final_index : array<u32>;
 #endif
 
-// It's possible to gather less gaussians per iteration than the # of threads.
-// for high tile sizes, there's so much contention things actually slow down instead
-// of speed up.
-const GATHER_PER_ITERATION = helpers::TILE_SIZE;
-
 var<workgroup> xy_batch: array<vec2f, helpers::TILE_SIZE>;
 var<workgroup> colors_batch: array<vec4f, helpers::TILE_SIZE>;
 var<workgroup> conic_comp_batch: array<vec4f, helpers::TILE_SIZE>;
@@ -68,7 +63,7 @@ fn main(
     // which gaussians to look through in this tile
     var range = tile_bins[tile_id];
 
-    let num_batches = helpers::ceil_div(range.y - range.x, GATHER_PER_ITERATION);
+    let num_batches = helpers::ceil_div(range.y - range.x, helpers::TILE_SIZE);
     // current visibility left to render
     var T = 1.0;
 
@@ -81,14 +76,14 @@ fn main(
     for (var b = 0u; b < num_batches; b++) {
         // each thread fetch 1 gaussian from front to back
         // index of gaussian to load
-        let batch_start = range.x + b * GATHER_PER_ITERATION;
+        let batch_start = range.x + b * helpers::TILE_SIZE;
         let isect_id = batch_start + local_idx;
 
         var xy_local = vec2f(0.0);
         var conic_comp_local = vec4f(0.0);
         var colors_local = vec4f(0.0);
 
-        if isect_id <= range.y && local_idx < GATHER_PER_ITERATION {
+        if isect_id <= range.y {
             let depthsort_gid = depthsort_gid_from_isect[isect_id];
             let compact_gid = compact_from_depthsort_gid[depthsort_gid];
             xy_local = xys[compact_gid];
@@ -98,7 +93,7 @@ fn main(
 
         // Write gathered results to shared memory, and synchronize access.
         workgroupBarrier();
-        if isect_id <= range.y && local_idx < GATHER_PER_ITERATION {
+        if isect_id <= range.y {
             xy_batch[local_idx] = xy_local;
             conic_comp_batch[local_idx] = conic_comp_local;
             colors_batch[local_idx] = colors_local;
@@ -106,7 +101,7 @@ fn main(
         workgroupBarrier();
 
         // process gaussians in the current batch for this pixel
-        let remaining = min(GATHER_PER_ITERATION, range.y - batch_start);
+        let remaining = min(helpers::TILE_SIZE, range.y - batch_start);
     
         var t = 0u;
         for (; t < remaining && !done; t++) {
