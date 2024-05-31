@@ -1,16 +1,14 @@
-use burn::{
-    config::Config,
-    module::{Module, Param, ParamId},
-    tensor::Device,
-};
-use tracing::info_span;
-
 use crate::{
     camera::Camera,
     splat_render::{self, AutodiffBackend, Backend},
 };
 use burn::tensor::Distribution;
 use burn::tensor::Tensor;
+use burn::{
+    config::Config,
+    module::{Module, Param, ParamId},
+    tensor::Device,
+};
 
 use anyhow::Result;
 
@@ -103,9 +101,6 @@ impl<B: Backend> Splats<B> {
         bg_color: glam::Vec3,
         render_u32_buffer: bool,
     ) -> (Tensor<B, 3>, crate::splat_render::RenderAux<B>) {
-        let _span = info_span!("Splats render").entered();
-        let cur_rot = self.rotation.val();
-
         splat_render::render::render(
             camera,
             img_size,

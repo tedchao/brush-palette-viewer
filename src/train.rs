@@ -53,7 +53,7 @@ pub(crate) struct TrainConfig {
     pub(crate) cull_scale_thresh: f32,
     #[config(default = 0.15)]
     pub(crate) cull_screen_size: f32,
-    #[config(default = 20)]
+    #[config(default = 30)]
     pub(crate) reset_alpha_every: u32,
     #[config(default = 10000)]
     pub(crate) train_steps: u32,
