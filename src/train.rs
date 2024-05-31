@@ -252,7 +252,6 @@ where
                 .select(0, split_inds.clone())
                 .repeat(0, 2)
                 .exp()
-                * 0.25
                 * centered_samples;
 
             // Remove original points we're splitting.
@@ -445,6 +444,8 @@ where
         splats = self.optim.step(lr_mean, splats, grad_means);
         splats = self.optim.step(lr_opac, splats, grad_opac);
         splats = self.optim.step(lr_rest, splats, grad_rest);
+
+        splats.norm_rotations();
 
         self.update_stats(&aux, xys_grad);
 

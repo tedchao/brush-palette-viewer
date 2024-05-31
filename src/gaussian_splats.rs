@@ -106,17 +106,13 @@ impl<B: Backend> Splats<B> {
         let _span = info_span!("Splats render").entered();
         let cur_rot = self.rotation.val();
 
-        // TODO: Norm after grad, not on render.
-        let norms = Tensor::sum_dim(cur_rot.clone() * cur_rot.clone(), 1).sqrt();
-        let norm_rotation = cur_rot / Tensor::clamp_min(norms, 1e-6);
-
         splat_render::render::render(
             camera,
             img_size,
             self.means.val(),
             self.xys_dummy.clone(),
             self.log_scales.val(),
-            norm_rotation,
+            self.rotation.val(),
             self.sh_coeffs.val(),
             self.raw_opacity.val(),
             bg_color,
@@ -191,6 +187,15 @@ impl<B: AutodiffBackend> Splats<B> {
         });
         self.log_scales = self.log_scales.clone().map(|x| {
             Tensor::from_inner(Tensor::cat(vec![x, log_scales.clone()], 0).inner()).require_grad()
+        });
+    }
+
+    pub fn norm_rotations(&mut self) {
+        // TODO: Norm after grad, not on render.
+        self.rotation = self.rotation.clone().map(|x| {
+            let norms = Tensor::sum_dim(x.clone() * x.clone(), 1).sqrt();
+            let norm_rotation = x / Tensor::clamp_min(norms, 1e-6);
+            Tensor::from_inner(norm_rotation.inner()).require_grad()
         });
     }
 }
