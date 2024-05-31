@@ -26,9 +26,11 @@ where
     Array::from_shape_vec(dims.into(), burn_data.convert::<f32>().value).unwrap()
 }
 
-pub(crate) fn burn_to_scalar<B: Backend, K: TensorKind<B>>(tensor: Tensor<B, 1, K>) -> K::Elem
+pub(crate) fn burn_to_scalar<B, K>(tensor: Tensor<B, 1, K>) -> K::Elem
 where
     K: burn::tensor::BasicOps<B>,
+    K: TensorKind<B>,
+    B: Backend,
 {
     assert_eq!(tensor.dims()[0], 1);
     tensor.into_data().value[0]
