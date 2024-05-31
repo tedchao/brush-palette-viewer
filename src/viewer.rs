@@ -130,12 +130,12 @@ impl Viewer {
         self.splats = Some(splats);
     }
 
-    pub fn start_train(&mut self) {
+    pub fn start_training(&mut self, path: &str) {
         let config = TrainConfig::new(
             LrConfig::new().with_max_lr(5e-6).with_min_lr(1e-6),
             LrConfig::new().with_max_lr(5e-2).with_min_lr(1e-2),
             LrConfig::new().with_max_lr(1e-2).with_min_lr(1e-3),
-            "./brush_data/nerf_synthetic/lego/".to_owned(),
+            path.to_owned(),
         );
 
         let splats = Splats::<BurnDiffBack>::init_random(5000, 2.0, &self.device);
@@ -237,9 +237,9 @@ impl eframe::App for Viewer {
 
             ui.label("Train a new model.");
             ui.horizontal(|ui| {
-                for r in ["bulldozer"] {
+                for r in ["chair", "drums", "ficus", "hotdog", "lego", "materials", "mic", "ship"] {
                     if ui.button(r.to_string()).clicked() {
-                        self.start_train()
+                        self.start_training(&format!("./brush_data/nerf_synthetic/{r}/"))
                     }
                 }
             });

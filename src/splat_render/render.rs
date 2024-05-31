@@ -12,15 +12,12 @@ use crate::splat_render::kernels::{
 use crate::splat_render::shaders::get_tile_bin_edges::VERTICAL_GROUPS;
 use burn::backend::autodiff::NodeID;
 use burn::tensor::ops::IntTensorOps;
-use burn::tensor::{Shape, Tensor};
+use burn::tensor::Tensor;
 
 use burn_wgpu::JitTensor;
 use tracing::info_span;
 
-use super::{
-    bitcast_tensor, read_buffer_as_u32, shaders, Backend, BurnBack, BurnRuntime, FloatTensor,
-    RenderAux,
-};
+use super::{bitcast_tensor, shaders, Backend, BurnBack, BurnRuntime, FloatTensor, RenderAux};
 use burn::backend::{
     autodiff::{
         checkpoint::{base::Checkpointer, strategy::CheckpointStrategy},
