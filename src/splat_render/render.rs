@@ -175,9 +175,9 @@ fn render_forward(
     // dispatch to avoid this.
     // Estimating the max number of intersects can be a bad hack though... The worst case sceneario is so massive
     // that it's easy to run out of memory... How do we actually properly deal with this :/
-    // let max_intersects = (num_points * (num_tiles as usize)).min(256 * 4 * 65535);
-    let max_intersects =
-        read_buffer_as_u32(client, num_intersects.clone().handle.binding())[0] as usize;
+    let max_intersects = (num_points * (num_tiles as usize)).min(256 * 4 * 65535);
+    //let max_intersects =
+    //    read_buffer_as_u32(client, num_intersects.clone().handle.binding())[0] as usize;
 
     // Each intersection maps to a gaussian.
     let tile_id_from_isect = create_tensor::<u32, 1>([max_intersects], device, client);
