@@ -2,7 +2,7 @@ use super::kernels::SplatKernel;
 use super::prefix_sum::prefix_sum;
 use super::radix_sort::radix_argsort;
 use crate::camera::Camera;
-use crate::gaussian_splats::{num_sh_coeffs, sh_basis_from_coeffs};
+use crate::gaussian_splats::{num_sh_coeffs, sh_degree_from_coeffs};
 use crate::splat_render::create_tensor;
 use crate::splat_render::dim_check::DimCheck;
 use crate::splat_render::kernels::{
@@ -10,7 +10,6 @@ use crate::splat_render::kernels::{
     RasterizeBackwards,
 };
 use burn::backend::autodiff::NodeID;
-use burn::tensor::ops::FloatTensorOps;
 use burn::tensor::ops::IntTensorOps;
 use burn::tensor::{Shape, Tensor};
 
@@ -27,7 +26,6 @@ use burn::backend::{
         grads::Gradients,
         ops::{Backward, Ops, OpsKind},
     },
-    wgpu::into_contiguous,
     Autodiff,
 };
 use glam::{uvec2, Vec3};
@@ -40,29 +38,20 @@ fn render_forward(
     log_scales: JitTensor<BurnRuntime, f32, 2>,
     quats: JitTensor<BurnRuntime, f32, 2>,
     sh_coeffs: JitTensor<BurnRuntime, f32, 2>,
-    raw_opacity: JitTensor<BurnRuntime, f32, 1>,
+    raw_opacities: JitTensor<BurnRuntime, f32, 1>,
     background: glam::Vec3,
     raster_u32: bool,
 ) -> (JitTensor<BurnRuntime, f32, 3>, RenderAux<BurnBack>) {
-    let _span = info_span!("render_gaussians").entered();
-    let setup = info_span!("setup").entered();
+    let _render_span = info_span!("render_gaussians").entered();
+    let setup_span = info_span!("setup").entered();
 
-    let (means, log_scales, quats, sh_coeffs, raw_opacities) = (
-        into_contiguous(means.clone()),
-        into_contiguous(log_scales.clone()),
-        into_contiguous(quats.clone()),
-        into_contiguous(sh_coeffs.clone()),
-        into_contiguous(raw_opacity.clone()),
-    );
-
+    // Check whether dimesions are valid.
     DimCheck::new()
         .check_dims(&means, ["D".into(), 3.into()])
         .check_dims(&log_scales, ["D".into(), 3.into()])
         .check_dims(&quats, ["D".into(), 4.into()])
         .check_dims(&sh_coeffs, ["D".into(), "C".into()])
         .check_dims(&raw_opacities, ["D".into()]);
-
-    let sh_degree = sh_basis_from_coeffs(sh_coeffs.shape.dims[1] / 3);
 
     // Divide screen into blocks.
     let tile_width = shaders::helpers::TILE_WIDTH;
@@ -71,23 +60,17 @@ fn render_forward(
         img_size.y.div_ceil(tile_width),
     );
 
-    let client = means.client.clone();
-    let device = means.device.clone();
-
-    let sync = || {
-        if false {
-            client.sync()
-        }
-    };
+    let client = &means.client;
+    let device = &means.device;
 
     let num_points = means.shape.dims[0];
 
     // Projected gaussian values.
-    let xys = create_tensor::<f32, 2>(&client, &device, [num_points, 2]);
-    let depths = create_tensor::<f32, 1>(&client, &device, [num_points]);
-    let colors = create_tensor::<f32, 2>(&client, &device, [num_points, 4]);
-    let radii = create_tensor::<u32, 1>(&client, &device, [num_points]);
-    let conic_comps = create_tensor::<f32, 2>(&client, &device, [num_points, 4]);
+    let xys = create_tensor::<f32, 2>([num_points, 2], device, client);
+    let depths = create_tensor::<f32, 1>([num_points], device, client);
+    let colors = create_tensor::<f32, 2>([num_points, 4], device, client);
+    let radii = create_tensor::<u32, 1>([num_points], device, client);
+    let conic_comps = create_tensor::<f32, 2>([num_points, 4], device, client);
 
     // A note on some confusing naming that'll be used throughout this function:
     // Gaussians are stored in various states of buffers, eg. at the start they're all in one big bufffer,
@@ -103,27 +86,32 @@ fn render_forward(
     //  global_from_compact_gid or compact_from_depthsort_gid.
 
     // Tile rendering setup.
-    let num_tiles_hit = BurnBack::int_zeros(Shape::new([num_points]), &device);
-    let num_visible = bitcast_tensor(BurnBack::int_zeros(Shape::new([1]), &device));
-    let global_from_compact_gid = create_tensor::<u32, 1>(&client, &device, [num_points]);
 
-    // TODO: This should just be an int_arrange, but that atm in burn falls back to a
-    // CPU operation and is way too slow. I could also make this a special case in the radix sort.
-    let arranged_ids = create_tensor::<u32, 1>(&client, &device, [num_points]);
+    // Number of tiles hit per splat.
+    let num_tiles_hit = BurnBack::int_zeros([num_points].into(), device);
+    let num_visible = bitcast_tensor(BurnBack::int_zeros([1].into(), device));
+    let global_from_compact_gid = create_tensor::<u32, 1>([num_points], device, client);
 
-    drop(setup);
+    // TODO: This should just be:
+    // let arranged_ids = BurnBack::int_arange();
+    // but atm Burn only has a CPU version of arange which is way too slow :/
+    // Instead just fill this in the kernel, not great but it works.
+    let arranged_ids = create_tensor::<u32, 1>([num_points], device, client);
+
+    drop(setup_span);
+
+    let sh_degree = sh_degree_from_coeffs(sh_coeffs.shape.dims[1] / 3);
 
     {
         let _span = info_span!("ProjectSplats").entered();
 
         ProjectSplats::new().execute(
-            &client,
+            client,
             shaders::project_forward::Uniforms::new(
                 camera.world_to_local(),
                 camera.focal(img_size).into(),
                 camera.center(img_size).into(),
                 img_size.into(),
-                tile_bounds.into(),
                 tile_width,
                 0.01,
                 sh_degree as u32,
@@ -146,15 +134,13 @@ fn render_forward(
                 num_tiles_hit.handle.clone().binding(),
                 num_visible.handle.clone().binding(),
             ],
-            [num_points as u32, 1, 1],
+            [num_points as u32],
         );
-
-        sync();
     }
 
     let depth_sort_span = info_span!("DepthSort").entered();
-    // Interpret depth as u32. This is fine with radix sort, as long as depth > 0.0,
-    // which we know to be the case given how we cull.
+    // Interpret the depth as a u32. This is fine for a radix sort, as long as the depth > 0.0,
+    // which we know to be the case given how we cull splats.
     let (_, compact_from_depthsort_gid) = radix_argsort(
         client.clone(),
         bitcast_tensor(depths.clone()),
@@ -162,12 +148,9 @@ fn render_forward(
         num_visible.clone(),
         32,
     );
-    sync();
-
     drop(depth_sort_span);
 
     let cum_hit_span = info_span!("TilesPermute").entered();
-
     // Permute the number of tiles hit for the sorted gaussians.
     // This means num_tiles_hit is not stored per compact_gid, but per depthsort_gid.
     let num_tiles_hit = bitcast_tensor(BurnBack::int_gather(
@@ -176,26 +159,30 @@ fn render_forward(
         bitcast_tensor(compact_from_depthsort_gid.clone()),
     ));
     // Calculate cumulative sums as offsets for the intersections buffer.
-    let cum_tiles_hit = prefix_sum(&client, num_tiles_hit);
+    // TODO: Only need to do this up to num_visible gaussians really.
+    let cum_tiles_hit = prefix_sum(num_tiles_hit);
 
     let num_intersects = bitcast_tensor(BurnBack::int_slice(
         bitcast_tensor(cum_tiles_hit.clone()),
-        #[allow(clippy::single_range_in_vec_init)]
         [num_points - 1..num_points],
     ));
 
     let num_tiles = tile_bounds[0] * tile_bounds[1];
 
-    // TODO: How do we actually properly deal with this :/
-    let max_intersects =
-        read_buffer_as_u32(&client, num_intersects.clone().handle.binding())[0] as usize;
+    // TODO: On wasm, we cannot do a sync readback at all.
+    // Instead, can just estimate a max number of intersects. All the kernels only handle the actual
+    // cound of intersects, and spin up empty threads for the rest atm. In the future, could use indirect
+    // dispatch to avoid this.
+    // Estimating the max number of intersects can be a bad hack though... The worst case sceneario is so massive
+    // that it's easy to run out of memory... How do we actually properly deal with this :/
     // let max_intersects = (num_points * (num_tiles as usize)).min(256 * 4 * 65535);
+    let max_intersects =
+        read_buffer_as_u32(client, num_intersects.clone().handle.binding())[0] as usize;
 
     // Each intersection maps to a gaussian.
-    let tile_id_from_isect = create_tensor::<u32, 1>(&client, &device, [max_intersects]);
-    let depthsort_gid_from_isect = create_tensor::<u32, 1>(&client, &device, [max_intersects]);
+    let tile_id_from_isect = create_tensor::<u32, 1>([max_intersects], device, client);
+    let depthsort_gid_from_isect = create_tensor::<u32, 1>([max_intersects], device, client);
 
-    sync();
     drop(cum_hit_span);
 
     {
@@ -204,7 +191,7 @@ fn render_forward(
         // Dispatch one thread per point.
         // TODO: Really want to do an indirect dispatch here for num_visible.
         MapGaussiansToIntersect::new().execute(
-            &client,
+            client,
             shaders::map_gaussian_to_intersects::Uniforms::new(tile_bounds.into()),
             &[
                 compact_from_depthsort_gid.handle.clone().binding(),
@@ -218,9 +205,8 @@ fn render_forward(
                 tile_id_from_isect.handle.clone().binding(),
                 depthsort_gid_from_isect.handle.clone().binding(),
             ],
-            [num_points as u32, 1, 1],
+            [num_points as u32],
         );
-        sync();
     }
 
     // We're sorting by tile ID, but we know beforehand what the maximum value
@@ -230,22 +216,21 @@ fn render_forward(
     let tile_sort_span = info_span!("Tile sort").entered();
     let (tile_id_from_isect, depthsort_gid_from_isect) = radix_argsort(
         client.clone(),
-        bitcast_tensor(tile_id_from_isect),
-        bitcast_tensor(depthsort_gid_from_isect),
+        tile_id_from_isect,
+        depthsort_gid_from_isect,
         num_intersects.clone(),
         bits,
     );
-    sync();
     drop(tile_sort_span);
 
     let tile_edge_span = info_span!("GetTileBinEdges").entered();
 
     let tile_bins = BurnBack::int_zeros(
         Shape::new([tile_bounds[0] as usize, tile_bounds[1] as usize, 2]),
-        &device,
+        device,
     );
     GetTileBinEdges::new().execute(
-        &client,
+        client,
         (),
         &[
             tile_id_from_isect.handle.binding(),
@@ -258,37 +243,37 @@ fn render_forward(
             1,
         ],
     );
-    sync();
     drop(tile_edge_span);
 
     let tile_edge_span = info_span!("Rasterize").entered();
 
-    let out_img = if raster_u32 {
-        // Channels are packed into 1 byte - aka one u32 element.
-        create_tensor(
-            &client,
-            &device,
-            [img_size.y as usize, img_size.x as usize, 1],
-        )
+    let out_dim = if raster_u32 {
+        // Channels are packed into 4 bytes aka one float.
+        1
     } else {
-        create_tensor(
-            &client,
-            &device,
-            [img_size.y as usize, img_size.x as usize, 4],
-        )
+        4
     };
 
+    let out_img = create_tensor(
+        [img_size.y as usize, img_size.x as usize, out_dim],
+        device,
+        client,
+    );
+
+    // Record the final visible splat per tile.
     let final_index =
-        create_tensor::<u32, 2>(&client, &device, [img_size.y as usize, img_size.x as usize]);
+        create_tensor::<u32, 2>([img_size.x as usize, img_size.y as usize], device, client);
 
+    // Only record the final visible splat per tile if we're not rendering a u32 buffer.
+    // If we're renering a u32 buffer, we can't autodiff anyway, and final index is only needed for
+    // the backward pass.
     let mut out_binds = vec![out_img.handle.clone().binding()];
-
     if !raster_u32 {
         out_binds.push(final_index.handle.clone().binding());
     }
 
     Rasterize::new(raster_u32).execute(
-        &client,
+        client,
         shaders::rasterize::Uniforms::new(img_size.into(), background.into()),
         &[
             depthsort_gid_from_isect.handle.clone().binding(),
@@ -299,10 +284,12 @@ fn render_forward(
             colors.handle.clone().binding(),
         ],
         out_binds.as_slice(),
-        [img_size.x, img_size.y, 1],
+        [img_size.x, img_size.y],
     );
-    sync();
     drop(tile_edge_span);
+
+    // TODO: Atm this all still crashes if we're rendering <4 splats due to wgpu
+    // limitations on buffer sizes.
 
     (
         out_img,
@@ -369,7 +356,7 @@ struct GaussianBackwardState {
     quats: NodeID,
     raw_opac: NodeID,
     sh_degree: usize,
-    out_img: Tensor<BurnBack, 3>,
+    out_img: FloatTensor<BurnBack, 3>,
     aux: RenderAux<BurnBack>,
 }
 
@@ -389,19 +376,7 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
         background: glam::Vec3,
         render_u32_buffer: bool,
     ) -> (FloatTensor<Self, 3>, RenderAux<Self>) {
-        let (out_img, aux) = render_forward(
-            camera,
-            img_size,
-            means.clone().primitive,
-            xy_dummy.clone().primitive,
-            log_scales.clone().primitive,
-            quats.clone().primitive,
-            sh_coeffs.clone().primitive,
-            raw_opacity.clone().primitive,
-            background,
-            render_u32_buffer,
-        );
-
+        // Prepare backward pass, and check if we even need to do it.
         let prep_nodes = RenderBackwards
             .prepare::<C>([
                 means.node.clone(),
@@ -414,8 +389,25 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
             .compute_bound()
             .stateful();
 
+        // Render complete forward pass.
+        let (out_img, aux) = render_forward(
+            camera,
+            img_size,
+            means.primitive.clone(),
+            xy_dummy.primitive.clone(),
+            log_scales.primitive.clone(),
+            quats.primitive.clone(),
+            sh_coeffs.primitive.clone(),
+            raw_opacity.primitive.clone(),
+            background,
+            render_u32_buffer,
+        );
+
+        // Save unwrapped aux for later.
         let orig_aux = aux.clone();
 
+        // Return aux with tensors lifted to the current backend
+        // (from the original non autodiff backend).
         let wrap_aux = RenderAux::<Self> {
             num_visible: Tensor::from_inner(aux.num_visible),
             num_intersects: Tensor::from_inner(aux.num_intersects),
@@ -432,30 +424,27 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
             global_from_compact_gid: Tensor::from_inner(aux.global_from_compact_gid),
         };
 
-        let sh_degree = sh_basis_from_coeffs(sh_coeffs.primitive.shape.dims[1] / 3);
+        let sh_degree = sh_degree_from_coeffs(sh_coeffs.primitive.shape.dims[1] / 3);
 
-        // Prepare a stateful operation with each variable node and corresponding graph.
-        //
-        // Each node can be fetched with `ops.parents` in the same order as defined here.
         match prep_nodes {
             OpsKind::Tracked(mut prep) => {
-                // Grads need floating point buffer.
+                // Save state needed for backward pass.
                 let state = GaussianBackwardState {
                     means: prep.checkpoint(&means),
                     log_scales: prep.checkpoint(&log_scales),
                     quats: prep.checkpoint(&quats),
                     raw_opac: prep.checkpoint(&raw_opacity),
-                    aux: orig_aux,
                     cam: camera.clone(),
                     background,
-                    out_img: Tensor::from_primitive(out_img.clone()),
                     sh_degree,
+                    aux: orig_aux,
+                    out_img: out_img.clone(),
                 };
 
                 (prep.finish(state, out_img), wrap_aux)
             }
             OpsKind::UnTracked(prep) => {
-                // When no node is tracked, we can just compute the original operation without
+                // When no node is tracked, we can just use the original operation without
                 // keeping any state.
                 (prep.finish(out_img), wrap_aux)
             }
@@ -477,11 +466,12 @@ impl Backward<BurnBack, 3, 6> for RenderBackwards {
         let state = ops.state;
         let aux = state.aux;
 
-        let img_dimgs = state.out_img.dims();
+        let img_dimgs = state.out_img.shape.dims;
         let img_size = glam::uvec2(img_dimgs[1] as u32, img_dimgs[0] as u32);
 
         let v_output = grads.consume::<BurnBack, 3>(&ops.node);
-        DimCheck::new().check_dims(&v_output, [img_size.y.into(), img_size.x.into(), 4.into()]);
+        let client = &v_output.client;
+        let device = &v_output.device;
 
         let means = checkpointer.retrieve_node_output::<FloatTensor<BurnBack, 2>>(state.means);
         let quats = checkpointer.retrieve_node_output::<FloatTensor<BurnBack, 2>>(state.quats);
@@ -490,17 +480,19 @@ impl Backward<BurnBack, 3, 6> for RenderBackwards {
         let raw_opac =
             checkpointer.retrieve_node_output::<FloatTensor<BurnBack, 1>>(state.raw_opac);
 
-        let client = &v_output.client;
-        let device = &v_output.device;
-
         let num_points = means.shape.dims[0];
 
         let max_intersects = aux.depthsort_gid_from_isect.shape().dims[0];
-        let v_xy_scatter = BurnBack::float_zeros(Shape::new([max_intersects, 2]), device);
-        let v_conic_scatter = BurnBack::float_zeros(Shape::new([max_intersects, 4]), device);
-        let v_colors_scatter = BurnBack::float_zeros(Shape::new([max_intersects, 4]), device);
 
-        let hit_ids = BurnBack::int_zeros(Shape::new([num_points]), device);
+        // All the gradients _per tile_. These are later summed up in the final
+        // backward projection pass.
+        let v_xy_scatter = create_tensor::<f32, 2>([max_intersects, 2], device, client);
+        // Nb: this could be 3 floats - but that doesn't play well with wgsl alignment requirements.
+        let v_conic_scatter = create_tensor::<f32, 2>([max_intersects, 4], device, client);
+        let v_colors_scatter = create_tensor::<f32, 2>([max_intersects, 4], device, client);
+
+        // This is an offset into the scatter tensor buffer. Important to start at zero.
+        let hit_ids = BurnBack::int_zeros([num_points].into(), device);
 
         RasterizeBackwards::new().execute(
             client,
@@ -521,7 +513,7 @@ impl Backward<BurnBack, 3, 6> for RenderBackwards {
                 aux.conic_comps.clone().into_primitive().handle.binding(),
                 aux.colors.clone().into_primitive().handle.binding(),
                 aux.final_index.into_primitive().handle.binding(),
-                state.out_img.into_primitive().handle.binding(),
+                state.out_img.handle.binding(),
                 v_output.handle.binding(),
             ],
             &[
@@ -530,20 +522,23 @@ impl Backward<BurnBack, 3, 6> for RenderBackwards {
                 v_colors_scatter.handle.clone().binding(),
                 hit_ids.handle.clone().binding(),
             ],
-            [img_size.x, img_size.y, 1],
+            [img_size.x, img_size.y],
         );
 
-        // TODO: Can't this be done for just visible points
-        let v_means = BurnBack::float_zeros(Shape::new([num_points, 3]), device);
-        let v_scales = BurnBack::float_zeros(Shape::new([num_points, 3]), device);
+        // Create tensors to hold gradients.
 
-        let v_quats = BurnBack::float_zeros(Shape::new([num_points, 4]), device);
-        let v_coeffs = BurnBack::float_zeros(
-            Shape::new([num_points, num_sh_coeffs(state.sh_degree) * 3]),
+        // Nb: these are packed vec3 values, special care is taken in the kernel to respect alignment.
+        let v_means = create_tensor([num_points, 3], device, client);
+        let v_scales = create_tensor([num_points, 3], device, client);
+
+        let v_quats = create_tensor([num_points, 4], device, client);
+        let v_coeffs = create_tensor(
+            [num_points, num_sh_coeffs(state.sh_degree) * 3],
             device,
+            client,
         );
-        let v_opac = BurnBack::float_zeros(Shape::new([num_points]), device);
-        let v_xys = BurnBack::float_zeros(Shape::new([num_points, 2]), device);
+        let v_opac = create_tensor([num_points], device, client);
+        let v_xys = create_tensor([num_points, 2], device, client);
 
         ProjectBackwards::new().execute(
             client,
@@ -584,15 +579,21 @@ impl Backward<BurnBack, 3, 6> for RenderBackwards {
                 v_coeffs.handle.clone().binding(),
                 v_opac.handle.clone().binding(),
             ],
-            [num_points as u32, 1, 1],
+            [num_points as u32],
         );
 
-        // Register gradients for parent nodes.
+        // Register gradients for parent nodes (This code is already skipped entirely
+        // if no parent nodes require gradients).
         let [mean_parent, xys_parent, log_scales_parent, quats_parent, coeffs_parent, raw_opacity_parent] =
             ops.parents;
 
         if let Some(node) = mean_parent {
             grads.register::<BurnBack, 2>(node.id, v_means);
+        }
+
+        // Register the gradients for the dummy xy input.
+        if let Some(node) = xys_parent {
+            grads.register::<BurnBack, 2>(node.id, v_xys);
         }
 
         if let Some(node) = log_scales_parent {
@@ -609,10 +610,6 @@ impl Backward<BurnBack, 3, 6> for RenderBackwards {
 
         if let Some(node) = raw_opacity_parent {
             grads.register::<BurnBack, 1>(node.id, v_opac);
-        }
-
-        if let Some(node) = xys_parent {
-            grads.register::<BurnBack, 2>(node.id, v_xys);
         }
     }
 }
@@ -713,18 +710,14 @@ mod tests {
     // Nb: this only handles float tensors, good enough :)
     fn safe_tensor_to_burn1<B: Backend>(t: TensorView, device: &B::Device) -> Tensor<B, 1, Float> {
         Tensor::from_data(
-            Data::new(float_from_u8(t.data()), Shape::new([t.shape()[0]])).convert(),
+            Data::new(float_from_u8(t.data()), [t.shape()[0]].into()).convert(),
             device,
         )
     }
 
     fn safe_tensor_to_burn2<B: Backend>(t: TensorView, device: &B::Device) -> Tensor<B, 2, Float> {
         Tensor::from_data(
-            Data::new(
-                float_from_u8(t.data()),
-                Shape::new([t.shape()[0], t.shape()[1]]),
-            )
-            .convert(),
+            Data::new(float_from_u8(t.data()), [t.shape()[0], t.shape()[1]].into()).convert(),
             device,
         )
     }
@@ -733,7 +726,7 @@ mod tests {
         Tensor::from_data(
             Data::new(
                 float_from_u8(t.data()),
-                Shape::new([t.shape()[0], t.shape()[1], t.shape()[2]]),
+                [t.shape()[0], t.shape()[1], t.shape()[2]].into(),
             )
             .convert(),
             device,

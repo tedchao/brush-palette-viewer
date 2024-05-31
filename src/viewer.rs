@@ -16,7 +16,7 @@ use glam::{Mat4, Quat, Vec2, Vec3};
 use std::time::{self, Duration};
 use wgpu::ImageDataLayout;
 
-// TODO: This probably doesn't belong here but meh.
+// TODO: This probably doesn't belong here.
 fn copy_buffer_to_texture(img: Tensor<BurnDiffBack, 3>, texture: &wgpu::Texture) {
     let primitive = img.clone().inner().into_primitive();
     let client = primitive.client.clone();
@@ -62,8 +62,8 @@ struct BackBuffer {
 
 pub struct Viewer {
     camera: Camera,
-    splats: Option<Splats<BurnDiffBack>>,
     scene: Option<Scene>,
+    splats: Option<Splats<BurnDiffBack>>,
     trainer: Option<SplatTrainer<BurnDiffBack>>,
     rec: rerun::RecordingStream,
     reference_cameras: Option<Vec<Camera>>,
@@ -77,15 +77,20 @@ pub struct Viewer {
 impl Viewer {
     pub fn new(cc: &eframe::CreationContext) -> Self {
         let state = cc.wgpu_render_state.as_ref().unwrap();
+
         // Run the burn backend on the egui WGPU device.
         let device = burn::backend::wgpu::init_existing_device(
             0,
             state.adapter.clone(),
             state.device.clone(),
             state.queue.clone(),
+            // Burn atm has pretty suboptimal memory management leading to weird behaviour. This effectively disables
+            // it, with a GC run every couple seconds. Seems good enough for now.
+            // (nb: it doesn't mean burn will never re-use memory, just that it hangs on to
+            // GPU allocations for longer).
             RuntimeOptions {
                 dealloc_strategy: burn_compute::memory_management::DeallocStrategy::PeriodTime {
-                    period: Duration::from_secs(10),
+                    period: Duration::from_secs(5),
                     state: time::Instant::now(),
                 },
                 ..Default::default()
@@ -93,7 +98,7 @@ impl Viewer {
         );
 
         Viewer {
-            camera: Camera::new(Vec3::ZERO, Quat::IDENTITY, 500.0, 500.0),
+            camera: Camera::new(Vec3::ZERO, Quat::IDENTITY, 0.5, 0.5),
             splats: None,
             trainer: None,
             scene: None,
@@ -133,7 +138,7 @@ impl Viewer {
             "./brush_data/nerf_synthetic/lego/".to_owned(),
         );
 
-        let splats = Splats::<BurnDiffBack>::new(5000, 2.0, &self.device);
+        let splats = Splats::<BurnDiffBack>::init_random(5000, 2.0, &self.device);
 
         println!("Loading dataset.");
         let scene = dataset_readers::read_scene(&config.scene_path, None, false);
@@ -141,6 +146,7 @@ impl Viewer {
         #[cfg(feature = "rerun")]
         scene.visualize(&self.rec).unwrap();
 
+        // TODO: Unify reference views & training scene.
         self.scene = Some(scene);
         self.trainer = Some(SplatTrainer::new(5000, &config, &splats));
         self.splats = Some(splats);
@@ -152,48 +158,48 @@ impl Viewer {
             Some(back) if back.texture.width() == size.x && back.texture.height() == size.y
         );
 
-        if dirty {
-            let state = frame.wgpu_render_state().unwrap();
-            let egui_device = state.device.clone();
+        if !dirty {
+            return;
+        }
 
-            let texture = egui_device.create_texture(&wgpu::TextureDescriptor {
-                label: Some("Splat backbuffer"),
-                size: wgpu::Extent3d {
-                    width: size.x,
-                    height: size.y,
-                    depth_or_array_layers: 1,
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::Rgba8UnormSrgb, // Minspec for wgpu WebGL emulation is WebGL2, so this should always be supported.
-                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-                view_formats: &[wgpu::TextureFormat::Rgba8UnormSrgb],
+        let state = frame.wgpu_render_state().unwrap();
+        let egui_device = state.device.clone();
+
+        // Allocate a new wgpu texture.
+        let texture = egui_device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Splat backbuffer"),
+            size: wgpu::Extent3d {
+                width: size.x,
+                height: size.y,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[wgpu::TextureFormat::Rgba8UnormSrgb],
+        });
+
+        // Register this texture with egui.
+        let view = texture.create_view(&Default::default());
+
+        let mut rend_guard = state.renderer.write();
+        let renderer = rend_guard.deref_mut();
+
+        if let Some(back) = self.backbuffer.as_mut() {
+            back.texture = texture;
+            renderer.update_egui_texture_from_wgpu_texture(
+                &egui_device,
+                &view,
+                wgpu::FilterMode::Linear,
+                back.id,
+            )
+        } else {
+            self.backbuffer = Some(BackBuffer {
+                texture,
+                id: renderer.register_native_texture(&egui_device, &view, wgpu::FilterMode::Linear),
             });
-
-            let view = texture.create_view(&Default::default());
-
-            let mut rend_guard = state.renderer.write();
-            let renderer = rend_guard.deref_mut();
-
-            if let Some(back) = self.backbuffer.as_mut() {
-                back.texture = texture;
-                renderer.update_egui_texture_from_wgpu_texture(
-                    &egui_device,
-                    &view,
-                    wgpu::FilterMode::Linear,
-                    back.id,
-                )
-            } else {
-                self.backbuffer = Some(BackBuffer {
-                    texture,
-                    id: renderer.register_native_texture(
-                        &egui_device,
-                        &view,
-                        wgpu::FilterMode::Linear,
-                    ),
-                });
-            }
         }
     }
 }
@@ -202,8 +208,8 @@ impl eframe::App for Viewer {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         egui_extras::install_image_loaders(ctx);
 
-        egui::SidePanel::new(egui::panel::Side::Left, "cam panel").show(ctx, |ui| {
-            if let Some(cameras) = self.reference_cameras.as_ref() {
+        if let Some(cameras) = self.reference_cameras.as_ref() {
+            egui::SidePanel::new(egui::panel::Side::Left, "cam panel").show(ctx, |ui| {
                 for (i, camera) in cameras.iter().enumerate() {
                     if ui.button(format!("Camera {i}")).clicked() {
                         self.camera = camera.clone();
@@ -211,23 +217,25 @@ impl eframe::App for Viewer {
                         self.controls.rotation = self.camera.rotation;
                     }
                 }
-            }
-        });
+            });
+        }
 
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.heading("Brush splat viewer");
 
+            ui.label("load pretrained models.");
             ui.horizontal(|ui| {
                 for r in ["bonsai", "stump", "counter", "garden", "truck"] {
                     if ui.button(r.to_string()).clicked() {
                         self.load_splats(
-                            &format!("./models/{r}/point_cloud/iteration_30000/point_cloud.ply"),
-                            Some(&format!("./models/{r}/cameras.json")),
+                            &format!("./brush_data/pretrained/{r}/point_cloud/iteration_30000/point_cloud.ply"),
+                            Some(&format!("./brush_data/pretrained/{r}/cameras.json")),
                         );
                     }
                 }
             });
 
+            ui.label("Train a new model.");
             ui.horizontal(|ui| {
                 for r in ["bulldozer"] {
                     if ui.button(r.to_string()).clicked() {
@@ -244,9 +252,9 @@ impl eframe::App for Viewer {
             ui.label(format!("FPS: {fps:.0} {ms:.0} ms/frame"));
 
             let size = ui.available_size();
+
             // Round to 16 pixels for buffer alignment.
-            // TODO: Ideally just alloc a backbuffer that's aligned
-            // and render a slice of it.
+            // TODO: Ideally just alloc a backbuffer that's aligned, and render a slice of it.
             let size = glam::uvec2((size.x as u32).div_ceil(64) * 64, size.y as u32);
             self.update_backbuffer(size, frame);
 
@@ -264,10 +272,10 @@ impl eframe::App for Viewer {
             } else {
                 (Vec2::ZERO, Vec2::ZERO)
             };
+
             let scrolled = ui.input(|r| r.smooth_scroll_delta).y;
 
-            let dirty = response.dragged() || scrolled > 0.0;
-
+            // TODO: Controls can be pretty borked.
             self.controls.pan_orbit_camera(
                 pan * 0.5,
                 rotate * 0.5,
@@ -279,12 +287,37 @@ impl eframe::App for Viewer {
                 self.controls.rotation,
                 self.controls.position,
             );
+
             let total_transform = self.start_transform * controls_transform;
             let (_, rot, pos) = total_transform.to_scale_rotation_translation();
             self.camera.position = pos;
             self.camera.rotation = rot;
+
+            // TODO: For reference cameras just need to match fov?
             self.camera.fovx = 0.5;
             self.camera.fovy = 0.5 * (size.y as f32) / (size.x as f32);
+
+            if let Some(backbuffer) = &self.backbuffer {
+                if let Some(splats) = &self.splats {
+                    let (img, _) =
+                        splats.render(&self.camera, size, glam::vec3(0.0, 0.0, 0.0), true);
+                    copy_buffer_to_texture(img, &backbuffer.texture);
+
+                    
+                    ui.painter().rect_filled(rect, 0.0, Color32::BLACK);
+                    ui.painter().image(
+                        backbuffer.id,
+                        rect,
+                        Rect {
+                            min: pos2(0.0, 0.0),
+                            max: pos2(1.0, 1.0),
+                        },
+                        Color32::WHITE,
+                    );
+                
+                    ctx.request_repaint();
+                }
+            }
 
             if let Some(train) = self.trainer.as_mut() {
                 self.splats = Some(
@@ -297,30 +330,6 @@ impl eframe::App for Viewer {
                         .unwrap(),
                 );
             }
-
-            if let Some(backbuffer) = &self.backbuffer {
-                if let Some(splats) = &self.splats {
-                    let (img, _) =
-                        splats.render(&self.camera, size, glam::vec3(0.0, 0.0, 0.0), true);
-                    copy_buffer_to_texture(img, &backbuffer.texture);
-                }
-
-                ui.painter().rect_filled(rect, 0.0, Color32::BLACK);
-                ui.painter().image(
-                    backbuffer.id,
-                    rect,
-                    Rect {
-                        min: pos2(0.0, 0.0),
-                        max: pos2(1.0, 1.0),
-                    },
-                    Color32::WHITE,
-                );
-            }
-
-            if dirty {
-                ctx.request_repaint();
-            }
-            ctx.request_repaint();
         });
     }
 

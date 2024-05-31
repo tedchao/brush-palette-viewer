@@ -29,6 +29,7 @@ impl<'a> DimCheck<'a> {
         tensor: &'a FloatTensor<BurnBack, D>,
         bounds: [DimBound; D],
     ) -> Self {
+        assert!(tensor.is_contiguous());
         let dims = tensor.shape.dims;
 
         match self.device.as_ref() {

@@ -1,6 +1,7 @@
 use crate::camera::Camera;
 use burn::backend::Autodiff;
 use burn::prelude::Int;
+use burn::tensor::ops::FloatTensor;
 use burn::{
     backend::wgpu::{AutoGraphicsApi, JitBackend, WgpuRuntime},
     tensor::{Shape, Tensor},
@@ -24,10 +25,6 @@ pub type BurnDiffBack = Autodiff<JitBackend<BurnRuntime, f32, i32>>;
 pub type BurnRuntime = WgpuRuntime<AutoGraphicsApi>;
 type BurnClient =
     ComputeClient<<BurnRuntime as Runtime>::Server, <BurnRuntime as Runtime>::Channel>;
-
-type FloatTensor<B, const D: usize> =
-    <B as burn::tensor::backend::Backend>::FloatTensorPrimitive<D>;
-type IntTensor<B, const D: usize> = <B as burn::tensor::backend::Backend>::IntTensorPrimitive<D>;
 
 #[derive(Debug, Clone)]
 pub(crate) struct RenderAux<B: Backend> {
@@ -72,10 +69,11 @@ pub trait Backend: burn::tensor::backend::Backend {
 pub trait AutodiffBackend: Backend + burn::tensor::backend::AutodiffBackend {}
 impl AutodiffBackend for BurnDiffBack {}
 
+// Reserve a buffer from the client for the given shape.
 fn create_tensor<E: JitElement, const D: usize>(
-    client: &BurnClient,
-    device: &WgpuDevice,
     shape: [usize; D],
+    device: &WgpuDevice,
+    client: &BurnClient,
 ) -> JitTensor<BurnRuntime, E, D> {
     let shape = Shape::new(shape);
     let bufsize = shape.num_elements() * core::mem::size_of::<E>();
@@ -83,13 +81,15 @@ fn create_tensor<E: JitElement, const D: usize>(
     JitTensor::new(client.clone(), device.clone(), shape, buffer)
 }
 
+// Convert a tensors type. This only reinterprets the data, and doesn't
+// do any actual conversions.
 fn bitcast_tensor<const D: usize, EIn: JitElement, EOut: JitElement>(
     tensor: JitTensor<BurnRuntime, EIn, D>,
 ) -> JitTensor<BurnRuntime, EOut, D> {
     JitTensor::new(tensor.client, tensor.device, tensor.shape, tensor.handle)
 }
 
-pub(crate) fn read_buffer_as_u32<S: ComputeServer, C: ComputeChannel<S>>(
+fn read_buffer_as_u32<S: ComputeServer, C: ComputeChannel<S>>(
     client: &ComputeClient<S, C>,
     binding: Binding<S>,
 ) -> Vec<u32> {
@@ -107,15 +107,4 @@ fn read_buffer_as_f32<S: ComputeServer, C: ComputeChannel<S>>(
     data.chunks_exact(4)
         .map(|x| f32::from_le_bytes([x[0], x[1], x[2], x[3]]))
         .collect()
-}
-
-fn assert_buffer_is_finite<S: ComputeServer, C: ComputeChannel<S>>(
-    client: &ComputeClient<S, C>,
-    binding: Binding<S>,
-) {
-    for (i, elem) in read_buffer_as_f32(client, binding).iter().enumerate() {
-        if !elem.is_finite() {
-            panic!("Elem {elem} at {i} is invalid!");
-        }
-    }
 }

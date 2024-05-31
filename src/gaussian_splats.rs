@@ -27,25 +27,19 @@ pub(crate) struct SplatsConfig {
 
 impl SplatsConfig {
     pub(crate) fn build<B: Backend>(&self, device: &Device<B>) -> Splats<B> {
-        Splats::new(self.num_points, self.aabb_scale, device)
+        Splats::init_random(self.num_points, self.aabb_scale, device)
     }
 }
 
-// A Gaussian splat model.
-// This implementation wraps CUDA kernels from (Kerbel and Kopanas et al, 2023).
 #[derive(Module, Debug)]
 pub struct Splats<B: Backend> {
-    // f32[n, 3]. Position.
     pub(crate) means: Param<Tensor<B, 2>>,
-    // f32[n, sh]. SH coefficients for diffuse color.
     pub(crate) sh_coeffs: Param<Tensor<B, 2>>,
-    // f32[n, 4]. Rotation as quaternion matrices.
     pub(crate) rotation: Param<Tensor<B, 2>>,
-    // f32[n]. Opacity parameters.
     pub(crate) raw_opacity: Param<Tensor<B, 1>>,
-    // f32[n, 3]. Scale matrix coefficients.
     pub(crate) log_scales: Param<Tensor<B, 2>>,
 
+    // Dummy input to track screenspace gradient.
     pub(crate) xys_dummy: Tensor<B, 2>,
 }
 
@@ -53,19 +47,19 @@ pub fn num_sh_coeffs(degree: usize) -> usize {
     (degree + 1).pow(2)
 }
 
-pub fn sh_basis_from_coeffs(degree: usize) -> usize {
-    match degree {
+pub fn sh_degree_from_coeffs(coeffs_per_channel: usize) -> usize {
+    match coeffs_per_channel {
         1 => 0,
         4 => 1,
         9 => 2,
         16 => 3,
         25 => 4,
-        _ => panic!("Invalid nr. of sh bases {degree}"),
+        _ => panic!("Invalid nr. of sh bases {coeffs_per_channel}"),
     }
 }
 
 impl<B: Backend> Splats<B> {
-    pub(crate) fn new(num_points: usize, aabb_scale: f32, device: &Device<B>) -> Splats<B> {
+    pub(crate) fn init_random(num_points: usize, aabb_scale: f32, device: &Device<B>) -> Splats<B> {
         let extent = (aabb_scale as f64) / 2.0;
         let means = Tensor::random(
             [num_points, 3],
@@ -152,11 +146,10 @@ impl<B: Backend> Splats<B> {
             )
         });
 
-        let scales_data = utils::burn_to_ndarray(self.log_scales.val().exp());
-        let radii = scales_data
+        let scale_data = utils::burn_to_ndarray(self.log_scales.val().exp());
+        let radii = scale_data
             .axis_iter(Axis(0))
             .map(|c| 0.5 * 0.33 * (c[0] * c[0] + c[1] * c[1] + c[2] * c[2]).sqrt());
-
         rec.log(
             "world/splat/points",
             &rerun::Points3D::new(means)

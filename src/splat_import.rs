@@ -101,17 +101,8 @@ pub fn load_splat_from_ply<B: Backend>(file: &str, device: &B::Device) -> Result
         }
     }
 
-    // Return normalized rotations.
+    // Use normalized rotations.
     for gaussian in &mut cloud {
-        // TODO: Clamp maximum variance? Is that needed?
-        // TODO: Is scale in log(scale) or scale format?
-        //
-        // for i in 0..3 {
-        //     gaussian.scale_opacity.scale[i] = gaussian.scale_opacity.scale[i]
-        //         .max(mean_scale - MAX_SIZE_VARIANCE)
-        //         .min(mean_scale + MAX_SIZE_VARIANCE)
-        //         .exp();
-        // }
         gaussian.rotation = gaussian.rotation.normalize();
     }
 

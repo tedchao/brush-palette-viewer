@@ -32,6 +32,7 @@ pub(crate) struct TrainConfig {
     pub lr_mean: LrConfig,
     pub lr_opac: LrConfig,
     pub lr_rest: LrConfig,
+    pub scene_path: String,
 
     #[config(default = 42)]
     pub(crate) seed: u64,
@@ -59,13 +60,14 @@ pub(crate) struct TrainConfig {
     pub(crate) train_steps: u32,
     #[config(default = false)]
     pub(crate) random_bck_color: bool,
-
     #[config(default = 25)]
     pub visualize_every: u32,
-    pub scene_path: String,
+
+    #[config(default = 100)]
+    pub visualize_splats_every: u32,
 }
 
-struct TrainStats<B: AutodiffBackend> {
+struct TrainStepStats<B: AutodiffBackend> {
     pred_image: Tensor<B, 3>,
     loss: Tensor<B, 1>,
     psnr: Tensor<B, 1>,
@@ -80,24 +82,22 @@ where
     config: TrainConfig,
 
     rng: StdRng,
+
     sched_mean: CosineAnnealingLrScheduler,
     sched_opac: CosineAnnealingLrScheduler,
     sched_rest: CosineAnnealingLrScheduler,
-    optim: OptimizerAdaptor<Adam<B::InnerBackend>, Splats<B>, B>,
+
     opt_config: AdamConfig,
+    optim: OptimizerAdaptor<Adam<B::InnerBackend>, Splats<B>, B>,
 
     iter: u32,
 
-    // Non trainable params.
     // Maximum projected radius of each Gaussian in pixel-units. It is
     // later used during culling.
     max_radii_2d: Tensor<B, 1>,
 
-    // Helper tensors for accumulating the viewspace_xyz gradients and the number
+    // Helper tensors for accumulating the viewspace_xy gradients and the number
     // of observations per gaussian. Used in pruning and densification.
-    //
-    // Sum of gradient norms for each Gaussian in pixel-units. This accumulator
-    // is incremented when a Gaussian is visible in a training batch.
     xy_grad_norm_accum: Tensor<B, 1>,
 }
 
@@ -347,32 +347,43 @@ where
         }
     }
 
+    // TODO: Probably want to feed in a batch of data here.
     pub fn step(
         &mut self,
         scene: &Scene,
         splats: Splats<B>,
         rec: &rerun::RecordingStream,
     ) -> Result<Splats<B>, anyhow::Error> {
-        let device = &splats.means.device();
         let start_time = time::Instant::now();
+
+        let device = &splats.means.device();
+
         let viewpoint = scene
             .train_data
             .choose(&mut self.rng)
             .expect("Dataset should have at least 1 camera.");
+
         let camera = &viewpoint.camera;
         let background_color = if self.config.random_bck_color {
             glam::vec3(rand::random(), rand::random(), rand::random())
         } else {
             scene.default_bg_color
         };
+
         let view_image = &viewpoint.view.image;
-        let img_size = glam::uvec2(view_image.shape()[1] as u32, view_image.shape()[0] as u32);
-        let (pred_img, aux) = splats.render(camera, img_size, background_color, false);
-        let dims = pred_img.dims();
-        let rgb_img = pred_img.clone().slice([0..dims[0], 0..dims[1], 0..3]);
+        // TODO: Need some smarter way to feed this in, likely not great
+        // to upload the target image to the GPU last minute.
         let gt_image = utils::ndarray_to_burn(view_image.clone(), device);
+
+        let img_size = glam::uvec2(view_image.shape()[1] as u32, view_image.shape()[0] as u32);
+        let (pred_image, aux) = splats.render(camera, img_size, background_color, false);
+
+        let dims = pred_image.dims();
+        let pred_rgb = pred_image.clone().slice([0..dims[0], 0..dims[1], 0..3]);
+
         let rgb = gt_image.clone().slice([0..dims[0], 0..dims[1], 0..3]);
         let alpha = gt_image.clone().slice([0..dims[0], 0..dims[1], 3..4]);
+
         let gt_image = rgb * alpha.clone()
             + (-alpha + 1.0)
                 * Tensor::from_floats(
@@ -384,17 +395,31 @@ where
                     device,
                 )
                 .unsqueeze::<3>();
-        let mse = (rgb_img - gt_image).powf_scalar(2.0).mean();
+
+        // TODO: Really want ssim + l1 loss as per 3DGS.
+        let mse = (pred_rgb - gt_image).powf_scalar(2.0).mean();
         let psnr = mse.clone().recip().log() * 10.0 / std::f32::consts::LN_10;
         let mut grads = mse.backward();
+
+        // Burn doesn't have a great way to use multiple different learning rates
+        // or different optimizers. The current best way seems to be to "distribute" the gradients
+        // to different GradientParams. Basically each optimizer step call only sees a
+        // a subset of parameter gradients.
         let xys_grad = Tensor::from_inner(splats.xys_dummy.grad_remove(&mut grads).unwrap());
+
         let mut grad_means = GradientsParams::new();
-        let mut grad_opac = GradientsParams::new();
-        let mut grad_rest = GradientsParams::new();
         grad_means.register(
             splats.means.clone().consume().0,
             splats.means.grad_remove(&mut grads).unwrap(),
         );
+
+        let mut grad_opac = GradientsParams::new();
+        grad_opac.register(
+            splats.raw_opacity.clone().consume().0,
+            splats.raw_opacity.grad_remove(&mut grads).unwrap(),
+        );
+
+        let mut grad_rest = GradientsParams::new();
         grad_rest.register(
             splats.sh_coeffs.clone().consume().0,
             splats.sh_coeffs.grad_remove(&mut grads).unwrap(),
@@ -407,26 +432,22 @@ where
             splats.log_scales.clone().consume().0,
             splats.log_scales.grad_remove(&mut grads).unwrap(),
         );
-        grad_opac.register(
-            splats.raw_opacity.clone().consume().0,
-            splats.raw_opacity.grad_remove(&mut grads).unwrap(),
-        );
+
+        // There's an annoying issue in Burn where the scheduler step
+        // is a trait function, which requires the backen to be known,
+        // which is otherwise unconstrained, leading to needing this ugly call.
         let lr_mean = LrScheduler::<B>::step(&mut self.sched_mean);
         let lr_opac = LrScheduler::<B>::step(&mut self.sched_opac);
         let lr_rest = LrScheduler::<B>::step(&mut self.sched_rest);
 
-        let splats = self.optim.step(lr_mean, splats, grad_means);
-        let splats = self.optim.step(lr_opac, splats, grad_opac);
-        let mut splats = self.optim.step(lr_rest, splats, grad_rest);
+        // Now step each optimizer
+        let mut splats = splats;
+        splats = self.optim.step(lr_mean, splats, grad_means);
+        splats = self.optim.step(lr_opac, splats, grad_opac);
+        splats = self.optim.step(lr_rest, splats, grad_rest);
 
         self.update_stats(&aux, xys_grad);
-        let stats = TrainStats {
-            aux,
-            gt_image: viewpoint.view.image.clone(),
-            loss: mse,
-            psnr,
-            pred_image: pred_img,
-        };
+
         if self.iter % self.config.refine_every == 0 {
             // Remove barely visible gaussians.
             self.prune_invisible_points(&mut splats, self.config.cull_alpha_thresh);
@@ -450,93 +471,103 @@ where
             self.optim = self.opt_config.init::<B, Splats<B>>();
         }
 
-        #[cfg(not(feature = "rerun"))]
-        drop(stats);
-        #[cfg(feature = "rerun")]
-        {
-            rec.set_time_sequence("iterations", self.iter);
-            rec.log(
-                "losses/main",
-                &rerun::Scalar::new(utils::burn_to_scalar(stats.loss).elem::<f64>()),
-            )?;
+        let stats = TrainStepStats {
+            aux,
+            gt_image: viewpoint.view.image.clone(),
+            loss: mse,
+            psnr,
+            pred_image,
+        };
 
-            rec.log(
-                "stats/PSNR",
-                &rerun::Scalar::new(utils::burn_to_scalar(stats.psnr).elem::<f64>()),
-            )?;
+        rec.set_time_sequence("iterations", self.iter);
 
-            rec.log("lr/mean", &rerun::Scalar::new(lr_mean))?;
-            rec.log("lr/opac", &rerun::Scalar::new(lr_opac))?;
-            rec.log("lr/rest", &rerun::Scalar::new(lr_rest))?;
+        rec.log("lr/mean", &rerun::Scalar::new(lr_mean))?;
+        rec.log("lr/opac", &rerun::Scalar::new(lr_opac))?;
+        rec.log("lr/rest", &rerun::Scalar::new(lr_rest))?;
 
-            rec.log(
-                "performance/step_ms",
-                &rerun::Scalar::new((time::Instant::now() - start_time).as_secs_f64() * 1000.0)
-                    .clone(),
-            )?;
+        rec.log(
+            "splats/num",
+            &rerun::Scalar::new(splats.num_splats() as f64).clone(),
+        )?;
 
-            rec.log(
-                "splats/num_intersects",
-                &rerun::Scalar::new(utils::burn_to_scalar(stats.aux.num_intersects).elem::<f64>())
-                    .clone(),
-            )?;
+        rec.log(
+            "performance/step_ms",
+            &rerun::Scalar::new((time::Instant::now() - start_time).as_secs_f64() * 1000.0).clone(),
+        )?;
 
-            rec.log(
-                "splats/num_visible",
-                &rerun::Scalar::new(utils::burn_to_scalar(stats.aux.num_visible).elem::<f64>())
-                    .clone(),
-            )?;
+        if self.iter % self.config.visualize_every == 0 {
+            self.visualize_train_stats(rec, stats)?;
+        }
 
-            rec.log(
-                "splats/num",
-                &rerun::Scalar::new(splats.num_splats() as f64).clone(),
-            )?;
-
-            if self.iter % self.config.visualize_every == 0 {
-                rec.log(
-                    "images/ground truth",
-                    &rerun::Image::try_from(stats.gt_image).unwrap(),
-                )?;
-
-                let tile_bins = stats.aux.tile_bins;
-                let tile_size = tile_bins.dims();
-                let tile_depth = tile_bins
-                    .clone()
-                    .slice([0..tile_size[0], 0..tile_size[1], 1..2])
-                    - tile_bins
-                        .clone()
-                        .slice([0..tile_size[0], 0..tile_size[1], 0..1]);
-
-                let tile_depth = Array::from_shape_vec(
-                    tile_depth.dims(),
-                    tile_depth.to_data().convert::<u32>().value,
-                )
-                .unwrap();
-                rec.log(
-                    "images/tile depth",
-                    &rerun::Tensor::try_from(tile_depth).unwrap().clone(),
-                )?;
-
-                let pred_image = Array::from_shape_vec(
-                    stats.pred_image.dims(),
-                    stats.pred_image.to_data().convert::<f32>().value,
-                )
-                .unwrap();
-                let pred_image = pred_image.map(|x| (*x * 255.0).clamp(0.0, 255.0) as u8);
-
-                rec.log(
-                    "images/predicted",
-                    &rerun::Image::try_from(pred_image).unwrap(),
-                )?;
-
-                let first_cam = &scene.train_data[0].camera;
-
-                splats.visualize(rec)?;
-            }
+        if self.iter % self.config.visualize_splats_every == 0 {
+            splats.visualize(rec)?;
         }
 
         self.iter += 1;
 
         Ok(splats)
+    }
+
+    fn visualize_train_stats(
+        &self,
+        rec: &rerun::RecordingStream,
+        stats: TrainStepStats<B>,
+    ) -> Result<(), anyhow::Error> {
+        rec.log(
+            "losses/main",
+            &rerun::Scalar::new(utils::burn_to_scalar(stats.loss).elem::<f64>()),
+        )?;
+        rec.log(
+            "stats/PSNR",
+            &rerun::Scalar::new(utils::burn_to_scalar(stats.psnr).elem::<f64>()),
+        )?;
+
+        rec.log(
+            "splats/num_intersects",
+            &rerun::Scalar::new(utils::burn_to_scalar(stats.aux.num_intersects).elem::<f64>())
+                .clone(),
+        )?;
+        rec.log(
+            "splats/num_visible",
+            &rerun::Scalar::new(utils::burn_to_scalar(stats.aux.num_visible).elem::<f64>()).clone(),
+        )?;
+
+        rec.log(
+            "images/ground truth",
+            &rerun::Image::try_from(stats.gt_image).unwrap(),
+        )?;
+
+        let tile_bins = stats.aux.tile_bins;
+        let tile_size = tile_bins.dims();
+        let tile_depth = tile_bins
+            .clone()
+            .slice([0..tile_size[0], 0..tile_size[1], 1..2])
+            - tile_bins
+                .clone()
+                .slice([0..tile_size[0], 0..tile_size[1], 0..1]);
+
+        let tile_depth = Array::from_shape_vec(
+            tile_depth.dims(),
+            tile_depth.to_data().convert::<u32>().value,
+        )
+        .unwrap();
+        rec.log(
+            "images/tile depth",
+            &rerun::Tensor::try_from(tile_depth).unwrap().clone(),
+        )?;
+
+        let pred_image = Array::from_shape_vec(
+            stats.pred_image.dims(),
+            stats.pred_image.to_data().convert::<f32>().value,
+        )
+        .unwrap();
+        let pred_image = pred_image.map(|x| (*x * 255.0).clamp(0.0, 255.0) as u8);
+
+        rec.log(
+            "images/predicted",
+            &rerun::Image::try_from(pred_image).unwrap(),
+        )?;
+
+        Ok(())
     }
 }

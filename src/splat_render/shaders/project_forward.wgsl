@@ -33,8 +33,6 @@ struct Uniforms {
     pixel_center: vec2f,
     // Img resolution (w, h)
     img_size: vec2u,
-    // Nr. of tiles on each axis (w, h)
-    tile_bounds: vec2u,
     // Width of blocks image is divided into.
     block_width: u32,
     // Near clip threshold.
@@ -206,12 +204,11 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
     // TODO: Remove this when burn fixes int_arange...
     arranged_ids[global_gid] = global_gid;
 
-    // Zero out number of tiles hit before cumulative sum.
-    num_tiles_hit[global_gid] = 0u;
-
     let viewmat = uniforms.viewmat;
     let focal = uniforms.focal;
     let pixel_center = uniforms.pixel_center;
+    let tile_bounds = vec2u(helpers::ceil_div(uniforms.img_size.x, helpers::TILE_WIDTH),  
+                            helpers::ceil_div(uniforms.img_size.y, helpers::TILE_WIDTH));
 
     let clip_thresh = uniforms.clip_thresh;
 
@@ -293,7 +290,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
 
     // compute the projected mean
     let center = project_pix(focal, p_view, pixel_center);
-    let tile_minmax = helpers::get_tile_bbox(center, radius, uniforms.tile_bounds);
+    let tile_minmax = helpers::get_tile_bbox(center, radius, tile_bounds);
     let tile_min = tile_minmax.xy;
     let tile_max = tile_minmax.zw;
     var tile_area = 0u;

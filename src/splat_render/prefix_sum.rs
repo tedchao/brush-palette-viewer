@@ -4,18 +4,16 @@ use tracing::info_span;
 use super::{
     create_tensor,
     kernels::{PrefixSumAddScannedSums, PrefixSumScan, PrefixSumScanSums, SplatKernel},
-    shaders, BurnClient, BurnRuntime,
+    shaders, BurnRuntime,
 };
 
-pub fn prefix_sum(
-    client: &BurnClient,
-    input: JitTensor<BurnRuntime, u32, 1>,
-) -> JitTensor<BurnRuntime, u32, 1> {
+pub fn prefix_sum(input: JitTensor<BurnRuntime, u32, 1>) -> JitTensor<BurnRuntime, u32, 1> {
     let _span = info_span!("prefix sum");
 
     let threads_per_group = shaders::prefix_sum_helpers::THREADS_PER_GROUP as usize;
     let num = input.shape.dims[0];
-    let outputs = create_tensor(client, &input.device, input.shape.dims);
+    let client = &input.client;
+    let outputs = create_tensor(input.shape.dims, &input.device, client);
 
     PrefixSumScan::new().execute(
         client,
@@ -35,7 +33,7 @@ pub fn prefix_sum(
     let mut work_sz = size;
     while work_sz > threads_per_group {
         work_sz = work_sz.div_ceil(threads_per_group);
-        group_buffer.push(create_tensor::<u32, 1>(client, &input.device, [work_sz]));
+        group_buffer.push(create_tensor::<u32, 1>([work_sz], &input.device, client));
         work_size.push(work_sz);
     }
 
@@ -44,7 +42,7 @@ pub fn prefix_sum(
         (),
         &[outputs.handle.clone().binding()],
         &[group_buffer[0].handle.clone().binding()],
-        [work_size[0] as u32, 1, 1],
+        [work_size[0] as u32],
     );
 
     for l in 0..(group_buffer.len() - 1) {
@@ -53,7 +51,7 @@ pub fn prefix_sum(
             (),
             &[group_buffer[l].handle.clone().binding()],
             &[group_buffer[l + 1].handle.clone().binding()],
-            [work_size[l + 1] as u32, 1, 1],
+            [work_size[l + 1] as u32],
         );
     }
 
@@ -64,7 +62,7 @@ pub fn prefix_sum(
             (),
             &[group_buffer[l].handle.clone().binding()],
             &[group_buffer[l - 1].handle.clone().binding()],
-            [work_sz as u32, 1, 1],
+            [work_sz as u32],
         );
     }
 
@@ -101,10 +99,9 @@ mod tests {
         type Backend = BurnBack;
         let device = Default::default();
         let keys = Tensor::<Backend, 1, Int>::from_data(data.as_slice(), &device).into_primitive();
-        let keys = JitTensor::new(keys.client, keys.device, keys.shape, keys.handle);
-        let client = &keys.client.clone();
-        let summed = prefix_sum(client, keys);
-        let summed = read_buffer_as_u32(client, summed.handle.binding());
+        let keys = JitTensor::new(keys.client.clone(), keys.device, keys.shape, keys.handle);
+        let summed = prefix_sum(keys.clone());
+        let summed = read_buffer_as_u32(&keys.client, summed.handle.binding());
 
         let prefix_sum_ref: Vec<_> = data
             .into_iter()

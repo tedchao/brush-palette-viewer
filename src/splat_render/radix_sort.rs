@@ -43,8 +43,8 @@ pub fn radix_argsort(
 
     let output_keys = input_keys;
     let output_values = input_values;
-    let output_keys_swap = create_tensor::<u32, 1>(&client, device, [max_n as usize]);
-    let output_values_swap = create_tensor::<u32, 1>(&client, device, [max_n as usize]);
+    let output_keys_swap = create_tensor::<u32, 1>([max_n as usize], device, &client);
+    let output_values_swap = create_tensor::<u32, 1>([max_n as usize], device, &client);
 
     // NB: We fill in num_keys from the GPU!
     // This at least prevents sorting values we don't need, but really

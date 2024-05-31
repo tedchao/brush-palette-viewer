@@ -49,7 +49,6 @@ impl Scene {
 
     // Returns the extent of the cameras in the scene.
     fn cameras_extent(&self) -> f32 {
-        // TODO: This is definitely not as pretty as in numpy.
         let camera_centers = &self
             .train_data
             .iter()
