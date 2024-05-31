@@ -16,6 +16,7 @@ use rand::{rngs::StdRng, SeedableRng};
 
 use crate::scene::Scene;
 use crate::splat_render::{self, AutodiffBackend, RenderAux};
+use crate::utils::quaternion_rotation;
 use crate::{gaussian_splats::Splats, utils};
 use rand::seq::SliceRandom;
 
@@ -85,6 +86,7 @@ where
     sched_rest: CosineAnnealingLrScheduler,
 
     opt_config: AdamConfig,
+
     optim: OptimizerAdaptor<Adam<B::InnerBackend>, Splats<B>, B>,
 
     iter: u32,
@@ -170,14 +172,6 @@ where
     }
 
     // Densifies and prunes the Gaussians.
-    // Args:
-    //   max_grad: See densify_by_clone() and densify_by_split().
-    //   max_pixel_threshold: Optional. If specified, prune Gaussians whose radius
-    //     is larger than this in pixel-units.
-    //   max_world_size_threshold: Optional. If specified, prune Gaussians whose
-    //     radius is larger than this in world coordinates.
-    //   clone_vs_split_size_threshold: See densify_by_clone() and
-    //     densify_by_split().
     pub fn densify_and_prune(
         &mut self,
         splats: &mut Splats<B>,
@@ -209,8 +203,6 @@ where
         // pixel-units while accounting for the number of times each Gaussian was
         // seen during training.
         let grads = self.xy_grad_norm_accum.clone();
-
-        // self.densify_by_clone(grads, max_grad, clone_vs_split_size_threshold, device);
 
         let big_grad_mask = grads.greater_equal_elem(grad_threshold);
         let split_clone_size_mask = splats
@@ -252,20 +244,31 @@ where
             let split_inds = split_where.squeeze(1);
             let samps = split_inds.dims()[0];
 
+            let centered_samples =
+                Tensor::random([samps * 2, 3], Distribution::Normal(0.0, 1.0), device);
             let scaled_samples = splats
                 .log_scales
                 .val()
                 .select(0, split_inds.clone())
                 .repeat(0, 2)
                 .exp()
-                * Tensor::random([samps * 2, 3], Distribution::Normal(0.0, 1.0), device);
+                * 0.25
+                * centered_samples;
 
             // Remove original points we're splitting.
             // TODO: Could just replace them? Maybe?
             let repeats = 2;
 
+            let rotated_samples = quaternion_rotation(
+                scaled_samples,
+                splats
+                    .rotation
+                    .val()
+                    .select(0, split_inds.clone())
+                    .repeat(0, 2),
+            );
             // TODO: Rotate samples
-            let new_means = scaled_samples
+            let new_means = rotated_samples
                 + splats
                     .means
                     .val()
