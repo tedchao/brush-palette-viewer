@@ -1,5 +1,5 @@
 const SPLATS_PER_GROUP: u32 = 512u;
-const TILE_WIDTH: u32 = 8u;
+const TILE_WIDTH: u32 = 16u;
 const TILE_SIZE: u32 = TILE_WIDTH * TILE_WIDTH;
 
 fn get_bbox(center: vec2f, dims: vec2f, bounds: vec2u) -> vec4u {
