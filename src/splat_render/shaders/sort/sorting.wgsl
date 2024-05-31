@@ -35,7 +35,7 @@ fn div_ceil(a: u32, b: u32) -> u32 {
 // in the y direction. This means we get N times more capacity, at the cost of
 // some of these groups being launched needlessly. Given that we only really need
 // a factor ~2 or so more capacity, this is not a massive deal.
-const VERTICAL_GROUPS = 64u;
+const VERTICAL_GROUPS = 8u;
 
 fn group_id_from_gid(gid: vec3u) -> u32 {
     return gid.x * VERTICAL_GROUPS + gid.y;
