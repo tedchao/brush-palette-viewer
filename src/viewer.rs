@@ -131,6 +131,10 @@ impl Viewer {
     }
 
     pub fn start_training(&mut self, path: &str) {
+        self.rec = rerun::RecordingStreamBuilder::new("visualize training")
+        .spawn()
+        .unwrap();
+    
         let config = TrainConfig::new(
             LrConfig::new().with_max_lr(5e-6).with_min_lr(1e-6),
             LrConfig::new().with_max_lr(5e-2).with_min_lr(1e-2),

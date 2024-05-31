@@ -45,10 +45,8 @@ pub(crate) struct TrainConfig {
     pub(crate) cull_alpha_thresh: f32,
     #[config(default = 0.0015)]
     pub(crate) clone_split_grad_threshold: f32,
-
     #[config(default = 0.05)]
     pub(crate) split_clone_size_threshold: f32,
-
     // threshold of scale for culling huge gaussians.
     #[config(default = 0.5)]
     pub(crate) cull_scale_thresh: f32,
@@ -60,10 +58,9 @@ pub(crate) struct TrainConfig {
     pub(crate) train_steps: u32,
     #[config(default = false)]
     pub(crate) random_bck_color: bool,
-    #[config(default = 25)]
+    #[config(default = 40)]
     pub visualize_every: u32,
-
-    #[config(default = 100)]
+    #[config(default = 150)]
     pub visualize_splats_every: u32,
 }
 
