@@ -78,6 +78,19 @@ fn create_tensor<E: JitElement, const D: usize>(
     let shape = Shape::new(shape);
     let bufsize = shape.num_elements() * core::mem::size_of::<E>();
     let buffer = client.empty(bufsize);
+
+    #[cfg(test)]
+    {
+        use burn::tensor::ops::FloatTensorOps;
+
+        // for tests - make doubly sure we're not accidentally relying on values
+        // being initialized to zero by adding in some random noise.
+        let f =
+            JitTensor::<BurnRuntime, f32, D>::new(client.clone(), device.clone(), shape, buffer);
+        bitcast_tensor(BurnBack::float_add_scalar(f, -12345.0))
+    }
+
+    #[cfg(not(test))]
     JitTensor::new(client.clone(), device.clone(), shape, buffer)
 }
 

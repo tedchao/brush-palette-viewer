@@ -11,6 +11,7 @@ use crate::splat_render::kernels::{
 };
 use crate::splat_render::shaders::get_tile_bin_edges::VERTICAL_GROUPS;
 use burn::backend::autodiff::NodeID;
+use burn::tensor::ops::FloatTensorOps;
 use burn::tensor::ops::IntTensorOps;
 use burn::tensor::Tensor;
 
@@ -526,17 +527,18 @@ impl Backward<BurnBack, 3, 6> for RenderBackwards {
         // Create tensors to hold gradients.
 
         // Nb: these are packed vec3 values, special care is taken in the kernel to respect alignment.
-        let v_means = create_tensor([num_points, 3], device, client);
-        let v_scales = create_tensor([num_points, 3], device, client);
+        // Nb: These have to be zerod out - as we only write to visible splats.
+        let v_means = BurnBack::float_zeros([num_points, 3].into(), device);
 
-        let v_quats = create_tensor([num_points, 4], device, client);
-        let v_coeffs = create_tensor(
-            [num_points, num_sh_coeffs(state.sh_degree) * 3],
+        let v_scales = BurnBack::float_zeros([num_points, 3].into(), device);
+
+        let v_quats = BurnBack::float_zeros([num_points, 4].into(), device);
+        let v_coeffs = BurnBack::float_zeros(
+            [num_points, num_sh_coeffs(state.sh_degree) * 3].into(),
             device,
-            client,
         );
-        let v_opac = create_tensor([num_points], device, client);
-        let v_xys = create_tensor([num_points, 2], device, client);
+        let v_opac = BurnBack::float_zeros([num_points].into(), device);
+        let v_xys = BurnBack::float_zeros([num_points, 2].into(), device);
 
         ProjectBackwards::new().execute(
             client,

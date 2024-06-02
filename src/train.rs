@@ -44,9 +44,9 @@ pub(crate) struct TrainConfig {
     // threshold of opacity for culling gaussians. One can set it to a lower value (e.g. 0.005) for higher quality."""
     #[config(default = 0.01)]
     pub(crate) cull_alpha_thresh: f32,
-    #[config(default = 0.0015)]
+    #[config(default = 0.001)]
     pub(crate) clone_split_grad_threshold: f32,
-    #[config(default = 0.05)]
+    #[config(default = 0.01)]
     pub(crate) split_clone_size_threshold: f32,
     // threshold of scale for culling huge gaussians.
     #[config(default = 0.5)]
