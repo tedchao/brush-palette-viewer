@@ -1,7 +1,7 @@
 use std::time;
 
 use anyhow::Result;
-use burn::lr_scheduler::cosine::{CosineAnnealingLrScheduler, CosineAnnealingLrSchedulerConfig};
+use burn::lr_scheduler::linear::{LinearLrScheduler, LinearLrSchedulerConfig};
 use burn::lr_scheduler::LrScheduler;
 use burn::optim::adaptor::OptimizerAdaptor;
 use burn::optim::Adam;
@@ -59,9 +59,9 @@ pub(crate) struct TrainConfig {
     pub(crate) train_steps: u32,
     #[config(default = false)]
     pub(crate) random_bck_color: bool,
-    #[config(default = 40)]
+    #[config(default = 100)]
     pub visualize_every: u32,
-    #[config(default = 150)]
+    #[config(default = 250)]
     pub visualize_splats_every: u32,
 }
 
@@ -81,9 +81,9 @@ where
 
     rng: StdRng,
 
-    sched_mean: CosineAnnealingLrScheduler,
-    sched_opac: CosineAnnealingLrScheduler,
-    sched_rest: CosineAnnealingLrScheduler,
+    sched_mean: LinearLrScheduler,
+    sched_opac: LinearLrScheduler,
+    sched_rest: LinearLrScheduler,
 
     opt_config: AdamConfig,
 
@@ -110,25 +110,23 @@ where
 
         let device = &splats.means.device();
 
-        let sched_mean = CosineAnnealingLrSchedulerConfig::new(
+        let sched_mean = LinearLrSchedulerConfig::new(
             config.lr_mean.max_lr,
+            config.lr_mean.min_lr,
             config.train_steps as usize,
         )
-        .with_min_lr(config.lr_mean.min_lr)
         .init();
-
-        let sched_opac = CosineAnnealingLrSchedulerConfig::new(
+        let sched_opac = LinearLrSchedulerConfig::new(
             config.lr_opac.max_lr,
+            config.lr_opac.min_lr,
             config.train_steps as usize,
         )
-        .with_min_lr(config.lr_opac.min_lr)
         .init();
-
-        let sched_rest = CosineAnnealingLrSchedulerConfig::new(
+        let sched_rest = LinearLrSchedulerConfig::new(
             config.lr_rest.max_lr,
+            config.lr_rest.min_lr,
             config.train_steps as usize,
         )
-        .with_min_lr(config.lr_rest.min_lr)
         .init();
 
         Self {
@@ -525,17 +523,16 @@ where
 
         rec.log(
             "splats/num_intersects",
-            &rerun::Scalar::new(utils::burn_to_scalar(stats.aux.num_intersects).elem::<f64>())
-                .clone(),
+            &rerun::Scalar::new(utils::burn_to_scalar(stats.aux.num_intersects).elem::<f64>()),
         )?;
         rec.log(
             "splats/num_visible",
-            &rerun::Scalar::new(utils::burn_to_scalar(stats.aux.num_visible).elem::<f64>()).clone(),
+            &rerun::Scalar::new(utils::burn_to_scalar(stats.aux.num_visible).elem::<f64>()),
         )?;
 
         rec.log(
             "images/ground truth",
-            &rerun::Image::try_from(stats.gt_image).unwrap(),
+            &rerun::Image::try_from(stats.gt_image)?,
         )?;
 
         let tile_bins = stats.aux.tile_bins;
@@ -547,27 +544,21 @@ where
                 .clone()
                 .slice([0..tile_size[0], 0..tile_size[1], 0..1]);
 
-        let tile_depth = Array::from_shape_vec(
-            tile_depth.dims(),
-            tile_depth.to_data().convert::<u32>().value,
-        )
-        .unwrap();
         rec.log(
             "images/tile depth",
-            &rerun::Tensor::try_from(tile_depth).unwrap().clone(),
+            &rerun::Tensor::try_from(Array::from_shape_vec(
+                tile_depth.dims(),
+                tile_depth.to_data().convert::<u32>().value,
+            )?)?,
         )?;
 
         let pred_image = Array::from_shape_vec(
             stats.pred_image.dims(),
             stats.pred_image.to_data().convert::<f32>().value,
-        )
-        .unwrap();
-        let pred_image = pred_image.map(|x| (*x * 255.0).clamp(0.0, 255.0) as u8);
+        )?
+        .map(|x| (*x * 255.0).clamp(0.0, 255.0) as u8);
 
-        rec.log(
-            "images/predicted",
-            &rerun::Image::try_from(pred_image).unwrap(),
-        )?;
+        rec.log("images/predicted", &rerun::Image::try_from(pred_image)?)?;
 
         Ok(())
     }

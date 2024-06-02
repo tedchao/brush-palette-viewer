@@ -136,9 +136,9 @@ impl Viewer {
         .unwrap();
     
         let config = TrainConfig::new(
-            LrConfig::new().with_max_lr(2e-6).with_min_lr(2e-6),
-            LrConfig::new().with_max_lr(2e-2).with_min_lr(2e-2),
-            LrConfig::new().with_max_lr(5e-3).with_min_lr(5e-3),
+            LrConfig::new().with_max_lr(2e-6).with_min_lr(1e-6),
+            LrConfig::new().with_max_lr(2e-2).with_min_lr(1e-2),
+            LrConfig::new().with_max_lr(5e-3).with_min_lr(2e-3),
             path.to_owned(),
         );
 
