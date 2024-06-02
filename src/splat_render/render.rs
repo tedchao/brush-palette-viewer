@@ -793,7 +793,7 @@ mod tests {
                 fov_y,
             );
 
-            let (out, aux_out) = render(
+            let (out, aux) = render(
                 &cam,
                 glam::uvec2(img_dims[1] as u32, img_dims[0] as u32),
                 means.clone(),
@@ -834,15 +834,32 @@ mod tests {
                         (img_ref.clone() - out_rgb.clone()).to_data().value,
                     )?)?,
                 )?;
+
+                let tile_bins = aux.tile_bins;
+                let tile_size = tile_bins.dims();
+                let tile_depth = tile_bins
+                    .clone()
+                    .slice([0..tile_size[0], 0..tile_size[1], 1..2])
+                    - tile_bins
+                        .clone()
+                        .slice([0..tile_size[0], 0..tile_size[1], 0..1]);
+
+                rec.log(
+                    "images/tile depth",
+                    &rerun::Tensor::try_from(Array::from_shape_vec(
+                        tile_depth.dims(),
+                        tile_depth.to_data().convert::<u32>().value,
+                    )?)?,
+                )?;
             }
 
-            let num_visible = aux_out.num_visible.to_data().value[0] as usize;
-            let perm = aux_out.global_from_compact_gid.clone();
+            let num_visible = aux.num_visible.to_data().value[0] as usize;
+            let perm = aux.global_from_compact_gid.clone();
 
-            let xys = aux_out.xys.slice([0..num_visible]);
+            let xys = aux.xys.slice([0..num_visible]);
             let xys_ref = xys_ref.select(0, perm.clone()).slice([0..num_visible]);
 
-            let conics = aux_out.conic_comps.slice([0..num_visible, 0..3]);
+            let conics = aux.conic_comps.slice([0..num_visible, 0..3]);
             let conics_ref = conics_ref.select(0, perm.clone()).slice([0..num_visible]);
 
             let grads = (out_rgb.clone() - crab_tens.clone())
