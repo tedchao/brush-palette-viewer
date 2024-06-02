@@ -71,15 +71,53 @@ fn calc_sigma(conic: vec3f, xy: vec2f, pixel_coord: vec2f) -> f32 {
     return 0.5f * (conic.x * delta.x * delta.x + conic.z * delta.y * delta.y) + conic.y * delta.x * delta.y;
 }
 
-fn can_be_visible(tile: vec2u, xy: vec2f, radii: u32) -> bool {
-    return true;
-    
-    // let tile_min = vec2f(tile * TILE_WIDTH);
-    // let tile_max = vec2f(tile * TILE_WIDTH) + vec2f(TILE_WIDTH);
-    // let closest = min(max(xy, tile_min), tile_max);
-    // let dif = xy - closest;
-    // let rsqr = dot(dif, dif);
-    // return rsqr <= f32(radii * radii);
+fn inverse(m: mat2x2f) -> mat2x2f {
+    let det = determinant(m);
+    return mat2x2f(
+        m[1][1] / det, -m[1][0] / det, 
+        -m[0][1] / det, m[0][0] / det
+    );
+}
+
+fn simple_sign(x: f32) -> f32 {
+    if x >= 0.0 {
+        return 1.0;
+    }
+    return -1.0;
+}
+
+// Adopted method from: https://www.geometrictools.com/Documentation/IntersectionRectangleEllipse.pdf
+// The pseudocode is a bit broken in their paper, but was adapted to this
+// implementation which seems to work.
+// TODO: This still has some false positives!
+fn ellipse_rect_intersect(Rc: vec2f, Re: vec2f, Ec: vec2f, Em: mat2x2f) -> bool {
+    // Compute the increase in extents for R’.
+    let L = sqrt(vec2f(Em[1][1], Em[0][0]) / determinant(Em));
+
+    // Transform the ellipse center to rectangle coordinate system.
+    let KmC = Ec - Rc;
+
+    // Figure out extends of ellipse + rectangle.
+    let extended = Re + L;
+
+    // outside total bounding box.
+    if abs(KmC.x) > extended.x || abs(KmC.y) > extended.y {
+        return false;
+    }
+
+    // Check if point is outside any of the four corners.
+    let s = vec2f(simple_sign(KmC.x), simple_sign(KmC.y));
+    let delta0 = KmC - s * Re;
+    let EmDelta0 = Em * delta0;
+    return s.x * EmDelta0.x <= 0.0 || s.y * EmDelta0.y <= 0.0 || dot(delta0, EmDelta0) <= 1.0;
+}
+
+fn can_be_visible(tile: vec2u, xy: vec2f, conic: vec3f) -> bool {
+    let tile_extent = vec2f(f32(TILE_WIDTH));
+    let tile_center = vec2f(tile * TILE_WIDTH) + tile_extent;
+    let rads = log(255.0 / 1.0);
+    let conic_scaled = conic / (2.0 * rads);
+    return ellipse_rect_intersect(tile_center, tile_extent, xy, mat2x2f(conic_scaled.x, conic_scaled.y, conic_scaled.y, conic_scaled.z));
 }
 
 fn ceil_div(a: u32, b: u32) -> u32 {

@@ -294,7 +294,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
     var tile_area = 0u;
     for (var ty = tile_min.y; ty < tile_max.y; ty++) {
         for (var tx = tile_min.x; tx < tile_max.x; tx++) {
-            if helpers::can_be_visible(vec2u(tx, ty), xy, radius) {
+            if helpers::can_be_visible(vec2u(tx, ty), xy, conic) {
                 tile_area += 1u;
             }
         }
