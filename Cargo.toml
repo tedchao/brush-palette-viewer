@@ -57,7 +57,7 @@ safetensors = "0.4.3"
 tracy = ["dep:tracing-tracy"]
 rerun = ["dep:rerun"]
 
-default = ["tracy", "rerun"]
+default = ["rerun"]
 
 [build-dependencies]
 wgsl_bindgen = { git = "https://github.com/ArthurBrussee/wgsl-bindgen.git", branch = "updates" }
