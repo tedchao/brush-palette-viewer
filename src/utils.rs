@@ -1,17 +1,16 @@
 // Utilities to go from ndarray -> image and the other way around.
-use burn::tensor::{backend::Backend, BasicOps, Data, Element, Shape, Tensor, TensorKind};
-use ndarray::{Array, Dim, Dimension, StrideShape};
+use burn::tensor::{backend::Backend, Float, Shape, Tensor, TensorKind};
+use ndarray::{Array, ArrayView, Dim, Dimension, StrideShape};
 
-pub(crate) fn ndarray_to_burn<E: Element, B: Backend, const D: usize, K: BasicOps<B>>(
-    arr: Array<E, Dim<[usize; D]>>,
+pub(crate) fn ndarray_to_burn<B: Backend, const D: usize>(
+    arr: ArrayView<f32, Dim<[usize; D]>>,
     device: &B::Device,
-) -> Tensor<B, D, K>
+) -> Tensor<B, D, Float>
 where
-    K::Elem: Element,
     Dim<[usize; D]>: Dimension,
 {
     let shape = Shape::new(arr.shape().try_into().unwrap());
-    Tensor::from_data(Data::new(arr.into_raw_vec(), shape).convert(), device)
+    Tensor::from_floats(arr.as_slice().unwrap(), device).reshape(shape)
 }
 
 pub(crate) fn burn_to_ndarray<B: Backend, const D: usize>(

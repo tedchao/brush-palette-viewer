@@ -1,6 +1,7 @@
 use super::kernels::SplatKernel;
 use super::prefix_sum::prefix_sum;
 use super::radix_sort::radix_argsort;
+use super::sync_span::SyncSpan as SyncSpanRaw;
 use crate::camera::Camera;
 use crate::gaussian_splats::{num_sh_coeffs, sh_degree_from_coeffs};
 use crate::splat_render::create_tensor;
@@ -29,6 +30,9 @@ use burn::backend::{
 };
 use glam::{uvec2, Vec3};
 
+// Use an alias so we don't have to type out the backend every time.
+type SyncSpan<'a> = SyncSpanRaw<'a, BurnBack>;
+
 fn render_forward(
     camera: &Camera,
     img_size: glam::UVec2,
@@ -42,7 +46,10 @@ fn render_forward(
     raster_u32: bool,
 ) -> (JitTensor<BurnRuntime, f32, 3>, RenderAux<BurnBack>) {
     let _render_span = info_span!("render_gaussians").entered();
-    let setup_span = info_span!("setup").entered();
+    let client = &means.client;
+    let device = &means.device;
+
+    let setup_span = SyncSpan::new("setup", device);
 
     // Check whether dimesions are valid.
     DimCheck::new()
@@ -57,9 +64,6 @@ fn render_forward(
         img_size.x.div_ceil(shaders::helpers::TILE_WIDTH),
         img_size.y.div_ceil(shaders::helpers::TILE_WIDTH),
     );
-
-    let client = &means.client;
-    let device = &means.device;
 
     let num_points = means.shape.dims[0];
 
@@ -103,7 +107,7 @@ fn render_forward(
     let sh_degree = sh_degree_from_coeffs(sh_coeffs.shape.dims[1] / 3);
 
     {
-        let _span = info_span!("ProjectSplats").entered();
+        let _span = SyncSpan::new("ProjectSplats", device);
 
         ProjectSplats::new().execute(
             client,
@@ -137,7 +141,7 @@ fn render_forward(
         );
     }
 
-    let depth_sort_span = info_span!("DepthSort").entered();
+    let depth_sort_span = SyncSpan::new("DepthSort", device);
     // Interpret the depth as a u32. This is fine for a radix sort, as long as the depth > 0.0,
     // which we know to be the case given how we cull splats.
     let (_, compact_from_depthsort_gid) = radix_argsort(
@@ -149,7 +153,7 @@ fn render_forward(
     );
     drop(depth_sort_span);
 
-    let cum_hit_span = info_span!("TilesPermute").entered();
+    let cum_hit_span = SyncSpan::new("TilesPermute", device);
     // Permute the number of tiles hit for the sorted gaussians.
     // This means num_tiles_hit is not stored per compact_gid, but per depthsort_gid.
     let num_tiles_hit = bitcast_tensor(BurnBack::int_gather(
@@ -185,7 +189,7 @@ fn render_forward(
     drop(cum_hit_span);
 
     {
-        let _span = info_span!("MapGaussiansToIntersect").entered();
+        let _span = SyncSpan::new("MapGaussiansToIntersect", device);
 
         // Dispatch one thread per point.
         // TODO: Really want to do an indirect dispatch here for num_visible.
@@ -212,7 +216,7 @@ fn render_forward(
     // can be. We don't need to sort all the leading 0 bits!
     let bits = u32::BITS - num_tiles.leading_zeros();
 
-    let tile_sort_span = info_span!("Tile sort").entered();
+    let tile_sort_span = SyncSpan::new("Tile sort", device);
     let (tile_id_from_isect, depthsort_gid_from_isect) = radix_argsort(
         client.clone(),
         tile_id_from_isect,
@@ -222,8 +226,7 @@ fn render_forward(
     );
     drop(tile_sort_span);
 
-    let tile_edge_span = info_span!("GetTileBinEdges").entered();
-
+    let tile_edge_span = SyncSpan::new("GetTileBinEdges", device);
     let tile_bins = BurnBack::int_zeros(
         [tile_bounds.y as usize, tile_bounds.x as usize, 2].into(),
         device,
@@ -244,7 +247,7 @@ fn render_forward(
     );
     drop(tile_edge_span);
 
-    let tile_edge_span = info_span!("Rasterize").entered();
+    let tile_edge_span = SyncSpan::new("Rasterize", device);
 
     let out_dim = if raster_u32 {
         // Channels are packed into 4 bytes aka one float.
@@ -493,45 +496,50 @@ impl Backward<BurnBack, 3, 6> for RenderBackwards {
         // This is an offset into the scatter tensor buffer. Important to start at zero.
         let hit_ids = BurnBack::int_zeros([num_points].into(), device);
 
-        RasterizeBackwards::new().execute(
-            client,
-            shaders::rasterize_backwards::Uniforms::new(img_size.into(), state.background.into()),
-            &[
-                aux.depthsort_gid_from_isect
-                    .into_primitive()
-                    .handle
-                    .binding(),
-                aux.compact_from_depthsort_gid
-                    .clone()
-                    .into_primitive()
-                    .handle
-                    .binding(),
-                aux.tile_bins.into_primitive().handle.binding(),
-                aux.xys.into_primitive().handle.binding(),
-                aux.cum_tiles_hit.clone().into_primitive().handle.binding(),
-                aux.conic_comps.clone().into_primitive().handle.binding(),
-                aux.colors.clone().into_primitive().handle.binding(),
-                aux.final_index.into_primitive().handle.binding(),
-                state.out_img.handle.binding(),
-                v_output.handle.binding(),
-            ],
-            &[
-                v_xy_scatter.handle.clone().binding(),
-                v_conic_scatter.handle.clone().binding(),
-                v_colors_scatter.handle.clone().binding(),
-                hit_ids.handle.clone().binding(),
-            ],
-            [img_size.x, img_size.y],
-        );
+        {
+            let _span = SyncSpan::new("RasterizeBackwards", device);
+
+            RasterizeBackwards::new().execute(
+                client,
+                shaders::rasterize_backwards::Uniforms::new(
+                    img_size.into(),
+                    state.background.into(),
+                ),
+                &[
+                    aux.depthsort_gid_from_isect
+                        .into_primitive()
+                        .handle
+                        .binding(),
+                    aux.compact_from_depthsort_gid
+                        .clone()
+                        .into_primitive()
+                        .handle
+                        .binding(),
+                    aux.tile_bins.into_primitive().handle.binding(),
+                    aux.xys.into_primitive().handle.binding(),
+                    aux.cum_tiles_hit.clone().into_primitive().handle.binding(),
+                    aux.conic_comps.clone().into_primitive().handle.binding(),
+                    aux.colors.clone().into_primitive().handle.binding(),
+                    aux.final_index.into_primitive().handle.binding(),
+                    state.out_img.handle.binding(),
+                    v_output.handle.binding(),
+                ],
+                &[
+                    v_xy_scatter.handle.clone().binding(),
+                    v_conic_scatter.handle.clone().binding(),
+                    v_colors_scatter.handle.clone().binding(),
+                    hit_ids.handle.clone().binding(),
+                ],
+                [img_size.x, img_size.y],
+            );
+        }
 
         // Create tensors to hold gradients.
 
         // Nb: these are packed vec3 values, special care is taken in the kernel to respect alignment.
         // Nb: These have to be zerod out - as we only write to visible splats.
         let v_means = BurnBack::float_zeros([num_points, 3].into(), device);
-
         let v_scales = BurnBack::float_zeros([num_points, 3].into(), device);
-
         let v_quats = BurnBack::float_zeros([num_points, 4].into(), device);
         let v_coeffs = BurnBack::float_zeros(
             [num_points, num_sh_coeffs(state.sh_degree) * 3].into(),
@@ -540,47 +548,51 @@ impl Backward<BurnBack, 3, 6> for RenderBackwards {
         let v_opac = BurnBack::float_zeros([num_points].into(), device);
         let v_xys = BurnBack::float_zeros([num_points, 2].into(), device);
 
-        ProjectBackwards::new().execute(
-            client,
-            shaders::project_backwards::Uniforms::new(
-                state.cam.world_to_local(),
-                state.cam.focal(img_size).into(),
-                img_size.into(),
-                state.sh_degree as u32,
-            ),
-            &[
-                means.handle.binding(),
-                log_scales.handle.binding(),
-                quats.handle.binding(),
-                raw_opac.handle.binding(),
-                aux.conic_comps.into_primitive().handle.binding(),
-                aux.cum_tiles_hit.into_primitive().handle.clone().binding(),
-                v_xy_scatter.handle.binding(),
-                v_conic_scatter.handle.binding(),
-                v_colors_scatter.handle.binding(),
-                aux.num_visible.into_primitive().handle.clone().binding(),
-                aux.global_from_compact_gid
-                    .into_primitive()
-                    .handle
-                    .clone()
-                    .binding(),
-                aux.compact_from_depthsort_gid
-                    .clone()
-                    .into_primitive()
-                    .handle
-                    .clone()
-                    .binding(),
-            ],
-            &[
-                v_means.handle.clone().binding(),
-                v_xys.handle.clone().binding(),
-                v_scales.handle.clone().binding(),
-                v_quats.handle.clone().binding(),
-                v_coeffs.handle.clone().binding(),
-                v_opac.handle.clone().binding(),
-            ],
-            [num_points as u32],
-        );
+        {
+            let _span = SyncSpan::new("ProjectBackwards", device);
+
+            ProjectBackwards::new().execute(
+                client,
+                shaders::project_backwards::Uniforms::new(
+                    state.cam.world_to_local(),
+                    state.cam.focal(img_size).into(),
+                    img_size.into(),
+                    state.sh_degree as u32,
+                ),
+                &[
+                    means.handle.binding(),
+                    log_scales.handle.binding(),
+                    quats.handle.binding(),
+                    raw_opac.handle.binding(),
+                    aux.conic_comps.into_primitive().handle.binding(),
+                    aux.cum_tiles_hit.into_primitive().handle.clone().binding(),
+                    v_xy_scatter.handle.binding(),
+                    v_conic_scatter.handle.binding(),
+                    v_colors_scatter.handle.binding(),
+                    aux.num_visible.into_primitive().handle.clone().binding(),
+                    aux.global_from_compact_gid
+                        .into_primitive()
+                        .handle
+                        .clone()
+                        .binding(),
+                    aux.compact_from_depthsort_gid
+                        .clone()
+                        .into_primitive()
+                        .handle
+                        .clone()
+                        .binding(),
+                ],
+                &[
+                    v_means.handle.clone().binding(),
+                    v_xys.handle.clone().binding(),
+                    v_scales.handle.clone().binding(),
+                    v_quats.handle.clone().binding(),
+                    v_coeffs.handle.clone().binding(),
+                    v_opac.handle.clone().binding(),
+                ],
+                [num_points as u32],
+            );
+        }
 
         // Register gradients for parent nodes (This code is already skipped entirely
         // if no parent nodes require gradients).

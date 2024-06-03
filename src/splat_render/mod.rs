@@ -16,8 +16,10 @@ mod dim_check;
 mod kernels;
 mod prefix_sum;
 mod radix_sort;
-pub mod render;
 mod shaders;
+
+pub mod render;
+pub mod sync_span;
 
 pub type BurnBack = JitBackend<BurnRuntime, f32, i32>;
 pub type BurnDiffBack = Autodiff<JitBackend<BurnRuntime, f32, i32>>;

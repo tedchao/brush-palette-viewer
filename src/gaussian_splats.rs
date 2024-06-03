@@ -188,7 +188,7 @@ impl<B: AutodiffBackend> Splats<B> {
     pub fn norm_rotations(&mut self) {
         // TODO: Norm after grad, not on render.
         self.rotation = self.rotation.clone().map(|x| {
-            let norms = Tensor::sum_dim(x.clone() * x.clone(), 1).sqrt();
+            let norms = Tensor::sum_dim(x.clone().powf_scalar(2.0), 1).sqrt();
             let norm_rotation = x / Tensor::clamp_min(norms, 1e-6);
             Tensor::from_inner(norm_rotation.inner()).require_grad()
         });

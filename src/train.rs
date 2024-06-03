@@ -12,10 +12,12 @@ use burn::{
     optim::{AdamConfig, GradientsParams, Optimizer},
     tensor::Tensor,
 };
-use ndarray::{Array, Array3};
+use ndarray::{Array, ArrayView3};
 use rand::{rngs::StdRng, SeedableRng};
+use tracing::info_span;
 
 use crate::scene::Scene;
+use crate::splat_render::sync_span::SyncSpan;
 use crate::splat_render::{self, AutodiffBackend, RenderAux};
 use crate::utils::quaternion_rotation;
 use crate::{gaussian_splats::Splats, utils};
@@ -40,15 +42,15 @@ pub(crate) struct TrainConfig {
     pub(crate) seed: u64,
     #[config(default = 400)]
     pub(crate) warmup_steps: u32,
-    #[config(default = 100)]
+    #[config(default = 150)]
     pub(crate) refine_every: u32,
 
     #[config(default = 0.0)]
     pub(crate) ssim_weight: f32,
     // threshold of opacity for culling gaussians. One can set it to a lower value (e.g. 0.005) for higher quality."""
-    #[config(default = 0.01)]
+    #[config(default = 0.05)]
     pub(crate) cull_alpha_thresh: f32,
-    #[config(default = 0.0008)]
+    #[config(default = 0.0005)]
     pub(crate) clone_split_grad_threshold: f32,
     #[config(default = 0.01)]
     pub(crate) split_clone_size_threshold: f32,
@@ -69,12 +71,12 @@ pub(crate) struct TrainConfig {
     pub visualize_splats_every: u32,
 }
 
-struct TrainStepStats<B: AutodiffBackend> {
+struct TrainStepStats<'a, B: AutodiffBackend> {
     pred_image: Tensor<B, 3>,
     loss: Tensor<B, 1>,
     psnr: Tensor<B, 1>,
     aux: crate::splat_render::RenderAux<B>,
-    gt_image: Array3<f32>,
+    gt_image: ArrayView3<'a, f32>,
 }
 
 pub struct SplatTrainer<B: AutodiffBackend>
@@ -258,7 +260,7 @@ where
 
             // Remove original points we're splitting.
             // TODO: Could just replace them? Maybe?
-            let repeats = 2;
+            let splits = 2;
 
             let rotated_samples = quaternion_rotation(
                 scaled_samples,
@@ -266,7 +268,7 @@ where
                     .rotation
                     .val()
                     .select(0, split_inds.clone())
-                    .repeat(0, 2),
+                    .repeat(0, splits),
             );
             // TODO: Rotate samples
             let new_means = rotated_samples
@@ -274,25 +276,25 @@ where
                     .means
                     .val()
                     .select(0, split_inds.clone())
-                    .repeat(0, repeats);
+                    .repeat(0, splits);
             let new_rots = splats
                 .rotation
                 .val()
                 .select(0, split_inds.clone())
-                .repeat(0, repeats);
+                .repeat(0, splits);
             let new_coeffs = splats
                 .sh_coeffs
                 .val()
                 .select(0, split_inds.clone())
-                .repeat(0, repeats);
+                .repeat(0, splits);
             let new_opac = splats
                 .raw_opacity
                 .val()
                 .select(0, split_inds.clone())
-                .repeat(0, repeats);
+                .repeat(0, splits);
             let new_scales = (splats.log_scales.val().select(0, split_inds.clone()).exp() / 1.6)
                 .log()
-                .repeat(0, repeats);
+                .repeat(0, splits);
             self.prune_points(splats, split_mask.clone());
 
             splats.concat_splats(new_means, new_rots, new_coeffs, new_opac, new_scales);
@@ -355,6 +357,8 @@ where
         splats: Splats<B>,
         rec: &rerun::RecordingStream,
     ) -> Result<Splats<B>, anyhow::Error> {
+        let _span = info_span!("Train step").entered();
+
         let start_time = time::Instant::now();
 
         let device = &splats.means.device();
@@ -372,60 +376,55 @@ where
         };
 
         let view_image = &viewpoint.view.image;
+
+        let upload_img = info_span!("Upload image").entered();
         // TODO: Need some smarter way to feed this in, likely not great
         // to upload the target image to the GPU last minute.
-        let gt_image = utils::ndarray_to_burn(view_image.clone(), device);
+        let gt_image: Tensor<B, 3> = utils::ndarray_to_burn(view_image.view(), device);
+        drop(upload_img);
 
         let img_size = glam::uvec2(view_image.shape()[1] as u32, view_image.shape()[0] as u32);
         let (pred_image, aux) = splats.render(camera, img_size, background_color, false);
-
         let dims = pred_image.dims();
-        let pred_rgb = pred_image.clone().slice([0..dims[0], 0..dims[1], 0..3]);
 
-        let rgb = gt_image.clone().slice([0..dims[0], 0..dims[1], 0..3]);
-        let alpha = gt_image.clone().slice([0..dims[0], 0..dims[1], 3..4]);
+        let calc_losses = SyncSpan::<B>::new("Calculate losses", device);
 
-        let gt_image = rgb * alpha.clone()
-            + (-alpha + 1.0)
-                * Tensor::from_floats(
-                    [
-                        background_color[0],
-                        background_color[1],
-                        background_color[2],
-                    ],
-                    device,
-                )
-                .unsqueeze::<3>();
-
+        // There might be some marginal benefit to caching the "loss objects". I wish Burn had a more
+        // functional style for this.
         let mse = MseLoss::new().forward(
-            pred_rgb.clone(),
+            pred_image.clone(),
             gt_image.clone(),
             burn::nn::loss::Reduction::Mean,
         );
-
-        // There might be some marginal benefit to caching this. I wish Burn had a more
-        // functional style for this.
         let huber = HuberLossConfig::new(0.05).init::<B>(device);
         let l1_loss = huber.forward(
-            pred_rgb.clone(),
+            pred_image.clone(),
             gt_image.clone(),
             burn::nn::loss::Reduction::Mean,
         );
         let mut loss = l1_loss;
 
         if self.config.ssim_weight > 0.0 {
+            let pred_rgb = pred_image.clone().slice([0..dims[0], 0..dims[1], 0..3]);
+            let gt_rgb = gt_image.clone().slice([0..dims[0], 0..dims[1], 0..3]);
+
             let ssim_loss = crate::ssim::ssim(
                 pred_rgb.clone().permute([2, 0, 1]).unsqueeze_dim(3),
-                gt_image.clone().permute([2, 0, 1]).unsqueeze_dim(3),
+                gt_rgb.clone().permute([2, 0, 1]).unsqueeze_dim(3),
                 11,
             );
 
             loss = loss * (1.0 - self.config.ssim_weight)
                 + (-ssim_loss + 1.0) * self.config.ssim_weight;
         }
-
         let psnr = mse.clone().recip().log() * 10.0 / std::f32::consts::LN_10;
-        let mut grads = mse.backward();
+        drop(calc_losses);
+
+        let backward_pass = SyncSpan::<B>::new("Backward pass", device);
+        let mut grads = loss.backward();
+        drop(backward_pass);
+
+        let step_span = SyncSpan::<B>::new("Optimizer step", device);
 
         // Burn doesn't have a great way to use multiple different learning rates
         // or different optimizers. The current best way seems to be to "distribute" the gradients
@@ -472,9 +471,13 @@ where
         splats = self.optim.step(lr_opac, splats, grad_opac);
         splats = self.optim.step(lr_rest, splats, grad_rest);
 
-        splats.norm_rotations();
+        drop(step_span);
 
-        self.update_stats(&aux, xys_grad);
+        {
+            let _norm_rot_span = SyncSpan::<B>::new("Housekeeping", device);
+            splats.norm_rotations();
+            self.update_stats(&aux, xys_grad);
+        }
 
         if self.iter % self.config.refine_every == 0 {
             // Remove barely visible gaussians.
@@ -484,7 +487,7 @@ where
                 self.densify_and_prune(
                     &mut splats,
                     self.config.clone_split_grad_threshold / (img_size.x.max(img_size.y) as f32),
-                    Some(self.config.cull_screen_size * (dims[0] as f32)),
+                    Some(self.config.cull_screen_size * (dims[0].max(dims[1]) as f32)),
                     Some(self.config.cull_scale_thresh),
                     self.config.split_clone_size_threshold,
                     device,
@@ -501,7 +504,7 @@ where
 
         let stats = TrainStepStats {
             aux,
-            gt_image: viewpoint.view.image.clone(),
+            gt_image: viewpoint.view.image.view(),
             loss,
             psnr,
             pred_image,
@@ -561,7 +564,7 @@ where
 
         rec.log(
             "images/ground truth",
-            &rerun::Image::try_from(stats.gt_image)?,
+            &rerun::Image::try_from(stats.gt_image.to_owned())?,
         )?;
 
         let tile_bins = stats.aux.tile_bins;
