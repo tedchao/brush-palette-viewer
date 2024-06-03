@@ -134,6 +134,8 @@ impl Viewer {
         self.rec = rerun::RecordingStreamBuilder::new("visualize training")
         .spawn()
         .unwrap();
+
+        <BurnDiffBack as burn::prelude::Backend>::seed(42);
     
         let config = TrainConfig::new(
             LrConfig::new().with_max_lr(1e-5).with_min_lr(1e-6),
