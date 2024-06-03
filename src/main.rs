@@ -9,6 +9,7 @@ mod orbit_controls;
 mod scene;
 mod splat_import;
 mod splat_render;
+mod ssim;
 mod train;
 mod utils;
 mod viewer;

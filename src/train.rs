@@ -3,6 +3,7 @@ use std::time;
 use anyhow::Result;
 use burn::lr_scheduler::linear::{LinearLrScheduler, LinearLrSchedulerConfig};
 use burn::lr_scheduler::LrScheduler;
+use burn::nn::loss::{HuberLossConfig, MseLoss};
 use burn::optim::adaptor::OptimizerAdaptor;
 use burn::optim::Adam;
 use burn::tensor::{Bool, Distribution, ElementConversion};
@@ -41,10 +42,13 @@ pub(crate) struct TrainConfig {
     pub(crate) warmup_steps: u32,
     #[config(default = 100)]
     pub(crate) refine_every: u32,
+
+    #[config(default = 0.0)]
+    pub(crate) ssim_weight: f32,
     // threshold of opacity for culling gaussians. One can set it to a lower value (e.g. 0.005) for higher quality."""
     #[config(default = 0.01)]
     pub(crate) cull_alpha_thresh: f32,
-    #[config(default = 0.001)]
+    #[config(default = 0.0008)]
     pub(crate) clone_split_grad_threshold: f32,
     #[config(default = 0.01)]
     pub(crate) split_clone_size_threshold: f32,
@@ -299,7 +303,7 @@ where
         splats.raw_opacity = splats
             .raw_opacity
             .clone()
-            .map(|x| Tensor::from_inner((x - 2.0).inner()).require_grad());
+            .map(|x| Tensor::from_inner((x - 1.0).inner()).require_grad());
     }
 
     pub fn prune_invisible_points(&mut self, splats: &mut Splats<B>, cull_alpha_thresh: f32) {
@@ -393,8 +397,33 @@ where
                 )
                 .unsqueeze::<3>();
 
-        // TODO: Really want ssim + l1 loss as per 3DGS.
-        let mse = (pred_rgb - gt_image).powf_scalar(2.0).mean();
+        let mse = MseLoss::new().forward(
+            pred_rgb.clone(),
+            gt_image.clone(),
+            burn::nn::loss::Reduction::Mean,
+        );
+
+        // There might be some marginal benefit to caching this. I wish Burn had a more
+        // functional style for this.
+        let huber = HuberLossConfig::new(0.05).init::<B>(device);
+        let l1_loss = huber.forward(
+            pred_rgb.clone(),
+            gt_image.clone(),
+            burn::nn::loss::Reduction::Mean,
+        );
+        let mut loss = l1_loss;
+
+        if self.config.ssim_weight > 0.0 {
+            let ssim_loss = crate::ssim::ssim(
+                pred_rgb.clone().permute([2, 0, 1]).unsqueeze_dim(3),
+                gt_image.clone().permute([2, 0, 1]).unsqueeze_dim(3),
+                11,
+            );
+
+            loss = loss * (1.0 - self.config.ssim_weight)
+                + (-ssim_loss + 1.0) * self.config.ssim_weight;
+        }
+
         let psnr = mse.clone().recip().log() * 10.0 / std::f32::consts::LN_10;
         let mut grads = mse.backward();
 
@@ -473,7 +502,7 @@ where
         let stats = TrainStepStats {
             aux,
             gt_image: viewpoint.view.image.clone(),
-            loss: mse,
+            loss,
             psnr,
             pred_image,
         };
