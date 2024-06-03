@@ -43,6 +43,7 @@ var<workgroup> v_colors_local: array<vec4f, helpers::TILE_SIZE>;
 @workgroup_size(helpers::TILE_WIDTH, helpers::TILE_WIDTH, 1)
 fn main(
     @builtin(global_invocation_id) global_id: vec3u,
+    @builtin(local_invocation_id) local_id: vec3u,
     @builtin(local_invocation_index) local_idx: u32,
     @builtin(workgroup_id) workgroup_id: vec3u,
 ) {
@@ -113,8 +114,6 @@ fn main(
         // process gaussians in the current batch for this pixel
         let remaining = min(helpers::TILE_SIZE, batch_end + 1u - range.x);
 
-        workgroupBarrier();
-
         for (var t = 0u; t < remaining; t++) {
             workgroupBarrier();
 
@@ -173,16 +172,31 @@ fn main(
             // Make sure all threads have calculated their gradients.
             workgroupBarrier();
 
+            // Do a reduction on the tile x-axis. This should of course be a subgroup operation :)
+            if local_id.x == 0 {
+                var v_colors_sum = vec4f(0.0);
+                var v_conic_sum = vec3f(0.0);
+                var v_xy_sum = vec2f(0.0);
+                for(var i = 0u; i < helpers::TILE_WIDTH; i++) {
+                    v_colors_sum += v_colors_local[local_idx + i];
+                    v_conic_sum += v_conic_local[local_idx + i];
+                    v_xy_sum += v_xy_local[local_idx + i];
+                }
+                v_colors_local[local_idx] = v_colors_sum;
+                v_conic_local[local_idx] = v_conic_sum;
+                v_xy_local[local_idx] = v_xy_sum;
+            }
+            workgroupBarrier();
+
             if local_idx == 0 {
                 let depthsort_gid = depthsort_gid_from_isect[isect_id];
-                let compact_gid = compact_from_depthsort_gid[depthsort_gid];
 
                 // Gather workgroup sums.
                 var v_colors_sum = vec4f(0.0);
                 var v_conic_sum = vec3f(0.0);
                 var v_xy_sum = vec2f(0.0);
                 
-                for(var i = 0u; i < helpers::TILE_SIZE; i++) {
+                for(var i = 0u; i < helpers::TILE_SIZE; i += helpers::TILE_WIDTH) {
                     v_colors_sum += v_colors_local[i];
                     v_conic_sum += v_conic_local[i];
                     v_xy_sum += v_xy_local[i];
@@ -192,7 +206,7 @@ fn main(
                 if depthsort_gid > 0 {
                     offset = cum_tiles_hit[depthsort_gid - 1];
                 }
-                let hit_id = atomicAdd(&hit_ids[compact_gid], 1u);
+                let hit_id = atomicAdd(&hit_ids[depthsort_gid], 1u);
 
                 // Scatter the gradients to the gradient per intersection buffer.
                 let write_id = offset + hit_id;
@@ -200,8 +214,6 @@ fn main(
                 v_conic[write_id] = vec4f(v_conic_sum, 0.0);
                 v_colors[write_id] = v_colors_sum;
             }
-
-            workgroupBarrier();
         }
     }
 }
