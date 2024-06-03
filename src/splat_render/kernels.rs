@@ -9,8 +9,8 @@ use burn_compute::{
     server::{Binding, ComputeServer},
 };
 
-use burn::backend::wgpu::{Kernel, WorkGroup, WorkgroupSize};
-use burn_cube::{CompiledKernel, JitKernel};
+use burn::backend::wgpu::{CubeCount, CubeDim};
+use burn_cube::compute::{CompiledKernel, CubeTask};
 
 use super::shaders::*;
 use anyhow::Result;
@@ -30,7 +30,11 @@ where
     fn id(&self) -> String;
     fn source(&self) -> Result<String>;
 
-    fn execute<S: ComputeServer<Kernel = Kernel>, C: ComputeChannel<S>, const D: usize>(
+    fn execute<
+        S: ComputeServer<Kernel = Box<dyn CubeTask>>,
+        C: ComputeChannel<S>,
+        const D: usize,
+    >(
         self,
         client: &ComputeClient<S, C>,
         uniforms: Self::Uniforms,
@@ -55,12 +59,12 @@ where
                 .div_ceil(Self::WORKGROUP_SIZE[2]),
         );
 
-        let wg = WorkGroup::new(execs.x, execs.y, execs.z);
+        let wg = CubeCount::new(execs.x, execs.y, execs.z);
 
-        let kernel = Kernel::Custom(Box::new(WrapKernel {
-            workgroup: wg,
+        let kernel = Box::new(WrapKernel {
+            cube_count: wg,
             splat: self,
-        }));
+        });
 
         if size_of::<Self::Uniforms>() != 0 {
             let uniform_data = client.create(bytemuck::bytes_of(&uniforms)).binding();
@@ -74,11 +78,11 @@ where
 }
 
 struct WrapKernel<T> {
-    workgroup: WorkGroup,
+    cube_count: CubeCount,
     splat: T,
 }
 
-impl<T: SplatKernel> JitKernel for WrapKernel<T> {
+impl<T: SplatKernel> CubeTask for WrapKernel<T> {
     fn id(&self) -> String {
         self.splat.id()
     }
@@ -86,7 +90,7 @@ impl<T: SplatKernel> JitKernel for WrapKernel<T> {
     fn compile(&self) -> CompiledKernel {
         CompiledKernel {
             source: self.splat.source().unwrap(),
-            workgroup_size: WorkgroupSize::new(
+            cube_dim: CubeDim::new(
                 T::WORKGROUP_SIZE[0],
                 T::WORKGROUP_SIZE[1],
                 T::WORKGROUP_SIZE[2],
@@ -96,9 +100,9 @@ impl<T: SplatKernel> JitKernel for WrapKernel<T> {
         }
     }
 
-    fn launch_settings(&self) -> burn_cube::LaunchSettings {
-        burn_cube::LaunchSettings {
-            workgroup: self.workgroup.clone(),
+    fn launch_settings(&self) -> burn_cube::compute::LaunchSettings {
+        burn_cube::compute::LaunchSettings {
+            cube_count: self.cube_count.clone(),
         }
     }
 }
