@@ -259,7 +259,7 @@ impl eframe::App for Viewer {
 
             // Round to 16 pixels for buffer alignment.
             // TODO: Ideally just alloc a backbuffer that's aligned, and render a slice of it.
-            let size = glam::uvec2((size.x as u32).div_ceil(64) * 64, size.y as u32);
+            let size = glam::uvec2(((size.x as u32).div_ceil(64) * 64).max(32), (size.y as u32).max(32));
             self.update_backbuffer(size, frame);
 
             let (rect, response) = ui.allocate_exact_size(
