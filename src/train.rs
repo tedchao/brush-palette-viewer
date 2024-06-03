@@ -49,8 +49,11 @@ pub(crate) struct TrainConfig {
     pub(crate) ssim_weight: f32,
     // threshold of opacity for culling gaussians. One can set it to a lower value (e.g. 0.005) for higher quality."""
     #[config(default = 0.05)]
-    pub(crate) cull_alpha_thresh: f32,
-    #[config(default = 0.0005)]
+    pub(crate) prune_alpha_thresh: f32,
+    #[config(default = 0.005)]
+    pub(crate) prune_scale_thresh: f32,
+
+    #[config(default = 0.00005)]
     pub(crate) clone_split_grad_threshold: f32,
     #[config(default = 0.01)]
     pub(crate) split_clone_size_threshold: f32,
@@ -308,12 +311,6 @@ where
             .map(|x| Tensor::from_inner((x - 1.0).inner()).require_grad());
     }
 
-    pub fn prune_invisible_points(&mut self, splats: &mut Splats<B>, cull_alpha_thresh: f32) {
-        let alpha_mask = burn::tensor::activation::sigmoid(splats.raw_opacity.val())
-            .lower_elem(cull_alpha_thresh);
-        self.prune_points(splats, alpha_mask);
-    }
-
     // Prunes points based on the given mask.
     //
     // Args:
@@ -481,7 +478,20 @@ where
 
         if self.iter % self.config.refine_every == 0 {
             // Remove barely visible gaussians.
-            self.prune_invisible_points(&mut splats, self.config.cull_alpha_thresh);
+            let prule_alpha_thresh = self.config.prune_alpha_thresh;
+            let alpha_mask = burn::tensor::activation::sigmoid(splats.raw_opacity.val())
+                .lower_elem(prule_alpha_thresh);
+            self.prune_points(&mut splats, alpha_mask);
+
+            let prune_scale_thresh = self.config.prune_scale_thresh;
+            let scale_mask = splats
+                .log_scales
+                .val()
+                .exp()
+                .max_dim(1)
+                .squeeze(1)
+                .lower_elem(prune_scale_thresh);
+            self.prune_points(&mut splats, scale_mask);
 
             if self.iter > self.config.warmup_steps {
                 self.densify_and_prune(
