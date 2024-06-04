@@ -3,12 +3,12 @@ use crate::{
     dataset_readers,
     gaussian_splats::Splats,
     orbit_controls::OrbitControls,
-    scene::{SceneBatch, SceneBatcher, SceneLoader},
+    scene::{SceneBatcher, SceneLoader},
     splat_import,
     splat_render::BurnDiffBack,
     train::{LrConfig, SplatTrainer, TrainConfig},
 };
-use burn::{data::dataloader::DataLoaderIterator, tensor::Tensor};
+use burn::tensor::Tensor;
 use burn_wgpu::{RuntimeOptions, WgpuDevice};
 use tracing::info_span;
 use core::ops::DerefMut;
@@ -154,10 +154,10 @@ impl Viewer {
         scene.visualize(&self.rec).unwrap();
 
         // TODO: Unify reference views & training scene.
-        self.trainer = Some(SplatTrainer::new(5000, &config, &splats));
+        self.trainer = Some(SplatTrainer::new(splats.num_splats(), &config, &splats));
         self.splats = Some(splats);
         let batcher_train = SceneBatcher::<BurnDiffBack>::new(self.device.clone());
-        self.dataloader = Some(SceneLoader::new(scene, batcher_train)); 
+        self.dataloader = Some(SceneLoader::new(scene, batcher_train, 2)); 
     }
 
     fn update_backbuffer(&mut self, size: glam::UVec2, frame: &mut eframe::Frame) {
@@ -330,7 +330,7 @@ impl eframe::App for Viewer {
             if let Some(train) = self.trainer.as_mut() {    
                 // TODO: On non wasm this really should be threaded.
                 let get_span = info_span!("Get batch").entered();
-                let batch = self.dataloader.as_mut().and_then(|x| x.next()).unwrap();
+                let batch = self.dataloader.as_mut().unwrap().next();
                 drop(get_span);
 
                 self.splats = Some(
@@ -346,7 +346,7 @@ impl eframe::App for Viewer {
         });
     }
   
-       fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
         [0.0, 0.0, 0.0, 1.0]
     }
 }

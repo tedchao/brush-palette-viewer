@@ -16,11 +16,11 @@ use ndarray::Array;
 use rand::{rngs::StdRng, SeedableRng};
 use tracing::info_span;
 
+use crate::gaussian_splats::Splats;
 use crate::scene::SceneBatch;
 use crate::splat_render::sync_span::SyncSpan;
-use crate::splat_render::{self, AutodiffBackend, RenderAux};
+use crate::splat_render::{self, AutodiffBackend};
 use crate::utils::quaternion_rotation;
-use crate::{gaussian_splats::Splats, utils};
 
 #[derive(Config)]
 pub(crate) struct LrConfig {
@@ -35,6 +35,10 @@ pub(crate) struct TrainConfig {
     pub lr_mean: LrConfig,
     pub lr_opac: LrConfig,
     pub lr_rest: LrConfig,
+
+    #[config(default = 10000)]
+    pub(crate) schedule_steps: u32,
+
     pub scene_path: String,
 
     #[config(default = 42)]
@@ -63,8 +67,7 @@ pub(crate) struct TrainConfig {
     pub(crate) cull_screen_size: f32,
     #[config(default = 30)]
     pub(crate) reset_alpha_every: u32,
-    #[config(default = 10000)]
-    pub(crate) train_steps: u32,
+
     #[config(default = false)]
     pub(crate) random_bck_color: bool,
     #[config(default = 100)]
@@ -74,10 +77,10 @@ pub(crate) struct TrainConfig {
 }
 
 struct TrainStepStats<B: AutodiffBackend> {
-    pred_image: Tensor<B, 3>,
+    pred_images: Tensor<B, 4>,
+    auxes: Vec<crate::splat_render::RenderAux<B>>,
     loss: Tensor<B, 1>,
     psnr: Tensor<B, 1>,
-    aux: crate::splat_render::RenderAux<B>,
 }
 
 pub struct SplatTrainer<B: AutodiffBackend>
@@ -120,19 +123,19 @@ where
         let sched_mean = LinearLrSchedulerConfig::new(
             config.lr_mean.max_lr,
             config.lr_mean.min_lr,
-            config.train_steps as usize,
+            config.schedule_steps as usize,
         )
         .init();
         let sched_opac = LinearLrSchedulerConfig::new(
             config.lr_opac.max_lr,
             config.lr_opac.min_lr,
-            config.train_steps as usize,
+            config.schedule_steps as usize,
         )
         .init();
         let sched_rest = LinearLrSchedulerConfig::new(
             config.lr_rest.max_lr,
             config.lr_rest.min_lr,
-            config.train_steps as usize,
+            config.schedule_steps as usize,
         )
         .init();
 
@@ -153,27 +156,6 @@ where
     fn reset_stats(&mut self, num_points: usize, device: &B::Device) {
         self.max_radii_2d = Tensor::zeros([num_points], device);
         self.xy_grad_norm_accum = Tensor::zeros([num_points], device);
-    }
-
-    // Updates rolling statistics that we capture during rendering.
-    pub(crate) fn update_stats(&mut self, aux: &RenderAux<B>, xys_grad: Tensor<B, 2>) {
-        let radii = Tensor::zeros_like(&aux.radii_compact).select_assign(
-            0,
-            aux.global_from_compact_gid.clone(),
-            aux.radii_compact.clone(),
-        );
-
-        self.max_radii_2d = Tensor::max_pair(self.max_radii_2d.clone(), radii.clone());
-
-        self.xy_grad_norm_accum = Tensor::max_pair(
-            self.xy_grad_norm_accum.clone(),
-            xys_grad
-                .clone()
-                .mul(xys_grad.clone())
-                .sum_dim(1)
-                .squeeze(1)
-                .sqrt(),
-        );
     }
 
     // Densifies and prunes the Gaussians.
@@ -358,46 +340,64 @@ where
 
         let device = &splats.means.device();
 
-        let camera = &batch.camera;
-        let view_image = &batch.gt_image;
-
         let background_color = if self.config.random_bck_color {
             glam::vec3(rand::random(), rand::random(), rand::random())
         } else {
             glam::Vec3::ZERO
         };
 
-        let img_size = glam::uvec2(view_image.dims()[1] as u32, view_image.dims()[0] as u32);
-        let (pred_image, aux) = splats.render(camera, img_size, background_color, false);
-        let dims = pred_image.dims();
+        let mut loss = Tensor::zeros([1], device);
+
+        let [batch_size, img_h, img_w, _] = batch.gt_image.dims();
+
+        let mut renders = vec![];
+        let mut auxes = vec![];
+
+        for i in 0..batch.cameras.len() {
+            let camera = &batch.cameras[i];
+
+            let (pred_image, aux) = splats.render(
+                camera,
+                glam::uvec2(img_w as u32, img_h as u32),
+                background_color,
+                false,
+            );
+            renders.push(pred_image);
+            auxes.push(aux);
+        }
+
+        let pred_images = Tensor::stack(renders, 0);
 
         let calc_losses = SyncSpan::<B>::new("Calculate losses", device);
 
         // There might be some marginal benefit to caching the "loss objects". I wish Burn had a more
         // functional style for this.
         let mse = MseLoss::new().forward(
-            pred_image.clone(),
+            pred_images.clone(),
             batch.gt_image.clone(),
             burn::nn::loss::Reduction::Mean,
         );
         let huber = HuberLossConfig::new(0.05).init::<B>(device);
         let l1_loss = huber.forward(
-            pred_image.clone(),
+            pred_images.clone(),
             batch.gt_image.clone(),
             burn::nn::loss::Reduction::Mean,
         );
-        let mut loss = l1_loss;
+        loss = loss + l1_loss;
 
         if self.config.ssim_weight > 0.0 {
-            let pred_rgb = pred_image.clone().slice([0..dims[0], 0..dims[1], 0..3]);
-            let gt_rgb = batch.gt_image.clone().slice([0..dims[0], 0..dims[1], 0..3]);
-
+            let pred_rgb = pred_images
+                .clone()
+                .slice([0..batch_size, 0..img_h, 0..img_w, 0..3]);
+            let gt_rgb = batch
+                .gt_image
+                .clone()
+                .slice([0..batch_size, 0..img_h, 0..img_w, 0..3]);
             let ssim_loss = crate::ssim::ssim(
-                pred_rgb.clone().permute([2, 0, 1]).unsqueeze_dim(3),
-                gt_rgb.clone().permute([2, 0, 1]).unsqueeze_dim(3),
+                pred_rgb.clone().permute([0, 3, 1, 2]),
+                gt_rgb.clone().permute([0, 3, 1, 2]),
                 11,
             );
-
             loss = loss * (1.0 - self.config.ssim_weight)
                 + (-ssim_loss + 1.0) * self.config.ssim_weight;
         }
@@ -414,7 +414,6 @@ where
         // or different optimizers. The current best way seems to be to "distribute" the gradients
         // to different GradientParams. Basically each optimizer step call only sees a
         // a subset of parameter gradients.
-        let xys_grad = Tensor::from_inner(splats.xys_dummy.grad_remove(&mut grads).unwrap());
 
         let mut grad_means = GradientsParams::new();
         grad_means.register(
@@ -460,7 +459,31 @@ where
         {
             let _norm_rot_span = SyncSpan::<B>::new("Housekeeping", device);
             splats.norm_rotations();
-            self.update_stats(&aux, xys_grad);
+
+            for aux in auxes.iter() {
+                let radii = Tensor::zeros_like(&aux.radii_compact).select_assign(
+                    0,
+                    aux.global_from_compact_gid.clone(),
+                    aux.radii_compact.clone(),
+                );
+
+                self.max_radii_2d = Tensor::max_pair(self.max_radii_2d.clone(), radii.clone());
+            }
+
+            // TODO: Maybe can batch this.
+            let xys_grad = Tensor::from_inner(splats.xys_dummy.grad_remove(&mut grads).unwrap());
+
+            // TODO: Original implementation has a running average instead. That seems wrong to me -
+            // but might need some proper ablation.
+            self.xy_grad_norm_accum = Tensor::max_pair(
+                self.xy_grad_norm_accum.clone(),
+                xys_grad
+                    .clone()
+                    .mul(xys_grad.clone())
+                    .sum_dim(1)
+                    .squeeze(1)
+                    .sqrt(),
+            );
         }
 
         if self.iter % self.config.refine_every == 0 {
@@ -481,10 +504,11 @@ where
             self.prune_points(&mut splats, scale_mask);
 
             if self.iter > self.config.warmup_steps {
+                let max_img_size = img_w.max(img_h) as f32;
                 self.densify_and_prune(
                     &mut splats,
-                    self.config.clone_split_grad_threshold / (img_size.x.max(img_size.y) as f32),
-                    Some(self.config.cull_screen_size * (dims[0].max(dims[1]) as f32)),
+                    self.config.clone_split_grad_threshold / max_img_size,
+                    Some(self.config.cull_screen_size * max_img_size),
                     Some(self.config.cull_scale_thresh),
                     self.config.split_clone_size_threshold,
                     device,
@@ -500,10 +524,10 @@ where
         }
 
         let stats = TrainStepStats {
-            aux,
+            pred_images,
+            auxes,
             loss,
             psnr,
-            pred_image,
         };
 
         rec.set_time_sequence("iterations", self.iter);
@@ -525,15 +549,17 @@ where
         if self.iter % self.config.visualize_every == 0 {
             self.visualize_train_stats(rec, stats)?;
 
-            let gt_image = Array::from_shape_vec(
-                batch.gt_image.dims(),
-                batch.gt_image.to_data().convert::<f32>().value,
-            )?
-            .map(|x| (*x * 255.0).clamp(0.0, 255.0) as u8);
+            let main_gt_image = batch.gt_image.slice([0..1]);
 
             rec.log(
                 "images/ground truth",
-                &rerun::Image::try_from(gt_image.to_owned())?,
+                &rerun::Image::try_from(
+                    Array::from_shape_vec(
+                        main_gt_image.dims(),
+                        main_gt_image.to_data().convert::<f32>().value,
+                    )?
+                    .map(|x| (*x * 255.0).clamp(0.0, 255.0) as u8),
+                )?,
             )?;
         }
 
@@ -553,23 +579,27 @@ where
     ) -> Result<(), anyhow::Error> {
         rec.log(
             "losses/main",
-            &rerun::Scalar::new(utils::burn_to_scalar(stats.loss).elem::<f64>()),
+            &rerun::Scalar::new(stats.loss.into_scalar().elem::<f64>()),
         )?;
         rec.log(
             "stats/PSNR",
-            &rerun::Scalar::new(utils::burn_to_scalar(stats.psnr).elem::<f64>()),
+            &rerun::Scalar::new(stats.psnr.into_scalar().elem::<f64>()),
         )?;
+
+        // Not sure what's best here, atm let's just log the first batch render only.
+        // Maybe could do an average instead?
+        let aux = &stats.auxes[0];
 
         rec.log(
             "splats/num_intersects",
-            &rerun::Scalar::new(utils::burn_to_scalar(stats.aux.num_intersects).elem::<f64>()),
+            &rerun::Scalar::new(aux.num_intersects.clone().into_scalar().elem::<f64>()),
         )?;
         rec.log(
             "splats/num_visible",
-            &rerun::Scalar::new(utils::burn_to_scalar(stats.aux.num_visible).elem::<f64>()),
+            &rerun::Scalar::new(aux.num_visible.clone().into_scalar().elem::<f64>()),
         )?;
 
-        let tile_bins = stats.aux.tile_bins;
+        let tile_bins = aux.tile_bins.clone();
         let tile_size = tile_bins.dims();
         let tile_depth = tile_bins
             .clone()
@@ -586,9 +616,10 @@ where
             )?)?,
         )?;
 
+        let main_pred_image = stats.pred_images.slice([0..1]);
         let pred_image = Array::from_shape_vec(
-            stats.pred_image.dims(),
-            stats.pred_image.to_data().convert::<f32>().value,
+            main_pred_image.dims(),
+            main_pred_image.to_data().convert::<f32>().value,
         )?
         .map(|x| (*x * 255.0).clamp(0.0, 255.0) as u8);
 

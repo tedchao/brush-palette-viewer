@@ -94,17 +94,22 @@ impl<B: Backend> SceneBatcher<B> {
 
 #[derive(Clone, Debug)]
 pub struct SceneBatch<B: Backend> {
-    pub gt_image: Tensor<B, 3>,
-    pub camera: Camera,
+    pub gt_image: Tensor<B, 4>,
+    pub cameras: Vec<Camera>,
 }
 
 impl<B: Backend> Batcher<InputView, SceneBatch<B>> for SceneBatcher<B> {
     fn batch(&self, items: Vec<InputView>) -> SceneBatch<B> {
-        let item = &items[0]; // ATM we just support having one view.
-        let gt_image: Tensor<B, 3> = utils::ndarray_to_burn(item.image.view(), &self.device);
+        let burn_tensors = items
+            .iter()
+            .map(|x| utils::ndarray_to_burn::<B, 3>(x.image.view(), &self.device))
+            .collect::<Vec<_>>();
+
+        let img_cat = Tensor::stack(burn_tensors, 0);
+
         SceneBatch {
-            gt_image,
-            camera: item.camera.clone(),
+            gt_image: img_cat,
+            cameras: items.iter().map(|x| x.camera.clone()).collect(),
         }
     }
 }
@@ -113,9 +118,9 @@ impl<B: Backend> Batcher<InputView, SceneBatch<B>> for SceneBatcher<B> {
 // like shuffling & multithreading, but, we need some more control, and I also can't figure out how
 // to make their dataset loader work with lifetimes.
 pub struct SceneLoader<B: Backend> {
-    dataset: Scene,
-    batcher: SceneBatcher<B>,
+    total_batch: SceneBatch<B>,
     index: usize,
+    batch_size: usize,
 }
 
 fn miller_shuffle(inx: usize, shuffle_id: usize, list_size: usize) -> usize {
@@ -152,25 +157,40 @@ fn miller_shuffle(inx: usize, shuffle_id: usize, list_size: usize) -> usize {
 }
 
 impl<B: Backend> SceneLoader<B> {
-    pub fn new(dataset: Scene, batcher: SceneBatcher<B>) -> Self {
+    pub fn new(scene: Scene, batcher: SceneBatcher<B>, batch_size: usize) -> Self {
+        let total_batch = batcher.batch(
+            (0..scene.views.len())
+                .filter_map(|x| scene.get(x))
+                .collect(),
+        );
+
         Self {
-            dataset,
-            batcher,
+            total_batch,
             index: 0,
+            batch_size,
         }
     }
 
-    pub fn next(&mut self) -> Option<SceneBatch<B>> {
-        let list_index = miller_shuffle(
-            self.index % self.dataset.len(),
-            self.index / self.dataset.len(),
-            self.dataset.len(),
-        );
+    pub fn next(&mut self) -> SceneBatch<B> {
+        let len = self.total_batch.gt_image.dims()[0];
 
-        self.index += 1;
+        let indexes: Vec<_> = (0..self.batch_size)
+            .map(|_| {
+                let list_index = miller_shuffle(self.index % len, self.index / len, len);
+                self.index += 1;
+                list_index as i32
+            })
+            .collect();
 
-        self.dataset
-            .get(list_index)
-            .map(|x| self.batcher.batch(vec![x.clone()]))
+        let index_tensor =
+            Tensor::from_ints(indexes.as_slice(), &self.total_batch.gt_image.device());
+
+        SceneBatch {
+            gt_image: self.total_batch.gt_image.clone().select(0, index_tensor),
+            cameras: indexes
+                .into_iter()
+                .map(|x| self.total_batch.cameras[x as usize].clone())
+                .collect(),
+        }
     }
 }
