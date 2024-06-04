@@ -6,15 +6,10 @@ use anyhow::Context;
 use anyhow::Result;
 use ndarray::Array3;
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub(crate) struct InputView {
-    pub(crate) image: Array3<f32>, // RGBA image.
-}
-
-#[derive(Debug, Default)]
-pub(crate) struct InputData {
     pub(crate) camera: Camera,
-    pub(crate) view: InputView,
+    pub(crate) image: Array3<f32>,
 }
 
 fn read_synthetic_nerf_data(
@@ -22,7 +17,7 @@ fn read_synthetic_nerf_data(
     transformsfile: &str,
     extension: &str,
     max_frames: Option<usize>,
-) -> Result<Vec<InputData>> {
+) -> Result<Vec<InputView>> {
     let mut cameras = vec![];
 
     let path = PathBuf::from(base_path).join(transformsfile);
@@ -85,11 +80,9 @@ fn read_synthetic_nerf_data(
 
         let fovy = camera::focal_to_fov(camera::fov_to_focal(fovx, image.width()), image.height());
 
-        cameras.push(InputData {
+        cameras.push(InputView {
             camera: Camera::new(translation, rotation, fovx, fovy),
-            view: InputView {
-                image: tensor.to_owned().map(|&x| (x as f32) / 255.0),
-            },
+            image: tensor.to_owned().map(|&x| (x as f32) / 255.0),
         });
 
         if let Some(max) = max_frames {
@@ -175,20 +168,10 @@ pub(crate) fn read_viewpoint_data(file: &str) -> Result<Vec<Camera>> {
 
 pub(crate) fn read_scene(
     scene_path: &str,
+    transforms: &str,
     max_images: Option<usize>,
-    with_test_data: bool,
 ) -> scene::Scene {
-    let train_cams =
-        read_synthetic_nerf_data(scene_path, "transforms_train.json", ".png", max_images)
-            .expect("Failed to load train cameras.");
-
-    let mut test_cams = vec![];
-
-    if with_test_data {
-        test_cams =
-            read_synthetic_nerf_data(scene_path, "transforms_test.json", ".png", max_images)
-                .expect("Failed to load test cameras.");
-    }
-
-    scene::Scene::new(train_cams, test_cams)
+    let train_cams = read_synthetic_nerf_data(scene_path, transforms, ".png", max_images)
+        .expect("Failed to load train cameras.");
+    scene::Scene::new(train_cams)
 }

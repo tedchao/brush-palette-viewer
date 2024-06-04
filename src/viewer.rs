@@ -3,13 +3,14 @@ use crate::{
     dataset_readers,
     gaussian_splats::Splats,
     orbit_controls::OrbitControls,
-    scene::Scene,
+    scene::{SceneBatch, SceneBatcher, SceneLoader},
     splat_import,
     splat_render::BurnDiffBack,
     train::{LrConfig, SplatTrainer, TrainConfig},
 };
-use burn::tensor::Tensor;
+use burn::{data::dataloader::DataLoaderIterator, tensor::Tensor};
 use burn_wgpu::{RuntimeOptions, WgpuDevice};
+use tracing::info_span;
 use core::ops::DerefMut;
 use egui::{pos2, Color32, Rect, TextureId};
 use glam::{Mat4, Quat, Vec2, Vec3};
@@ -62,7 +63,7 @@ struct BackBuffer {
 
 pub struct Viewer {
     camera: Camera,
-    scene: Option<Scene>,
+    dataloader: Option<SceneLoader<BurnDiffBack>>,
     splats: Option<Splats<BurnDiffBack>>,
     trainer: Option<SplatTrainer<BurnDiffBack>>,
     rec: rerun::RecordingStream,
@@ -101,7 +102,7 @@ impl Viewer {
             camera: Camera::new(Vec3::ZERO, Quat::IDENTITY, 0.5, 0.5),
             splats: None,
             trainer: None,
-            scene: None,
+            dataloader: None,
             reference_cameras: None,
             backbuffer: None,
             controls: OrbitControls::new(15.0),
@@ -147,15 +148,16 @@ impl Viewer {
         let splats = Splats::<BurnDiffBack>::init_random(5000, 2.0, &self.device);
 
         println!("Loading dataset.");
-        let scene = dataset_readers::read_scene(&config.scene_path, None, false);
+        let scene = dataset_readers::read_scene(&config.scene_path, "transforms_train.json", None);
 
         #[cfg(feature = "rerun")]
         scene.visualize(&self.rec).unwrap();
 
         // TODO: Unify reference views & training scene.
-        self.scene = Some(scene);
         self.trainer = Some(SplatTrainer::new(5000, &config, &splats));
         self.splats = Some(splats);
+        let batcher_train = SceneBatcher::<BurnDiffBack>::new(self.device.clone());
+        self.dataloader = Some(SceneLoader::new(scene, batcher_train)); 
     }
 
     fn update_backbuffer(&mut self, size: glam::UVec2, frame: &mut eframe::Frame) {
@@ -325,11 +327,16 @@ impl eframe::App for Viewer {
                 }
             }
 
-            if let Some(train) = self.trainer.as_mut() {
+            if let Some(train) = self.trainer.as_mut() {    
+                // TODO: On non wasm this really should be threaded.
+                let get_span = info_span!("Get batch").entered();
+                let batch = self.dataloader.as_mut().and_then(|x| x.next()).unwrap();
+                drop(get_span);
+
                 self.splats = Some(
                     train
                         .step(
-                            self.scene.as_ref().unwrap(),
+                            batch,
                             self.splats.take().unwrap(),
                             &self.rec,
                         )
@@ -338,8 +345,8 @@ impl eframe::App for Viewer {
             }
         });
     }
-
-    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+  
+       fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
         [0.0, 0.0, 0.0, 1.0]
     }
 }

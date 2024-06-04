@@ -12,16 +12,15 @@ use burn::{
     optim::{AdamConfig, GradientsParams, Optimizer},
     tensor::Tensor,
 };
-use ndarray::{Array, ArrayView3};
+use ndarray::Array;
 use rand::{rngs::StdRng, SeedableRng};
 use tracing::info_span;
 
-use crate::scene::Scene;
+use crate::scene::SceneBatch;
 use crate::splat_render::sync_span::SyncSpan;
 use crate::splat_render::{self, AutodiffBackend, RenderAux};
 use crate::utils::quaternion_rotation;
 use crate::{gaussian_splats::Splats, utils};
-use rand::seq::SliceRandom;
 
 #[derive(Config)]
 pub(crate) struct LrConfig {
@@ -74,12 +73,11 @@ pub(crate) struct TrainConfig {
     pub visualize_splats_every: u32,
 }
 
-struct TrainStepStats<'a, B: AutodiffBackend> {
+struct TrainStepStats<B: AutodiffBackend> {
     pred_image: Tensor<B, 3>,
     loss: Tensor<B, 1>,
     psnr: Tensor<B, 1>,
     aux: crate::splat_render::RenderAux<B>,
-    gt_image: ArrayView3<'a, f32>,
 }
 
 pub struct SplatTrainer<B: AutodiffBackend>
@@ -350,7 +348,7 @@ where
     // TODO: Probably want to feed in a batch of data here.
     pub fn step(
         &mut self,
-        scene: &Scene,
+        batch: SceneBatch<B>,
         splats: Splats<B>,
         rec: &rerun::RecordingStream,
     ) -> Result<Splats<B>, anyhow::Error> {
@@ -360,27 +358,16 @@ where
 
         let device = &splats.means.device();
 
-        let viewpoint = scene
-            .train_data
-            .choose(&mut self.rng)
-            .expect("Dataset should have at least 1 camera.");
+        let camera = &batch.camera;
+        let view_image = &batch.gt_image;
 
-        let camera = &viewpoint.camera;
         let background_color = if self.config.random_bck_color {
             glam::vec3(rand::random(), rand::random(), rand::random())
         } else {
-            scene.default_bg_color
+            glam::Vec3::ZERO
         };
 
-        let view_image = &viewpoint.view.image;
-
-        let upload_img = info_span!("Upload image").entered();
-        // TODO: Need some smarter way to feed this in, likely not great
-        // to upload the target image to the GPU last minute.
-        let gt_image: Tensor<B, 3> = utils::ndarray_to_burn(view_image.view(), device);
-        drop(upload_img);
-
-        let img_size = glam::uvec2(view_image.shape()[1] as u32, view_image.shape()[0] as u32);
+        let img_size = glam::uvec2(view_image.dims()[1] as u32, view_image.dims()[0] as u32);
         let (pred_image, aux) = splats.render(camera, img_size, background_color, false);
         let dims = pred_image.dims();
 
@@ -390,20 +377,20 @@ where
         // functional style for this.
         let mse = MseLoss::new().forward(
             pred_image.clone(),
-            gt_image.clone(),
+            batch.gt_image.clone(),
             burn::nn::loss::Reduction::Mean,
         );
         let huber = HuberLossConfig::new(0.05).init::<B>(device);
         let l1_loss = huber.forward(
             pred_image.clone(),
-            gt_image.clone(),
+            batch.gt_image.clone(),
             burn::nn::loss::Reduction::Mean,
         );
         let mut loss = l1_loss;
 
         if self.config.ssim_weight > 0.0 {
             let pred_rgb = pred_image.clone().slice([0..dims[0], 0..dims[1], 0..3]);
-            let gt_rgb = gt_image.clone().slice([0..dims[0], 0..dims[1], 0..3]);
+            let gt_rgb = batch.gt_image.clone().slice([0..dims[0], 0..dims[1], 0..3]);
 
             let ssim_loss = crate::ssim::ssim(
                 pred_rgb.clone().permute([2, 0, 1]).unsqueeze_dim(3),
@@ -514,7 +501,6 @@ where
 
         let stats = TrainStepStats {
             aux,
-            gt_image: viewpoint.view.image.view(),
             loss,
             psnr,
             pred_image,
@@ -538,6 +524,17 @@ where
 
         if self.iter % self.config.visualize_every == 0 {
             self.visualize_train_stats(rec, stats)?;
+
+            let gt_image = Array::from_shape_vec(
+                batch.gt_image.dims(),
+                batch.gt_image.to_data().convert::<f32>().value,
+            )?
+            .map(|x| (*x * 255.0).clamp(0.0, 255.0) as u8);
+
+            rec.log(
+                "images/ground truth",
+                &rerun::Image::try_from(gt_image.to_owned())?,
+            )?;
         }
 
         if self.iter % self.config.visualize_splats_every == 0 {
@@ -570,11 +567,6 @@ where
         rec.log(
             "splats/num_visible",
             &rerun::Scalar::new(utils::burn_to_scalar(stats.aux.num_visible).elem::<f64>()),
-        )?;
-
-        rec.log(
-            "images/ground truth",
-            &rerun::Image::try_from(stats.gt_image.to_owned())?,
         )?;
 
         let tile_bins = stats.aux.tile_bins;
