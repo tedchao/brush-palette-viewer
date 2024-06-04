@@ -1,7 +1,4 @@
-use burn::tensor::Shape;
 use burn_wgpu::JitTensor;
-
-use burn::tensor::ops::IntTensorOps;
 use tracing::info_span;
 
 use crate::splat_render::create_tensor;
@@ -9,7 +6,7 @@ use crate::splat_render::kernels::{SortCount, SortReduce, SortScanAdd, SortScatt
 
 use super::kernels::SplatKernel;
 use super::shaders;
-use super::{kernels::SortScan, BurnBack, BurnClient, BurnRuntime};
+use super::{kernels::SortScan, BurnRuntime};
 
 const WG: u32 = shaders::sorting::WG;
 const ELEMENTS_PER_THREAD: u32 = shaders::sorting::ELEMENTS_PER_THREAD;
@@ -17,7 +14,6 @@ const BLOCK_SIZE: u32 = WG * ELEMENTS_PER_THREAD;
 const BIN_COUNT: u32 = shaders::sorting::BIN_COUNT;
 
 pub fn radix_argsort(
-    client: BurnClient,
     input_keys: JitTensor<BurnRuntime, u32, 1>,
     input_values: JitTensor<BurnRuntime, u32, 1>,
     num_points: JitTensor<BurnRuntime, u32, 1>,
@@ -30,6 +26,8 @@ pub fn radix_argsort(
     assert!(sorting_bits <= 32);
 
     let _span = info_span!("Radix sort").entered();
+
+    let client = &input_keys.client.clone();
     let max_n = input_keys.shape.dims[0] as u32;
 
     // compute buffer and dispatch sizes
@@ -38,13 +36,13 @@ pub fn radix_argsort(
 
     let device = &input_keys.device.clone();
 
-    let count_buf = BurnBack::int_zeros(Shape::new([(max_needed_wgs as usize) * 16]), device);
-    let reduced_buf = BurnBack::int_zeros(Shape::new([BLOCK_SIZE as usize]), device);
+    let count_buf = create_tensor::<u32, 1>([(max_needed_wgs as usize) * 16], device, client);
+    let reduced_buf = create_tensor::<u32, 1>([BLOCK_SIZE as usize], device, client);
 
     let output_keys = input_keys;
     let output_values = input_values;
-    let output_keys_swap = create_tensor::<u32, 1>([max_n as usize], device, &client);
-    let output_values_swap = create_tensor::<u32, 1>([max_n as usize], device, &client);
+    let output_keys_swap = create_tensor::<u32, 1>([max_n as usize], device, client);
+    let output_values_swap = create_tensor::<u32, 1>([max_n as usize], device, client);
 
     // NB: We fill in num_keys from the GPU!
     // This at least prevents sorting values we don't need, but really
@@ -66,29 +64,29 @@ pub fn radix_argsort(
 
         let effective_wg_vert = max_needed_wgs.div_ceil(shaders::sorting::VERTICAL_GROUPS);
         SortCount::new().execute(
-            &client,
+            client,
             config,
             &[
                 num_points.handle.clone().binding(),
                 last_out.handle.clone().binding(),
             ],
             &[count_buf.clone().handle.binding()],
-            [effective_wg_vert * wg, shaders::sorting::VERTICAL_GROUPS, 1],
+            [effective_wg_vert * wg, shaders::sorting::VERTICAL_GROUPS],
         );
 
         SortReduce::new().execute(
-            &client,
+            client,
             (),
             &[
                 num_points.handle.clone().binding(),
                 count_buf.clone().handle.binding(),
             ],
             &[reduced_buf.clone().handle.binding()],
-            [max_num_reduce_wgs * wg, 1, 1],
+            [max_num_reduce_wgs * wg],
         );
 
         SortScan::new().execute(
-            &client,
+            client,
             (),
             &[num_points.handle.clone().binding()],
             &[reduced_buf.clone().handle.binding()],
@@ -96,18 +94,18 @@ pub fn radix_argsort(
         );
 
         SortScanAdd::new().execute(
-            &client,
+            client,
             (),
             &[
                 num_points.handle.clone().binding(),
                 reduced_buf.clone().handle.binding(),
             ],
             &[count_buf.clone().handle.binding()],
-            [max_num_reduce_wgs * wg, 1, 1],
+            [max_num_reduce_wgs * wg],
         );
 
         SortScatter::new().execute(
-            &client,
+            client,
             config,
             &[
                 num_points.handle.clone().binding(),
@@ -116,7 +114,7 @@ pub fn radix_argsort(
                 count_buf.handle.clone().binding(),
             ],
             &[to.handle.clone().binding(), to_val.handle.clone().binding()],
-            [effective_wg_vert * wg, shaders::sorting::VERTICAL_GROUPS, 1],
+            [effective_wg_vert * wg, shaders::sorting::VERTICAL_GROUPS],
         );
 
         (last_out, last_out_values) = (&to, &to_val);
@@ -183,8 +181,7 @@ mod tests {
                     .into_primitive(),
             );
             let values = bitcast_tensor(values);
-            let client = keys.client.clone();
-            let (ret_keys, ret_values) = radix_argsort(client, keys, values, num_points, 32);
+            let (ret_keys, ret_values) = radix_argsort(keys, values, num_points, 32);
 
             let ret_keys = read_buffer_as_u32(&ret_keys.client, ret_keys.handle.binding());
             let ret_values = read_buffer_as_u32(&ret_values.client, ret_values.handle.binding());
@@ -233,8 +230,7 @@ mod tests {
             Tensor::<Backend, 1, Int>::from_ints([keys_inp.len() as i32], &device).into_primitive(),
         );
 
-        let client = keys.client.clone();
-        let (ret_keys, ret_values) = radix_argsort(client, keys, values, num_points, 32);
+        let (ret_keys, ret_values) = radix_argsort(keys, values, num_points, 32);
 
         let ret_keys = read_buffer_as_u32(&ret_keys.client, ret_keys.handle.binding());
         let ret_values = read_buffer_as_u32(&ret_values.client, ret_values.handle.binding());

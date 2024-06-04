@@ -145,7 +145,6 @@ fn render_forward(
     // Interpret the depth as a u32. This is fine for a radix sort, as long as the depth > 0.0,
     // which we know to be the case given how we cull splats.
     let (_, compact_from_depthsort_gid) = radix_argsort(
-        client.clone(),
         bitcast_tensor(depths.clone()),
         arranged_ids,
         num_visible.clone(),
@@ -218,7 +217,6 @@ fn render_forward(
 
     let tile_sort_span = SyncSpan::new("Tile sort", device);
     let (tile_id_from_isect, depthsort_gid_from_isect) = radix_argsort(
-        client.clone(),
         tile_id_from_isect,
         depthsort_gid_from_isect,
         num_intersects.clone(),
