@@ -29,6 +29,7 @@ where
 
     fn id(&self) -> String;
     fn source(&self) -> Result<String>;
+    fn label(&self) -> Option<&'static str>;
 
     fn execute<
         S: ComputeServer<Kernel = Box<dyn CubeTask>>,
@@ -104,6 +105,10 @@ impl<T: SplatKernel> CubeTask for WrapKernel<T> {
         burn_cube::compute::LaunchSettings {
             cube_count: self.cube_count.clone(),
         }
+    }
+
+    fn label(&self) -> Option<&'static str> {
+        self.splat.label()
     }
 }
 
@@ -183,6 +188,10 @@ macro_rules! kernel_source_gen {
                     );
                 )*
                 ids
+            }
+
+            fn label(&self) -> Option<&'static str> {
+                Some(stringify!($struct_name))
             }
         }
     };

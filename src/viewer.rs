@@ -90,7 +90,7 @@ impl Viewer {
             // (nb: it doesn't mean burn will never re-use memory, just that it hangs on to
             // GPU allocations for longer).
             RuntimeOptions {
-                dealloc_strategy: burn_compute::memory_management::DeallocStrategy::PeriodTime {
+                dealloc_strategy: burn_compute::memory_management::simple::DeallocStrategy::PeriodTime {
                     period: Duration::from_secs(5),
                     state: time::Instant::now(),
                 },

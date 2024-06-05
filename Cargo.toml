@@ -59,7 +59,7 @@ tracy = ["dep:tracing-tracy"]
 sync_tracy = []
 rerun = ["dep:rerun"]
 
-default = ["rerun"]
+default = ["tracy", "rerun"]
 
 [build-dependencies]
 wgsl_bindgen = { git = "https://github.com/ArthurBrussee/wgsl-bindgen.git", branch = "updates" }

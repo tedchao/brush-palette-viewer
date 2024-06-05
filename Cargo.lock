@@ -839,7 +839,7 @@ checksum = "79296716171880943b8470b5f8d03aa55eb2e645a4874bdbb28adb49162e012c"
 [[package]]
 name = "burn"
 version = "0.14.0"
-source = "git+https://github.com/ArthurBrussee/burn.git#bd70ff60f1402f0388c7d5388cdbdb15ab81eea9"
+source = "git+https://github.com/ArthurBrussee/burn.git#cd2ac54c64168f7415a613571e9910ebc32241e8"
 dependencies = [
  "burn-core",
  "burn-train",
@@ -848,7 +848,7 @@ dependencies = [
 [[package]]
 name = "burn-autodiff"
 version = "0.14.0"
-source = "git+https://github.com/ArthurBrussee/burn.git#bd70ff60f1402f0388c7d5388cdbdb15ab81eea9"
+source = "git+https://github.com/ArthurBrussee/burn.git#cd2ac54c64168f7415a613571e9910ebc32241e8"
 dependencies = [
  "burn-common",
  "burn-tensor",
@@ -860,7 +860,7 @@ dependencies = [
 [[package]]
 name = "burn-candle"
 version = "0.14.0"
-source = "git+https://github.com/ArthurBrussee/burn.git#bd70ff60f1402f0388c7d5388cdbdb15ab81eea9"
+source = "git+https://github.com/ArthurBrussee/burn.git#cd2ac54c64168f7415a613571e9910ebc32241e8"
 dependencies = [
  "burn-tensor",
  "candle-core",
@@ -871,7 +871,7 @@ dependencies = [
 [[package]]
 name = "burn-common"
 version = "0.14.0"
-source = "git+https://github.com/ArthurBrussee/burn.git#bd70ff60f1402f0388c7d5388cdbdb15ab81eea9"
+source = "git+https://github.com/ArthurBrussee/burn.git#cd2ac54c64168f7415a613571e9910ebc32241e8"
 dependencies = [
  "async-trait",
  "derive-new",
@@ -886,7 +886,7 @@ dependencies = [
 [[package]]
 name = "burn-compute"
 version = "0.14.0"
-source = "git+https://github.com/ArthurBrussee/burn.git#bd70ff60f1402f0388c7d5388cdbdb15ab81eea9"
+source = "git+https://github.com/ArthurBrussee/burn.git#cd2ac54c64168f7415a613571e9910ebc32241e8"
 dependencies = [
  "burn-common",
  "derive-new",
@@ -903,7 +903,7 @@ dependencies = [
 [[package]]
 name = "burn-core"
 version = "0.14.0"
-source = "git+https://github.com/ArthurBrussee/burn.git#bd70ff60f1402f0388c7d5388cdbdb15ab81eea9"
+source = "git+https://github.com/ArthurBrussee/burn.git#cd2ac54c64168f7415a613571e9910ebc32241e8"
 dependencies = [
  "bincode 2.0.0-rc.3",
  "burn-autodiff",
@@ -931,7 +931,7 @@ dependencies = [
 [[package]]
 name = "burn-cube"
 version = "0.14.0"
-source = "git+https://github.com/ArthurBrussee/burn.git#bd70ff60f1402f0388c7d5388cdbdb15ab81eea9"
+source = "git+https://github.com/ArthurBrussee/burn.git#cd2ac54c64168f7415a613571e9910ebc32241e8"
 dependencies = [
  "burn-compute",
  "burn-cube-macros",
@@ -946,7 +946,7 @@ dependencies = [
 [[package]]
 name = "burn-cube-macros"
 version = "0.14.0"
-source = "git+https://github.com/ArthurBrussee/burn.git#bd70ff60f1402f0388c7d5388cdbdb15ab81eea9"
+source = "git+https://github.com/ArthurBrussee/burn.git#cd2ac54c64168f7415a613571e9910ebc32241e8"
 dependencies = [
  "derive-new",
  "proc-macro2",
@@ -957,7 +957,7 @@ dependencies = [
 [[package]]
 name = "burn-dataset"
 version = "0.14.0"
-source = "git+https://github.com/ArthurBrussee/burn.git#bd70ff60f1402f0388c7d5388cdbdb15ab81eea9"
+source = "git+https://github.com/ArthurBrussee/burn.git#cd2ac54c64168f7415a613571e9910ebc32241e8"
 dependencies = [
  "csv",
  "derive-new",
@@ -982,7 +982,7 @@ dependencies = [
 [[package]]
 name = "burn-derive"
 version = "0.14.0"
-source = "git+https://github.com/ArthurBrussee/burn.git#bd70ff60f1402f0388c7d5388cdbdb15ab81eea9"
+source = "git+https://github.com/ArthurBrussee/burn.git#cd2ac54c64168f7415a613571e9910ebc32241e8"
 dependencies = [
  "derive-new",
  "proc-macro2",
@@ -993,7 +993,7 @@ dependencies = [
 [[package]]
 name = "burn-fusion"
 version = "0.14.0"
-source = "git+https://github.com/ArthurBrussee/burn.git#bd70ff60f1402f0388c7d5388cdbdb15ab81eea9"
+source = "git+https://github.com/ArthurBrussee/burn.git#cd2ac54c64168f7415a613571e9910ebc32241e8"
 dependencies = [
  "burn-common",
  "burn-tensor",
@@ -1007,7 +1007,7 @@ dependencies = [
 [[package]]
 name = "burn-jit"
 version = "0.14.0"
-source = "git+https://github.com/ArthurBrussee/burn.git#bd70ff60f1402f0388c7d5388cdbdb15ab81eea9"
+source = "git+https://github.com/ArthurBrussee/burn.git#cd2ac54c64168f7415a613571e9910ebc32241e8"
 dependencies = [
  "burn-common",
  "burn-compute",
@@ -1029,7 +1029,7 @@ dependencies = [
 [[package]]
 name = "burn-ndarray"
 version = "0.14.0"
-source = "git+https://github.com/ArthurBrussee/burn.git#bd70ff60f1402f0388c7d5388cdbdb15ab81eea9"
+source = "git+https://github.com/ArthurBrussee/burn.git#cd2ac54c64168f7415a613571e9910ebc32241e8"
 dependencies = [
  "burn-autodiff",
  "burn-common",
@@ -1047,7 +1047,7 @@ dependencies = [
 [[package]]
 name = "burn-tch"
 version = "0.14.0"
-source = "git+https://github.com/ArthurBrussee/burn.git#bd70ff60f1402f0388c7d5388cdbdb15ab81eea9"
+source = "git+https://github.com/ArthurBrussee/burn.git#cd2ac54c64168f7415a613571e9910ebc32241e8"
 dependencies = [
  "burn-tensor",
  "half",
@@ -1059,7 +1059,7 @@ dependencies = [
 [[package]]
 name = "burn-tensor"
 version = "0.14.0"
-source = "git+https://github.com/ArthurBrussee/burn.git#bd70ff60f1402f0388c7d5388cdbdb15ab81eea9"
+source = "git+https://github.com/ArthurBrussee/burn.git#cd2ac54c64168f7415a613571e9910ebc32241e8"
 dependencies = [
  "burn-common",
  "derive-new",
@@ -1074,7 +1074,7 @@ dependencies = [
 [[package]]
 name = "burn-train"
 version = "0.14.0"
-source = "git+https://github.com/ArthurBrussee/burn.git#bd70ff60f1402f0388c7d5388cdbdb15ab81eea9"
+source = "git+https://github.com/ArthurBrussee/burn.git#cd2ac54c64168f7415a613571e9910ebc32241e8"
 dependencies = [
  "burn-core",
  "crossterm",
@@ -1093,7 +1093,7 @@ dependencies = [
 [[package]]
 name = "burn-wgpu"
 version = "0.14.0"
-source = "git+https://github.com/ArthurBrussee/burn.git#bd70ff60f1402f0388c7d5388cdbdb15ab81eea9"
+source = "git+https://github.com/ArthurBrussee/burn.git#cd2ac54c64168f7415a613571e9910ebc32241e8"
 dependencies = [
  "burn-common",
  "burn-compute",
@@ -6993,9 +6993,9 @@ dependencies = [
 
 [[package]]
 name = "webpki-roots"
-version = "0.26.1"
+version = "0.26.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b3de34ae270483955a94f4b21bdaaeb83d508bb84a01435f393818edb0012009"
+checksum = "3c452ad30530b54a4d8e71952716a212b08efd0f3562baa66c29a618b07da7c3"
 dependencies = [
  "rustls-pki-types",
 ]
