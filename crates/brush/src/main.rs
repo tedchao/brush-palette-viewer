@@ -27,7 +27,9 @@ fn main() -> anyhow::Result<()> {
 
     // Build app display.
     let native_options = NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_inner_size(egui::Vec2::new(1280.0, 720.0)),
+        viewport: egui::ViewportBuilder::default()
+            .with_inner_size(egui::Vec2::new(1280.0, 720.0))
+            .with_active(true),
         vsync: false,
         // Need a slightly more careful wgpu init to support burn.
         wgpu_options: WgpuConfiguration {
