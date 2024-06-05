@@ -5,7 +5,6 @@ use burn::prelude::Int;
 use burn::tensor::Tensor;
 mod dim_check;
 mod kernels;
-mod prefix_sum;
 mod shaders;
 
 pub mod render;

@@ -1,0 +1,20 @@
+[package]
+name = "brush-prefix-sum"
+edition.workspace = true
+version.workspace = true
+readme.workspace = true
+license.workspace = true
+
+[dependencies]
+brush-kernel.path = "../brush-kernel"
+burn.workspace = true
+burn-wgpu.workspace = true
+tracing.workspace = true
+naga_oil.workspace = true
+wgpu.workspace = true
+glam.workspace = true
+bytemuck.workspace = true
+
+[build-dependencies]
+miette.workspace = true
+wgsl_bindgen.workspace = true

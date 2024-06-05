@@ -785,6 +785,7 @@ dependencies = [
  "anyhow",
  "assert_approx_eq",
  "brush-kernel",
+ "brush-prefix-sum",
  "brush-sort",
  "burn",
  "burn-compute",
@@ -829,6 +830,22 @@ dependencies = [
  "naga_oil",
  "tracing",
  "wgpu",
+]
+
+[[package]]
+name = "brush-prefix-sum"
+version = "0.1.0"
+dependencies = [
+ "brush-kernel",
+ "burn",
+ "burn-wgpu",
+ "bytemuck",
+ "glam",
+ "miette",
+ "naga_oil",
+ "tracing",
+ "wgpu",
+ "wgsl_bindgen",
 ]
 
 [[package]]

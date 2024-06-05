@@ -1,4 +1,3 @@
-use super::prefix_sum::prefix_sum;
 use super::sync_span::SyncSpan as SyncSpanRaw;
 use crate::camera::Camera;
 use crate::gaussian_splats::{num_sh_coeffs, sh_degree_from_coeffs};
@@ -9,6 +8,7 @@ use crate::splat_render::kernels::{
 };
 use crate::splat_render::shaders::get_tile_bin_edges::VERTICAL_GROUPS;
 use brush_kernel::{bitcast_tensor, create_tensor, BurnBack, SplatKernel};
+use brush_prefix_sum::prefix_sum;
 use brush_sort::radix_argsort;
 use burn::backend::autodiff::NodeID;
 use burn::tensor::ops::IntTensorOps;
@@ -159,6 +159,7 @@ fn render_forward(
         bitcast_tensor(num_tiles_hit),
         bitcast_tensor(compact_from_depthsort_gid.clone()),
     ));
+
     // Calculate cumulative sums as offsets for the intersections buffer.
     // TODO: Only need to do this up to num_visible gaussians really.
     let cum_tiles_hit = prefix_sum(num_tiles_hit);

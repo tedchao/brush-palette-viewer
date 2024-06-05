@@ -16,9 +16,6 @@ fn main() -> Result<()> {
         .add_entry_point("src/splat_render/shaders/rasterize.wgsl")
         .add_entry_point("src/splat_render/shaders/rasterize_backwards.wgsl")
         .add_entry_point("src/splat_render/shaders/project_backwards.wgsl")
-        .add_entry_point("src/splat_render/shaders/scan/prefix_sum_scan.wgsl")
-        .add_entry_point("src/splat_render/shaders/scan/prefix_sum_scan_sums.wgsl")
-        .add_entry_point("src/splat_render/shaders/scan/prefix_sum_add_scanned_sums.wgsl")
         .output("src/splat_render/shaders/mod.rs")
         .shader_source_type(WgslShaderSourceType::UseComposerEmbed)
         .build()?

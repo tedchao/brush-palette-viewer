@@ -1,11 +1,19 @@
-use brush_kernel::{create_tensor, BurnRuntime, SplatKernel};
+mod shaders;
+
+use crate::shaders::prefix_sum_scan;
+use brush_kernel::create_tensor;
+use brush_kernel::kernel_source_gen;
+use brush_kernel::BurnRuntime;
+use brush_kernel::SplatKernel;
+use shaders::prefix_sum_add_scanned_sums;
+use shaders::prefix_sum_scan_sums;
+
+kernel_source_gen!(PrefixSumScan {}, prefix_sum_scan, ());
+kernel_source_gen!(PrefixSumScanSums {}, prefix_sum_scan_sums, ());
+kernel_source_gen!(PrefixSumAddScannedSums {}, prefix_sum_add_scanned_sums, ());
+
 use burn_wgpu::JitTensor;
 use tracing::info_span;
-
-use super::{
-    kernels::{PrefixSumAddScannedSums, PrefixSumScan, PrefixSumScanSums},
-    shaders,
-};
 
 pub fn prefix_sum(input: JitTensor<BurnRuntime, u32, 1>) -> JitTensor<BurnRuntime, u32, 1> {
     let _span = info_span!("prefix sum");
@@ -79,7 +87,7 @@ pub fn prefix_sum(input: JitTensor<BurnRuntime, u32, 1>) -> JitTensor<BurnRuntim
 
 #[cfg(test)]
 mod tests {
-    use crate::splat_render::prefix_sum::prefix_sum;
+    use crate::prefix_sum;
     use brush_kernel::{read_buffer_as_u32, BurnBack};
     use burn::tensor::{Int, Tensor};
     use burn_wgpu::JitTensor;
