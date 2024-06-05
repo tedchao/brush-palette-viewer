@@ -19,11 +19,6 @@ fn main() -> Result<()> {
         .add_entry_point("src/splat_render/shaders/scan/prefix_sum_scan.wgsl")
         .add_entry_point("src/splat_render/shaders/scan/prefix_sum_scan_sums.wgsl")
         .add_entry_point("src/splat_render/shaders/scan/prefix_sum_add_scanned_sums.wgsl")
-        .add_entry_point("src/splat_render/shaders/sort/sort_count.wgsl")
-        .add_entry_point("src/splat_render/shaders/sort/sort_reduce.wgsl")
-        .add_entry_point("src/splat_render/shaders/sort/sort_scan_add.wgsl")
-        .add_entry_point("src/splat_render/shaders/sort/sort_scan.wgsl")
-        .add_entry_point("src/splat_render/shaders/sort/sort_scatter.wgsl")
         .output("src/splat_render/shaders/mod.rs")
         .shader_source_type(WgslShaderSourceType::UseComposerEmbed)
         .build()?

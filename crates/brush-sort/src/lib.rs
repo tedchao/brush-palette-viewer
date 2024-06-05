@@ -1,17 +1,29 @@
+use brush_kernel::create_tensor;
+use brush_kernel::BurnRuntime;
 use burn_wgpu::JitTensor;
+use shaders::sort_count;
+use shaders::sort_reduce;
+use shaders::sort_scan;
+use shaders::sort_scan_add;
+use shaders::sort_scatter;
+use shaders::sorting;
 use tracing::info_span;
 
-use crate::splat_render::create_tensor;
-use crate::splat_render::kernels::{SortCount, SortReduce, SortScanAdd, SortScatter};
+use brush_kernel::kernel_source_gen;
+use brush_kernel::SplatKernel;
 
-use super::kernels::SplatKernel;
-use super::shaders;
-use super::{kernels::SortScan, BurnRuntime};
+mod shaders;
 
 const WG: u32 = shaders::sorting::WG;
 const ELEMENTS_PER_THREAD: u32 = shaders::sorting::ELEMENTS_PER_THREAD;
 const BLOCK_SIZE: u32 = WG * ELEMENTS_PER_THREAD;
 const BIN_COUNT: u32 = shaders::sorting::BIN_COUNT;
+
+kernel_source_gen!(SortCount {}, sort_count, sorting::Config);
+kernel_source_gen!(SortReduce {}, sort_reduce, ());
+kernel_source_gen!(SortScanAdd {}, sort_scan_add, ());
+kernel_source_gen!(SortScan {}, sort_scan, ());
+kernel_source_gen!(SortScatter {}, sort_scatter, sorting::Config);
 
 pub fn radix_argsort(
     input_keys: JitTensor<BurnRuntime, u32, 1>,
@@ -122,23 +134,16 @@ pub fn radix_argsort(
     (last_out.clone(), last_out_values.clone())
 }
 
+#[cfg(test)]
 mod tests {
-    #[allow(unused_imports)]
     use std::{
         fs::File,
         io::{BufReader, Read},
     };
 
-    #[allow(unused_imports)]
-    use crate::splat_render::{
-        bitcast_tensor, radix_sort::radix_argsort, read_buffer_as_u32, BurnBack,
-    };
-
-    #[allow(unused_imports)]
-    use burn::{
-        backend::Autodiff,
-        tensor::{Int, Tensor},
-    };
+    use crate::radix_argsort;
+    use brush_kernel::{bitcast_tensor, read_buffer_as_u32, BurnBack};
+    use burn::tensor::{Int, Tensor};
 
     pub fn argsort<T: Ord>(data: &[T]) -> Vec<usize> {
         let mut indices = (0..data.len()).collect::<Vec<_>>();
@@ -169,15 +174,14 @@ mod tests {
 
             let values_inp: Vec<_> = keys_inp.iter().copied().map(|x| x * 2 + 5).collect();
 
-            type Backend = BurnBack;
             let device = Default::default();
-            let keys = Tensor::<Backend, 1, Int>::from_ints(keys_inp, &device).into_primitive();
+            let keys = Tensor::<BurnBack, 1, Int>::from_ints(keys_inp, &device).into_primitive();
             let keys = bitcast_tensor(keys);
 
-            let values = Tensor::<Backend, 1, Int>::from_ints(values_inp.as_slice(), &device)
+            let values = Tensor::<BurnBack, 1, Int>::from_ints(values_inp.as_slice(), &device)
                 .into_primitive();
             let num_points = bitcast_tensor(
-                Tensor::<Backend, 1, Int>::from_ints([keys_inp.len() as i32], &device)
+                Tensor::<BurnBack, 1, Int>::from_ints([keys_inp.len() as i32], &device)
                     .into_primitive(),
             );
             let values = bitcast_tensor(values);
@@ -218,16 +222,16 @@ mod tests {
 
         let values_inp: Vec<_> = keys_inp.iter().copied().map(|x| x * 2 + 5).collect();
 
-        type Backend = BurnBack;
         let device = Default::default();
         let keys = bitcast_tensor(
-            Tensor::<Backend, 1, Int>::from_ints(keys_inp.as_slice(), &device).into_primitive(),
+            Tensor::<BurnBack, 1, Int>::from_ints(keys_inp.as_slice(), &device).into_primitive(),
         );
         let values = bitcast_tensor(
-            Tensor::<Backend, 1, Int>::from_ints(values_inp.as_slice(), &device).into_primitive(),
+            Tensor::<BurnBack, 1, Int>::from_ints(values_inp.as_slice(), &device).into_primitive(),
         );
         let num_points = bitcast_tensor(
-            Tensor::<Backend, 1, Int>::from_ints([keys_inp.len() as i32], &device).into_primitive(),
+            Tensor::<BurnBack, 1, Int>::from_ints([keys_inp.len() as i32], &device)
+                .into_primitive(),
         );
 
         let (ret_keys, ret_values) = radix_argsort(keys, values, num_points, 32);

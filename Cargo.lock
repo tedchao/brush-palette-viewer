@@ -784,6 +784,8 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "assert_approx_eq",
+ "brush-kernel",
+ "brush-sort",
  "burn",
  "burn-compute",
  "burn-cube",
@@ -809,6 +811,38 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "tracing-tracy",
+ "wgpu",
+ "wgsl_bindgen",
+]
+
+[[package]]
+name = "brush-kernel"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "burn",
+ "burn-compute",
+ "burn-cube",
+ "burn-jit",
+ "bytemuck",
+ "glam",
+ "naga_oil",
+ "tracing",
+ "wgpu",
+]
+
+[[package]]
+name = "brush-sort"
+version = "0.1.0"
+dependencies = [
+ "brush-kernel",
+ "burn",
+ "burn-wgpu",
+ "bytemuck",
+ "glam",
+ "miette",
+ "naga_oil",
+ "tracing",
  "wgpu",
  "wgsl_bindgen",
 ]

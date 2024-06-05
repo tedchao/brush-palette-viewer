@@ -5,10 +5,10 @@ use crate::{
     orbit_controls::OrbitControls,
     scene::{SceneBatcher, SceneLoader},
     splat_import,
-    splat_render::BurnDiffBack,
     train::{LrConfig, SplatTrainer, TrainConfig},
 };
-use burn::tensor::Tensor;
+use brush_kernel::BurnBack;
+use burn::{backend::Autodiff, tensor::Tensor};
 use burn_wgpu::{RuntimeOptions, WgpuDevice};
 use tracing::info_span;
 use core::ops::DerefMut;
@@ -17,11 +17,13 @@ use glam::{Mat4, Quat, Vec2, Vec3};
 use std::time::{self, Duration};
 use wgpu::ImageDataLayout;
 
+type BurnDiffBack = Autodiff<BurnBack>;
+
 // TODO: This probably doesn't belong here.
-fn copy_buffer_to_texture(img: Tensor<BurnDiffBack, 3>, texture: &wgpu::Texture) {
-    let primitive = img.clone().inner().into_primitive();
-    let client = primitive.client.clone();
+fn copy_buffer_to_texture(img: Tensor<BurnBack, 3>, texture: &wgpu::Texture) {
     let [height, width, _] = img.shape().dims;
+    let primitive = img.into_primitive();
+    let client = primitive.client.clone();
     let img_handle = primitive.handle;
 
     client.run_custom_command(move |server| {
@@ -147,7 +149,7 @@ impl Viewer {
 
         let splats = Splats::<BurnDiffBack>::init_random(5000, 2.0, &self.device);
 
-        println!("Loading dataset.");
+        println!("Loading dataset {}", config.scene_path);
         let scene = dataset_readers::read_scene(&config.scene_path, "transforms_train.json", None);
 
         #[cfg(feature = "rerun")]
@@ -236,8 +238,8 @@ impl eframe::App for Viewer {
                 for r in ["bonsai", "stump", "counter", "garden", "truck"] {
                     if ui.button(r.to_string()).clicked() {
                         self.load_splats(
-                            &format!("./brush_data/pretrained/{r}/point_cloud/iteration_30000/point_cloud.ply"),
-                            Some(&format!("./brush_data/pretrained/{r}/cameras.json")),
+                            &format!("../../brush_data/pretrained/{r}/point_cloud/iteration_30000/point_cloud.ply"),
+                            Some(&format!("../../brush_data/pretrained/{r}/cameras.json")),
                         );
                     }
                 }
@@ -247,7 +249,7 @@ impl eframe::App for Viewer {
             ui.horizontal(|ui| {
                 for r in ["chair", "drums", "ficus", "hotdog", "lego", "materials", "mic", "ship"] {
                     if ui.button(r.to_string()).clicked() {
-                        self.start_training(&format!("./brush_data/nerf_synthetic/{r}/"))
+                        self.start_training(&format!("../../brush_data/nerf_synthetic/{r}/"))
                     }
                 }
             });
@@ -309,8 +311,7 @@ impl eframe::App for Viewer {
                 if let Some(splats) = &self.splats {
                     let (img, _) =
                         splats.render(&self.camera, size, glam::vec3(0.0, 0.0, 0.0), true);
-                    copy_buffer_to_texture(img, &backbuffer.texture);
-
+                    copy_buffer_to_texture(img.inner(), &backbuffer.texture);
                     
                     ui.painter().rect_filled(rect, 0.0, Color32::BLACK);
                     ui.painter().image(

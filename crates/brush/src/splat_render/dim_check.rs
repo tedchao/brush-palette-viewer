@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
-use burn_wgpu::WgpuDevice;
+use burn::tensor::Tensor;
 
-use super::{BurnBack, FloatTensor};
+use super::Backend;
 
 #[derive(Clone, Copy)]
 pub enum DimBound {
@@ -11,12 +11,12 @@ pub enum DimBound {
     Matching(&'static str),
 }
 
-pub struct DimCheck<'a> {
+pub struct DimCheck<'a, B: Backend> {
     bound: HashMap<&'a str, usize>,
-    device: Option<WgpuDevice>,
+    device: Option<B::Device>,
 }
 
-impl<'a> DimCheck<'a> {
+impl<'a, B: Backend> DimCheck<'a, B> {
     pub fn new() -> Self {
         DimCheck {
             bound: HashMap::new(),
@@ -26,15 +26,14 @@ impl<'a> DimCheck<'a> {
 
     pub fn check_dims<const D: usize>(
         mut self,
-        tensor: &'a FloatTensor<BurnBack, D>,
+        tensor: &Tensor<B, D>,
         bounds: [DimBound; D],
     ) -> Self {
-        assert!(tensor.is_contiguous());
-        let dims = tensor.shape.dims;
+        let dims = tensor.dims();
 
         match self.device.as_ref() {
-            None => self.device = Some(tensor.device.clone()),
-            Some(d) => assert_eq!(d, &tensor.device),
+            None => self.device = Some(tensor.device().clone()),
+            Some(d) => assert_eq!(d, &tensor.device()),
         }
 
         for (cur_dim, bound) in dims.into_iter().zip(bounds) {

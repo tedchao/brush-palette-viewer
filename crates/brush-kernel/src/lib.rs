@@ -9,17 +9,27 @@ use burn_compute::{
     server::{Binding, ComputeServer},
 };
 
-use burn::backend::wgpu::{CubeCount, CubeDim};
-use burn_cube::compute::{CompiledKernel, CubeTask};
+use burn::{
+    backend::wgpu::{AutoGraphicsApi, CubeCount, CubeDim, WgpuDevice, WgpuRuntime},
+    tensor::Shape,
+};
+use burn_cube::{
+    compute::{CompiledKernel, CubeTask},
+    Runtime,
+};
 
-use super::shaders::*;
-use anyhow::Result;
+use burn_jit::{tensor::JitTensor, JitBackend, JitElement};
 use bytemuck::NoUninit;
 use glam::uvec3;
-use naga_oil::compose::ShaderDefValue;
 use tracing::info_span;
 
-pub(crate) trait SplatKernel
+pub type BurnRuntime = WgpuRuntime<AutoGraphicsApi>;
+type BurnClient =
+    ComputeClient<<BurnRuntime as Runtime>::Server, <BurnRuntime as Runtime>::Channel>;
+
+pub type BurnBack = JitBackend<BurnRuntime, f32, i32>;
+
+pub trait SplatKernel
 where
     Self: Sized + Clone + Send + Sync + 'static,
 {
@@ -28,7 +38,7 @@ where
     type Uniforms: NoUninit;
 
     fn id(&self) -> String;
-    fn source(&self) -> Result<String>;
+    fn source(&self) -> wgpu::naga::Module;
     fn label(&self) -> Option<&'static str>;
 
     fn execute<
@@ -89,8 +99,24 @@ impl<T: SplatKernel> CubeTask for WrapKernel<T> {
     }
 
     fn compile(&self) -> CompiledKernel {
+        let module = self.splat.source();
+
+        let info = wgpu::naga::valid::Validator::new(
+            wgpu::naga::valid::ValidationFlags::empty(),
+            wgpu::naga::valid::Capabilities::all(),
+        )
+        .validate(&module)
+        .unwrap();
+
+        let shader_string = wgpu::naga::back::wgsl::write_string(
+            &module,
+            &info,
+            wgpu::naga::back::wgsl::WriterFlags::EXPLICIT_TYPES,
+        )
+        .unwrap();
+
         CompiledKernel {
-            source: self.splat.source().unwrap(),
+            source: shader_string,
             cube_dim: CubeDim::new(
                 T::WORKGROUP_SIZE[0],
                 T::WORKGROUP_SIZE[1],
@@ -131,13 +157,13 @@ macro_rules! kernel_source_gen {
                 }
             }
 
-            fn create_shader_hashmap(&self) -> std::collections::HashMap<String, ShaderDefValue> {
+            fn create_shader_hashmap(&self) -> std::collections::HashMap<String, naga_oil::compose::ShaderDefValue> {
                 let map = std::collections::HashMap::new();
                 $(
                     let mut map = map;
 
                     if self.$field_name {
-                        map.insert(stringify!($field_name).to_owned().to_uppercase(), ShaderDefValue::Bool(true));
+                        map.insert(stringify!($field_name).to_owned().to_uppercase(), naga_oil::compose::ShaderDefValue::Bool(true));
                     }
                 )*
                 map
@@ -149,7 +175,7 @@ macro_rules! kernel_source_gen {
             type Uniforms = $uniforms;
             const WORKGROUP_SIZE: [u32; 3] = $module::compute::MAIN_WORKGROUP_SIZE;
 
-            fn source(&self) -> Result<String> {
+            fn source(&self) -> wgpu::naga::Module {
                 let mut composer = naga_oil::compose::Composer::default();
                 let shader_defs = self.create_shader_hashmap();
                 $module::load_shader_modules_embedded(
@@ -160,19 +186,7 @@ macro_rules! kernel_source_gen {
                     &mut composer,
                     shader_defs,
                 );
-                let info = wgpu::naga::valid::Validator::new(
-                    wgpu::naga::valid::ValidationFlags::empty(),
-                    wgpu::naga::valid::Capabilities::all(),
-                )
-                .validate(&module)?;
-
-                let shader_string = wgpu::naga::back::wgsl::write_string(
-                    &module,
-                    &info,
-                    wgpu::naga::back::wgsl::WriterFlags::EXPLICIT_TYPES,
-                )?;
-
-                Ok(shader_string)
+                module
             }
 
             fn id(&self) -> String {
@@ -197,31 +211,56 @@ macro_rules! kernel_source_gen {
     };
 }
 
-kernel_source_gen!(ProjectSplats {}, project_forward, project_forward::Uniforms);
-kernel_source_gen!(
-    MapGaussiansToIntersect {},
-    map_gaussian_to_intersects,
-    map_gaussian_to_intersects::Uniforms
-);
-kernel_source_gen!(GetTileBinEdges {}, get_tile_bin_edges, ());
-kernel_source_gen!(Rasterize { raster_u32 }, rasterize, rasterize::Uniforms);
-kernel_source_gen!(
-    RasterizeBackwards {},
-    rasterize_backwards,
-    rasterize_backwards::Uniforms
-);
-kernel_source_gen!(
-    ProjectBackwards {},
-    project_backwards,
-    project_backwards::Uniforms
-);
+// Convert a tensors type. This only reinterprets the data, and doesn't
+// do any actual conversions.
+pub fn bitcast_tensor<const D: usize, EIn: JitElement, EOut: JitElement>(
+    tensor: JitTensor<BurnRuntime, EIn, D>,
+) -> JitTensor<BurnRuntime, EOut, D> {
+    JitTensor::new(tensor.client, tensor.device, tensor.shape, tensor.handle)
+}
 
-kernel_source_gen!(PrefixSumScan {}, prefix_sum_scan, ());
-kernel_source_gen!(PrefixSumScanSums {}, prefix_sum_scan_sums, ());
-kernel_source_gen!(PrefixSumAddScannedSums {}, prefix_sum_add_scanned_sums, ());
+// Reserve a buffer from the client for the given shape.
+pub fn create_tensor<E: JitElement, const D: usize>(
+    shape: [usize; D],
+    device: &WgpuDevice,
+    client: &BurnClient,
+) -> JitTensor<BurnRuntime, E, D> {
+    let shape = Shape::new(shape);
+    let bufsize = shape.num_elements() * core::mem::size_of::<E>();
+    let buffer = client.empty(bufsize);
 
-kernel_source_gen!(SortCount {}, sort_count, sorting::Config);
-kernel_source_gen!(SortReduce {}, sort_reduce, ());
-kernel_source_gen!(SortScanAdd {}, sort_scan_add, ());
-kernel_source_gen!(SortScan {}, sort_scan, ());
-kernel_source_gen!(SortScatter {}, sort_scatter, sorting::Config);
+    #[cfg(test)]
+    {
+        use burn::tensor::ops::FloatTensorOps;
+
+        // for tests - make doubly sure we're not accidentally relying on values
+        // being initialized to zero by adding in some random noise.
+        let f =
+            JitTensor::<BurnRuntime, f32, D>::new(client.clone(), device.clone(), shape, buffer);
+
+        bitcast_tensor(BurnBack::float_add_scalar(f, -12345.0))
+    }
+
+    #[cfg(not(test))]
+    JitTensor::new(client.clone(), device.clone(), shape, buffer)
+}
+
+pub fn read_buffer_as_u32<S: ComputeServer, C: ComputeChannel<S>>(
+    client: &ComputeClient<S, C>,
+    binding: Binding<S>,
+) -> Vec<u32> {
+    let data = client.read(binding).read();
+    data.chunks_exact(4)
+        .map(|x| u32::from_le_bytes([x[0], x[1], x[2], x[3]]))
+        .collect()
+}
+
+pub fn read_buffer_as_f32<S: ComputeServer, C: ComputeChannel<S>>(
+    client: &ComputeClient<S, C>,
+    binding: Binding<S>,
+) -> Vec<f32> {
+    let data = client.read(binding).read();
+    data.chunks_exact(4)
+        .map(|x| f32::from_le_bytes([x[0], x[1], x[2], x[3]]))
+        .collect()
+}

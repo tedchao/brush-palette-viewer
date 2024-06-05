@@ -1,25 +1,23 @@
-use super::kernels::SplatKernel;
 use super::prefix_sum::prefix_sum;
-use super::radix_sort::radix_argsort;
 use super::sync_span::SyncSpan as SyncSpanRaw;
 use crate::camera::Camera;
 use crate::gaussian_splats::{num_sh_coeffs, sh_degree_from_coeffs};
-use crate::splat_render::create_tensor;
 use crate::splat_render::dim_check::DimCheck;
 use crate::splat_render::kernels::{
     GetTileBinEdges, MapGaussiansToIntersect, ProjectBackwards, ProjectSplats, Rasterize,
     RasterizeBackwards,
 };
 use crate::splat_render::shaders::get_tile_bin_edges::VERTICAL_GROUPS;
+use brush_kernel::{bitcast_tensor, create_tensor, BurnBack, SplatKernel};
+use brush_sort::radix_argsort;
 use burn::backend::autodiff::NodeID;
-use burn::tensor::ops::FloatTensorOps;
 use burn::tensor::ops::IntTensorOps;
+use burn::tensor::ops::{FloatTensor, FloatTensorOps};
 use burn::tensor::Tensor;
 
-use burn_wgpu::JitTensor;
 use tracing::info_span;
 
-use super::{bitcast_tensor, shaders, Backend, BurnBack, BurnRuntime, FloatTensor, RenderAux};
+use super::{shaders, Backend, RenderAux};
 use burn::backend::{
     autodiff::{
         checkpoint::{base::Checkpointer, strategy::CheckpointStrategy},
@@ -36,18 +34,17 @@ type SyncSpan<'a> = SyncSpanRaw<'a, BurnBack>;
 fn render_forward(
     camera: &Camera,
     img_size: glam::UVec2,
-    means: JitTensor<BurnRuntime, f32, 2>,
-    _xy_dummy: JitTensor<BurnRuntime, f32, 2>,
-    log_scales: JitTensor<BurnRuntime, f32, 2>,
-    quats: JitTensor<BurnRuntime, f32, 2>,
-    sh_coeffs: JitTensor<BurnRuntime, f32, 2>,
-    raw_opacities: JitTensor<BurnRuntime, f32, 1>,
+    means: Tensor<BurnBack, 2>,
+    _xy_dummy: Tensor<BurnBack, 2>,
+    log_scales: Tensor<BurnBack, 2>,
+    quats: Tensor<BurnBack, 2>,
+    sh_coeffs: Tensor<BurnBack, 2>,
+    raw_opacities: Tensor<BurnBack, 1>,
     background: glam::Vec3,
     raster_u32: bool,
-) -> (JitTensor<BurnRuntime, f32, 3>, RenderAux<BurnBack>) {
+) -> (Tensor<BurnBack, 3>, RenderAux<BurnBack>) {
     let _render_span = info_span!("render_gaussians").entered();
-    let client = &means.client;
-    let device = &means.device;
+    let device = &means.device().clone();
 
     let setup_span = SyncSpan::new("setup", device);
 
@@ -65,9 +62,11 @@ fn render_forward(
         img_size.y.div_ceil(shaders::helpers::TILE_WIDTH),
     );
 
-    let num_points = means.shape.dims[0];
+    let num_points = means.dims()[0];
 
     // Projected gaussian values.
+    let client = &means.clone().into_primitive().client;
+
     let xys = create_tensor::<f32, 2>([num_points, 2], device, client);
     let depths = create_tensor::<f32, 1>([num_points], device, client);
     let colors = create_tensor::<f32, 2>([num_points, 4], device, client);
@@ -104,7 +103,7 @@ fn render_forward(
 
     drop(setup_span);
 
-    let sh_degree = sh_degree_from_coeffs(sh_coeffs.shape.dims[1] / 3);
+    let sh_degree = sh_degree_from_coeffs(sh_coeffs.dims()[1] / 3);
 
     {
         let _span = SyncSpan::new("ProjectSplats", device);
@@ -120,11 +119,11 @@ fn render_forward(
                 sh_degree as u32,
             ),
             &[
-                means.handle.binding(),
-                log_scales.handle.binding(),
-                quats.handle.binding(),
-                sh_coeffs.handle.binding(),
-                raw_opacities.handle.binding(),
+                means.into_primitive().handle.binding(),
+                log_scales.into_primitive().handle.binding(),
+                quats.into_primitive().handle.binding(),
+                sh_coeffs.into_primitive().handle.binding(),
+                raw_opacities.into_primitive().handle.binding(),
             ],
             &[
                 arranged_ids.handle.clone().binding(),
@@ -292,7 +291,7 @@ fn render_forward(
     // limitations on buffer sizes.
 
     (
-        out_img,
+        Tensor::from_primitive(out_img),
         RenderAux {
             num_visible: Tensor::from_primitive(bitcast_tensor(num_visible)),
             num_intersects: Tensor::from_primitive(bitcast_tensor(num_intersects)),
@@ -321,15 +320,15 @@ impl Backend for BurnBack {
     fn render_gaussians(
         camera: &Camera,
         img_size: glam::UVec2,
-        means: FloatTensor<Self, 2>,
-        xy_dummy: FloatTensor<Self, 2>,
-        log_scales: FloatTensor<Self, 2>,
-        quats: FloatTensor<Self, 2>,
-        sh_coeffs: FloatTensor<Self, 2>,
-        raw_opacity: FloatTensor<Self, 1>,
+        means: Tensor<Self, 2>,
+        xy_dummy: Tensor<Self, 2>,
+        log_scales: Tensor<Self, 2>,
+        quats: Tensor<Self, 2>,
+        sh_coeffs: Tensor<Self, 2>,
+        raw_opacity: Tensor<Self, 1>,
         background: glam::Vec3,
         render_u32_buffer: bool,
-    ) -> (FloatTensor<Self, 3>, RenderAux<BurnBack>) {
+    ) -> (Tensor<Self, 3>, RenderAux<BurnBack>) {
         render_forward(
             camera,
             img_size,
@@ -356,7 +355,7 @@ struct GaussianBackwardState {
     quats: NodeID,
     raw_opac: NodeID,
     sh_degree: usize,
-    out_img: FloatTensor<BurnBack, 3>,
+    out_img: Tensor<BurnBack, 3>,
     aux: RenderAux<BurnBack>,
 }
 
@@ -367,38 +366,40 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
     fn render_gaussians(
         camera: &Camera,
         img_size: glam::UVec2,
-        means: FloatTensor<Self, 2>,
-        xy_dummy: FloatTensor<Self, 2>,
-        log_scales: FloatTensor<Self, 2>,
-        quats: FloatTensor<Self, 2>,
-        sh_coeffs: FloatTensor<Self, 2>,
-        raw_opacity: FloatTensor<Self, 1>,
+        means: Tensor<Self, 2>,
+        xy_dummy: Tensor<Self, 2>,
+        log_scales: Tensor<Self, 2>,
+        quats: Tensor<Self, 2>,
+        sh_coeffs: Tensor<Self, 2>,
+        raw_opacity: Tensor<Self, 1>,
         background: glam::Vec3,
         render_u32_buffer: bool,
-    ) -> (FloatTensor<Self, 3>, RenderAux<Self>) {
+    ) -> (Tensor<Self, 3>, RenderAux<Self>) {
         // Prepare backward pass, and check if we even need to do it.
         let prep_nodes = RenderBackwards
             .prepare::<C>([
-                means.node.clone(),
-                xy_dummy.node.clone(),
-                log_scales.node.clone(),
-                quats.node.clone(),
-                sh_coeffs.node.clone(),
-                raw_opacity.node.clone(),
+                means.clone().into_primitive().node,
+                xy_dummy.clone().into_primitive().node,
+                log_scales.clone().into_primitive().node,
+                quats.clone().into_primitive().node,
+                sh_coeffs.clone().into_primitive().node,
+                raw_opacity.clone().into_primitive().node,
             ])
             .compute_bound()
             .stateful();
+
+        let sh_degree = sh_degree_from_coeffs(sh_coeffs.dims()[1] / 3);
 
         // Render complete forward pass.
         let (out_img, aux) = render_forward(
             camera,
             img_size,
-            means.primitive.clone(),
-            xy_dummy.primitive.clone(),
-            log_scales.primitive.clone(),
-            quats.primitive.clone(),
-            sh_coeffs.primitive.clone(),
-            raw_opacity.primitive.clone(),
+            means.clone().inner(),
+            xy_dummy.clone().inner(),
+            log_scales.clone().inner(),
+            quats.clone().inner(),
+            sh_coeffs.clone().inner(),
+            raw_opacity.clone().inner(),
             background,
             render_u32_buffer,
         );
@@ -424,16 +425,14 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
             global_from_compact_gid: Tensor::from_inner(aux.global_from_compact_gid),
         };
 
-        let sh_degree = sh_degree_from_coeffs(sh_coeffs.primitive.shape.dims[1] / 3);
-
         match prep_nodes {
             OpsKind::Tracked(mut prep) => {
                 // Save state needed for backward pass.
                 let state = GaussianBackwardState {
-                    means: prep.checkpoint(&means),
-                    log_scales: prep.checkpoint(&log_scales),
-                    quats: prep.checkpoint(&quats),
-                    raw_opac: prep.checkpoint(&raw_opacity),
+                    means: prep.checkpoint(&means.into_primitive()),
+                    log_scales: prep.checkpoint(&log_scales.into_primitive()),
+                    quats: prep.checkpoint(&quats.into_primitive()),
+                    raw_opac: prep.checkpoint(&raw_opacity.into_primitive()),
                     cam: camera.clone(),
                     background,
                     sh_degree,
@@ -441,12 +440,18 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
                     out_img: out_img.clone(),
                 };
 
-                (prep.finish(state, out_img), wrap_aux)
+                (
+                    Tensor::from_primitive(prep.finish(state, out_img.into_primitive())),
+                    wrap_aux,
+                )
             }
             OpsKind::UnTracked(prep) => {
                 // When no node is tracked, we can just use the original operation without
                 // keeping any state.
-                (prep.finish(out_img), wrap_aux)
+                (
+                    Tensor::from_primitive(prep.finish(out_img.into_primitive())),
+                    wrap_aux,
+                )
             }
         }
     }
@@ -466,7 +471,7 @@ impl Backward<BurnBack, 3, 6> for RenderBackwards {
         let state = ops.state;
         let aux = state.aux;
 
-        let img_dimgs = state.out_img.shape.dims;
+        let img_dimgs = state.out_img.dims();
         let img_size = glam::uvec2(img_dimgs[1] as u32, img_dimgs[0] as u32);
 
         let v_output = grads.consume::<BurnBack, 3>(&ops.node);
@@ -519,7 +524,7 @@ impl Backward<BurnBack, 3, 6> for RenderBackwards {
                     aux.conic_comps.clone().into_primitive().handle.binding(),
                     aux.colors.clone().into_primitive().handle.binding(),
                     aux.final_index.into_primitive().handle.binding(),
-                    state.out_img.handle.binding(),
+                    state.out_img.into_primitive().handle.binding(),
                     v_output.handle.binding(),
                 ],
                 &[
@@ -639,16 +644,16 @@ pub fn render<B: Backend>(
     let (img, aux) = B::render_gaussians(
         camera,
         img_size,
-        means.clone().into_primitive(),
-        xy_dummy.clone().into_primitive(),
-        log_scales.clone().into_primitive(),
-        quats.clone().into_primitive(),
-        sh_coeffs.clone().into_primitive(),
-        raw_opacity.clone().into_primitive(),
+        means,
+        xy_dummy,
+        log_scales,
+        quats,
+        sh_coeffs,
+        raw_opacity,
         background,
         render_u32_buffer,
     );
-    (Tensor::from_primitive(img), aux)
+    (img, aux)
 }
 
 #[cfg(test)]
