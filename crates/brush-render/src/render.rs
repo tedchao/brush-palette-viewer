@@ -1,12 +1,11 @@
 use super::sync_span::SyncSpan as SyncSpanRaw;
 use crate::camera::Camera;
-use crate::gaussian_splats::{num_sh_coeffs, sh_degree_from_coeffs};
-use crate::splat_render::dim_check::DimCheck;
-use crate::splat_render::kernels::{
+use crate::dim_check::DimCheck;
+use crate::kernels::{
     GetTileBinEdges, MapGaussiansToIntersect, ProjectBackwards, ProjectSplats, Rasterize,
     RasterizeBackwards,
 };
-use crate::splat_render::shaders::get_tile_bin_edges::VERTICAL_GROUPS;
+use crate::shaders::get_tile_bin_edges::VERTICAL_GROUPS;
 use brush_kernel::{bitcast_tensor, create_tensor, BurnBack, SplatKernel};
 use brush_prefix_sum::prefix_sum;
 use brush_sort::radix_argsort;
@@ -30,6 +29,21 @@ use glam::{uvec2, Vec3};
 
 // Use an alias so we don't have to type out the backend every time.
 type SyncSpan<'a> = SyncSpanRaw<'a, BurnBack>;
+
+pub fn num_sh_coeffs(degree: usize) -> usize {
+    (degree + 1).pow(2)
+}
+
+pub fn sh_degree_from_coeffs(coeffs_per_channel: usize) -> usize {
+    match coeffs_per_channel {
+        1 => 0,
+        4 => 1,
+        9 => 2,
+        16 => 3,
+        25 => 4,
+        _ => panic!("Invalid nr. of sh bases {coeffs_per_channel}"),
+    }
+}
 
 fn render_forward(
     camera: &Camera,

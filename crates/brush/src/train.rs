@@ -1,6 +1,8 @@
 use std::time;
 
 use anyhow::Result;
+use brush_render::sync_span::SyncSpan;
+use brush_render::{AutodiffBackend, Backend, RenderAux};
 use burn::lr_scheduler::linear::{LinearLrScheduler, LinearLrSchedulerConfig};
 use burn::lr_scheduler::LrScheduler;
 use burn::nn::loss::{HuberLossConfig, MseLoss};
@@ -18,8 +20,6 @@ use tracing::info_span;
 
 use crate::gaussian_splats::Splats;
 use crate::scene::SceneBatch;
-use crate::splat_render::sync_span::SyncSpan;
-use crate::splat_render::{self, AutodiffBackend};
 use crate::utils::quaternion_rotation;
 
 #[derive(Config)]
@@ -78,14 +78,14 @@ pub(crate) struct TrainConfig {
 
 struct TrainStepStats<B: AutodiffBackend> {
     pred_images: Tensor<B, 4>,
-    auxes: Vec<crate::splat_render::RenderAux<B>>,
+    auxes: Vec<RenderAux<B>>,
     loss: Tensor<B, 1>,
     psnr: Tensor<B, 1>,
 }
 
 pub struct SplatTrainer<B: AutodiffBackend>
 where
-    B::InnerBackend: splat_render::Backend,
+    B::InnerBackend: Backend,
 {
     config: TrainConfig,
 
@@ -112,7 +112,7 @@ where
 
 impl<B: AutodiffBackend> SplatTrainer<B>
 where
-    B::InnerBackend: splat_render::Backend,
+    B::InnerBackend: Backend,
 {
     pub fn new(num_points: usize, config: &TrainConfig, splats: &Splats<B>) -> Self {
         let opt_config = AdamConfig::new().with_epsilon(1e-15);

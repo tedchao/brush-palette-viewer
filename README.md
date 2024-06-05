@@ -14,4 +14,4 @@ When training, most of the data is visualized with [Rerun](https://rerun.io/). T
 
 Run the app with `cargo run` or `cargo run --release`. Release mode isn't much faster as though as everything is GPU bound.
 
-You can run tests with `cargo test`. Currently these tests do not pass on Metal however, TBD.
+You can run tests with `cargo test --workspace`.

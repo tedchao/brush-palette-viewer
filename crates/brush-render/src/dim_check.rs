@@ -1,17 +1,14 @@
+use burn::tensor::{backend::Backend, Tensor};
 use std::collections::HashMap;
 
-use burn::tensor::Tensor;
-
-use super::Backend;
-
 #[derive(Clone, Copy)]
-pub enum DimBound {
+pub(crate) enum DimBound {
     Exact(usize),
     Any,
     Matching(&'static str),
 }
 
-pub struct DimCheck<'a, B: Backend> {
+pub(crate) struct DimCheck<'a, B: Backend> {
     bound: HashMap<&'a str, usize>,
     device: Option<B::Device>,
 }

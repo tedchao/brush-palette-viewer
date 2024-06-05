@@ -1,0 +1,29 @@
+[package]
+name = "brush-render"
+edition.workspace = true
+version.workspace = true
+readme.workspace = true
+license.workspace = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow.workspace = true
+assert_approx_eq.workspace = true
+brush-kernel = { version = "0.1.0", path = "../brush-kernel" }
+brush-prefix-sum = { version = "0.1.0", path = "../brush-prefix-sum" }
+brush-sort = { version = "0.1.0", path = "../brush-sort" }
+burn.workspace = true
+burn-wgpu.workspace = true
+bytemuck.workspace = true
+glam.workspace = true
+image.workspace = true
+naga_oil.workspace = true
+safetensors.workspace = true
+tracing.workspace = true
+wgpu.workspace = true
+
+
+[build-dependencies]
+wgsl_bindgen.workspace = true
+miette.workspace = true

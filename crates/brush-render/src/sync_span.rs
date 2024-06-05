@@ -1,6 +1,8 @@
 use burn::tensor::backend::Backend;
 use tracing::{info_span, span::EnteredSpan};
 
+// Disaable a warning when tracy/sync_tracy are not enabled, it's ok.
+#[allow(dead_code)]
 pub struct SyncSpan<'a, B: Backend> {
     span: EnteredSpan,
     device: &'a B::Device,

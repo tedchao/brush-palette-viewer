@@ -1,5 +1,4 @@
 use crate::{
-    camera::Camera,
     dataset_readers,
     gaussian_splats::Splats,
     orbit_controls::OrbitControls,
@@ -8,8 +7,9 @@ use crate::{
     train::{LrConfig, SplatTrainer, TrainConfig},
 };
 use brush_kernel::BurnBack;
+use brush_render::camera::Camera;
 use burn::{backend::Autodiff, tensor::Tensor};
-use burn_wgpu::{RuntimeOptions, WgpuDevice};
+use burn_wgpu::RuntimeOptions;
 use tracing::info_span;
 use core::ops::DerefMut;
 use egui::{pos2, Color32, Rect, TextureId};
@@ -72,7 +72,7 @@ pub struct Viewer {
     reference_cameras: Option<Vec<Camera>>,
     backbuffer: Option<BackBuffer>,
     controls: OrbitControls,
-    device: WgpuDevice,
+    device: <BurnDiffBack as burn::prelude::Backend>::Device,
     start_transform: Mat4,
     last_render_time: time::Instant,
 }
@@ -149,7 +149,7 @@ impl Viewer {
 
         let splats = Splats::<BurnDiffBack>::init_random(5000, 2.0, &self.device);
 
-        println!("Loading dataset {}", config.scene_path);
+        println!("Loading dataset {:?}, {}", std::env::current_dir(), config.scene_path);
         let scene = dataset_readers::read_scene(&config.scene_path, "transforms_train.json", None);
 
         #[cfg(feature = "rerun")]
@@ -232,14 +232,13 @@ impl eframe::App for Viewer {
 
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.heading("Brush splat viewer");
-
             ui.label("load pretrained models.");
             ui.horizontal(|ui| {
                 for r in ["bonsai", "stump", "counter", "garden", "truck"] {
                     if ui.button(r.to_string()).clicked() {
                         self.load_splats(
-                            &format!("../../brush_data/pretrained/{r}/point_cloud/iteration_30000/point_cloud.ply"),
-                            Some(&format!("../../brush_data/pretrained/{r}/cameras.json")),
+                            &format!("./brush_data/pretrained/{r}/point_cloud/iteration_30000/point_cloud.ply"),
+                            Some(&format!("./brush_data/pretrained/{r}/cameras.json")),
                         );
                     }
                 }
@@ -249,7 +248,7 @@ impl eframe::App for Viewer {
             ui.horizontal(|ui| {
                 for r in ["chair", "drums", "ficus", "hotdog", "lego", "materials", "mic", "ship"] {
                     if ui.button(r.to_string()).clicked() {
-                        self.start_training(&format!("../../brush_data/nerf_synthetic/{r}/"))
+                        self.start_training(&format!("./brush_data/nerf_synthetic/{r}/"))
                     }
                 }
             });

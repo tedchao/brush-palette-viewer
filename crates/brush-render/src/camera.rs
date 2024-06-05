@@ -1,5 +1,5 @@
 #[derive(Debug, Default, Clone)]
-pub(crate) struct Camera {
+pub struct Camera {
     pub fovx: f32,
     pub fovy: f32,
     pub position: glam::Vec3,
@@ -35,21 +35,21 @@ impl Camera {
         self.local_to_world().inverse()
     }
 
-    pub(crate) fn forward(&self) -> glam::Vec3 {
+    pub fn forward(&self) -> glam::Vec3 {
         self.rotation * glam::vec3(0.0, 0.0, 1.0)
     }
 
-    pub(crate) fn right(&self) -> glam::Vec3 {
+    pub fn right(&self) -> glam::Vec3 {
         self.rotation * glam::vec3(1.0, 0.0, 0.0)
     }
 }
 
 // Converts field of view to focal length
-pub(crate) fn fov_to_focal(fov: f32, pixels: u32) -> f32 {
+pub fn fov_to_focal(fov: f32, pixels: u32) -> f32 {
     (pixels as f32) / (2.0 * (fov / 2.0).tan())
 }
 
 // Converts focal length to field of view.
-pub(crate) fn focal_to_fov(focal: f32, pixels: u32) -> f32 {
+pub fn focal_to_fov(focal: f32, pixels: u32) -> f32 {
     2.0 * ((pixels as f32) / (2.0 * focal)).atan()
 }

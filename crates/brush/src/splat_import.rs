@@ -1,3 +1,4 @@
+use brush_render::{render::num_sh_coeffs, Backend};
 use burn::{
     module::{Param, ParamId},
     tensor::{Data, Shape, Tensor},
@@ -8,7 +9,7 @@ use ply_rs::{
 };
 use std::io::BufReader;
 
-use crate::{gaussian_splats::num_sh_coeffs, gaussian_splats::Splats, splat_render::Backend};
+use crate::gaussian_splats::Splats;
 use anyhow::Result;
 
 #[derive(Default)]

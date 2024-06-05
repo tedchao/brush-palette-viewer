@@ -1,9 +1,10 @@
 use std::path::PathBuf;
 
-use crate::camera::Camera;
-use crate::{camera, scene};
+use crate::scene;
 use anyhow::Context;
 use anyhow::Result;
+use brush_render::camera;
+use brush_render::camera::Camera;
 use ndarray::Array3;
 
 #[derive(Debug, Default, Clone)]

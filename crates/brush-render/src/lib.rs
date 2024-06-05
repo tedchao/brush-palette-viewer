@@ -1,17 +1,20 @@
-use crate::camera::Camera;
+#![allow(clippy::too_many_arguments)]
+#![allow(clippy::single_range_in_vec_init)]
 use brush_kernel::BurnBack;
 use burn::backend::Autodiff;
 use burn::prelude::Int;
 use burn::tensor::Tensor;
+use camera::Camera;
 mod dim_check;
 mod kernels;
 mod shaders;
 
+pub mod camera;
 pub mod render;
 pub mod sync_span;
 
 #[derive(Debug, Clone)]
-pub(crate) struct RenderAux<B: Backend> {
+pub struct RenderAux<B: Backend> {
     pub num_visible: Tensor<B, 1, Int>,
     pub num_intersects: Tensor<B, 1, Int>,
     pub tile_bins: Tensor<B, 3, Int>,

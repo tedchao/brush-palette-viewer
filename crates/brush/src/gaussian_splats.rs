@@ -1,7 +1,5 @@
-use crate::{
-    camera::Camera,
-    splat_render::{self, AutodiffBackend, Backend},
-};
+use brush_render::camera::Camera;
+use brush_render::{render::num_sh_coeffs, AutodiffBackend, Backend};
 use burn::tensor::Distribution;
 use burn::tensor::Tensor;
 use burn::{
@@ -39,21 +37,6 @@ pub struct Splats<B: Backend> {
 
     // Dummy input to track screenspace gradient.
     pub(crate) xys_dummy: Tensor<B, 2>,
-}
-
-pub fn num_sh_coeffs(degree: usize) -> usize {
-    (degree + 1).pow(2)
-}
-
-pub fn sh_degree_from_coeffs(coeffs_per_channel: usize) -> usize {
-    match coeffs_per_channel {
-        1 => 0,
-        4 => 1,
-        9 => 2,
-        16 => 3,
-        25 => 4,
-        _ => panic!("Invalid nr. of sh bases {coeffs_per_channel}"),
-    }
 }
 
 impl<B: Backend> Splats<B> {
@@ -100,8 +83,8 @@ impl<B: Backend> Splats<B> {
         img_size: glam::UVec2,
         bg_color: glam::Vec3,
         render_u32_buffer: bool,
-    ) -> (Tensor<B, 3>, crate::splat_render::RenderAux<B>) {
-        splat_render::render::render(
+    ) -> (Tensor<B, 3>, brush_render::RenderAux<B>) {
+        brush_render::render::render(
             camera,
             img_size,
             self.means.val(),

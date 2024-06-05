@@ -1,10 +1,11 @@
+use brush_render::camera::Camera;
 use burn::{
     data::{dataloader::batcher::Batcher, dataset::Dataset},
     prelude::*,
     tensor::Tensor,
 };
 
-use crate::{camera::Camera, dataset_readers::InputView, utils};
+use crate::{dataset_readers::InputView, utils};
 
 // Encapsulates a multi-view scene including cameras and the splats.
 // Also provides methods for checkpointing the training process.
