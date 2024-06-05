@@ -108,7 +108,8 @@ impl<B: Backend> Splats<B> {
             .map(|c| glam::vec3(c[0], c[1], c[2]));
 
         let num_points = self.sh_coeffs.shape().dims[0];
-        let base_rgb = self.sh_coeffs.val().slice([0..num_points, 0..3]) + 0.5;
+        let sh_c0 = 0.2820947917738781;
+        let base_rgb = self.sh_coeffs.val().slice([0..num_points, 0..3]) * sh_c0 + 0.5;
 
         // TODO: Fix for SH.
         let colors_data = utils::burn_to_ndarray(base_rgb);
