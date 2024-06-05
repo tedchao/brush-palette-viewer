@@ -1,67 +1,16 @@
 use crate::{
-    dataset_readers,
-    gaussian_splats::Splats,
-    orbit_controls::OrbitControls,
-    scene::{SceneBatcher, SceneLoader},
-    splat_import,
-    train::{LrConfig, SplatTrainer, TrainConfig},
+    burn_texture::BurnTexture, dataset_readers, gaussian_splats::Splats, orbit_controls::OrbitControls, scene::{SceneBatcher, SceneLoader}, splat_import, train::{LrConfig, SplatTrainer, TrainConfig}
 };
 use brush_kernel::BurnBack;
 use brush_render::camera::Camera;
-use burn::{backend::Autodiff, module::AutodiffModule, tensor::Tensor};
+use burn::{backend::Autodiff, module::AutodiffModule};
 use burn_wgpu::RuntimeOptions;
 use tracing::info_span;
-use core::ops::DerefMut;
-use egui::{pos2, Color32, Rect, TextureId};
+use egui::{pos2, Color32, Rect};
 use glam::{Mat4, Quat, Vec2, Vec3};
 use std::time::{self, Duration};
-use wgpu::ImageDataLayout;
 
 type BurnDiffBack = Autodiff<BurnBack>;
-
-// TODO: This probably doesn't belong here.
-fn copy_buffer_to_texture(img: Tensor<BurnBack, 3>, texture: &wgpu::Texture) {
-    let [height, width, _] = img.shape().dims;
-    let primitive = img.into_primitive();
-    let client = primitive.client.clone();
-    let img_handle = primitive.handle;
-
-    client.run_custom_command(move |server| {
-        let img_res = server.get_resource_binding(img_handle.clone().binding());
-
-        // Put compute passes in encoder before copying the buffer.
-        let bytes_per_row = Some(4 * width as u32);
-        let encoder = server.get_command_encoder();
-
-        // Now copy the buffer to the texture.
-        encoder.copy_buffer_to_texture(
-            wgpu::ImageCopyBuffer {
-                buffer: img_res.buffer.as_ref(),
-                layout: ImageDataLayout {
-                    offset: 0,
-                    bytes_per_row,
-                    rows_per_image: None,
-                },
-            },
-            wgpu::ImageCopyTexture {
-                texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
-                aspect: wgpu::TextureAspect::All,
-            },
-            wgpu::Extent3d {
-                width: width as u32,
-                height: height as u32,
-                depth_or_array_layers: 1,
-            },
-        );
-    });
-}
-
-struct BackBuffer {
-    texture: wgpu::Texture,
-    id: TextureId,
-}
 
 pub struct Viewer {
     camera: Camera,
@@ -72,7 +21,7 @@ pub struct Viewer {
 
     rec: Option<rerun::RecordingStream>,
     reference_cameras: Option<Vec<Camera>>,
-    backbuffer: Option<BackBuffer>,
+    backbuffer: Option<BurnTexture>,
     controls: OrbitControls,
     device: <BurnDiffBack as burn::prelude::Backend>::Device,
     start_transform: Mat4,
@@ -162,57 +111,6 @@ impl Viewer {
         let batcher_train = SceneBatcher::<BurnDiffBack>::new(self.device.clone());
         self.dataloader = Some(SceneLoader::new(scene, batcher_train, 2)); 
     }
-
-    fn update_backbuffer(&mut self, size: glam::UVec2, frame: &mut eframe::Frame) {
-        let dirty = !matches!(
-            self.backbuffer.as_ref(),
-            Some(back) if back.texture.width() == size.x && back.texture.height() == size.y
-        );
-
-        if !dirty {
-            return;
-        }
-
-        let state = frame.wgpu_render_state().unwrap();
-        let egui_device = state.device.clone();
-
-        // Allocate a new wgpu texture.
-        let texture = egui_device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Splat backbuffer"),
-            size: wgpu::Extent3d {
-                width: size.x,
-                height: size.y,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[wgpu::TextureFormat::Rgba8UnormSrgb],
-        });
-
-        // Register this texture with egui.
-        let view = texture.create_view(&Default::default());
-
-        let mut rend_guard = state.renderer.write();
-        let renderer = rend_guard.deref_mut();
-
-        if let Some(back) = self.backbuffer.as_mut() {
-            back.texture = texture;
-            renderer.update_egui_texture_from_wgpu_texture(
-                &egui_device,
-                &view,
-                wgpu::FilterMode::Linear,
-                back.id,
-            )
-        } else {
-            self.backbuffer = Some(BackBuffer {
-                texture,
-                id: renderer.register_native_texture(&egui_device, &view, wgpu::FilterMode::Linear),
-            });
-        }
-    }
 }
 
 impl eframe::App for Viewer {
@@ -287,70 +185,68 @@ impl eframe::App for Viewer {
 
             let size = ui.available_size();
 
-            // Round to 16 pixels for buffer alignment.
-            // TODO: Ideally just alloc a backbuffer that's aligned, and render a slice of it.
+            // Round to 64 pixels for buffer alignment.
             let size = glam::uvec2(((size.x as u32).div_ceil(64) * 64).max(32), (size.y as u32).max(32));
-            self.update_backbuffer(size, frame);
 
-            if let Some(backbuffer) = &self.backbuffer {
-                if let Some(splats) = &self.splats {
-                    let (rect, response) = ui.allocate_exact_size(
-                        egui::Vec2::new(size.x as f32, size.y as f32),
-                        egui::Sense::drag(),
-                    );
+            if let Some(splats) = &self.splats {
+                let (rect, response) = ui.allocate_exact_size(
+                    egui::Vec2::new(size.x as f32, size.y as f32),
+                    egui::Sense::drag(),
+                );
 
-                    let mouse_delta = glam::vec2(response.drag_delta().x, response.drag_delta().y);
+                let mouse_delta = glam::vec2(response.drag_delta().x, response.drag_delta().y);
 
-                    let (pan, rotate) = if response.dragged_by(egui::PointerButton::Primary) {
-                        (Vec2::ZERO, mouse_delta)
-                    } else if response.dragged_by(egui::PointerButton::Secondary) {
-                        (mouse_delta, Vec2::ZERO)
-                    } else {
-                        (Vec2::ZERO, Vec2::ZERO)
-                    };
+                let (pan, rotate) = if response.dragged_by(egui::PointerButton::Primary) {
+                    (Vec2::ZERO, mouse_delta)
+                } else if response.dragged_by(egui::PointerButton::Secondary) {
+                    (mouse_delta, Vec2::ZERO)
+                } else {
+                    (Vec2::ZERO, Vec2::ZERO)
+                };
 
-                    let scrolled = ui.input(|r| r.smooth_scroll_delta).y;
-        
-                    // TODO: Controls can be pretty borked.
-                    self.controls.pan_orbit_camera(
-                        pan * 0.5,
-                        rotate * 0.5,
-                        scrolled * 0.02,
-                        glam::vec2(rect.size().x, rect.size().y),
-                    );
+                let scrolled = ui.input(|r| r.smooth_scroll_delta).y;
+    
+                // TODO: Controls can be pretty borked.
+                self.controls.pan_orbit_camera(
+                    pan * 0.5,
+                    rotate * 0.5,
+                    scrolled * 0.02,
+                    glam::vec2(rect.size().x, rect.size().y),
+                );
 
-                    let controls_transform = glam::Mat4::from_rotation_translation(
-                        self.controls.rotation,
-                        self.controls.position,
-                    );
+                let controls_transform = glam::Mat4::from_rotation_translation(
+                    self.controls.rotation,
+                    self.controls.position,
+                );
 
-                    let total_transform = self.start_transform * controls_transform;
-                    let (_, rot, pos) = total_transform.to_scale_rotation_translation();
-                    self.camera.position = pos;
-                    self.camera.rotation = rot;
+                let total_transform = self.start_transform * controls_transform;
+                let (_, rot, pos) = total_transform.to_scale_rotation_translation();
+                self.camera.position = pos;
+                self.camera.rotation = rot;
 
-                    // TODO: For reference cameras just need to match fov?
-                    self.camera.fovx = 0.5;
-                    self.camera.fovy = 0.5 * (size.y as f32) / (size.x as f32);
-        
-                    let (img, _) =
-                        splats.clone().valid().render(&self.camera, size, glam::vec3(0.0, 0.0, 0.0), true);
+                // TODO: For reference cameras just need to match fov?
+                self.camera.fovx = 0.5;
+                self.camera.fovy = 0.5 * (size.y as f32) / (size.x as f32);
+    
+                let (img, _) =
+                    splats.clone().valid().render(&self.camera, size, glam::vec3(0.0, 0.0, 0.0), true);
 
-                    copy_buffer_to_texture(img, &backbuffer.texture);
-                    
-                    ui.painter().rect_filled(rect, 0.0, Color32::BLACK);
-                    ui.painter().image(
-                        backbuffer.id,
-                        rect,
-                        Rect {
-                            min: pos2(0.0, 0.0),
-                            max: pos2(1.0, 1.0),
-                        },
-                        Color32::WHITE,
-                    );
+
+                let back = self.backbuffer.get_or_insert_with(|| BurnTexture::new(img.clone(), frame));
+                back.update_texture(img, frame);
                 
-                    ctx.request_repaint();
-                }
+                ui.painter().rect_filled(rect, 0.0, Color32::BLACK);
+                ui.painter().image(
+                    back.id,
+                    rect,
+                    Rect {
+                        min: pos2(0.0, 0.0),
+                        max: pos2(1.0, 1.0),
+                    },
+                    Color32::WHITE,
+                );
+            
+                ctx.request_repaint();
             }
         });
     }
