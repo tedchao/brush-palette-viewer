@@ -74,6 +74,9 @@ pub(crate) struct TrainConfig {
     pub visualize_every: u32,
     #[config(default = 250)]
     pub visualize_splats_every: u32,
+
+    #[config(default = 5000)]
+    pub init_splat_count: usize,
 }
 
 struct TrainStepStats<B: AutodiffBackend> {
