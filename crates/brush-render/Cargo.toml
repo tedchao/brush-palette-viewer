@@ -27,3 +27,9 @@ wgpu.workspace = true
 [build-dependencies]
 wgsl_bindgen.workspace = true
 miette.workspace = true
+
+
+[features]
+sync_tracy = []
+
+default = []

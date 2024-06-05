@@ -87,8 +87,9 @@ pub struct SplatTrainer<B: AutodiffBackend>
 where
     B::InnerBackend: Backend,
 {
-    config: TrainConfig,
+    pub iter: u32,
 
+    config: TrainConfig,
     rng: StdRng,
 
     sched_mean: LinearLrScheduler,
@@ -96,10 +97,7 @@ where
     sched_rest: LinearLrScheduler,
 
     opt_config: AdamConfig,
-
     optim: OptimizerAdaptor<Adam<B::InnerBackend>, Splats<B>, B>,
-
-    iter: u32,
 
     // Maximum projected radius of each Gaussian in pixel-units. It is
     // later used during culling.

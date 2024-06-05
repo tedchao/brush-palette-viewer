@@ -8,7 +8,7 @@ use crate::{
 };
 use brush_kernel::BurnBack;
 use brush_render::camera::Camera;
-use burn::{backend::Autodiff, tensor::Tensor};
+use burn::{backend::Autodiff, module::AutodiffModule, tensor::Tensor};
 use burn_wgpu::RuntimeOptions;
 use tracing::info_span;
 use core::ops::DerefMut;
@@ -68,7 +68,9 @@ pub struct Viewer {
     dataloader: Option<SceneLoader<BurnDiffBack>>,
     splats: Option<Splats<BurnDiffBack>>,
     trainer: Option<SplatTrainer<BurnDiffBack>>,
-    rec: rerun::RecordingStream,
+    train_active: bool,
+
+    rec: Option<rerun::RecordingStream>,
     reference_cameras: Option<Vec<Camera>>,
     backbuffer: Option<BackBuffer>,
     controls: OrbitControls,
@@ -96,6 +98,7 @@ impl Viewer {
                     period: Duration::from_secs(5),
                     state: time::Instant::now(),
                 },
+                tasks_max: 128,
                 ..Default::default()
             },
         );
@@ -107,13 +110,12 @@ impl Viewer {
             dataloader: None,
             reference_cameras: None,
             backbuffer: None,
+            rec: None,
+            train_active: true,
             controls: OrbitControls::new(15.0),
             device,
             start_transform: glam::Mat4::IDENTITY,
             last_render_time: time::Instant::now(),
-            rec: rerun::RecordingStreamBuilder::new("visualize training")
-                .spawn()
-                .unwrap(),
         }
     }
 
@@ -135,8 +137,7 @@ impl Viewer {
 
     pub fn start_training(&mut self, path: &str) {
         self.rec = rerun::RecordingStreamBuilder::new("visualize training")
-        .spawn()
-        .unwrap();
+        .spawn().ok();
 
         <BurnDiffBack as burn::prelude::Backend>::seed(42);
     
@@ -153,7 +154,7 @@ impl Viewer {
         let scene = dataset_readers::read_scene(&config.scene_path, "transforms_train.json", None);
 
         #[cfg(feature = "rerun")]
-        scene.visualize(&self.rec).unwrap();
+        scene.visualize(self.rec.as_ref().unwrap()).unwrap();
 
         // TODO: Unify reference views & training scene.
         self.trainer = Some(SplatTrainer::new(splats.num_splats(), &config, &splats));
@@ -260,6 +261,30 @@ impl eframe::App for Viewer {
 
             ui.label(format!("FPS: {fps:.0} {ms:.0} ms/frame"));
 
+            if let Some(train) = self.trainer.as_mut() {    
+                ui.label(format!("Training step {}", train.iter));
+                ui.checkbox(&mut self.train_active, "Train");
+
+                // TODO: On non wasm this really should be threaded.
+                let get_span = info_span!("Get batch").entered();
+                let batch = self.dataloader.as_mut().unwrap().next();
+                drop(get_span);
+
+                if self.train_active {
+                    let splats = self.splats.take().unwrap();
+                    
+                    self.splats = Some(
+                        train
+                            .step(
+                                batch,
+                                splats,
+                                self.rec.as_ref().unwrap(),
+                            )
+                            .unwrap(),
+                    );
+                }
+            }
+
             let size = ui.available_size();
 
             // Round to 16 pixels for buffer alignment.
@@ -267,50 +292,51 @@ impl eframe::App for Viewer {
             let size = glam::uvec2(((size.x as u32).div_ceil(64) * 64).max(32), (size.y as u32).max(32));
             self.update_backbuffer(size, frame);
 
-            let (rect, response) = ui.allocate_exact_size(
-                egui::Vec2::new(size.x as f32, size.y as f32),
-                egui::Sense::drag(),
-            );
-
-            let mouse_delta = glam::vec2(response.drag_delta().x, response.drag_delta().y);
-
-            let (pan, rotate) = if response.dragged_by(egui::PointerButton::Primary) {
-                (Vec2::ZERO, mouse_delta)
-            } else if response.dragged_by(egui::PointerButton::Secondary) {
-                (mouse_delta, Vec2::ZERO)
-            } else {
-                (Vec2::ZERO, Vec2::ZERO)
-            };
-
-            let scrolled = ui.input(|r| r.smooth_scroll_delta).y;
-
-            // TODO: Controls can be pretty borked.
-            self.controls.pan_orbit_camera(
-                pan * 0.5,
-                rotate * 0.5,
-                scrolled * 0.02,
-                glam::vec2(rect.size().x, rect.size().y),
-            );
-
-            let controls_transform = glam::Mat4::from_rotation_translation(
-                self.controls.rotation,
-                self.controls.position,
-            );
-
-            let total_transform = self.start_transform * controls_transform;
-            let (_, rot, pos) = total_transform.to_scale_rotation_translation();
-            self.camera.position = pos;
-            self.camera.rotation = rot;
-
-            // TODO: For reference cameras just need to match fov?
-            self.camera.fovx = 0.5;
-            self.camera.fovy = 0.5 * (size.y as f32) / (size.x as f32);
-
             if let Some(backbuffer) = &self.backbuffer {
                 if let Some(splats) = &self.splats {
+                    let (rect, response) = ui.allocate_exact_size(
+                        egui::Vec2::new(size.x as f32, size.y as f32),
+                        egui::Sense::drag(),
+                    );
+
+                    let mouse_delta = glam::vec2(response.drag_delta().x, response.drag_delta().y);
+
+                    let (pan, rotate) = if response.dragged_by(egui::PointerButton::Primary) {
+                        (Vec2::ZERO, mouse_delta)
+                    } else if response.dragged_by(egui::PointerButton::Secondary) {
+                        (mouse_delta, Vec2::ZERO)
+                    } else {
+                        (Vec2::ZERO, Vec2::ZERO)
+                    };
+
+                    let scrolled = ui.input(|r| r.smooth_scroll_delta).y;
+        
+                    // TODO: Controls can be pretty borked.
+                    self.controls.pan_orbit_camera(
+                        pan * 0.5,
+                        rotate * 0.5,
+                        scrolled * 0.02,
+                        glam::vec2(rect.size().x, rect.size().y),
+                    );
+
+                    let controls_transform = glam::Mat4::from_rotation_translation(
+                        self.controls.rotation,
+                        self.controls.position,
+                    );
+
+                    let total_transform = self.start_transform * controls_transform;
+                    let (_, rot, pos) = total_transform.to_scale_rotation_translation();
+                    self.camera.position = pos;
+                    self.camera.rotation = rot;
+
+                    // TODO: For reference cameras just need to match fov?
+                    self.camera.fovx = 0.5;
+                    self.camera.fovy = 0.5 * (size.y as f32) / (size.x as f32);
+        
                     let (img, _) =
-                        splats.render(&self.camera, size, glam::vec3(0.0, 0.0, 0.0), true);
-                    copy_buffer_to_texture(img.inner(), &backbuffer.texture);
+                        splats.clone().valid().render(&self.camera, size, glam::vec3(0.0, 0.0, 0.0), true);
+
+                    copy_buffer_to_texture(img, &backbuffer.texture);
                     
                     ui.painter().rect_filled(rect, 0.0, Color32::BLACK);
                     ui.painter().image(
@@ -325,23 +351,6 @@ impl eframe::App for Viewer {
                 
                     ctx.request_repaint();
                 }
-            }
-
-            if let Some(train) = self.trainer.as_mut() {    
-                // TODO: On non wasm this really should be threaded.
-                let get_span = info_span!("Get batch").entered();
-                let batch = self.dataloader.as_mut().unwrap().next();
-                drop(get_span);
-
-                self.splats = Some(
-                    train
-                        .step(
-                            batch,
-                            self.splats.take().unwrap(),
-                            &self.rec,
-                        )
-                        .unwrap(),
-                );
             }
         });
     }
