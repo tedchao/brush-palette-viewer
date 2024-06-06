@@ -671,7 +671,7 @@ pub fn render<B: Backend>(
     (img, aux)
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use std::fs::File;
     use std::io::Read;

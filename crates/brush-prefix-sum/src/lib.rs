@@ -85,10 +85,10 @@ pub fn prefix_sum(input: JitTensor<BurnRuntime, u32, 1>) -> JitTensor<BurnRuntim
     outputs
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use crate::prefix_sum;
-    use brush_kernel::{read_buffer_as_u32, BurnBack};
+    use brush_kernel::{bitcast_tensor, BurnBack};
     use burn::tensor::{Int, Tensor};
     use burn_wgpu::JitTensor;
 
@@ -106,7 +106,9 @@ mod tests {
         let keys = Tensor::<Backend, 1, Int>::from_data(data.as_slice(), &device).into_primitive();
         let keys = JitTensor::new(keys.client.clone(), keys.device, keys.shape, keys.handle);
         let summed = prefix_sum(keys.clone());
-        let summed = read_buffer_as_u32(&keys.client, summed.handle.binding());
+        let summed: Vec<i32> = Tensor::<Backend, 1, Int>::from_primitive(bitcast_tensor(summed))
+            .to_data()
+            .value;
 
         let prefix_sum_ref: Vec<_> = data
             .into_iter()
@@ -117,7 +119,7 @@ mod tests {
             .collect();
 
         for (summed, reff) in summed.into_iter().zip(prefix_sum_ref) {
-            assert_eq!(summed, reff as u32)
+            assert_eq!(summed, reff)
         }
     }
 }

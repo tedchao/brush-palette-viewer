@@ -134,7 +134,7 @@ pub fn radix_argsort(
     (last_out.clone(), last_out_values.clone())
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use std::{
         fs::File,
@@ -142,7 +142,7 @@ mod tests {
     };
 
     use crate::radix_argsort;
-    use brush_kernel::{bitcast_tensor, read_buffer_as_u32, BurnBack};
+    use brush_kernel::{bitcast_tensor, BurnBack};
     use burn::tensor::{Int, Tensor};
 
     pub fn argsort<T: Ord>(data: &[T]) -> Vec<usize> {
@@ -187,8 +187,15 @@ mod tests {
             let values = bitcast_tensor(values);
             let (ret_keys, ret_values) = radix_argsort(keys, values, num_points, 32);
 
-            let ret_keys = read_buffer_as_u32(&ret_keys.client, ret_keys.handle.binding());
-            let ret_values = read_buffer_as_u32(&ret_values.client, ret_values.handle.binding());
+            let ret_keys: Vec<i32> =
+                Tensor::<BurnBack, 1, Int>::from_primitive(bitcast_tensor(ret_keys))
+                    .to_data()
+                    .value;
+
+            let ret_values: Vec<i32> =
+                Tensor::<BurnBack, 1, Int>::from_primitive(bitcast_tensor(ret_values))
+                    .to_data()
+                    .value;
 
             let inds = argsort(&keys_inp);
 
@@ -201,8 +208,8 @@ mod tests {
                 .zip(ref_keys)
                 .zip(ref_values)
             {
-                assert_eq!(key, ref_key);
-                assert_eq!(val, ref_val);
+                assert_eq!(key, ref_key as i32);
+                assert_eq!(val, ref_val as i32);
             }
         }
     }
@@ -236,9 +243,15 @@ mod tests {
 
         let (ret_keys, ret_values) = radix_argsort(keys, values, num_points, 32);
 
-        let ret_keys = read_buffer_as_u32(&ret_keys.client, ret_keys.handle.binding());
-        let ret_values = read_buffer_as_u32(&ret_values.client, ret_values.handle.binding());
+        let ret_keys: Vec<i32> =
+            Tensor::<BurnBack, 1, Int>::from_primitive(bitcast_tensor(ret_keys))
+                .to_data()
+                .value;
 
+        let ret_values: Vec<i32> =
+            Tensor::<BurnBack, 1, Int>::from_primitive(bitcast_tensor(ret_values))
+                .to_data()
+                .value;
         let inds = argsort(&keys_inp);
 
         let ref_keys: Vec<i32> = inds.iter().map(|&i| keys_inp[i]).collect();
@@ -250,8 +263,8 @@ mod tests {
             .zip(ref_keys)
             .zip(ref_values)
         {
-            assert_eq!(key, ref_key as u32);
-            assert_eq!(val, ref_val as u32);
+            assert_eq!(key, ref_key);
+            assert_eq!(val, ref_val);
         }
     }
 }
