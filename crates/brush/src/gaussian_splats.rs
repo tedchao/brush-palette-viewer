@@ -111,7 +111,6 @@ impl<B: Backend> Splats<B> {
         let sh_c0 = 0.2820947917738781;
         let base_rgb = self.sh_coeffs.val().slice([0..num_points, 0..3]) * sh_c0 + 0.5;
 
-        // TODO: Fix for SH.
         let colors_data = utils::burn_to_ndarray(base_rgb);
         let colors = colors_data.axis_iter(Axis(0)).map(|c| {
             Color::from_rgb(
@@ -170,7 +169,6 @@ impl<B: AutodiffBackend> Splats<B> {
     }
 
     pub fn norm_rotations(&mut self) {
-        // TODO: Norm after grad, not on render.
         self.rotation = self.rotation.clone().map(|x| {
             let norms = Tensor::sum_dim(x.clone().powf_scalar(2.0), 1).sqrt();
             let norm_rotation = x / Tensor::clamp_min(norms, 1e-6);

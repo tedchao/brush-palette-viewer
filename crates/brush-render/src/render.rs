@@ -940,7 +940,6 @@ mod tests {
         Ok(())
     }
 
-    // // TODO: This doesn't work yet for some reason. Are the gradients wrong? Or?
     // #[test]
     // fn test_mean_grads() {
     //     let cam = Camera::new(glam::vec3(0.0, 0.0, -5.0), glam::Quat::IDENTITY, 0.5, 0.5);

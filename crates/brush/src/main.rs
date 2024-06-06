@@ -65,8 +65,6 @@ fn main() -> anyhow::Result<()> {
 
     #[cfg(target_arch = "wasm32")]
     {
-        wasm_logger::init(wasm_logger::Config::new(log::Level::Info));
-
         let web_options = eframe::WebOptions {
             wgpu_options: wgpu_config,
             ..Default::default()

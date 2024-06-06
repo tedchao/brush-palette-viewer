@@ -36,7 +36,6 @@ impl PropertyAccess for GaussianData {
         let sh_coeff_per_channel: usize = num_sh_coeffs(3);
 
         match (key.as_ref(), property) {
-            // TODO: SH.
             ("x", Property::Float(v)) => self.means[0] = v,
             ("y", Property::Float(v)) => self.means[1] = v,
             ("z", Property::Float(v)) => self.means[2] = v,

@@ -462,7 +462,6 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
         }
     }
 
-    // TODO: Could use opacity activation? Doesn't really matter
     let raw_opac = raw_opacities[global_gid];
     v_opac_agg[global_gid] = v_colors_agg.w * v_sigmoid(raw_opac);
 }

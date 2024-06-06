@@ -33,7 +33,6 @@ fn main(
     }
     workgroupBarrier();
     let wg_block_start = sorting::BLOCK_SIZE * group_id;
-    // TODO: handle additional as above
     let block_index = wg_block_start + local_id.x;
     var data_index = block_index;
     for (var i = 0u; i < sorting::ELEMENTS_PER_THREAD; i++) {

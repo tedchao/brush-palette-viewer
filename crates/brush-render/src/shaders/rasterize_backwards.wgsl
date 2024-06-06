@@ -63,7 +63,6 @@ fn main(
     let inside = global_id.x < img_size.x && global_id.y < img_size.y;
 
     // this is the T AFTER the last gaussian in this pixel
-    // TODO: Is this 1-x ? x?
     let T_final = 1.0 - output[pix_id].w;
     
     // the contribution from gaussians behind the current one
