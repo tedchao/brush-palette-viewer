@@ -473,27 +473,25 @@ where
 
         let mut grad_means = GradientsParams::new();
         grad_means.register(
-            splats.means.clone().consume().0,
+            splats.means.id.clone(),
             splats.means.grad_remove(&mut grads).unwrap(),
         );
-
         let mut grad_opac = GradientsParams::new();
         grad_opac.register(
-            splats.raw_opacity.clone().consume().0,
+            splats.raw_opacity.id.clone(),
             splats.raw_opacity.grad_remove(&mut grads).unwrap(),
         );
-
         let mut grad_rest = GradientsParams::new();
         grad_rest.register(
-            splats.sh_coeffs.clone().consume().0,
+            splats.sh_coeffs.id.clone(),
             splats.sh_coeffs.grad_remove(&mut grads).unwrap(),
         );
         grad_rest.register(
-            splats.rotation.clone().consume().0,
+            splats.rotation.id.clone(),
             splats.rotation.grad_remove(&mut grads).unwrap(),
         );
         grad_rest.register(
-            splats.log_scales.clone().consume().0,
+            splats.log_scales.id.clone(),
             splats.log_scales.grad_remove(&mut grads).unwrap(),
         );
 

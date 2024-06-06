@@ -1,4 +1,4 @@
-use burn::tensor::{backend::Backend, ops::ConvOptions, Tensor};
+use burn::tensor::{backend::Backend, module::conv2d, ops::ConvOptions, Tensor};
 
 fn gaussian<B: Backend>(window_size: usize, sigma: f32, device: &B::Device) -> Tensor<B, 1> {
     let sigma2 = 2.0 * sigma.powf(2.0);
@@ -30,44 +30,34 @@ pub fn ssim<B: Backend>(
     let [_, height, width, channel] = img1.dims();
 
     let real_size = window_size.min(height).min(width);
-    let window = create_window::<B>(real_size, channel, device).into_primitive();
+    let window = create_window::<B>(real_size, channel, device);
 
     let conv_options = ConvOptions::new([1, 1], [0, 0], [0, 0], channel);
-    let mu1 = Tensor::from_primitive(B::conv2d(
-        img1.clone().into_primitive(),
-        window.clone(),
-        None,
-        conv_options.clone(),
-    ));
-    let mu2 = Tensor::from_primitive(B::conv2d(
-        img2.clone().into_primitive(),
-        window.clone(),
-        None,
-        conv_options.clone(),
-    ));
+    let mu1 = conv2d(img1.clone(), window.clone(), None, conv_options.clone());
+    let mu2 = conv2d(img2.clone(), window.clone(), None, conv_options.clone());
 
     let mu1_sq = mu1.clone().powf_scalar(2);
     let mu2_sq = mu2.clone().powf_scalar(2);
     let mu1_mu2 = mu1 * mu2;
 
-    let sigma1_sq = Tensor::from_primitive(B::conv2d(
-        img1.clone().powf_scalar(2.0).into_primitive(),
+    let sigma1_sq = conv2d(
+        img1.clone().powf_scalar(2.0),
         window.clone(),
         None,
         conv_options.clone(),
-    )) - mu1_sq.clone();
-    let sigma2_sq = Tensor::from_primitive(B::conv2d(
-        img2.clone().powf_scalar(2.0).into_primitive(),
+    ) - mu1_sq.clone();
+    let sigma2_sq = conv2d(
+        img2.clone().powf_scalar(2.0),
         window.clone(),
         None,
         conv_options.clone(),
-    )) - mu2_sq.clone();
-    let sigma12 = Tensor::from_primitive(B::conv2d(
-        (img1.clone() * img2.clone()).into_primitive(),
+    ) - mu2_sq.clone();
+    let sigma12 = conv2d(
+        img1.clone() * img2.clone(),
         window.clone(),
         None,
         conv_options.clone(),
-    )) - mu1_mu2.clone();
+    ) - mu1_mu2.clone();
 
     let c1 = (0.01f32).powf(2.0);
     let c2 = (0.03f32).powf(2.0);
