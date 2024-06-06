@@ -1,6 +1,6 @@
 // Utilities to go from ndarray -> image and the other way around.
 use burn::tensor::{backend::Backend, Float, Shape, Tensor};
-use ndarray::{Array, ArrayView, Dim, Dimension, StrideShape};
+use ndarray::{ArrayView, Dim, Dimension};
 
 pub(crate) fn ndarray_to_burn<B: Backend, const D: usize>(
     arr: ArrayView<f32, Dim<[usize; D]>>,
@@ -11,18 +11,6 @@ where
 {
     let shape = Shape::new(arr.shape().try_into().unwrap());
     Tensor::from_floats(arr.as_slice().unwrap(), device).reshape(shape)
-}
-
-pub(crate) fn burn_to_ndarray<B: Backend, const D: usize>(
-    tensor: Tensor<B, D>,
-) -> Array<f32, Dim<[usize; D]>>
-where
-    Dim<[usize; D]>: Dimension,
-    [usize; D]: Into<StrideShape<Dim<[usize; D]>>>,
-{
-    let dims = tensor.dims();
-    let burn_data = tensor.into_data();
-    Array::from_shape_vec(dims.into(), burn_data.convert::<f32>().value).unwrap()
 }
 
 // Quaternion multiplication function
