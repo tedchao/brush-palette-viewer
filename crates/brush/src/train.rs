@@ -1,5 +1,3 @@
-use std::time;
-
 use anyhow::Result;
 use brush_render::sync_span::SyncSpan;
 use brush_render::{AutodiffBackend, Backend, RenderAux};
@@ -8,19 +6,17 @@ use burn::lr_scheduler::LrScheduler;
 use burn::nn::loss::{HuberLossConfig, MseLoss};
 use burn::optim::adaptor::OptimizerAdaptor;
 use burn::optim::Adam;
-use burn::tensor::{Bool, Distribution, ElementConversion};
+use burn::tensor::{Bool, Distribution};
 use burn::{
     config::Config,
     optim::{AdamConfig, GradientsParams, Optimizer},
     tensor::Tensor,
 };
-use ndarray::Array;
 use rand::{rngs::StdRng, SeedableRng};
 use tracing::info_span;
 
 use crate::gaussian_splats::Splats;
 use crate::scene::SceneBatch;
-use crate::utils::quaternion_rotation;
 
 #[derive(Config)]
 pub(crate) struct LrConfig {
@@ -109,6 +105,68 @@ where
     // Helper tensors for accumulating the viewspace_xy gradients and the number
     // of observations per gaussian. Used in pruning and densification.
     xy_grad_norm_accum: Tensor<B, 1>,
+}
+
+// Quaternion multiplication function
+pub(crate) fn quat_multiply<B: Backend>(q: Tensor<B, 2>, r: Tensor<B, 2>) -> Tensor<B, 2> {
+    let num = q.dims()[0];
+
+    let (q0, q1, q2, q3) = (
+        q.clone().slice([0..num, 3..4]),
+        q.clone().slice([0..num, 0..1]),
+        q.clone().slice([0..num, 1..2]),
+        q.clone().slice([0..num, 2..3]),
+    );
+    let (r0, r1, r2, r3) = (
+        r.clone().slice([0..num, 0..1]),
+        r.clone().slice([0..num, 1..2]),
+        r.clone().slice([0..num, 2..3]),
+        r.clone().slice([0..num, 3..4]),
+    );
+
+    Tensor::cat(
+        vec![
+            r0.clone() * q0.clone()
+                - r1.clone() * q1.clone()
+                - r2.clone() * q2.clone()
+                - r3.clone() * q3.clone(),
+            r0.clone() * q1.clone() + r1.clone() * q0.clone() - r2.clone() * q3.clone()
+                + r3.clone() * q2.clone(),
+            r0.clone() * q2.clone() + r1.clone() * q3.clone() + r2.clone() * q0.clone()
+                - r3.clone() * q1.clone(),
+            r0.clone() * q3.clone() - r1.clone() * q2.clone()
+                + r2.clone() * q1.clone()
+                + r3.clone() * q0.clone(),
+        ],
+        1,
+    )
+}
+
+pub(crate) fn quaternion_rotation<B: Backend>(
+    vectors: Tensor<B, 2>,
+    quaternions: Tensor<B, 2>,
+) -> Tensor<B, 2> {
+    let num = vectors.dims()[0];
+    // Convert vectors to quaternions with zero real part
+    let vector_quats = Tensor::cat(
+        vec![
+            Tensor::zeros_like(&vectors.clone().slice([0..num, 0..1])),
+            vectors,
+        ],
+        1,
+    );
+
+    // Calculate the conjugate of quaternions
+    let quaternions_conj = quaternions.clone().slice_assign(
+        [0..num, 1..4],
+        quaternions.clone().slice([0..num, 1..4]) * -1,
+    );
+
+    // Rotate vectors: v' = q * v * q_conjugate
+    let rotated_vectors = quat_multiply(quat_multiply(quaternions, vector_quats), quaternions_conj);
+
+    // Return only the vector part (imaginary components)
+    rotated_vectors.slice([0..num, 1..4])
 }
 
 impl<B: AutodiffBackend> SplatTrainer<B>
@@ -328,16 +386,13 @@ where
         }
     }
 
-    // TODO: Probably want to feed in a batch of data here.
     pub fn step(
         &mut self,
         batch: SceneBatch<B>,
         splats: Splats<B>,
-        rec: &rerun::RecordingStream,
+        #[cfg(feature = "rerun")] rec: &rerun::RecordingStream,
     ) -> Result<Splats<B>, anyhow::Error> {
         let _span = info_span!("Train step").entered();
-
-        let start_time = time::Instant::now();
 
         let device = &splats.means.device();
 
@@ -531,48 +586,49 @@ where
             psnr,
         };
 
-        rec.set_time_sequence("iterations", self.iter);
+        #[cfg(feature = "rerun")]
+        {
+            rec.set_time_sequence("iterations", self.iter);
 
-        rec.log("lr/mean", &rerun::Scalar::new(lr_mean))?;
-        rec.log("lr/opac", &rerun::Scalar::new(lr_opac))?;
-        rec.log("lr/rest", &rerun::Scalar::new(lr_rest))?;
-
-        rec.log(
-            "splats/num",
-            &rerun::Scalar::new(splats.num_splats() as f64).clone(),
-        )?;
-
-        rec.log(
-            "performance/step_ms",
-            &rerun::Scalar::new((time::Instant::now() - start_time).as_secs_f64() * 1000.0).clone(),
-        )?;
-
-        if self.iter % self.config.visualize_every == 0 {
-            self.visualize_train_stats(rec, stats)?;
-
-            let main_gt_image = batch.gt_image.slice([0..1]);
+            rec.log("lr/mean", &rerun::Scalar::new(lr_mean))?;
+            rec.log("lr/opac", &rerun::Scalar::new(lr_opac))?;
+            rec.log("lr/rest", &rerun::Scalar::new(lr_rest))?;
 
             rec.log(
-                "images/ground truth",
-                &rerun::Image::try_from(
-                    Array::from_shape_vec(
-                        main_gt_image.dims(),
-                        main_gt_image.to_data().convert::<f32>().value,
-                    )?
-                    .map(|x| (*x * 255.0).clamp(0.0, 255.0) as u8),
-                )?,
+                "splats/num",
+                &rerun::Scalar::new(splats.num_splats() as f64).clone(),
             )?;
+
+            if self.iter % self.config.visualize_every == 0 {
+                self.visualize_train_stats(rec, stats)?;
+
+                let main_gt_image = batch.gt_image.slice([0..1]);
+
+                rec.log(
+                    "images/ground truth",
+                    &rerun::Image::try_from(
+                        ndarray::Array::from_shape_vec(
+                            main_gt_image.dims(),
+                            main_gt_image.to_data().convert::<f32>().value,
+                        )?
+                        .map(|x| (*x * 255.0).clamp(0.0, 255.0) as u8),
+                    )?,
+                )?;
+            }
+
+            if self.iter % self.config.visualize_splats_every == 0 {
+                splats.visualize(rec)?;
+            }
         }
 
-        if self.iter % self.config.visualize_splats_every == 0 {
-            splats.visualize(rec)?;
-        }
+        drop(stats);
 
         self.iter += 1;
 
         Ok(splats)
     }
 
+    #[cfg(feature = "rerun")]
     fn visualize_train_stats(
         &self,
         rec: &rerun::RecordingStream,

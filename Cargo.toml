@@ -21,7 +21,6 @@ burn = { git = "https://github.com/ArthurBrussee/burn.git", features = [
     'wgpu',
     'autodiff',
     'template',
-    'dataset',
 ] }
 burn-compute = { git = "https://github.com/ArthurBrussee/burn.git" }
 burn-jit = { git = "https://github.com/ArthurBrussee/burn.git" }

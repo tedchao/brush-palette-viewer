@@ -2,7 +2,7 @@
 //
 // ^ wgsl_bindgen version 0.11.1
 // Changes made to this file will not be saved.
-// SourceHash: 067e7993b95354b095bba278f1abbdc0bb9c14d926f1ceed70c7d0f2d47b5253
+// SourceHash: fa33b5d5b753cf18add11475004c1af70599c7c13f110be20cf5b23206ac67c1
 
 #![allow(
     unused,

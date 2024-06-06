@@ -2,7 +2,7 @@
 //
 // ^ wgsl_bindgen version 0.11.1
 // Changes made to this file will not be saved.
-// SourceHash: 532034f003a0ea1331c476c14a7ff3b3d8b9e2abca72ae7fbd9ee6ca46ad2b72
+// SourceHash: 3b93caff595d551eb379f559d749b40c6644fbc2c9a153354d5c842c3b26e241
 
 #![allow(
     unused,
@@ -35,11 +35,21 @@ impl ShaderEntry {
         shader_defs: std::collections::HashMap<String, naga_oil::compose::ShaderDefValue>,
     ) -> wgpu::ShaderModule {
         match self {
-            Self::SortCount => sort_count::create_shader_module_embedded(device, shader_defs),
-            Self::SortReduce => sort_reduce::create_shader_module_embedded(device, shader_defs),
-            Self::SortScanAdd => sort_scan_add::create_shader_module_embedded(device, shader_defs),
-            Self::SortScan => sort_scan::create_shader_module_embedded(device, shader_defs),
-            Self::SortScatter => sort_scatter::create_shader_module_embedded(device, shader_defs),
+            Self::SortCount => {
+                sort_count::create_shader_module_embedded(device, shader_defs)
+            }
+            Self::SortReduce => {
+                sort_reduce::create_shader_module_embedded(device, shader_defs)
+            }
+            Self::SortScanAdd => {
+                sort_scan_add::create_shader_module_embedded(device, shader_defs)
+            }
+            Self::SortScan => {
+                sort_scan::create_shader_module_embedded(device, shader_defs)
+            }
+            Self::SortScatter => {
+                sort_scatter::create_shader_module_embedded(device, shader_defs)
+            }
         }
     }
 }
@@ -49,18 +59,18 @@ mod _root {
 pub mod layout_asserts {
     use super::{_root, _root::*};
     const WGSL_BASE_TYPE_ASSERTS: () = {
-        assert!(std::mem::size_of::<glam::Vec3A>() == 16);
-        assert!(std::mem::align_of::<glam::Vec3A>() == 16);
-        assert!(std::mem::size_of::<glam::Vec4>() == 16);
-        assert!(std::mem::align_of::<glam::Vec4>() == 16);
-        assert!(std::mem::size_of::<glam::Mat3A>() == 48);
-        assert!(std::mem::align_of::<glam::Mat3A>() == 16);
-        assert!(std::mem::size_of::<glam::Mat4>() == 64);
-        assert!(std::mem::align_of::<glam::Mat4>() == 16);
+        assert!(std::mem::size_of:: < glam::Vec3A > () == 16);
+        assert!(std::mem::align_of:: < glam::Vec3A > () == 16);
+        assert!(std::mem::size_of:: < glam::Vec4 > () == 16);
+        assert!(std::mem::align_of:: < glam::Vec4 > () == 16);
+        assert!(std::mem::size_of:: < glam::Mat3A > () == 48);
+        assert!(std::mem::align_of:: < glam::Mat3A > () == 16);
+        assert!(std::mem::size_of:: < glam::Mat4 > () == 64);
+        assert!(std::mem::align_of:: < glam::Mat4 > () == 16);
     };
     const SORTING_CONFIG_ASSERTS: () = {
         assert!(std::mem::offset_of!(sorting::Config, shift) == 0);
-        assert!(std::mem::size_of::<sorting::Config>() == 4);
+        assert!(std::mem::size_of:: < sorting::Config > () == 4);
     };
 }
 pub mod sorting {
@@ -123,63 +133,78 @@ pub mod sort_count {
         #[derive(Debug)]
         pub struct WgpuBindGroup0(wgpu::BindGroup);
         impl WgpuBindGroup0 {
-            pub const LAYOUT_DESCRIPTOR: wgpu::BindGroupLayoutDescriptor<'static> =
-                wgpu::BindGroupLayoutDescriptor {
-                    label: Some("SortCount::BindGroup0::LayoutDescriptor"),
-                    entries: &[
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 0,
-                            visibility: wgpu::ShaderStages::COMPUTE,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Storage { read_only: true },
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
+            pub const LAYOUT_DESCRIPTOR: wgpu::BindGroupLayoutDescriptor<'static> = wgpu::BindGroupLayoutDescriptor {
+                label: Some("SortCount::BindGroup0::LayoutDescriptor"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage {
+                                read_only: true,
                             },
-                            count: None,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
                         },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 1,
-                            visibility: wgpu::ShaderStages::COMPUTE,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Storage { read_only: true },
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage {
+                                read_only: true,
                             },
-                            count: None,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
                         },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 2,
-                            visibility: wgpu::ShaderStages::COMPUTE,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Storage { read_only: true },
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage {
+                                read_only: true,
                             },
-                            count: None,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
                         },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 3,
-                            visibility: wgpu::ShaderStages::COMPUTE,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Storage { read_only: false },
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 3,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage {
+                                read_only: false,
                             },
-                            count: None,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
                         },
-                    ],
-                };
-            pub fn get_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
+                        count: None,
+                    },
+                ],
+            };
+            pub fn get_bind_group_layout(
+                device: &wgpu::Device,
+            ) -> wgpu::BindGroupLayout {
                 device.create_bind_group_layout(&Self::LAYOUT_DESCRIPTOR)
             }
-            pub fn from_bindings(device: &wgpu::Device, bindings: WgpuBindGroupLayout0) -> Self {
+            pub fn from_bindings(
+                device: &wgpu::Device,
+                bindings: WgpuBindGroupLayout0,
+            ) -> Self {
                 let bind_group_layout = Self::get_bind_group_layout(device);
                 let entries = bindings.entries();
-                let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("SortCount::BindGroup0"),
-                    layout: &bind_group_layout,
-                    entries: &entries,
-                });
+                let bind_group = device
+                    .create_bind_group(
+                        &wgpu::BindGroupDescriptor {
+                            label: Some("SortCount::BindGroup0"),
+                            layout: &bind_group_layout,
+                            entries: &entries,
+                        },
+                    );
                 Self(bind_group)
             }
             pub fn set<'a>(&'a self, render_pass: &mut wgpu::ComputePass<'a>) {
@@ -206,17 +231,23 @@ pub mod sort_count {
         pub const MAIN_WORKGROUP_SIZE: [u32; 3] = [256, 1, 1];
         pub fn create_main_pipeline_embedded(
             device: &wgpu::Device,
-            shader_defs: std::collections::HashMap<String, naga_oil::compose::ShaderDefValue>,
+            shader_defs: std::collections::HashMap<
+                String,
+                naga_oil::compose::ShaderDefValue,
+            >,
         ) -> wgpu::ComputePipeline {
             let module = super::create_shader_module_embedded(device, shader_defs);
             let layout = super::create_pipeline_layout(device);
-            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("Compute Pipeline main"),
-                layout: Some(&layout),
-                module: &module,
-                entry_point: "main",
-                compilation_options: Default::default(),
-            })
+            device
+                .create_compute_pipeline(
+                    &wgpu::ComputePipelineDescriptor {
+                        label: Some("Compute Pipeline main"),
+                        layout: Some(&layout),
+                        module: &module,
+                        entry_point: "main",
+                        compilation_options: Default::default(),
+                    },
+                )
         }
     }
     pub const ENTRY_MAIN: &str = "main";
@@ -230,15 +261,23 @@ pub mod sort_count {
         }
     }
     pub fn create_pipeline_layout(device: &wgpu::Device) -> wgpu::PipelineLayout {
-        device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("SortCount::PipelineLayout"),
-            bind_group_layouts: &[&bind_groups::WgpuBindGroup0::get_bind_group_layout(device)],
-            push_constant_ranges: &[],
-        })
+        device
+            .create_pipeline_layout(
+                &wgpu::PipelineLayoutDescriptor {
+                    label: Some("SortCount::PipelineLayout"),
+                    bind_group_layouts: &[
+                        &bind_groups::WgpuBindGroup0::get_bind_group_layout(device),
+                    ],
+                    push_constant_ranges: &[],
+                },
+            )
     }
     pub fn load_shader_modules_embedded(
         composer: &mut naga_oil::compose::Composer,
-        shader_defs: &std::collections::HashMap<String, naga_oil::compose::ShaderDefValue>,
+        shader_defs: &std::collections::HashMap<
+            String,
+            naga_oil::compose::ShaderDefValue,
+        >,
     ) -> () {
         composer
             .add_composable_module(naga_oil::compose::ComposableModuleDescriptor {
@@ -273,22 +312,23 @@ pub mod sort_count {
         load_shader_modules_embedded(&mut composer, &shader_defs);
         let module = load_naga_module_embedded(&mut composer, shader_defs);
         let info = wgpu::naga::valid::Validator::new(
-            wgpu::naga::valid::ValidationFlags::empty(),
-            wgpu::naga::valid::Capabilities::all(),
-        )
-        .validate(&module)
-        .unwrap();
+                wgpu::naga::valid::ValidationFlags::empty(),
+                wgpu::naga::valid::Capabilities::all(),
+            )
+            .validate(&module)
+            .unwrap();
         let shader_string = wgpu::naga::back::wgsl::write_string(
-            &module,
-            &info,
-            wgpu::naga::back::wgsl::WriterFlags::empty(),
-        )
-        .expect("failed to convert naga module to source");
+                &module,
+                &info,
+                wgpu::naga::back::wgsl::WriterFlags::empty(),
+            )
+            .expect("failed to convert naga module to source");
         let source = std::borrow::Cow::Owned(shader_string);
-        device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("sort_count.wgsl"),
-            source: wgpu::ShaderSource::Wgsl(source),
-        })
+        device
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("sort_count.wgsl"),
+                source: wgpu::ShaderSource::Wgsl(source),
+            })
     }
 }
 pub mod sort_reduce {
@@ -321,53 +361,66 @@ pub mod sort_reduce {
         #[derive(Debug)]
         pub struct WgpuBindGroup0(wgpu::BindGroup);
         impl WgpuBindGroup0 {
-            pub const LAYOUT_DESCRIPTOR: wgpu::BindGroupLayoutDescriptor<'static> =
-                wgpu::BindGroupLayoutDescriptor {
-                    label: Some("SortReduce::BindGroup0::LayoutDescriptor"),
-                    entries: &[
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 0,
-                            visibility: wgpu::ShaderStages::COMPUTE,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Storage { read_only: true },
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
+            pub const LAYOUT_DESCRIPTOR: wgpu::BindGroupLayoutDescriptor<'static> = wgpu::BindGroupLayoutDescriptor {
+                label: Some("SortReduce::BindGroup0::LayoutDescriptor"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage {
+                                read_only: true,
                             },
-                            count: None,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
                         },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 1,
-                            visibility: wgpu::ShaderStages::COMPUTE,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Storage { read_only: true },
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage {
+                                read_only: true,
                             },
-                            count: None,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
                         },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 2,
-                            visibility: wgpu::ShaderStages::COMPUTE,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Storage { read_only: false },
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage {
+                                read_only: false,
                             },
-                            count: None,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
                         },
-                    ],
-                };
-            pub fn get_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
+                        count: None,
+                    },
+                ],
+            };
+            pub fn get_bind_group_layout(
+                device: &wgpu::Device,
+            ) -> wgpu::BindGroupLayout {
                 device.create_bind_group_layout(&Self::LAYOUT_DESCRIPTOR)
             }
-            pub fn from_bindings(device: &wgpu::Device, bindings: WgpuBindGroupLayout0) -> Self {
+            pub fn from_bindings(
+                device: &wgpu::Device,
+                bindings: WgpuBindGroupLayout0,
+            ) -> Self {
                 let bind_group_layout = Self::get_bind_group_layout(device);
                 let entries = bindings.entries();
-                let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("SortReduce::BindGroup0"),
-                    layout: &bind_group_layout,
-                    entries: &entries,
-                });
+                let bind_group = device
+                    .create_bind_group(
+                        &wgpu::BindGroupDescriptor {
+                            label: Some("SortReduce::BindGroup0"),
+                            layout: &bind_group_layout,
+                            entries: &entries,
+                        },
+                    );
                 Self(bind_group)
             }
             pub fn set<'a>(&'a self, render_pass: &mut wgpu::ComputePass<'a>) {
@@ -394,17 +447,23 @@ pub mod sort_reduce {
         pub const MAIN_WORKGROUP_SIZE: [u32; 3] = [256, 1, 1];
         pub fn create_main_pipeline_embedded(
             device: &wgpu::Device,
-            shader_defs: std::collections::HashMap<String, naga_oil::compose::ShaderDefValue>,
+            shader_defs: std::collections::HashMap<
+                String,
+                naga_oil::compose::ShaderDefValue,
+            >,
         ) -> wgpu::ComputePipeline {
             let module = super::create_shader_module_embedded(device, shader_defs);
             let layout = super::create_pipeline_layout(device);
-            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("Compute Pipeline main"),
-                layout: Some(&layout),
-                module: &module,
-                entry_point: "main",
-                compilation_options: Default::default(),
-            })
+            device
+                .create_compute_pipeline(
+                    &wgpu::ComputePipelineDescriptor {
+                        label: Some("Compute Pipeline main"),
+                        layout: Some(&layout),
+                        module: &module,
+                        entry_point: "main",
+                        compilation_options: Default::default(),
+                    },
+                )
         }
     }
     pub const ENTRY_MAIN: &str = "main";
@@ -418,15 +477,23 @@ pub mod sort_reduce {
         }
     }
     pub fn create_pipeline_layout(device: &wgpu::Device) -> wgpu::PipelineLayout {
-        device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("SortReduce::PipelineLayout"),
-            bind_group_layouts: &[&bind_groups::WgpuBindGroup0::get_bind_group_layout(device)],
-            push_constant_ranges: &[],
-        })
+        device
+            .create_pipeline_layout(
+                &wgpu::PipelineLayoutDescriptor {
+                    label: Some("SortReduce::PipelineLayout"),
+                    bind_group_layouts: &[
+                        &bind_groups::WgpuBindGroup0::get_bind_group_layout(device),
+                    ],
+                    push_constant_ranges: &[],
+                },
+            )
     }
     pub fn load_shader_modules_embedded(
         composer: &mut naga_oil::compose::Composer,
-        shader_defs: &std::collections::HashMap<String, naga_oil::compose::ShaderDefValue>,
+        shader_defs: &std::collections::HashMap<
+            String,
+            naga_oil::compose::ShaderDefValue,
+        >,
     ) -> () {
         composer
             .add_composable_module(naga_oil::compose::ComposableModuleDescriptor {
@@ -461,22 +528,23 @@ pub mod sort_reduce {
         load_shader_modules_embedded(&mut composer, &shader_defs);
         let module = load_naga_module_embedded(&mut composer, shader_defs);
         let info = wgpu::naga::valid::Validator::new(
-            wgpu::naga::valid::ValidationFlags::empty(),
-            wgpu::naga::valid::Capabilities::all(),
-        )
-        .validate(&module)
-        .unwrap();
+                wgpu::naga::valid::ValidationFlags::empty(),
+                wgpu::naga::valid::Capabilities::all(),
+            )
+            .validate(&module)
+            .unwrap();
         let shader_string = wgpu::naga::back::wgsl::write_string(
-            &module,
-            &info,
-            wgpu::naga::back::wgsl::WriterFlags::empty(),
-        )
-        .expect("failed to convert naga module to source");
+                &module,
+                &info,
+                wgpu::naga::back::wgsl::WriterFlags::empty(),
+            )
+            .expect("failed to convert naga module to source");
         let source = std::borrow::Cow::Owned(shader_string);
-        device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("sort_reduce.wgsl"),
-            source: wgpu::ShaderSource::Wgsl(source),
-        })
+        device
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("sort_reduce.wgsl"),
+                source: wgpu::ShaderSource::Wgsl(source),
+            })
     }
 }
 pub mod sort_scan_add {
@@ -509,53 +577,66 @@ pub mod sort_scan_add {
         #[derive(Debug)]
         pub struct WgpuBindGroup0(wgpu::BindGroup);
         impl WgpuBindGroup0 {
-            pub const LAYOUT_DESCRIPTOR: wgpu::BindGroupLayoutDescriptor<'static> =
-                wgpu::BindGroupLayoutDescriptor {
-                    label: Some("SortScanAdd::BindGroup0::LayoutDescriptor"),
-                    entries: &[
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 0,
-                            visibility: wgpu::ShaderStages::COMPUTE,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Storage { read_only: true },
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
+            pub const LAYOUT_DESCRIPTOR: wgpu::BindGroupLayoutDescriptor<'static> = wgpu::BindGroupLayoutDescriptor {
+                label: Some("SortScanAdd::BindGroup0::LayoutDescriptor"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage {
+                                read_only: true,
                             },
-                            count: None,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
                         },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 1,
-                            visibility: wgpu::ShaderStages::COMPUTE,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Storage { read_only: true },
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage {
+                                read_only: true,
                             },
-                            count: None,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
                         },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 2,
-                            visibility: wgpu::ShaderStages::COMPUTE,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Storage { read_only: false },
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage {
+                                read_only: false,
                             },
-                            count: None,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
                         },
-                    ],
-                };
-            pub fn get_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
+                        count: None,
+                    },
+                ],
+            };
+            pub fn get_bind_group_layout(
+                device: &wgpu::Device,
+            ) -> wgpu::BindGroupLayout {
                 device.create_bind_group_layout(&Self::LAYOUT_DESCRIPTOR)
             }
-            pub fn from_bindings(device: &wgpu::Device, bindings: WgpuBindGroupLayout0) -> Self {
+            pub fn from_bindings(
+                device: &wgpu::Device,
+                bindings: WgpuBindGroupLayout0,
+            ) -> Self {
                 let bind_group_layout = Self::get_bind_group_layout(device);
                 let entries = bindings.entries();
-                let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("SortScanAdd::BindGroup0"),
-                    layout: &bind_group_layout,
-                    entries: &entries,
-                });
+                let bind_group = device
+                    .create_bind_group(
+                        &wgpu::BindGroupDescriptor {
+                            label: Some("SortScanAdd::BindGroup0"),
+                            layout: &bind_group_layout,
+                            entries: &entries,
+                        },
+                    );
                 Self(bind_group)
             }
             pub fn set<'a>(&'a self, render_pass: &mut wgpu::ComputePass<'a>) {
@@ -582,17 +663,23 @@ pub mod sort_scan_add {
         pub const MAIN_WORKGROUP_SIZE: [u32; 3] = [256, 1, 1];
         pub fn create_main_pipeline_embedded(
             device: &wgpu::Device,
-            shader_defs: std::collections::HashMap<String, naga_oil::compose::ShaderDefValue>,
+            shader_defs: std::collections::HashMap<
+                String,
+                naga_oil::compose::ShaderDefValue,
+            >,
         ) -> wgpu::ComputePipeline {
             let module = super::create_shader_module_embedded(device, shader_defs);
             let layout = super::create_pipeline_layout(device);
-            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("Compute Pipeline main"),
-                layout: Some(&layout),
-                module: &module,
-                entry_point: "main",
-                compilation_options: Default::default(),
-            })
+            device
+                .create_compute_pipeline(
+                    &wgpu::ComputePipelineDescriptor {
+                        label: Some("Compute Pipeline main"),
+                        layout: Some(&layout),
+                        module: &module,
+                        entry_point: "main",
+                        compilation_options: Default::default(),
+                    },
+                )
         }
     }
     pub const ENTRY_MAIN: &str = "main";
@@ -606,15 +693,23 @@ pub mod sort_scan_add {
         }
     }
     pub fn create_pipeline_layout(device: &wgpu::Device) -> wgpu::PipelineLayout {
-        device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("SortScanAdd::PipelineLayout"),
-            bind_group_layouts: &[&bind_groups::WgpuBindGroup0::get_bind_group_layout(device)],
-            push_constant_ranges: &[],
-        })
+        device
+            .create_pipeline_layout(
+                &wgpu::PipelineLayoutDescriptor {
+                    label: Some("SortScanAdd::PipelineLayout"),
+                    bind_group_layouts: &[
+                        &bind_groups::WgpuBindGroup0::get_bind_group_layout(device),
+                    ],
+                    push_constant_ranges: &[],
+                },
+            )
     }
     pub fn load_shader_modules_embedded(
         composer: &mut naga_oil::compose::Composer,
-        shader_defs: &std::collections::HashMap<String, naga_oil::compose::ShaderDefValue>,
+        shader_defs: &std::collections::HashMap<
+            String,
+            naga_oil::compose::ShaderDefValue,
+        >,
     ) -> () {
         composer
             .add_composable_module(naga_oil::compose::ComposableModuleDescriptor {
@@ -649,22 +744,23 @@ pub mod sort_scan_add {
         load_shader_modules_embedded(&mut composer, &shader_defs);
         let module = load_naga_module_embedded(&mut composer, shader_defs);
         let info = wgpu::naga::valid::Validator::new(
-            wgpu::naga::valid::ValidationFlags::empty(),
-            wgpu::naga::valid::Capabilities::all(),
-        )
-        .validate(&module)
-        .unwrap();
+                wgpu::naga::valid::ValidationFlags::empty(),
+                wgpu::naga::valid::Capabilities::all(),
+            )
+            .validate(&module)
+            .unwrap();
         let shader_string = wgpu::naga::back::wgsl::write_string(
-            &module,
-            &info,
-            wgpu::naga::back::wgsl::WriterFlags::empty(),
-        )
-        .expect("failed to convert naga module to source");
+                &module,
+                &info,
+                wgpu::naga::back::wgsl::WriterFlags::empty(),
+            )
+            .expect("failed to convert naga module to source");
         let source = std::borrow::Cow::Owned(shader_string);
-        device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("sort_scan_add.wgsl"),
-            source: wgpu::ShaderSource::Wgsl(source),
-        })
+        device
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("sort_scan_add.wgsl"),
+                source: wgpu::ShaderSource::Wgsl(source),
+            })
     }
 }
 pub mod sort_scan {
@@ -692,43 +788,54 @@ pub mod sort_scan {
         #[derive(Debug)]
         pub struct WgpuBindGroup0(wgpu::BindGroup);
         impl WgpuBindGroup0 {
-            pub const LAYOUT_DESCRIPTOR: wgpu::BindGroupLayoutDescriptor<'static> =
-                wgpu::BindGroupLayoutDescriptor {
-                    label: Some("SortScan::BindGroup0::LayoutDescriptor"),
-                    entries: &[
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 0,
-                            visibility: wgpu::ShaderStages::COMPUTE,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Storage { read_only: true },
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
+            pub const LAYOUT_DESCRIPTOR: wgpu::BindGroupLayoutDescriptor<'static> = wgpu::BindGroupLayoutDescriptor {
+                label: Some("SortScan::BindGroup0::LayoutDescriptor"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage {
+                                read_only: true,
                             },
-                            count: None,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
                         },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 1,
-                            visibility: wgpu::ShaderStages::COMPUTE,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Storage { read_only: false },
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage {
+                                read_only: false,
                             },
-                            count: None,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
                         },
-                    ],
-                };
-            pub fn get_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
+                        count: None,
+                    },
+                ],
+            };
+            pub fn get_bind_group_layout(
+                device: &wgpu::Device,
+            ) -> wgpu::BindGroupLayout {
                 device.create_bind_group_layout(&Self::LAYOUT_DESCRIPTOR)
             }
-            pub fn from_bindings(device: &wgpu::Device, bindings: WgpuBindGroupLayout0) -> Self {
+            pub fn from_bindings(
+                device: &wgpu::Device,
+                bindings: WgpuBindGroupLayout0,
+            ) -> Self {
                 let bind_group_layout = Self::get_bind_group_layout(device);
                 let entries = bindings.entries();
-                let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("SortScan::BindGroup0"),
-                    layout: &bind_group_layout,
-                    entries: &entries,
-                });
+                let bind_group = device
+                    .create_bind_group(
+                        &wgpu::BindGroupDescriptor {
+                            label: Some("SortScan::BindGroup0"),
+                            layout: &bind_group_layout,
+                            entries: &entries,
+                        },
+                    );
                 Self(bind_group)
             }
             pub fn set<'a>(&'a self, render_pass: &mut wgpu::ComputePass<'a>) {
@@ -755,17 +862,23 @@ pub mod sort_scan {
         pub const MAIN_WORKGROUP_SIZE: [u32; 3] = [256, 1, 1];
         pub fn create_main_pipeline_embedded(
             device: &wgpu::Device,
-            shader_defs: std::collections::HashMap<String, naga_oil::compose::ShaderDefValue>,
+            shader_defs: std::collections::HashMap<
+                String,
+                naga_oil::compose::ShaderDefValue,
+            >,
         ) -> wgpu::ComputePipeline {
             let module = super::create_shader_module_embedded(device, shader_defs);
             let layout = super::create_pipeline_layout(device);
-            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("Compute Pipeline main"),
-                layout: Some(&layout),
-                module: &module,
-                entry_point: "main",
-                compilation_options: Default::default(),
-            })
+            device
+                .create_compute_pipeline(
+                    &wgpu::ComputePipelineDescriptor {
+                        label: Some("Compute Pipeline main"),
+                        layout: Some(&layout),
+                        module: &module,
+                        entry_point: "main",
+                        compilation_options: Default::default(),
+                    },
+                )
         }
     }
     pub const ENTRY_MAIN: &str = "main";
@@ -779,15 +892,23 @@ pub mod sort_scan {
         }
     }
     pub fn create_pipeline_layout(device: &wgpu::Device) -> wgpu::PipelineLayout {
-        device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("SortScan::PipelineLayout"),
-            bind_group_layouts: &[&bind_groups::WgpuBindGroup0::get_bind_group_layout(device)],
-            push_constant_ranges: &[],
-        })
+        device
+            .create_pipeline_layout(
+                &wgpu::PipelineLayoutDescriptor {
+                    label: Some("SortScan::PipelineLayout"),
+                    bind_group_layouts: &[
+                        &bind_groups::WgpuBindGroup0::get_bind_group_layout(device),
+                    ],
+                    push_constant_ranges: &[],
+                },
+            )
     }
     pub fn load_shader_modules_embedded(
         composer: &mut naga_oil::compose::Composer,
-        shader_defs: &std::collections::HashMap<String, naga_oil::compose::ShaderDefValue>,
+        shader_defs: &std::collections::HashMap<
+            String,
+            naga_oil::compose::ShaderDefValue,
+        >,
     ) -> () {
         composer
             .add_composable_module(naga_oil::compose::ComposableModuleDescriptor {
@@ -822,22 +943,23 @@ pub mod sort_scan {
         load_shader_modules_embedded(&mut composer, &shader_defs);
         let module = load_naga_module_embedded(&mut composer, shader_defs);
         let info = wgpu::naga::valid::Validator::new(
-            wgpu::naga::valid::ValidationFlags::empty(),
-            wgpu::naga::valid::Capabilities::all(),
-        )
-        .validate(&module)
-        .unwrap();
+                wgpu::naga::valid::ValidationFlags::empty(),
+                wgpu::naga::valid::Capabilities::all(),
+            )
+            .validate(&module)
+            .unwrap();
         let shader_string = wgpu::naga::back::wgsl::write_string(
-            &module,
-            &info,
-            wgpu::naga::back::wgsl::WriterFlags::empty(),
-        )
-        .expect("failed to convert naga module to source");
+                &module,
+                &info,
+                wgpu::naga::back::wgsl::WriterFlags::empty(),
+            )
+            .expect("failed to convert naga module to source");
         let source = std::borrow::Cow::Owned(shader_string);
-        device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("sort_scan.wgsl"),
-            source: wgpu::ShaderSource::Wgsl(source),
-        })
+        device
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("sort_scan.wgsl"),
+                source: wgpu::ShaderSource::Wgsl(source),
+            })
     }
 }
 pub mod sort_scatter {
@@ -890,93 +1012,114 @@ pub mod sort_scatter {
         #[derive(Debug)]
         pub struct WgpuBindGroup0(wgpu::BindGroup);
         impl WgpuBindGroup0 {
-            pub const LAYOUT_DESCRIPTOR: wgpu::BindGroupLayoutDescriptor<'static> =
-                wgpu::BindGroupLayoutDescriptor {
-                    label: Some("SortScatter::BindGroup0::LayoutDescriptor"),
-                    entries: &[
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 0,
-                            visibility: wgpu::ShaderStages::COMPUTE,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Storage { read_only: true },
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
+            pub const LAYOUT_DESCRIPTOR: wgpu::BindGroupLayoutDescriptor<'static> = wgpu::BindGroupLayoutDescriptor {
+                label: Some("SortScatter::BindGroup0::LayoutDescriptor"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage {
+                                read_only: true,
                             },
-                            count: None,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
                         },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 1,
-                            visibility: wgpu::ShaderStages::COMPUTE,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Storage { read_only: true },
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage {
+                                read_only: true,
                             },
-                            count: None,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
                         },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 2,
-                            visibility: wgpu::ShaderStages::COMPUTE,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Storage { read_only: true },
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage {
+                                read_only: true,
                             },
-                            count: None,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
                         },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 3,
-                            visibility: wgpu::ShaderStages::COMPUTE,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Storage { read_only: true },
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 3,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage {
+                                read_only: true,
                             },
-                            count: None,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
                         },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 4,
-                            visibility: wgpu::ShaderStages::COMPUTE,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Storage { read_only: true },
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 4,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage {
+                                read_only: true,
                             },
-                            count: None,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
                         },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 5,
-                            visibility: wgpu::ShaderStages::COMPUTE,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Storage { read_only: false },
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 5,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage {
+                                read_only: false,
                             },
-                            count: None,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
                         },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 6,
-                            visibility: wgpu::ShaderStages::COMPUTE,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Storage { read_only: false },
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 6,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage {
+                                read_only: false,
                             },
-                            count: None,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
                         },
-                    ],
-                };
-            pub fn get_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
+                        count: None,
+                    },
+                ],
+            };
+            pub fn get_bind_group_layout(
+                device: &wgpu::Device,
+            ) -> wgpu::BindGroupLayout {
                 device.create_bind_group_layout(&Self::LAYOUT_DESCRIPTOR)
             }
-            pub fn from_bindings(device: &wgpu::Device, bindings: WgpuBindGroupLayout0) -> Self {
+            pub fn from_bindings(
+                device: &wgpu::Device,
+                bindings: WgpuBindGroupLayout0,
+            ) -> Self {
                 let bind_group_layout = Self::get_bind_group_layout(device);
                 let entries = bindings.entries();
-                let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("SortScatter::BindGroup0"),
-                    layout: &bind_group_layout,
-                    entries: &entries,
-                });
+                let bind_group = device
+                    .create_bind_group(
+                        &wgpu::BindGroupDescriptor {
+                            label: Some("SortScatter::BindGroup0"),
+                            layout: &bind_group_layout,
+                            entries: &entries,
+                        },
+                    );
                 Self(bind_group)
             }
             pub fn set<'a>(&'a self, render_pass: &mut wgpu::ComputePass<'a>) {
@@ -1003,17 +1146,23 @@ pub mod sort_scatter {
         pub const MAIN_WORKGROUP_SIZE: [u32; 3] = [256, 1, 1];
         pub fn create_main_pipeline_embedded(
             device: &wgpu::Device,
-            shader_defs: std::collections::HashMap<String, naga_oil::compose::ShaderDefValue>,
+            shader_defs: std::collections::HashMap<
+                String,
+                naga_oil::compose::ShaderDefValue,
+            >,
         ) -> wgpu::ComputePipeline {
             let module = super::create_shader_module_embedded(device, shader_defs);
             let layout = super::create_pipeline_layout(device);
-            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("Compute Pipeline main"),
-                layout: Some(&layout),
-                module: &module,
-                entry_point: "main",
-                compilation_options: Default::default(),
-            })
+            device
+                .create_compute_pipeline(
+                    &wgpu::ComputePipelineDescriptor {
+                        label: Some("Compute Pipeline main"),
+                        layout: Some(&layout),
+                        module: &module,
+                        entry_point: "main",
+                        compilation_options: Default::default(),
+                    },
+                )
         }
     }
     pub const ENTRY_MAIN: &str = "main";
@@ -1027,15 +1176,23 @@ pub mod sort_scatter {
         }
     }
     pub fn create_pipeline_layout(device: &wgpu::Device) -> wgpu::PipelineLayout {
-        device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("SortScatter::PipelineLayout"),
-            bind_group_layouts: &[&bind_groups::WgpuBindGroup0::get_bind_group_layout(device)],
-            push_constant_ranges: &[],
-        })
+        device
+            .create_pipeline_layout(
+                &wgpu::PipelineLayoutDescriptor {
+                    label: Some("SortScatter::PipelineLayout"),
+                    bind_group_layouts: &[
+                        &bind_groups::WgpuBindGroup0::get_bind_group_layout(device),
+                    ],
+                    push_constant_ranges: &[],
+                },
+            )
     }
     pub fn load_shader_modules_embedded(
         composer: &mut naga_oil::compose::Composer,
-        shader_defs: &std::collections::HashMap<String, naga_oil::compose::ShaderDefValue>,
+        shader_defs: &std::collections::HashMap<
+            String,
+            naga_oil::compose::ShaderDefValue,
+        >,
     ) -> () {
         composer
             .add_composable_module(naga_oil::compose::ComposableModuleDescriptor {
@@ -1070,21 +1227,22 @@ pub mod sort_scatter {
         load_shader_modules_embedded(&mut composer, &shader_defs);
         let module = load_naga_module_embedded(&mut composer, shader_defs);
         let info = wgpu::naga::valid::Validator::new(
-            wgpu::naga::valid::ValidationFlags::empty(),
-            wgpu::naga::valid::Capabilities::all(),
-        )
-        .validate(&module)
-        .unwrap();
+                wgpu::naga::valid::ValidationFlags::empty(),
+                wgpu::naga::valid::Capabilities::all(),
+            )
+            .validate(&module)
+            .unwrap();
         let shader_string = wgpu::naga::back::wgsl::write_string(
-            &module,
-            &info,
-            wgpu::naga::back::wgsl::WriterFlags::empty(),
-        )
-        .expect("failed to convert naga module to source");
+                &module,
+                &info,
+                wgpu::naga::back::wgsl::WriterFlags::empty(),
+            )
+            .expect("failed to convert naga module to source");
         let source = std::borrow::Cow::Owned(shader_string);
-        device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("sort_scatter.wgsl"),
-            source: wgpu::ShaderSource::Wgsl(source),
-        })
+        device
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("sort_scatter.wgsl"),
+                source: wgpu::ShaderSource::Wgsl(source),
+            })
     }
 }

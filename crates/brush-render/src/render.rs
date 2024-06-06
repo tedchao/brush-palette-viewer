@@ -690,7 +690,6 @@ mod tests {
 
     use anyhow::{Context, Result};
 
-    // TODO: Add some reference renders.
     #[test]
     fn renders_at_all() {
         // Check if rendering doesn't hard crash or anything.

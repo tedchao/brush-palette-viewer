@@ -13,7 +13,7 @@ mod train;
 mod utils;
 mod viewer;
 
-use eframe::egui_wgpu::WgpuConfiguration;
+use eframe::{egui_wgpu::WgpuConfiguration, NativeOptions};
 use std::sync::Arc;
 use viewer::Viewer;
 
@@ -26,7 +26,7 @@ fn main() -> anyhow::Result<()> {
         tracing_subscriber::registry().with(tracing_tracy::TracyLayer::default()),
     )?;
 
-    let wgpu_config = WgpuConfiguration {
+    let wgpu_options = WgpuConfiguration {
         device_descriptor: Arc::new(|adapter| wgpu::DeviceDescriptor {
             label: Some("egui+burn wgpu device"),
             required_features: wgpu::Features::default(),
@@ -45,14 +45,7 @@ fn main() -> anyhow::Result<()> {
                 .with_active(true),
             vsync: false,
             // Need a slightly more careful wgpu init to support burn.
-            wgpu_options: WgpuConfiguration {
-                device_descriptor: Arc::new(|adapter| wgpu::DeviceDescriptor {
-                    label: Some("egui+burn wgpu device"),
-                    required_features: wgpu::Features::default(),
-                    required_limits: adapter.limits(),
-                }),
-                ..Default::default()
-            },
+            wgpu_options,
             ..Default::default()
         };
         eframe::run_native(
@@ -66,7 +59,7 @@ fn main() -> anyhow::Result<()> {
     #[cfg(target_arch = "wasm32")]
     {
         let web_options = eframe::WebOptions {
-            wgpu_options: wgpu_config,
+            wgpu_options,
             ..Default::default()
         };
 
