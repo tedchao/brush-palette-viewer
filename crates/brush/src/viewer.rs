@@ -13,8 +13,14 @@ use burn::{backend::Autodiff, module::AutodiffModule};
 use burn_wgpu::RuntimeOptions;
 use egui::{pos2, CollapsingHeader, Color32, Rect};
 use glam::{Mat4, Quat, Vec2, Vec3};
-use std::time::{self, Duration};
+
 use tracing::info_span;
+
+#[cfg(not(target_arch = "wasm32"))]
+use std::time::{Duration, Instant};
+
+#[cfg(target_arch = "wasm32")]
+use web_time::{Duration, Instant};
 
 type BurnDiffBack = Autodiff<BurnBack>;
 
@@ -22,6 +28,7 @@ struct TrainingUI {
     dataloader: SceneLoader<BurnDiffBack>,
     trainer: SplatTrainer<BurnDiffBack>,
     train_active: bool,
+    #[cfg(feature = "rerun")]
     rec: rerun::RecordingStream,
 }
 
@@ -35,7 +42,7 @@ pub struct Viewer {
     controls: OrbitControls,
     device: <BurnDiffBack as burn::prelude::Backend>::Device,
     start_transform: Mat4,
-    last_render_time: time::Instant,
+    last_render_time: Instant,
 }
 
 impl Viewer {
@@ -56,7 +63,7 @@ impl Viewer {
                 dealloc_strategy:
                     burn_compute::memory_management::simple::DeallocStrategy::PeriodTime {
                         period: Duration::from_secs(5),
-                        state: time::Instant::now(),
+                        state: Instant::now(),
                     },
                 tasks_max: 128,
                 ..Default::default()
@@ -72,7 +79,7 @@ impl Viewer {
             controls: OrbitControls::new(15.0),
             device,
             start_transform: glam::Mat4::IDENTITY,
-            last_render_time: time::Instant::now(),
+            last_render_time: Instant::now(),
         }
     }
 
@@ -96,6 +103,7 @@ impl Viewer {
 
     pub fn start_training(&mut self, path: &str) {
         <BurnDiffBack as burn::prelude::Backend>::seed(42);
+        #[cfg(feature = "rerun")]
         let rec = rerun::RecordingStreamBuilder::new("visualize training")
             .spawn()
             .expect("Failed to start rerun");
@@ -128,6 +136,7 @@ impl Viewer {
             dataloader,
             trainer,
             train_active: true,
+            #[cfg(feature = "rerun")]
             rec,
         });
 
@@ -174,7 +183,7 @@ impl eframe::App for Viewer {
                 }
             });
 
-            let now = time::Instant::now();
+            let now = Instant::now();
             let ms = (now - self.last_render_time).as_secs_f64() * 1000.0;
             let fps = 1000.0 / ms;
             self.last_render_time = now;
@@ -198,6 +207,7 @@ impl eframe::App for Viewer {
                             .step(
                                 batch,
                                 splats,
+                                #[cfg(feature = "rerun")]
                                 &train.rec,
                             )
                             .unwrap(),
