@@ -1,9 +1,5 @@
 use brush_render::camera::Camera;
-use burn::{
-    data::{dataloader::batcher::Batcher, dataset::Dataset},
-    prelude::*,
-    tensor::Tensor,
-};
+use burn::{prelude::*, tensor::Tensor};
 
 use crate::{dataset_readers::InputView, utils};
 
@@ -70,9 +66,7 @@ impl Scene {
             .unwrap()
             * 1.1
     }
-}
 
-impl Dataset<InputView> for Scene {
     fn get(&self, index: usize) -> Option<InputView> {
         self.views.get(index).cloned()
     }
@@ -82,6 +76,9 @@ impl Dataset<InputView> for Scene {
     }
 }
 
+// Normally the scene batcher is used with a Burn "dataloader" which handles some things
+// like shuffling & multithreading, but, we need some more control, and I also can't figure out how
+// to make their dataset loader work with lifetimes. Also also, it doesn't work on wasm.
 #[derive(Clone)]
 pub struct SceneBatcher<B: Backend> {
     device: B::Device,
@@ -99,7 +96,7 @@ pub struct SceneBatch<B: Backend> {
     pub cameras: Vec<Camera>,
 }
 
-impl<B: Backend> Batcher<InputView, SceneBatch<B>> for SceneBatcher<B> {
+impl<B: Backend> SceneBatcher<B> {
     fn batch(&self, items: Vec<InputView>) -> SceneBatch<B> {
         let burn_tensors = items
             .iter()
@@ -115,9 +112,6 @@ impl<B: Backend> Batcher<InputView, SceneBatch<B>> for SceneBatcher<B> {
     }
 }
 
-// Normally the scene batcher is used with a Burn "dataloader" which handles some things
-// like shuffling & multithreading, but, we need some more control, and I also can't figure out how
-// to make their dataset loader work with lifetimes.
 pub struct SceneLoader<B: Backend> {
     total_batch: SceneBatch<B>,
     index: usize,
