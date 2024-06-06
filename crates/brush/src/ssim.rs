@@ -75,6 +75,6 @@ pub fn ssim<B: Backend>(
     let v1 = sigma12 * 2.0 + c2;
     let v2 = sigma1_sq + sigma2_sq + c2;
 
-    let ssim_map = ((mu1_mu2 * 2.0 + c1) * v1.clone()) / ((mu1_sq + mu2_sq + c1) * v2.clone());
+    let ssim_map = ((mu1_mu2 * 2.0 + c1) * v1) / ((mu1_sq + mu2_sq + c1) * v2);
     ssim_map.mean()
 }
