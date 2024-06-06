@@ -760,7 +760,7 @@ checksum = "79296716171880943b8470b5f8d03aa55eb2e645a4874bdbb28adb49162e012c"
 [[package]]
 name = "burn"
 version = "0.14.0"
-source = "git+https://github.com/ArthurBrussee/burn.git#7ff91b4c5ce7d7151de6726611e91451b9ac1808"
+source = "git+https://github.com/ArthurBrussee/burn.git#1b891381004e4322457b65ad824b4b39a50b4e8a"
 dependencies = [
  "burn-core",
  "burn-train",
@@ -769,7 +769,7 @@ dependencies = [
 [[package]]
 name = "burn-autodiff"
 version = "0.14.0"
-source = "git+https://github.com/ArthurBrussee/burn.git#7ff91b4c5ce7d7151de6726611e91451b9ac1808"
+source = "git+https://github.com/ArthurBrussee/burn.git#1b891381004e4322457b65ad824b4b39a50b4e8a"
 dependencies = [
  "burn-common",
  "burn-tensor",
@@ -781,7 +781,7 @@ dependencies = [
 [[package]]
 name = "burn-candle"
 version = "0.14.0"
-source = "git+https://github.com/ArthurBrussee/burn.git#7ff91b4c5ce7d7151de6726611e91451b9ac1808"
+source = "git+https://github.com/ArthurBrussee/burn.git#1b891381004e4322457b65ad824b4b39a50b4e8a"
 dependencies = [
  "burn-tensor",
  "candle-core",
@@ -792,7 +792,7 @@ dependencies = [
 [[package]]
 name = "burn-common"
 version = "0.14.0"
-source = "git+https://github.com/ArthurBrussee/burn.git#7ff91b4c5ce7d7151de6726611e91451b9ac1808"
+source = "git+https://github.com/ArthurBrussee/burn.git#1b891381004e4322457b65ad824b4b39a50b4e8a"
 dependencies = [
  "async-trait",
  "derive-new",
@@ -807,7 +807,7 @@ dependencies = [
 [[package]]
 name = "burn-compute"
 version = "0.14.0"
-source = "git+https://github.com/ArthurBrussee/burn.git#7ff91b4c5ce7d7151de6726611e91451b9ac1808"
+source = "git+https://github.com/ArthurBrussee/burn.git#1b891381004e4322457b65ad824b4b39a50b4e8a"
 dependencies = [
  "burn-common",
  "derive-new",
@@ -820,7 +820,7 @@ dependencies = [
 [[package]]
 name = "burn-core"
 version = "0.14.0"
-source = "git+https://github.com/ArthurBrussee/burn.git#7ff91b4c5ce7d7151de6726611e91451b9ac1808"
+source = "git+https://github.com/ArthurBrussee/burn.git#1b891381004e4322457b65ad824b4b39a50b4e8a"
 dependencies = [
  "bincode 2.0.0-rc.3",
  "burn-autodiff",
@@ -848,7 +848,7 @@ dependencies = [
 [[package]]
 name = "burn-cube"
 version = "0.14.0"
-source = "git+https://github.com/ArthurBrussee/burn.git#7ff91b4c5ce7d7151de6726611e91451b9ac1808"
+source = "git+https://github.com/ArthurBrussee/burn.git#1b891381004e4322457b65ad824b4b39a50b4e8a"
 dependencies = [
  "burn-compute",
  "burn-cube-macros",
@@ -863,7 +863,7 @@ dependencies = [
 [[package]]
 name = "burn-cube-macros"
 version = "0.14.0"
-source = "git+https://github.com/ArthurBrussee/burn.git#7ff91b4c5ce7d7151de6726611e91451b9ac1808"
+source = "git+https://github.com/ArthurBrussee/burn.git#1b891381004e4322457b65ad824b4b39a50b4e8a"
 dependencies = [
  "derive-new",
  "proc-macro2",
@@ -874,7 +874,7 @@ dependencies = [
 [[package]]
 name = "burn-dataset"
 version = "0.14.0"
-source = "git+https://github.com/ArthurBrussee/burn.git#7ff91b4c5ce7d7151de6726611e91451b9ac1808"
+source = "git+https://github.com/ArthurBrussee/burn.git#1b891381004e4322457b65ad824b4b39a50b4e8a"
 dependencies = [
  "csv",
  "derive-new",
@@ -899,7 +899,7 @@ dependencies = [
 [[package]]
 name = "burn-derive"
 version = "0.14.0"
-source = "git+https://github.com/ArthurBrussee/burn.git#7ff91b4c5ce7d7151de6726611e91451b9ac1808"
+source = "git+https://github.com/ArthurBrussee/burn.git#1b891381004e4322457b65ad824b4b39a50b4e8a"
 dependencies = [
  "derive-new",
  "proc-macro2",
@@ -910,7 +910,7 @@ dependencies = [
 [[package]]
 name = "burn-fusion"
 version = "0.14.0"
-source = "git+https://github.com/ArthurBrussee/burn.git#7ff91b4c5ce7d7151de6726611e91451b9ac1808"
+source = "git+https://github.com/ArthurBrussee/burn.git#1b891381004e4322457b65ad824b4b39a50b4e8a"
 dependencies = [
  "burn-common",
  "burn-tensor",
@@ -924,7 +924,7 @@ dependencies = [
 [[package]]
 name = "burn-jit"
 version = "0.14.0"
-source = "git+https://github.com/ArthurBrussee/burn.git#7ff91b4c5ce7d7151de6726611e91451b9ac1808"
+source = "git+https://github.com/ArthurBrussee/burn.git#1b891381004e4322457b65ad824b4b39a50b4e8a"
 dependencies = [
  "burn-common",
  "burn-compute",
@@ -946,7 +946,7 @@ dependencies = [
 [[package]]
 name = "burn-ndarray"
 version = "0.14.0"
-source = "git+https://github.com/ArthurBrussee/burn.git#7ff91b4c5ce7d7151de6726611e91451b9ac1808"
+source = "git+https://github.com/ArthurBrussee/burn.git#1b891381004e4322457b65ad824b4b39a50b4e8a"
 dependencies = [
  "burn-autodiff",
  "burn-common",
@@ -964,7 +964,7 @@ dependencies = [
 [[package]]
 name = "burn-tch"
 version = "0.14.0"
-source = "git+https://github.com/ArthurBrussee/burn.git#7ff91b4c5ce7d7151de6726611e91451b9ac1808"
+source = "git+https://github.com/ArthurBrussee/burn.git#1b891381004e4322457b65ad824b4b39a50b4e8a"
 dependencies = [
  "burn-tensor",
  "half",
@@ -976,7 +976,7 @@ dependencies = [
 [[package]]
 name = "burn-tensor"
 version = "0.14.0"
-source = "git+https://github.com/ArthurBrussee/burn.git#7ff91b4c5ce7d7151de6726611e91451b9ac1808"
+source = "git+https://github.com/ArthurBrussee/burn.git#1b891381004e4322457b65ad824b4b39a50b4e8a"
 dependencies = [
  "burn-common",
  "derive-new",
@@ -991,7 +991,7 @@ dependencies = [
 [[package]]
 name = "burn-train"
 version = "0.14.0"
-source = "git+https://github.com/ArthurBrussee/burn.git#7ff91b4c5ce7d7151de6726611e91451b9ac1808"
+source = "git+https://github.com/ArthurBrussee/burn.git#1b891381004e4322457b65ad824b4b39a50b4e8a"
 dependencies = [
  "burn-core",
  "crossterm",
@@ -1010,7 +1010,7 @@ dependencies = [
 [[package]]
 name = "burn-wgpu"
 version = "0.14.0"
-source = "git+https://github.com/ArthurBrussee/burn.git#7ff91b4c5ce7d7151de6726611e91451b9ac1808"
+source = "git+https://github.com/ArthurBrussee/burn.git#1b891381004e4322457b65ad824b4b39a50b4e8a"
 dependencies = [
  "burn-common",
  "burn-compute",

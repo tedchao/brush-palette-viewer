@@ -51,7 +51,6 @@ impl Viewer {
 
         // Run the burn backend on the egui WGPU device.
         let device = burn::backend::wgpu::init_existing_device(
-            0,
             state.adapter.clone(),
             state.device.clone(),
             state.queue.clone(),
