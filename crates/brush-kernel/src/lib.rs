@@ -244,23 +244,3 @@ pub fn create_tensor<E: JitElement, const D: usize>(
     #[cfg(not(test))]
     JitTensor::new(client.clone(), device.clone(), shape, buffer)
 }
-
-pub fn read_buffer_as_u32<S: ComputeServer, C: ComputeChannel<S>>(
-    client: &ComputeClient<S, C>,
-    binding: Binding<S>,
-) -> Vec<u32> {
-    let data = client.read(binding).read();
-    data.chunks_exact(4)
-        .map(|x| u32::from_le_bytes([x[0], x[1], x[2], x[3]]))
-        .collect()
-}
-
-pub fn read_buffer_as_f32<S: ComputeServer, C: ComputeChannel<S>>(
-    client: &ComputeClient<S, C>,
-    binding: Binding<S>,
-) -> Vec<f32> {
-    let data = client.read(binding).read();
-    data.chunks_exact(4)
-        .map(|x| f32::from_le_bytes([x[0], x[1], x[2], x[3]]))
-        .collect()
-}
