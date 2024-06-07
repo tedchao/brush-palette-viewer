@@ -6,7 +6,6 @@ use shaders::sort_reduce;
 use shaders::sort_scan;
 use shaders::sort_scan_add;
 use shaders::sort_scatter;
-use shaders::sorting;
 use tracing::info_span;
 
 use brush_kernel::kernel_source_gen;
@@ -14,16 +13,16 @@ use brush_kernel::SplatKernel;
 
 mod shaders;
 
-const WG: u32 = shaders::sorting::WG;
-const ELEMENTS_PER_THREAD: u32 = shaders::sorting::ELEMENTS_PER_THREAD;
+const WG: u32 = shaders::sort_count::WG;
+const ELEMENTS_PER_THREAD: u32 = shaders::sort_count::ELEMENTS_PER_THREAD;
 const BLOCK_SIZE: u32 = WG * ELEMENTS_PER_THREAD;
-const BIN_COUNT: u32 = shaders::sorting::BIN_COUNT;
+const BIN_COUNT: u32 = shaders::sort_count::BIN_COUNT;
 
-kernel_source_gen!(SortCount {}, sort_count, sorting::Config);
+kernel_source_gen!(SortCount {}, sort_count, sort_count::Uniforms);
 kernel_source_gen!(SortReduce {}, sort_reduce, ());
 kernel_source_gen!(SortScanAdd {}, sort_scan_add, ());
 kernel_source_gen!(SortScan {}, sort_scan, ());
-kernel_source_gen!(SortScatter {}, sort_scatter, sorting::Config);
+kernel_source_gen!(SortScatter {}, sort_scatter, sort_scatter::Uniforms);
 
 pub fn radix_argsort(
     input_keys: JitTensor<BurnRuntime, u32, 1>,
@@ -59,7 +58,6 @@ pub fn radix_argsort(
     // NB: We fill in num_keys from the GPU!
     // This at least prevents sorting values we don't need, but really
     // we should use indirect dispatch for this.
-    let mut config = shaders::sorting::Config { shift: 0 };
 
     let (mut last_out, mut last_out_values) = (&output_keys, &output_values);
 
@@ -70,14 +68,10 @@ pub fn radix_argsort(
             (&output_keys, &output_values)
         };
 
-        config.shift = pass * 4;
-
-        let wg = shaders::sorting::WG;
-
         let effective_wg_vert = max_needed_wgs.div_ceil(shaders::sorting::VERTICAL_GROUPS);
         SortCount::new().execute(
             client,
-            config,
+            shaders::sort_count::Uniforms { shift: pass * 4 },
             &[
                 num_points.handle.clone().binding(),
                 last_out.handle.clone().binding(),

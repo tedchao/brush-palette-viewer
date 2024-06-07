@@ -16,5 +16,6 @@ glam.workspace = true
 bytemuck.workspace = true
 
 [build-dependencies]
+brush-wgsl.path = "../brush-wgsl"
+anyhow.workspace = true
 miette.workspace = true
-wgsl_bindgen.workspace = true

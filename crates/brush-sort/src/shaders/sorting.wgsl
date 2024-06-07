@@ -13,10 +13,6 @@
 // limitations under the License.
 //
 // Also licensed under MIT license, at your choice.
-struct Config {
-    shift: u32,
-}
-
 const OFFSET: u32 = 42;
 const WG: u32 = 256;
 

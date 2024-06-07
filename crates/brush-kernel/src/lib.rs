@@ -38,7 +38,7 @@ where
     type Uniforms: NoUninit;
 
     fn id(&self) -> String;
-    fn source(&self) -> wgpu::naga::Module;
+    fn source(&self) -> String;
     fn label(&self) -> Option<&'static str>;
 
     fn execute<
@@ -99,24 +99,8 @@ impl<T: SplatKernel> CubeTask for WrapKernel<T> {
     }
 
     fn compile(&self) -> CompiledKernel {
-        let module = self.splat.source();
-
-        let info = wgpu::naga::valid::Validator::new(
-            wgpu::naga::valid::ValidationFlags::empty(),
-            wgpu::naga::valid::Capabilities::all(),
-        )
-        .validate(&module)
-        .unwrap();
-
-        let shader_string = wgpu::naga::back::wgsl::write_string(
-            &module,
-            &info,
-            wgpu::naga::back::wgsl::WriterFlags::EXPLICIT_TYPES,
-        )
-        .unwrap();
-
         CompiledKernel {
-            source: shader_string,
+            source: self.splat.source(),
             cube_dim: CubeDim::new(
                 T::WORKGROUP_SIZE[0],
                 T::WORKGROUP_SIZE[1],
@@ -173,20 +157,11 @@ macro_rules! kernel_source_gen {
         impl SplatKernel for $struct_name {
             const SPAN_NAME: &'static str = stringify!($struct_name);
             type Uniforms = $uniforms;
-            const WORKGROUP_SIZE: [u32; 3] = $module::compute::MAIN_WORKGROUP_SIZE;
+            const WORKGROUP_SIZE: [u32; 3] = $module::WORKGROUP_SIZE;
 
-            fn source(&self) -> wgpu::naga::Module {
-                let mut composer = naga_oil::compose::Composer::default();
+            fn source(&self) -> String {
                 let shader_defs = self.create_shader_hashmap();
-                $module::load_shader_modules_embedded(
-                    &mut composer,
-                    &shader_defs,
-                );
-                let module = $module::load_naga_module_embedded(
-                    &mut composer,
-                    shader_defs,
-                );
-                module
+                $module::create_shader_source()
             }
 
             fn id(&self) -> String {

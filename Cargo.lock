@@ -566,19 +566,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7c12d1856e42f0d817a835fe55853957c85c8c8a470114029143d3f12671446e"
 
 [[package]]
-name = "blake3"
-version = "1.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "30cca6d3674597c30ddf2c587bf8d9d65c9a84d2326d941cc79c9842dfe0ef52"
-dependencies = [
- "arrayref",
- "arrayvec",
- "cc",
- "cfg-if",
- "constant_time_eq 0.3.0",
-]
-
-[[package]]
 name = "block"
 version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -684,16 +671,16 @@ dependencies = [
 name = "brush-prefix-sum"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "brush-kernel",
+ "brush-wgsl",
  "burn",
  "burn-wgpu",
  "bytemuck",
  "glam",
- "miette",
  "naga_oil",
  "tracing",
  "wgpu",
- "wgsl_bindgen",
 ]
 
 [[package]]
@@ -705,24 +692,25 @@ dependencies = [
  "brush-kernel",
  "brush-prefix-sum",
  "brush-sort",
+ "brush-wgsl",
  "burn",
  "burn-wgpu",
  "bytemuck",
  "glam",
  "image",
- "miette",
  "naga_oil",
  "safetensors 0.4.3",
  "tracing",
  "wgpu",
- "wgsl_bindgen",
 ]
 
 [[package]]
 name = "brush-sort"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "brush-kernel",
+ "brush-wgsl",
  "burn",
  "burn-wgpu",
  "bytemuck",
@@ -731,7 +719,20 @@ dependencies = [
  "naga_oil",
  "tracing",
  "wgpu",
- "wgsl_bindgen",
+]
+
+[[package]]
+name = "brush-wgsl"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "data-encoding",
+ "miette",
+ "naga",
+ "naga_oil",
+ "regex",
+ "regex-syntax 0.8.3",
+ "tracing",
 ]
 
 [[package]]
@@ -1190,12 +1191,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "case"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fd6c0e7b807d60291f42f33f58480c0bfafe28ed08286446f45e463728cf9c1c"
-
-[[package]]
 name = "cassowary"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1320,16 +1315,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3d7b894f5411737b7867f4827955924d7c254fc9f4d91a6aad6b097804b1018b"
 
 [[package]]
-name = "colored"
-version = "2.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cbf2150cce219b664a8a70df7a1f933836724b503f8a413af9365b4dcc4d90b8"
-dependencies = [
- "lazy_static",
- "windows-sys 0.48.0",
-]
-
-[[package]]
 name = "com"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1420,18 +1405,6 @@ name = "constant_time_eq"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "245097e9a4535ee1e3e3931fcfcd55a796a44c643e8596ff6566d68f09b87bbc"
-
-[[package]]
-name = "constant_time_eq"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f7144d30dcf0fafbce74250a3963025d8d52177934239851c917d29f1df280c2"
-
-[[package]]
-name = "convert_case"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6245d59a3e82a7fc217c5828a6692dbc6dfb63a0c8c90495621f7b9d79704a0e"
 
 [[package]]
 name = "convert_case"
@@ -1735,50 +1708,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.66",
-]
-
-[[package]]
-name = "derive_builder"
-version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0350b5cb0331628a5916d6c5c0b72e97393b8b6b03b47a9284f4e7f5a405ffd7"
-dependencies = [
- "derive_builder_macro",
-]
-
-[[package]]
-name = "derive_builder_core"
-version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d48cda787f839151732d396ac69e3473923d54312c070ee21e9effcaa8ca0b1d"
-dependencies = [
- "darling",
- "proc-macro2",
- "quote",
- "syn 2.0.66",
-]
-
-[[package]]
-name = "derive_builder_macro"
-version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "206868b8242f27cecce124c19fd88157fbd0dd334df2587f36417bafbc85097b"
-dependencies = [
- "derive_builder_core",
- "syn 2.0.66",
-]
-
-[[package]]
-name = "derive_more"
-version = "0.99.17"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4fb810d30a7c1953f91334de7244731fc3f3c10d7fe163338a35b9f640960321"
-dependencies = [
- "convert_case 0.4.0",
- "proc-macro2",
- "quote",
- "rustc_version",
- "syn 1.0.109",
 ]
 
 [[package]]
@@ -2435,15 +2364,6 @@ dependencies = [
  "pin-project-lite",
  "pin-utils",
  "slab",
-]
-
-[[package]]
-name = "fxhash"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c31b6d751ae2c7f11320402d34e41349dd1016f8d5d45e48c4312bc8625af50c"
-dependencies = [
- "byteorder",
 ]
 
 [[package]]
@@ -4031,12 +3951,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
 
 [[package]]
-name = "pathdiff"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8835116a5c179084a830efb3adc117ab007512b535bc1a21c991d3b32a6b44dd"
-
-[[package]]
 name = "pbkdf2"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4974,7 +4888,7 @@ dependencies = [
  "anyhow",
  "camino",
  "clang-format",
- "convert_case 0.6.0",
+ "convert_case",
  "flatbuffers",
  "indent",
  "itertools",
@@ -6881,40 +6795,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "wgsl_bindgen"
-version = "0.11.1"
-source = "git+https://github.com/ArthurBrussee/wgsl-bindgen.git?branch=updates#ec577c43ed80164886dec85ab13edfb83662efe4"
-dependencies = [
- "blake3",
- "case",
- "colored",
- "data-encoding",
- "derivative",
- "derive_builder",
- "derive_more",
- "enumflags2",
- "fxhash",
- "heck 0.5.0",
- "indexmap",
- "miette",
- "naga",
- "naga_oil",
- "pathdiff",
- "prettyplease",
- "proc-macro2",
- "quote",
- "regex",
- "regex-syntax 0.8.3",
- "smallvec",
- "smol_str",
- "strum",
- "strum_macros",
- "syn 2.0.66",
- "thiserror",
- "wgpu-types",
-]
-
-[[package]]
 name = "widestring"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7495,7 +7375,7 @@ dependencies = [
  "aes",
  "byteorder",
  "bzip2",
- "constant_time_eq 0.1.5",
+ "constant_time_eq",
  "crc32fast",
  "crossbeam-utils",
  "flate2",

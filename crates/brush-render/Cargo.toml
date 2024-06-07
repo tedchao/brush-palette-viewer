@@ -6,7 +6,6 @@ readme.workspace = true
 license.workspace = true
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
 anyhow.workspace = true
 assert_approx_eq.workspace = true
@@ -23,11 +22,9 @@ safetensors.workspace = true
 tracing.workspace = true
 wgpu.workspace = true
 
-
 [build-dependencies]
-wgsl_bindgen.workspace = true
-miette.workspace = true
-
+brush-wgsl.path = "../brush-wgsl"
+anyhow.workspace = true
 
 [features]
 sync_tracy = []

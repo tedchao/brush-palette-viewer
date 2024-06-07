@@ -57,7 +57,6 @@ assert_approx_eq = "1.1.0"
 safetensors = "0.4.3"
 
 # Build dependencies.
-wgsl_bindgen = { git = "https://github.com/ArthurBrussee/wgsl-bindgen.git", branch = "updates" }
 miette = { version = "7.2.0", features = ["fancy"] }
 
 [profile.dev]

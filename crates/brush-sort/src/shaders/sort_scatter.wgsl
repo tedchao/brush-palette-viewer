@@ -1,6 +1,10 @@
 #import sorting
 
-@group(0) @binding(0) var<storage> config: sorting::Config;
+struct Uniforms {
+    shift: u32,
+}
+
+@group(0) @binding(0) var<storage> config: Uniforms;
 @group(0) @binding(1) var<storage> num_keys_arr: array<u32>;
 @group(0) @binding(2) var<storage> src: array<u32>;
 @group(0) @binding(3) var<storage> values: array<u32>;
