@@ -59,6 +59,8 @@ safetensors = "0.4.3"
 # Build dependencies.
 miette = { version = "7.2.0", features = ["fancy"] }
 
+thiserror = "*"
+
 [profile.dev]
 panic = "abort" # This leads to better optimizations and smaller binaries (and is the default in Wasm anyways).
 

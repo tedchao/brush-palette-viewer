@@ -21,10 +21,12 @@ naga_oil.workspace = true
 safetensors.workspace = true
 tracing.workspace = true
 wgpu.workspace = true
+naga.workspace = true
 
 [build-dependencies]
 brush-wgsl.path = "../brush-wgsl"
 anyhow.workspace = true
+miette.workspace = true
 
 [features]
 sync_tracy = []

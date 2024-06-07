@@ -1,10 +1,12 @@
 #import helpers
 
 struct Uniforms {
-    // Img resolution (w, h)
-    img_size: vec2u,
     // Background color behind splats.
     background: vec3f,
+    // Img resolution (w, h)
+    img_size: vec2u,
+    // Max time dimension.
+    tile_bounds: vec2u
 }
 
 @group(0) @binding(0) var<storage, read> uniforms: Uniforms;
@@ -41,10 +43,7 @@ fn main(
     let img_size = uniforms.img_size;
 
     // Get index of tile being drawn.
-    let tile_bounds = vec2u(helpers::ceil_div(img_size.x, helpers::TILE_WIDTH),  
-                            helpers::ceil_div(img_size.y, helpers::TILE_WIDTH));
-
-    let tile_id = workgroup_id.x + workgroup_id.y * tile_bounds.x;
+    let tile_id = workgroup_id.x + workgroup_id.y * uniforms.tile_bounds.x;
     let pix_id = global_id.x + global_id.y * img_size.x;
     let pixel_coord = vec2f(global_id.xy) + 0.5;
 

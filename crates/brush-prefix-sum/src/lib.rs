@@ -1,11 +1,11 @@
 mod shaders;
 
-use crate::shaders::prefix_sum_scan;
 use brush_kernel::create_tensor;
 use brush_kernel::kernel_source_gen;
 use brush_kernel::BurnRuntime;
 use brush_kernel::SplatKernel;
 use shaders::prefix_sum_add_scanned_sums;
+use shaders::prefix_sum_scan;
 use shaders::prefix_sum_scan_sums;
 
 kernel_source_gen!(PrefixSumScan {}, prefix_sum_scan, ());
@@ -18,7 +18,7 @@ use tracing::info_span;
 pub fn prefix_sum(input: JitTensor<BurnRuntime, u32, 1>) -> JitTensor<BurnRuntime, u32, 1> {
     let _span = info_span!("prefix sum");
 
-    let threads_per_group = shaders::prefix_sum_helpers::THREADS_PER_GROUP as usize;
+    let threads_per_group = shaders::prefix_sum_scan::THREADS_PER_GROUP as usize;
     let num = input.shape.dims[0];
     let client = &input.client;
     let outputs = create_tensor(input.shape.dims, &input.device, client);

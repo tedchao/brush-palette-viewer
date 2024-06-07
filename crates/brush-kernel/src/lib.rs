@@ -38,7 +38,7 @@ where
     type Uniforms: NoUninit;
 
     fn id(&self) -> String;
-    fn source(&self) -> String;
+    fn source(&self) -> naga::Module;
     fn label(&self) -> Option<&'static str>;
 
     fn execute<
@@ -99,8 +99,20 @@ impl<T: SplatKernel> CubeTask for WrapKernel<T> {
     }
 
     fn compile(&self) -> CompiledKernel {
+        let module = self.splat.source();
+        let info = naga::valid::Validator::new(
+            naga::valid::ValidationFlags::empty(),
+            naga::valid::Capabilities::all(),
+        )
+        .validate(&module)
+        .unwrap();
+
+        let shader_string =
+            naga::back::wgsl::write_string(&module, &info, naga::back::wgsl::WriterFlags::empty())
+                .expect("failed to convert naga module to source");
+
         CompiledKernel {
-            source: self.splat.source(),
+            source: shader_string,
             cube_dim: CubeDim::new(
                 T::WORKGROUP_SIZE[0],
                 T::WORKGROUP_SIZE[1],
@@ -159,9 +171,9 @@ macro_rules! kernel_source_gen {
             type Uniforms = $uniforms;
             const WORKGROUP_SIZE: [u32; 3] = $module::WORKGROUP_SIZE;
 
-            fn source(&self) -> String {
+            fn source(&self) -> naga::Module {
                 let shader_defs = self.create_shader_hashmap();
-                $module::create_shader_source()
+                $module::create_shader_source(shader_defs)
             }
 
             fn id(&self) -> String {

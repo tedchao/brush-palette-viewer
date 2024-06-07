@@ -68,7 +68,7 @@ pub fn radix_argsort(
             (&output_keys, &output_values)
         };
 
-        let effective_wg_vert = max_needed_wgs.div_ceil(shaders::sorting::VERTICAL_GROUPS);
+        let effective_wg_vert = max_needed_wgs.div_ceil(shaders::sort_count::VERTICAL_GROUPS);
         SortCount::new().execute(
             client,
             shaders::sort_count::Uniforms { shift: pass * 4 },
@@ -77,7 +77,7 @@ pub fn radix_argsort(
                 last_out.handle.clone().binding(),
             ],
             &[count_buf.clone().handle.binding()],
-            [effective_wg_vert * wg, shaders::sorting::VERTICAL_GROUPS],
+            [effective_wg_vert * WG, shaders::sort_count::VERTICAL_GROUPS],
         );
 
         SortReduce::new().execute(
@@ -88,7 +88,7 @@ pub fn radix_argsort(
                 count_buf.clone().handle.binding(),
             ],
             &[reduced_buf.clone().handle.binding()],
-            [max_num_reduce_wgs * wg],
+            [max_num_reduce_wgs * WG],
         );
 
         SortScan::new().execute(
@@ -107,12 +107,12 @@ pub fn radix_argsort(
                 reduced_buf.clone().handle.binding(),
             ],
             &[count_buf.clone().handle.binding()],
-            [max_num_reduce_wgs * wg],
+            [max_num_reduce_wgs * WG],
         );
 
         SortScatter::new().execute(
             client,
-            config,
+            shaders::sort_scatter::Uniforms { shift: pass * 4 },
             &[
                 num_points.handle.clone().binding(),
                 last_out.handle.clone().binding(),
@@ -120,7 +120,10 @@ pub fn radix_argsort(
                 count_buf.handle.clone().binding(),
             ],
             &[to.handle.clone().binding(), to_val.handle.clone().binding()],
-            [effective_wg_vert * wg, shaders::sorting::VERTICAL_GROUPS],
+            [
+                effective_wg_vert * WG,
+                shaders::sort_scatter::VERTICAL_GROUPS,
+            ],
         );
 
         (last_out, last_out_values) = (&to, &to_val);

@@ -11,6 +11,7 @@ burn.workspace = true
 burn-wgpu.workspace = true
 tracing.workspace = true
 naga_oil.workspace = true
+naga.workspace = true
 wgpu.workspace = true
 glam.workspace = true
 bytemuck.workspace = true
@@ -18,3 +19,4 @@ bytemuck.workspace = true
 [build-dependencies]
 brush-wgsl.path = "../brush-wgsl"
 anyhow.workspace = true
+miette.workspace = true

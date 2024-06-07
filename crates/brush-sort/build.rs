@@ -1,6 +1,6 @@
-use anyhow::Result;
+use miette::IntoDiagnostic;
 
-fn main() -> Result<()> {
+fn main() -> miette::Result<()> {
     brush_wgsl::build_modules(
         &[
             "src/shaders/sort_count.wgsl",
@@ -13,4 +13,5 @@ fn main() -> Result<()> {
         "src/shaders",
         "src/shaders/mod.rs",
     )
+    .into_diagnostic()
 }

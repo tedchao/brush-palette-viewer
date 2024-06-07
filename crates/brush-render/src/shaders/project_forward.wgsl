@@ -191,7 +191,7 @@ fn sh_coeffs_to_color(
 // Kernel function for projecting gaussians.
 // Each thread processes one gaussian
 @compute
-@workgroup_size(helpers::SPLATS_PER_GROUP, 1, 1)
+@workgroup_size(256, 1, 1)
 fn main(@builtin(global_invocation_id) global_id: vec3u) {
     let global_gid = global_id.x;
 

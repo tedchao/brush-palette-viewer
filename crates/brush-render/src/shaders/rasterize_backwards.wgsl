@@ -1,10 +1,12 @@
 #import helpers;
 
 struct Uniforms {
-    // Img resolution (w, h)
-    img_size: vec2u,
     // Background color behind the splats.
     background: vec3f,
+    // Img resolution (w, h)
+    img_size: vec2u,
+    // Max tile bounds.
+    tile_bounds: vec2u,
 }
 
 @group(0) @binding(0) var<storage> uniforms: Uniforms;
@@ -50,11 +52,8 @@ fn main(
     let background = uniforms.background;
     let img_size = uniforms.img_size;
 
-    let tile_bounds = vec2u(helpers::ceil_div(img_size.x, helpers::TILE_WIDTH),  
-                            helpers::ceil_div(img_size.y, helpers::TILE_WIDTH));
-
     let tile_loc = workgroup_id.xy;
-    let tile_id = tile_loc.x + tile_loc.y * tile_bounds.x;
+    let tile_id = tile_loc.x + tile_loc.y * uniforms.tile_bounds.x;
     let pix_id = global_id.x + global_id.y * img_size.x;
     let pixel_coord = vec2f(global_id.xy) + 0.5;
 

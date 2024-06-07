@@ -5,8 +5,6 @@ version.workspace = true
 readme.workspace = true
 license.workspace = true
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
 anyhow.workspace = true
 burn.workspace = true
@@ -15,6 +13,6 @@ burn-cube.workspace = true
 burn-jit.workspace = true
 bytemuck.workspace = true
 glam.workspace = true
-naga_oil.workspace = true
 tracing.workspace = true
-wgpu.workspace = true
+naga_oil.workspace = true
+naga.workspace = true

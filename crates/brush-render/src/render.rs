@@ -25,7 +25,7 @@ use burn::backend::{
     },
     Autodiff,
 };
-use glam::{uvec2, Vec3};
+use glam::{uvec2, Vec3, Vec3Swizzles};
 
 // Use an alias so we don't have to type out the backend every time.
 type SyncSpan<'a> = SyncSpanRaw<'a, BurnBack>;
@@ -72,8 +72,8 @@ fn render_forward(
 
     // Divide screen into tiles.
     let tile_bounds = uvec2(
-        img_size.x.div_ceil(shaders::helpers::TILE_WIDTH),
-        img_size.y.div_ceil(shaders::helpers::TILE_WIDTH),
+        img_size.x.div_ceil(shaders::rasterize::TILE_WIDTH),
+        img_size.y.div_ceil(shaders::rasterize::TILE_WIDTH),
     );
 
     let num_points = means.dims()[0];
@@ -124,14 +124,14 @@ fn render_forward(
 
         ProjectSplats::new().execute(
             client,
-            shaders::project_forward::Uniforms::new(
-                camera.world_to_local(),
-                camera.focal(img_size).into(),
-                camera.center(img_size).into(),
-                img_size.into(),
-                0.01,
-                sh_degree as u32,
-            ),
+            shaders::project_forward::Uniforms {
+                viewmat: camera.world_to_local().to_cols_array_2d(),
+                focal: camera.focal(img_size).into(),
+                pixel_center: camera.center(img_size).into(),
+                img_size: img_size.into(),
+                clip_thresh: 0.01,
+                sh_degree: sh_degree as u32,
+            },
             &[
                 means.into_primitive().handle.binding(),
                 log_scales.into_primitive().handle.binding(),
@@ -208,7 +208,9 @@ fn render_forward(
         // TODO: Really want to do an indirect dispatch here for num_visible.
         MapGaussiansToIntersect::new().execute(
             client,
-            shaders::map_gaussian_to_intersects::Uniforms::new(tile_bounds.into()),
+            shaders::map_gaussian_to_intersects::Uniforms {
+                tile_bounds: tile_bounds.into(),
+            },
             &[
                 compact_from_depthsort_gid.handle.clone().binding(),
                 xys.handle.clone().binding(),
@@ -288,7 +290,11 @@ fn render_forward(
 
     Rasterize::new(raster_u32).execute(
         client,
-        shaders::rasterize::Uniforms::new(img_size.into(), background.into()),
+        shaders::rasterize::Uniforms {
+            img_size: img_size.into(),
+            background: background.xyzx().into(),
+            tile_bounds: tile_bounds.into(),
+        },
         &[
             depthsort_gid_from_isect.handle.clone().binding(),
             compact_from_depthsort_gid.handle.clone().binding(),
@@ -488,6 +494,10 @@ impl Backward<BurnBack, 3, 6> for RenderBackwards {
 
         let img_dimgs = state.out_img.dims();
         let img_size = glam::uvec2(img_dimgs[1] as u32, img_dimgs[0] as u32);
+        let tile_bounds = uvec2(
+            img_size.x.div_ceil(shaders::rasterize::TILE_WIDTH),
+            img_size.y.div_ceil(shaders::rasterize::TILE_WIDTH),
+        );
 
         let v_output = grads.consume::<BurnBack, 3>(&ops.node);
         let client = &v_output.client;
@@ -519,10 +529,11 @@ impl Backward<BurnBack, 3, 6> for RenderBackwards {
 
             RasterizeBackwards::new().execute(
                 client,
-                shaders::rasterize_backwards::Uniforms::new(
-                    img_size.into(),
-                    state.background.into(),
-                ),
+                shaders::rasterize_backwards::Uniforms {
+                    img_size: img_size.into(),
+                    background: state.background.xyzx().into(),
+                    tile_bounds: tile_bounds.into(),
+                },
                 &[
                     aux.depthsort_gid_from_isect
                         .into_primitive()
@@ -571,12 +582,12 @@ impl Backward<BurnBack, 3, 6> for RenderBackwards {
 
             ProjectBackwards::new().execute(
                 client,
-                shaders::project_backwards::Uniforms::new(
-                    state.cam.world_to_local(),
-                    state.cam.focal(img_size).into(),
-                    img_size.into(),
-                    state.sh_degree as u32,
-                ),
+                shaders::project_backwards::Uniforms {
+                    viewmat: state.cam.world_to_local().to_cols_array_2d(),
+                    focal: state.cam.focal(img_size).into(),
+                    img_size: img_size.into(),
+                    sh_degree_pad: glam::UVec4::new(state.sh_degree as u32, 0, 0, 0).into(),
+                },
                 &[
                     means.handle.binding(),
                     log_scales.handle.binding(),

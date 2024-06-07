@@ -8,7 +8,7 @@ struct Uniforms {
     // Img resolution (w, h)
     img_size: vec2u,
     // Degree of sh coeffecients used.
-    sh_degree: u32,
+    sh_degree_pad: vec4u,
 }
 @group(0) @binding(0) var<storage> uniforms: Uniforms;
 
@@ -245,7 +245,7 @@ fn v_sigmoid(x: f32) -> f32 {
 }
 
 @compute
-@workgroup_size(helpers::SPLATS_PER_GROUP, 1, 1)
+@workgroup_size(256, 1, 1)
 fn main(@builtin(global_invocation_id) global_id: vec3u) {
     let depthsort_gid = global_id.x;
 
@@ -424,22 +424,23 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
     // Write SH gradients.
     let viewdir = normalize(-viewmat[3].xyz - mean);
 
-    let v_coeff = sh_coeffs_to_color_fast_vjp(uniforms.sh_degree, viewdir, v_colors_agg.xyz);
-    let num_coeffs = num_sh_coeffs(uniforms.sh_degree);
+    let sh_degree = uniforms.sh_degree_pad.x;
+    let v_coeff = sh_coeffs_to_color_fast_vjp(sh_degree, viewdir, v_colors_agg.xyz);
+    let num_coeffs = num_sh_coeffs(sh_degree);
     var base_id = global_gid * num_coeffs * 3;
 
     write_coeffs(&base_id, v_coeff.b0_c0);
-    if uniforms.sh_degree > 0 {
+    if sh_degree > 0 {
         write_coeffs(&base_id, v_coeff.b1_c0);
         write_coeffs(&base_id, v_coeff.b1_c1);
         write_coeffs(&base_id, v_coeff.b1_c2);
-        if uniforms.sh_degree > 1 {
+        if sh_degree > 1 {
             write_coeffs(&base_id, v_coeff.b2_c0);
             write_coeffs(&base_id, v_coeff.b2_c1);
             write_coeffs(&base_id, v_coeff.b2_c2);
             write_coeffs(&base_id, v_coeff.b2_c3);
             write_coeffs(&base_id, v_coeff.b2_c4);
-            if uniforms.sh_degree > 2 {
+            if sh_degree > 2 {
                 write_coeffs(&base_id, v_coeff.b3_c0);
                 write_coeffs(&base_id, v_coeff.b3_c1);
                 write_coeffs(&base_id, v_coeff.b3_c2);
@@ -447,7 +448,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
                 write_coeffs(&base_id, v_coeff.b3_c4);
                 write_coeffs(&base_id, v_coeff.b3_c5);
                 write_coeffs(&base_id, v_coeff.b3_c6);
-                if uniforms.sh_degree > 3 {
+                if sh_degree > 3 {
                     write_coeffs(&base_id, v_coeff.b4_c0);
                     write_coeffs(&base_id, v_coeff.b4_c1);
                     write_coeffs(&base_id, v_coeff.b4_c2);

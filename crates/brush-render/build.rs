@@ -1,4 +1,6 @@
-fn main() -> anyhow::Result<()> {
+use miette::IntoDiagnostic;
+
+fn main() -> miette::Result<()> {
     brush_wgsl::build_modules(
         &[
             "src/shaders/project_forward.wgsl",
@@ -12,4 +14,5 @@ fn main() -> anyhow::Result<()> {
         "src/shaders",
         "src/shaders/mod.rs",
     )
+    .into_diagnostic()
 }

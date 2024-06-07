@@ -662,9 +662,9 @@ dependencies = [
  "burn-jit",
  "bytemuck",
  "glam",
+ "naga",
  "naga_oil",
  "tracing",
- "wgpu",
 ]
 
 [[package]]
@@ -678,6 +678,8 @@ dependencies = [
  "burn-wgpu",
  "bytemuck",
  "glam",
+ "miette",
+ "naga",
  "naga_oil",
  "tracing",
  "wgpu",
@@ -698,6 +700,8 @@ dependencies = [
  "bytemuck",
  "glam",
  "image",
+ "miette",
+ "naga",
  "naga_oil",
  "safetensors 0.4.3",
  "tracing",
@@ -716,6 +720,7 @@ dependencies = [
  "bytemuck",
  "glam",
  "miette",
+ "naga",
  "naga_oil",
  "tracing",
  "wgpu",
@@ -732,6 +737,7 @@ dependencies = [
  "naga_oil",
  "regex",
  "regex-syntax 0.8.3",
+ "thiserror",
  "tracing",
 ]
 

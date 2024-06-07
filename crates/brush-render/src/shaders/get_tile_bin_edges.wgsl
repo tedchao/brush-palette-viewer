@@ -27,14 +27,14 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
     let cur_tile_idx = sorted_tiled_tile_ids[isect_id];
 
     // handle edge cases.
-    if isect_id == num_intersects - 1u {
+    if isect_id == num_intersects - 1 {
         tile_bins[cur_tile_idx * 2 + 1] = num_intersects;
     }
 
-    if isect_id == 0u {
+    if isect_id == 0 {
         tile_bins[cur_tile_idx * 2 + 0] = 0u;
     } else {
-        let prev_tile_idx = sorted_tiled_tile_ids[isect_id - 1u];
+        let prev_tile_idx = sorted_tiled_tile_ids[isect_id - 1];
 
         if prev_tile_idx != cur_tile_idx {
             tile_bins[prev_tile_idx * 2 + 1] = isect_id;
