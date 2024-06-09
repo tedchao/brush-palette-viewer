@@ -35,10 +35,9 @@ pub fn prefix_sum(input: JitTensor<BurnRuntime, u32, 1>) -> JitTensor<BurnRuntim
         return outputs;
     }
 
-    let size = (num as f32 * 1.5) as usize;
     let mut group_buffer = vec![];
     let mut work_size = vec![];
-    let mut work_sz = size;
+    let mut work_sz = num;
     while work_sz > threads_per_group {
         work_sz = work_sz.div_ceil(threads_per_group);
         group_buffer.push(create_tensor::<u32, 1>([work_sz], &input.device, client));
@@ -93,12 +92,56 @@ mod tests {
     use burn_wgpu::JitTensor;
 
     #[test]
+    fn test_sum_tiny() {
+        type Backend = BurnBack;
+        let device = Default::default();
+        let keys = Tensor::<Backend, 1, Int>::from_data([1, 1, 1, 1], &device).into_primitive();
+        let keys = JitTensor::new(keys.client.clone(), keys.device, keys.shape, keys.handle);
+        let summed = prefix_sum(keys.clone());
+        let summed: Vec<i32> = Tensor::<Backend, 1, Int>::from_primitive(bitcast_tensor(summed))
+            .to_data()
+            .value;
+        assert_eq!(summed.len(), 4);
+        assert_eq!(summed, [1, 2, 3, 4])
+    }
+
+    #[test]
+    fn test_512_multiple() {
+        const ITERS: usize = 1024;
+        let mut data = vec![];
+        for i in 0..ITERS {
+            data.push(90 + i as i32);
+        }
+        type Backend = BurnBack;
+        let device = Default::default();
+        let keys = Tensor::<Backend, 1, Int>::from_data(data.as_slice(), &device).into_primitive();
+        let keys = JitTensor::new(keys.client.clone(), keys.device, keys.shape, keys.handle);
+        let summed = prefix_sum(keys.clone());
+        let summed: Vec<i32> = Tensor::<Backend, 1, Int>::from_primitive(bitcast_tensor(summed))
+            .to_data()
+            .value;
+        let prefix_sum_ref: Vec<_> = data
+            .into_iter()
+            .scan(0, |x, y| {
+                *x += y;
+                Some(*x)
+            })
+            .collect();
+        for (summed, reff) in summed.into_iter().zip(prefix_sum_ref) {
+            assert_eq!(summed, reff)
+        }
+    }
+
+    #[test]
     fn test_sum() {
         const ITERS: usize = 512 * 16;
         let mut data = vec![];
         for i in 0..ITERS {
             data.push(2 + i as i32);
             data.push(0);
+            data.push(32);
+            data.push(512);
+            data.push(30965);
         }
 
         type Backend = BurnBack;
