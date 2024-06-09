@@ -22,6 +22,12 @@ safetensors.workspace = true
 tracing.workspace = true
 wgpu.workspace = true
 naga.workspace = true
+ndarray.workspace = true
+
+rerun = { version = "0.16", default-features = false, features = [
+    'sdk',
+    'glam',
+], optional = true }
 
 [build-dependencies]
 brush-wgsl.path = "../brush-wgsl"
@@ -30,5 +36,6 @@ miette.workspace = true
 
 [features]
 sync_tracy = []
+rerun = ["dep:rerun"]
 
 default = []

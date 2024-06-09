@@ -877,20 +877,12 @@ mod tests {
                     )?)?,
                 )?;
 
-                let tile_bins = aux.tile_bins;
-                let tile_size = tile_bins.dims();
-                let tile_depth = tile_bins
-                    .clone()
-                    .slice([0..tile_size[0], 0..tile_size[1], 1..2])
-                    - tile_bins
-                        .clone()
-                        .slice([0..tile_size[0], 0..tile_size[1], 0..1]);
-
+                let tile_depth = aux.calc_tile_depth();
                 rec.log(
                     "images/tile depth",
                     &rerun::Tensor::try_from(Array::from_shape_vec(
                         tile_depth.dims(),
-                        tile_depth.to_data().convert::<u32>().value,
+                        tile_depth.to_data().convert::<i32>().value,
                     )?)?,
                 )?;
             }

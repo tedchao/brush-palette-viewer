@@ -30,6 +30,16 @@ pub struct RenderAux<B: Backend> {
     pub xys: Tensor<B, 2>,
 }
 
+impl<B: Backend> RenderAux<B> {
+    pub fn calc_tile_depth(&self) -> Tensor<B, 2, Int> {
+        let bins = self.tile_bins.clone();
+        let [ty, tx, _] = bins.dims();
+        let max = bins.clone().slice([0..ty, 0..tx, 1..2]).squeeze(2);
+        let min = bins.clone().slice([0..ty, 0..tx, 0..1]).squeeze(2);
+        max - min
+    }
+}
+
 /// We create our own Backend trait that extends the Burn backend trait.
 pub trait Backend: burn::tensor::backend::Backend {
     // Render splats

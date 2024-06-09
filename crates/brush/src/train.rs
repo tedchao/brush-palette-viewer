@@ -619,8 +619,6 @@ where
             }
         }
 
-        drop(stats);
-
         self.iter += 1;
 
         Ok(splats)
@@ -632,6 +630,9 @@ where
         rec: &rerun::RecordingStream,
         stats: TrainStepStats<B>,
     ) -> Result<(), anyhow::Error> {
+        use burn::tensor::ElementConversion;
+        use ndarray::Array;
+
         rec.log(
             "losses/main",
             &rerun::Scalar::new(stats.loss.into_scalar().elem::<f64>()),
@@ -654,15 +655,7 @@ where
             &rerun::Scalar::new(aux.num_visible.clone().into_scalar().elem::<f64>()),
         )?;
 
-        let tile_bins = aux.tile_bins.clone();
-        let tile_size = tile_bins.dims();
-        let tile_depth = tile_bins
-            .clone()
-            .slice([0..tile_size[0], 0..tile_size[1], 1..2])
-            - tile_bins
-                .clone()
-                .slice([0..tile_size[0], 0..tile_size[1], 0..1]);
-
+        let tile_depth = aux.calc_tile_depth();
         rec.log(
             "images/tile depth",
             &rerun::Tensor::try_from(Array::from_shape_vec(
