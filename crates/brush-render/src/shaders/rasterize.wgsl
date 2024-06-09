@@ -59,8 +59,7 @@ fn main(
 
     // have all threads in tile process the same gaussians in batches
     // first collect gaussians between range.x and range.y in batches
-    // which gaussians to look through in this tile
-    var range = tile_bins[tile_id];
+    let range = tile_bins[tile_id];
 
     let num_batches = helpers::ceil_div(range.y - range.x, helpers::TILE_SIZE);
     // current visibility left to render
@@ -73,43 +72,34 @@ fn main(
     // each thread loads one gaussian at a time before rasterizing its
     // designated pixel
     for (var b = 0u; b < num_batches; b++) {
+        workgroupBarrier();
+
         // each thread fetch 1 gaussian from front to back
         // index of gaussian to load
         let batch_start = range.x + b * helpers::TILE_SIZE;
         let isect_id = batch_start + local_idx;
 
-        var xy_local = vec2f(0.0);
-        var conic_comp_local = vec4f(0.0);
-        var colors_local = vec4f(0.0);
-
         if isect_id <= range.y {
             let depthsort_gid = depthsort_gid_from_isect[isect_id];
             let compact_gid = compact_from_depthsort_gid[depthsort_gid];
-            xy_local = xys[compact_gid];
-            conic_comp_local = conic_comps[compact_gid];
-            colors_local = colors[compact_gid];
-        }
-
-        // Write gathered results to shared memory, and synchronize access.
-        workgroupBarrier();
-        if isect_id <= range.y {
-            xy_batch[local_idx] = xy_local;
-            conic_comp_batch[local_idx] = conic_comp_local;
-            colors_batch[local_idx] = colors_local;
+            xy_batch[local_idx] = xys[compact_gid];
+            conic_comp_batch[local_idx] = conic_comps[compact_gid];
+            colors_batch[local_idx] = colors[compact_gid];
         }
         workgroupBarrier();
 
         // process gaussians in the current batch for this pixel
         let remaining = min(helpers::TILE_SIZE, range.y - batch_start);
     
-        var t = 0u;
-        for (; t < remaining && !done; t++) {
+        for (var t = 0u; t < remaining && !done; t++) {
+            let xy = xy_batch[t];
             let conic_comp = conic_comp_batch[t];
+            let color_opac = colors_batch[t];
+
             let conic = conic_comp.xyz;
             // TODO: Re-enable compensation.
             // let compensation = conic_comp.w;
-            let xy = xy_batch[t];
-            let opac = colors_batch[t].w;
+            let opac = color_opac.w;
             let delta = xy - pixel_coord;
             let sigma = 0.5f * (conic.x * delta.x * delta.x + conic.z * delta.y * delta.y) + conic.y * delta.x * delta.y;
             let vis = exp(-sigma);
@@ -123,7 +113,7 @@ fn main(
                 }
 
                 let fac = alpha * T;
-                let c = colors_batch[t].xyz;
+                let c = color_opac.xyz;
                 pix_out += c * fac;
                 T = next_T;
                 final_idx = batch_start + t;
