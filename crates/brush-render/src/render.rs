@@ -215,6 +215,7 @@ fn render_forward(
                 compact_from_depthsort_gid.handle.clone().binding(),
                 xys.handle.clone().binding(),
                 conic_comps.handle.clone().binding(),
+                colors.handle.clone().binding(),
                 radii.handle.clone().binding(),
                 cum_tiles_hit.handle.clone().binding(),
                 num_visible.handle.clone().binding(),

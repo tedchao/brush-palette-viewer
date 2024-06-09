@@ -65,9 +65,13 @@ fn cov_compensation(cov2d: vec3f) -> f32 {
     return sqrt(max(0.0, det_orig / det));
 }
 
-fn calc_sigma(conic: vec3f, xy: vec2f, pixel_coord: vec2f) -> f32 {
+fn calc_sigma(pixel_coord: vec2f, conic: vec3f, xy: vec2f) -> f32 {
     let delta = pixel_coord - xy;
     return 0.5f * (conic.x * delta.x * delta.x + conic.z * delta.y * delta.y) + conic.y * delta.x * delta.y;
+}
+
+fn calc_vis(pixel_coord: vec2f, conic: vec3f, xy: vec2f) -> f32 {
+    return exp(-calc_sigma(pixel_coord, conic, xy));
 }
 
 fn inverse(m: mat2x2f) -> mat2x2f {
@@ -111,10 +115,15 @@ fn ellipse_rect_intersect(Rc: vec2f, Re: vec2f, Ec: vec2f, Em: mat2x2f) -> bool 
     return s.x * EmDelta0.x <= 0.0 || s.y * EmDelta0.y <= 0.0 || dot(delta0, EmDelta0) <= 1.0;
 }
 
-fn can_be_visible(tile: vec2u, xy: vec2f, conic: vec3f) -> bool {
+fn can_be_visible(tile: vec2u, xy: vec2f, conic: vec3f, opac: f32) -> bool {
     let tile_extent = vec2f(f32(TILE_WIDTH));
     let tile_center = vec2f(tile * TILE_WIDTH) + tile_extent;
-    let rads = log(255.0 / 1.0);
+    
+    // opac * exp(-sigma) < 1.0 / 255.0
+    // exp(-sigma) < 1.0 / (opac * 255.0)
+    // -sigma < log(1.0 / (opac * 255.0))
+    // sigma < log(opac * 255.0);
+    let rads = log(opac * 255.0);
     let conic_scaled = conic / (2.0 * rads);
     return ellipse_rect_intersect(tile_center, tile_extent, xy, mat2x2f(conic_scaled.x, conic_scaled.y, conic_scaled.y, conic_scaled.z));
 }

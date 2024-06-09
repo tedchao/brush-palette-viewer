@@ -257,8 +257,18 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
         return;
     }
     
+    // Calculate ellipse conic.
     let conic = vec3f(cov2d.z, -cov2d.y, cov2d.x) * (1.0 / det);
 
+    // compute the projected mean
+    let xy = project_pix(focal, p_view, pixel_center);
+
+    // If this will not be visible in any pixel - bail.
+    let nearest_pix = floor(xy) + 0.5;
+    let vis = opac * helpers::calc_vis(nearest_pix, conic, xy);
+    if vis < 1.0 / 255.0 {
+        return;
+    }
 
     // Calculate tbe pixel radius.
 
@@ -275,26 +285,23 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
     // Find maximal |x| using quadratic form
     // |x|^2 = c / lambd_min.
 
-    // let trace = conic.x + conic.z;
-    // let determinant = conic.x * conic.z - conic.y * conic.y;
-    // let l_min = 0.5 * (trace - sqrt(trace * trace - 4 * determinant));
-
     // // Now solve for maximal |r| such that min alpha = 1.0 / 255.0.
     // //
     // // we actually go for 2.0 / 255.0 or so to match the cutoff from gsplat better.
     // // maybe can be more precise here if we don't need 1:1 compat with gsplat anymore.
-    // let eps_const = -2.0 * log(1.0 / (opac * 128.0));
+    // let trace = conic.x + conic.z;
+    // let determinant = conic.x * conic.z - conic.y * conic.y;
+    // let l_min = 0.5 * (trace - sqrt(trace * trace - 4 * determinant));
+    // let eps_const = -2.0 * log(1.0 / (opac * 255.0));
     // let radius = u32(ceil(sqrt(eps_const / l_min)));
-
-    // compute the projected mean
-    let xy = project_pix(focal, p_view, pixel_center);
     let tile_minmax = helpers::get_tile_bbox(xy, radius, tile_bounds);
     let tile_min = tile_minmax.xy;
     let tile_max = tile_minmax.zw;
     var tile_area = 0u;
+
     for (var ty = tile_min.y; ty < tile_max.y; ty++) {
         for (var tx = tile_min.x; tx < tile_max.x; tx++) {
-            if helpers::can_be_visible(vec2u(tx, ty), xy, conic) {
+            if helpers::can_be_visible(vec2u(tx, ty), xy, conic, opac) {
                 tile_area += 1u;
             }
         }
