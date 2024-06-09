@@ -3,7 +3,7 @@ use brush_render::sync_span::SyncSpan;
 use brush_render::{AutodiffBackend, Backend, RenderAux};
 use burn::lr_scheduler::linear::{LinearLrScheduler, LinearLrSchedulerConfig};
 use burn::lr_scheduler::LrScheduler;
-use burn::nn::loss::{HuberLossConfig, MseLoss};
+use burn::nn::loss::HuberLossConfig;
 use burn::optim::adaptor::OptimizerAdaptor;
 use burn::optim::Adam;
 use burn::tensor::{Bool, Distribution};
@@ -428,11 +428,6 @@ where
 
         // There might be some marginal benefit to caching the "loss objects". I wish Burn had a more
         // functional style for this.
-        let mse = MseLoss::new().forward(
-            pred_images.clone(),
-            batch.gt_image.clone(),
-            burn::nn::loss::Reduction::Mean,
-        );
         let huber = HuberLossConfig::new(0.05).init::<B>(device);
         let l1_loss = huber.forward(
             pred_images.clone(),
@@ -457,7 +452,6 @@ where
             loss = loss * (1.0 - self.config.ssim_weight)
                 + (-ssim_loss + 1.0) * self.config.ssim_weight;
         }
-        let psnr = mse.clone().recip().log() * 10.0 / std::f32::consts::LN_10;
         drop(calc_losses);
 
         let backward_pass = SyncSpan::<B>::new("Backward pass", device);
@@ -577,13 +571,6 @@ where
             self.optim = self.opt_config.init::<B, Splats<B>>();
         }
 
-        let stats = TrainStepStats {
-            pred_images,
-            auxes,
-            loss,
-            psnr,
-        };
-
         #[cfg(feature = "rerun")]
         {
             rec.set_time_sequence("iterations", self.iter);
@@ -598,6 +585,18 @@ where
             )?;
 
             if self.iter % self.config.visualize_every == 0 {
+                let mse = (pred_images.clone() - batch.gt_image.clone())
+                    .powf_scalar(2.0)
+                    .mean();
+                let psnr = mse.clone().recip().log() * 10.0 / std::f32::consts::LN_10;
+
+                let stats = TrainStepStats {
+                    pred_images,
+                    auxes,
+                    loss,
+                    psnr,
+                };
+
                 self.visualize_train_stats(rec, stats)?;
 
                 let main_gt_image = batch.gt_image.slice([0..1]);
