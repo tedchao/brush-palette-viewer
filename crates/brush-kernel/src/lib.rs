@@ -10,28 +10,15 @@ use burn_compute::{
 };
 
 use burn::{
-    backend::{
-        wgpu::{AutoGraphicsApi, CubeCount, CubeDim, WgpuDevice, WgpuRuntime},
-        Autodiff,
-    },
+    backend::wgpu::{CubeCount, CubeDim},
     tensor::Shape,
 };
-use burn_cube::{
-    compute::{CompiledKernel, CubeTask},
-    Runtime,
-};
+use burn_cube::compute::{CompiledKernel, CubeTask};
 
-use burn_jit::{tensor::JitTensor, JitBackend, JitElement};
+use burn_jit::{tensor::JitTensor, JitElement, JitRuntime};
 use bytemuck::NoUninit;
 use glam::uvec3;
 use tracing::info_span;
-
-pub type BurnRuntime = WgpuRuntime<AutoGraphicsApi>;
-type BurnClient =
-    ComputeClient<<BurnRuntime as Runtime>::Server, <BurnRuntime as Runtime>::Channel>;
-
-pub type BurnBack = JitBackend<BurnRuntime, f32, i32>;
-pub type BurnBackDiff = Autodiff<BurnBack>;
 
 pub trait SplatKernel
 where
@@ -200,18 +187,18 @@ macro_rules! kernel_source_gen {
 
 // Convert a tensors type. This only reinterprets the data, and doesn't
 // do any actual conversions.
-pub fn bitcast_tensor<const D: usize, EIn: JitElement, EOut: JitElement>(
-    tensor: JitTensor<BurnRuntime, EIn, D>,
-) -> JitTensor<BurnRuntime, EOut, D> {
+pub fn bitcast_tensor<const D: usize, R: JitRuntime, EIn: JitElement, EOut: JitElement>(
+    tensor: JitTensor<R, EIn, D>,
+) -> JitTensor<R, EOut, D> {
     JitTensor::new(tensor.client, tensor.device, tensor.shape, tensor.handle)
 }
 
 // Reserve a buffer from the client for the given shape.
-pub fn create_tensor<E: JitElement, const D: usize>(
+pub fn create_tensor<R: JitRuntime, E: JitElement, const D: usize>(
     shape: [usize; D],
-    device: &WgpuDevice,
-    client: &BurnClient,
-) -> JitTensor<BurnRuntime, E, D> {
+    device: &R::Device,
+    client: &ComputeClient<R::Server, R::Channel>,
+) -> JitTensor<R, E, D> {
     let shape = Shape::new(shape);
     let bufsize = shape.num_elements() * core::mem::size_of::<E>();
     let buffer = client.empty(bufsize);
@@ -219,13 +206,12 @@ pub fn create_tensor<E: JitElement, const D: usize>(
     #[cfg(test)]
     {
         use burn::tensor::ops::FloatTensorOps;
-
+        use burn_jit::JitBackend;
         // for tests - make doubly sure we're not accidentally relying on values
         // being initialized to zero by adding in some random noise.
-        let f =
-            JitTensor::<BurnRuntime, f32, D>::new(client.clone(), device.clone(), shape, buffer);
+        let f = JitTensor::<R, f32, D>::new(client.clone(), device.clone(), shape, buffer);
 
-        bitcast_tensor(BurnBack::float_add_scalar(f, -12345.0))
+        bitcast_tensor(JitBackend::<R, f32, i32>::float_add_scalar(f, -12345.0))
     }
 
     #[cfg(not(test))]

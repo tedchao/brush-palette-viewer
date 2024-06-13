@@ -1,5 +1,5 @@
 use brush_kernel::create_tensor;
-use brush_kernel::BurnRuntime;
+use burn_jit::JitRuntime;
 use burn_wgpu::JitTensor;
 use shaders::sort_count;
 use shaders::sort_reduce;
@@ -24,15 +24,12 @@ kernel_source_gen!(SortScanAdd {}, sort_scan_add, ());
 kernel_source_gen!(SortScan {}, sort_scan, ());
 kernel_source_gen!(SortScatter {}, sort_scatter, sort_scatter::Uniforms);
 
-pub fn radix_argsort(
-    input_keys: JitTensor<BurnRuntime, u32, 1>,
-    input_values: JitTensor<BurnRuntime, u32, 1>,
-    num_points: JitTensor<BurnRuntime, u32, 1>,
+pub fn radix_argsort<R: JitRuntime>(
+    input_keys: JitTensor<R, u32, 1>,
+    input_values: JitTensor<R, u32, 1>,
+    num_points: JitTensor<R, u32, 1>,
     sorting_bits: u32,
-) -> (
-    JitTensor<BurnRuntime, u32, 1>,
-    JitTensor<BurnRuntime, u32, 1>,
-) {
+) -> (JitTensor<R, u32, 1>, JitTensor<R, u32, 1>) {
     assert_eq!(input_keys.shape.dims[0], input_values.shape.dims[0]);
     assert!(sorting_bits <= 32);
 
@@ -47,13 +44,13 @@ pub fn radix_argsort(
 
     let device = &input_keys.device.clone();
 
-    let count_buf = create_tensor::<u32, 1>([(max_needed_wgs as usize) * 16], device, client);
-    let reduced_buf = create_tensor::<u32, 1>([BLOCK_SIZE as usize], device, client);
+    let count_buf = create_tensor::<R, u32, 1>([(max_needed_wgs as usize) * 16], device, client);
+    let reduced_buf = create_tensor::<R, u32, 1>([BLOCK_SIZE as usize], device, client);
 
     let output_keys = input_keys;
     let output_values = input_values;
-    let output_keys_swap = create_tensor::<u32, 1>([max_n as usize], device, client);
-    let output_values_swap = create_tensor::<u32, 1>([max_n as usize], device, client);
+    let output_keys_swap = create_tensor::<R, u32, 1>([max_n as usize], device, client);
+    let output_values_swap = create_tensor::<R, u32, 1>([max_n as usize], device, client);
 
     // NB: We fill in num_keys from the GPU!
     // This at least prevents sorting values we don't need, but really
@@ -139,8 +136,11 @@ mod tests {
     };
 
     use crate::radix_argsort;
-    use brush_kernel::{bitcast_tensor, BurnBack};
+    use brush_kernel::bitcast_tensor;
     use burn::tensor::{Int, Tensor};
+    use burn_wgpu::{AutoGraphicsApi, JitBackend, WgpuRuntime};
+
+    type Backend = JitBackend<WgpuRuntime<AutoGraphicsApi>, f32, i32>;
 
     pub fn argsort<T: Ord>(data: &[T]) -> Vec<usize> {
         let mut indices = (0..data.len()).collect::<Vec<_>>();
@@ -172,25 +172,25 @@ mod tests {
             let values_inp: Vec<_> = keys_inp.iter().copied().map(|x| x * 2 + 5).collect();
 
             let device = Default::default();
-            let keys = Tensor::<BurnBack, 1, Int>::from_ints(keys_inp, &device).into_primitive();
+            let keys = Tensor::<Backend, 1, Int>::from_ints(keys_inp, &device).into_primitive();
             let keys = bitcast_tensor(keys);
 
-            let values = Tensor::<BurnBack, 1, Int>::from_ints(values_inp.as_slice(), &device)
+            let values = Tensor::<Backend, 1, Int>::from_ints(values_inp.as_slice(), &device)
                 .into_primitive();
             let num_points = bitcast_tensor(
-                Tensor::<BurnBack, 1, Int>::from_ints([keys_inp.len() as i32], &device)
+                Tensor::<Backend, 1, Int>::from_ints([keys_inp.len() as i32], &device)
                     .into_primitive(),
             );
             let values = bitcast_tensor(values);
             let (ret_keys, ret_values) = radix_argsort(keys, values, num_points, 32);
 
             let ret_keys: Vec<i32> =
-                Tensor::<BurnBack, 1, Int>::from_primitive(bitcast_tensor(ret_keys))
+                Tensor::<Backend, 1, Int>::from_primitive(bitcast_tensor(ret_keys))
                     .to_data()
                     .value;
 
             let ret_values: Vec<i32> =
-                Tensor::<BurnBack, 1, Int>::from_primitive(bitcast_tensor(ret_values))
+                Tensor::<Backend, 1, Int>::from_primitive(bitcast_tensor(ret_values))
                     .to_data()
                     .value;
 
@@ -228,25 +228,24 @@ mod tests {
 
         let device = Default::default();
         let keys = bitcast_tensor(
-            Tensor::<BurnBack, 1, Int>::from_ints(keys_inp.as_slice(), &device).into_primitive(),
+            Tensor::<Backend, 1, Int>::from_ints(keys_inp.as_slice(), &device).into_primitive(),
         );
         let values = bitcast_tensor(
-            Tensor::<BurnBack, 1, Int>::from_ints(values_inp.as_slice(), &device).into_primitive(),
+            Tensor::<Backend, 1, Int>::from_ints(values_inp.as_slice(), &device).into_primitive(),
         );
         let num_points = bitcast_tensor(
-            Tensor::<BurnBack, 1, Int>::from_ints([keys_inp.len() as i32], &device)
-                .into_primitive(),
+            Tensor::<Backend, 1, Int>::from_ints([keys_inp.len() as i32], &device).into_primitive(),
         );
 
         let (ret_keys, ret_values) = radix_argsort(keys, values, num_points, 32);
 
         let ret_keys: Vec<i32> =
-            Tensor::<BurnBack, 1, Int>::from_primitive(bitcast_tensor(ret_keys))
+            Tensor::<Backend, 1, Int>::from_primitive(bitcast_tensor(ret_keys))
                 .to_data()
                 .value;
 
         let ret_values: Vec<i32> =
-            Tensor::<BurnBack, 1, Int>::from_primitive(bitcast_tensor(ret_values))
+            Tensor::<Backend, 1, Int>::from_primitive(bitcast_tensor(ret_values))
                 .to_data()
                 .value;
         let inds = argsort(&keys_inp);

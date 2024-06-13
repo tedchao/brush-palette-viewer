@@ -7,10 +7,9 @@ use crate::{
     splat_import,
     train::{LrConfig, SplatTrainer, TrainConfig},
 };
-use brush_kernel::BurnBackDiff;
 use brush_render::camera::Camera;
-use burn::module::AutodiffModule;
-use burn_wgpu::{RuntimeOptions, WgpuDevice};
+use burn::{backend::Autodiff, module::AutodiffModule};
+use burn_wgpu::{AutoGraphicsApi, JitBackend, RuntimeOptions, WgpuDevice, WgpuRuntime};
 use egui::{pos2, CollapsingHeader, Color32, Rect};
 use glam::{Mat4, Quat, Vec2, Vec3};
 
@@ -23,9 +22,11 @@ use std::time::{Duration, Instant};
 #[cfg(target_arch = "wasm32")]
 use web_time::{Duration, Instant};
 
+type Backend = Autodiff<JitBackend<WgpuRuntime<AutoGraphicsApi>, f32, i32>>;
+
 struct TrainingUI {
-    dataloader: SceneLoader<BurnBackDiff>,
-    trainer: SplatTrainer<BurnBackDiff>,
+    dataloader: SceneLoader<Backend>,
+    trainer: SplatTrainer<Backend>,
     train_active: bool,
     #[cfg(feature = "rerun")]
     rec: rerun::RecordingStream,
@@ -33,7 +34,7 @@ struct TrainingUI {
 
 pub struct Viewer {
     camera: Camera,
-    splats: Option<Splats<BurnBackDiff>>,
+    splats: Option<Splats<Backend>>,
     training: Option<TrainingUI>,
     reference_cameras: Option<Vec<Camera>>,
     backbuffer: Option<BurnTexture>,
@@ -94,12 +95,12 @@ impl Viewer {
         self.splats = splat_import::load_splat_from_ply(path, &self.device).ok();
     }
 
-    pub fn set_splats(&mut self, splats: Splats<BurnBackDiff>) {
+    pub fn set_splats(&mut self, splats: Splats<Backend>) {
         self.splats = Some(splats);
     }
 
     pub fn start_training(&mut self, path: &str) {
-        <BurnBackDiff as burn::prelude::Backend>::seed(42);
+        <Backend as burn::prelude::Backend>::seed(42);
         #[cfg(feature = "rerun")]
         let rec = rerun::RecordingStreamBuilder::new("visualize training")
             .spawn()
@@ -112,8 +113,7 @@ impl Viewer {
             path.to_owned(),
         );
 
-        let splats =
-            Splats::<BurnBackDiff>::init_random(config.init_splat_count, 2.0, &self.device);
+        let splats = Splats::<Backend>::init_random(config.init_splat_count, 2.0, &self.device);
 
         println!(
             "Loading dataset {:?}, {}",
@@ -125,7 +125,7 @@ impl Viewer {
         #[cfg(feature = "rerun")]
         scene.visualize(&rec).expect("Failed to visualize scene");
 
-        let batcher_train = SceneBatcher::<BurnBackDiff>::new(self.device.clone());
+        let batcher_train = SceneBatcher::<Backend>::new(self.device.clone());
         let dataloader = SceneLoader::new(scene, batcher_train, 2);
         let trainer = SplatTrainer::new(splats.num_splats(), &config, &splats);
 
@@ -262,7 +262,6 @@ impl eframe::App for Viewer {
                         splats.clone().valid().render(&self.camera, size, glam::vec3(0.0, 0.0, 0.0), true);
 
                     let back = self.backbuffer.get_or_insert_with(|| BurnTexture::new(img.clone(), frame));
-
 
                     {
                         let state = frame.wgpu_render_state();

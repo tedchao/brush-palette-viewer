@@ -6,7 +6,7 @@ use crate::kernels::{
     RasterizeBackwards,
 };
 use crate::shaders::get_tile_bin_edges::VERTICAL_GROUPS;
-use brush_kernel::{bitcast_tensor, create_tensor, BurnBack, SplatKernel};
+use brush_kernel::{bitcast_tensor, create_tensor, SplatKernel};
 use brush_prefix_sum::prefix_sum;
 use brush_sort::radix_argsort;
 use burn::backend::autodiff::NodeID;
@@ -14,6 +14,7 @@ use burn::tensor::ops::IntTensorOps;
 use burn::tensor::ops::{FloatTensor, FloatTensorOps};
 use burn::tensor::Tensor;
 
+use burn_wgpu::{AutoGraphicsApi, JitBackend, WgpuRuntime};
 use tracing::info_span;
 
 use super::{shaders, Backend, RenderAux};
@@ -26,6 +27,9 @@ use burn::backend::{
     Autodiff,
 };
 use glam::{uvec2, Vec3, Vec3Swizzles};
+
+type Runtime = WgpuRuntime<AutoGraphicsApi>;
+type BurnBack = JitBackend<Runtime, f32, i32>;
 
 // Use an alias so we don't have to type out the backend every time.
 type SyncSpan<'a> = SyncSpanRaw<'a, BurnBack>;
@@ -81,11 +85,11 @@ fn render_forward(
     // Projected gaussian values.
     let client = &means.clone().into_primitive().client;
 
-    let xys = create_tensor::<f32, 2>([num_points, 2], device, client);
-    let depths = create_tensor::<f32, 1>([num_points], device, client);
-    let colors = create_tensor::<f32, 2>([num_points, 4], device, client);
-    let radii = create_tensor::<u32, 1>([num_points], device, client);
-    let conic_comps = create_tensor::<f32, 2>([num_points, 4], device, client);
+    let xys = create_tensor::<Runtime, f32, 2>([num_points, 2], device, client);
+    let depths = create_tensor::<Runtime, f32, 1>([num_points], device, client);
+    let colors = create_tensor::<Runtime, f32, 2>([num_points, 4], device, client);
+    let radii = create_tensor::<Runtime, u32, 1>([num_points], device, client);
+    let conic_comps = create_tensor::<Runtime, f32, 2>([num_points, 4], device, client);
 
     // A note on some confusing naming that'll be used throughout this function:
     // Gaussians are stored in various states of buffers, eg. at the start they're all in one big bufffer,
@@ -107,13 +111,13 @@ fn render_forward(
     // Atomic counter of number of visible splats.
     let num_visible = bitcast_tensor(BurnBack::int_zeros([1].into(), device));
     // Compaction buffer permutation.
-    let global_from_compact_gid = create_tensor::<u32, 1>([num_points], device, client);
+    let global_from_compact_gid = create_tensor::<Runtime, u32, 1>([num_points], device, client);
 
     // TODO: This should just be:
     // let arranged_ids = BurnBack::int_arange();
     // but atm Burn only has a CPU version of arange which is way too slow :/
     // Instead just fill this in the kernel, not great but it works.
-    let arranged_ids = create_tensor::<u32, 1>([num_points], device, client);
+    let arranged_ids = create_tensor::<Runtime, u32, 1>([num_points], device, client);
 
     drop(setup_span);
 
@@ -196,8 +200,9 @@ fn render_forward(
     //    read_buffer_as_u32(client, num_intersects.clone().handle.binding())[0] as usize;
 
     // Each intersection maps to a gaussian.
-    let tile_id_from_isect = create_tensor::<u32, 1>([max_intersects], device, client);
-    let depthsort_gid_from_isect = create_tensor::<u32, 1>([max_intersects], device, client);
+    let tile_id_from_isect = create_tensor::<Runtime, u32, 1>([max_intersects], device, client);
+    let depthsort_gid_from_isect =
+        create_tensor::<Runtime, u32, 1>([max_intersects], device, client);
 
     drop(cum_hit_span);
 
@@ -278,8 +283,11 @@ fn render_forward(
     );
 
     // Record the final visible splat per tile.
-    let final_index =
-        create_tensor::<u32, 2>([img_size.x as usize, img_size.y as usize], device, client);
+    let final_index = create_tensor::<Runtime, u32, 2>(
+        [img_size.x as usize, img_size.y as usize],
+        device,
+        client,
+    );
 
     // Only record the final visible splat per tile if we're not rendering a u32 buffer.
     // If we're renering a u32 buffer, we can't autodiff anyway, and final index is only needed for
@@ -517,10 +525,11 @@ impl Backward<BurnBack, 3, 6> for RenderBackwards {
 
         // All the gradients _per tile_. These are later summed up in the final
         // backward projection pass.
-        let v_xy_scatter = create_tensor::<f32, 2>([max_intersects, 2], device, client);
+        let v_xy_scatter = create_tensor::<Runtime, f32, 2>([max_intersects, 2], device, client);
         // Nb: this could be 3 floats - but that doesn't play well with wgsl alignment requirements.
-        let v_conic_scatter = create_tensor::<f32, 2>([max_intersects, 4], device, client);
-        let v_colors_scatter = create_tensor::<f32, 2>([max_intersects, 4], device, client);
+        let v_conic_scatter = create_tensor::<Runtime, f32, 2>([max_intersects, 4], device, client);
+        let v_colors_scatter =
+            create_tensor::<Runtime, f32, 2>([max_intersects, 4], device, client);
 
         // This is an offset into the scatter tensor buffer. Important to start at zero.
         let hit_ids = BurnBack::int_zeros([num_points].into(), device);

@@ -2,8 +2,8 @@ mod shaders;
 
 use brush_kernel::create_tensor;
 use brush_kernel::kernel_source_gen;
-use brush_kernel::BurnRuntime;
 use brush_kernel::SplatKernel;
+use burn_jit::JitRuntime;
 use shaders::prefix_sum_add_scanned_sums;
 use shaders::prefix_sum_scan;
 use shaders::prefix_sum_scan_sums;
@@ -15,7 +15,7 @@ kernel_source_gen!(PrefixSumAddScannedSums {}, prefix_sum_add_scanned_sums, ());
 use burn_wgpu::JitTensor;
 use tracing::info_span;
 
-pub fn prefix_sum(input: JitTensor<BurnRuntime, u32, 1>) -> JitTensor<BurnRuntime, u32, 1> {
+pub fn prefix_sum<R: JitRuntime>(input: JitTensor<R, u32, 1>) -> JitTensor<R, u32, 1> {
     let _span = info_span!("prefix sum");
 
     let threads_per_group = shaders::prefix_sum_scan::THREADS_PER_GROUP as usize;
@@ -40,7 +40,7 @@ pub fn prefix_sum(input: JitTensor<BurnRuntime, u32, 1>) -> JitTensor<BurnRuntim
     let mut work_sz = num;
     while work_sz > threads_per_group {
         work_sz = work_sz.div_ceil(threads_per_group);
-        group_buffer.push(create_tensor::<u32, 1>([work_sz], &input.device, client));
+        group_buffer.push(create_tensor::<R, u32, 1>([work_sz], &input.device, client));
         work_size.push(work_sz);
     }
 
@@ -87,13 +87,13 @@ pub fn prefix_sum(input: JitTensor<BurnRuntime, u32, 1>) -> JitTensor<BurnRuntim
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use crate::prefix_sum;
-    use brush_kernel::{bitcast_tensor, BurnBack};
+    use brush_kernel::bitcast_tensor;
     use burn::tensor::{Int, Tensor};
-    use burn_wgpu::JitTensor;
+    use burn_wgpu::{AutoGraphicsApi, JitBackend, JitTensor, WgpuRuntime};
 
     #[test]
     fn test_sum_tiny() {
-        type Backend = BurnBack;
+        type Backend = JitBackend<WgpuRuntime<AutoGraphicsApi>, f32, i32>;
         let device = Default::default();
         let keys = Tensor::<Backend, 1, Int>::from_data([1, 1, 1, 1], &device).into_primitive();
         let keys = JitTensor::new(keys.client.clone(), keys.device, keys.shape, keys.handle);
@@ -112,7 +112,7 @@ mod tests {
         for i in 0..ITERS {
             data.push(90 + i as i32);
         }
-        type Backend = BurnBack;
+        type Backend = JitBackend<WgpuRuntime<AutoGraphicsApi>, f32, i32>;
         let device = Default::default();
         let keys = Tensor::<Backend, 1, Int>::from_data(data.as_slice(), &device).into_primitive();
         let keys = JitTensor::new(keys.client.clone(), keys.device, keys.shape, keys.handle);
@@ -144,7 +144,7 @@ mod tests {
             data.push(30965);
         }
 
-        type Backend = BurnBack;
+        type Backend = JitBackend<WgpuRuntime<AutoGraphicsApi>, f32, i32>;
         let device = Default::default();
         let keys = Tensor::<Backend, 1, Int>::from_data(data.as_slice(), &device).into_primitive();
         let keys = JitTensor::new(keys.client.clone(), keys.device, keys.shape, keys.handle);

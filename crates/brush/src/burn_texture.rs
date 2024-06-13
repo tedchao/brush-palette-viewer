@@ -1,14 +1,15 @@
 use std::sync::Arc;
 
-use brush_kernel::BurnRuntime;
 use brush_render::Backend;
 use burn::tensor::Tensor;
-use burn_wgpu::JitTensor;
+use burn_wgpu::{AutoGraphicsApi, JitTensor, WgpuRuntime};
 use egui::TextureId;
 use wgpu::ImageDataLayout;
 
+type Runtime = WgpuRuntime<AutoGraphicsApi>;
+
 fn copy_buffer_to_texture(
-    img: JitTensor<BurnRuntime, f32, 3>,
+    img: JitTensor<Runtime, f32, 3>,
     texture: &wgpu::Texture,
     encoder: &mut wgpu::CommandEncoder,
 ) {
@@ -80,7 +81,7 @@ impl BurnTexture {
         Self { texture, id }
     }
 
-    pub fn update_texture<B: Backend<FloatTensorPrimitive<3> = JitTensor<BurnRuntime, f32, 3>>>(
+    pub fn update_texture<B: Backend<FloatTensorPrimitive<3> = JitTensor<Runtime, f32, 3>>>(
         &mut self,
         tensor: Tensor<B, 3>,
         frame: &eframe::Frame,
