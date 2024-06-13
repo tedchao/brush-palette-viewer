@@ -10,7 +10,10 @@ use burn_compute::{
 };
 
 use burn::{
-    backend::wgpu::{AutoGraphicsApi, CubeCount, CubeDim, WgpuDevice, WgpuRuntime},
+    backend::{
+        wgpu::{AutoGraphicsApi, CubeCount, CubeDim, WgpuDevice, WgpuRuntime},
+        Autodiff,
+    },
     tensor::Shape,
 };
 use burn_cube::{
@@ -28,6 +31,7 @@ type BurnClient =
     ComputeClient<<BurnRuntime as Runtime>::Server, <BurnRuntime as Runtime>::Channel>;
 
 pub type BurnBack = JitBackend<BurnRuntime, f32, i32>;
+pub type BurnBackDiff = Autodiff<BurnBack>;
 
 pub trait SplatKernel
 where
@@ -127,10 +131,6 @@ impl<T: SplatKernel> CubeTask for WrapKernel<T> {
         burn_cube::compute::LaunchSettings {
             cube_count: self.cube_count.clone(),
         }
-    }
-
-    fn label(&self) -> Option<&'static str> {
-        self.splat.label()
     }
 }
 

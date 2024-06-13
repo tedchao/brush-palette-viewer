@@ -1,6 +1,5 @@
 #![allow(clippy::too_many_arguments)]
 #![allow(clippy::single_range_in_vec_init)]
-use brush_kernel::BurnBack;
 use burn::backend::Autodiff;
 use burn::prelude::Int;
 use burn::tensor::Tensor;
@@ -61,7 +60,5 @@ pub trait Backend: burn::tensor::backend::Backend {
     ) -> (Tensor<Self, 3>, RenderAux<Self>);
 }
 
-// TODO: In rust 1.80 having a trait bound here on the inner backend would be great.
-// For now all code using it will need to specify this bound itself.
-pub trait AutodiffBackend: Backend + burn::tensor::backend::AutodiffBackend {}
-impl AutodiffBackend for Autodiff<BurnBack> {}
+pub trait AutodiffBackend: burn::tensor::backend::AutodiffBackend + Backend {}
+impl<B: Backend> AutodiffBackend for Autodiff<B> where burn::backend::Autodiff<B>: Backend {}

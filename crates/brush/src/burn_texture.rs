@@ -1,44 +1,48 @@
 use std::sync::Arc;
 
-use brush_kernel::BurnBack;
+use brush_kernel::BurnRuntime;
+use brush_render::Backend;
 use burn::tensor::Tensor;
+use burn_wgpu::JitTensor;
 use egui::TextureId;
 use wgpu::ImageDataLayout;
 
-fn copy_buffer_to_texture(img: Tensor<BurnBack, 3>, texture: &wgpu::Texture) {
-    let [height, width, _] = img.shape().dims;
-    let primitive = img.into_primitive();
+fn copy_buffer_to_texture(
+    img: JitTensor<BurnRuntime, f32, 3>,
+    texture: &wgpu::Texture,
+    encoder: &mut wgpu::CommandEncoder,
+) {
+    let [height, width, _] = img.shape.dims;
 
-    primitive.client.run_custom_command(move |server| {
-        let img_res = server.get_resource_binding(primitive.handle.clone().binding());
+    img.client.sync(burn::tensor::backend::SyncType::Flush);
 
-        // Put compute passes in encoder before copying the buffer.
-        let bytes_per_row = Some(4 * width as u32);
-        let encoder = server.get_command_encoder();
+    let img_res = img.client.get_resource(img.handle.clone().binding());
 
-        // Now copy the buffer to the texture.
-        encoder.copy_buffer_to_texture(
-            wgpu::ImageCopyBuffer {
-                buffer: img_res.buffer.as_ref(),
-                layout: ImageDataLayout {
-                    offset: 0,
-                    bytes_per_row,
-                    rows_per_image: None,
-                },
+    // Put compute passes in encoder before copying the buffer.
+    let bytes_per_row = Some(4 * width as u32);
+
+    // Now copy the buffer to the texture.
+    encoder.copy_buffer_to_texture(
+        wgpu::ImageCopyBuffer {
+            buffer: img_res.buffer.as_ref(),
+            layout: ImageDataLayout {
+                offset: 0,
+                bytes_per_row,
+                rows_per_image: None,
             },
-            wgpu::ImageCopyTexture {
-                texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
-                aspect: wgpu::TextureAspect::All,
-            },
-            wgpu::Extent3d {
-                width: width as u32,
-                height: height as u32,
-                depth_or_array_layers: 1,
-            },
-        );
-    });
+        },
+        wgpu::ImageCopyTexture {
+            texture,
+            mip_level: 0,
+            origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
+            aspect: wgpu::TextureAspect::All,
+        },
+        wgpu::Extent3d {
+            width: width as u32,
+            height: height as u32,
+            depth_or_array_layers: 1,
+        },
+    );
 }
 
 pub struct BurnTexture {
@@ -65,7 +69,7 @@ fn create_texture(size: glam::UVec2, device: Arc<wgpu::Device>) -> wgpu::Texture
 
 // TODO: Slightly awkward combination of tensor <-> texture and texture <-> egui.
 impl BurnTexture {
-    pub fn new(tensor: Tensor<BurnBack, 3>, frame: &eframe::Frame) -> Self {
+    pub fn new<B: Backend>(tensor: Tensor<B, 3>, frame: &eframe::Frame) -> Self {
         let render_state = frame.wgpu_render_state().unwrap();
         let device = render_state.device.clone();
         let [h, w, _] = tensor.shape().dims;
@@ -76,7 +80,12 @@ impl BurnTexture {
         Self { texture, id }
     }
 
-    pub fn update_texture(&mut self, tensor: Tensor<BurnBack, 3>, frame: &eframe::Frame) {
+    pub fn update_texture<B: Backend<FloatTensorPrimitive<3> = JitTensor<BurnRuntime, f32, 3>>>(
+        &mut self,
+        tensor: Tensor<B, 3>,
+        frame: &eframe::Frame,
+        encoder: &mut wgpu::CommandEncoder,
+    ) {
         let [h, w, _] = tensor.shape().dims;
         let size = glam::uvec2(w as u32, h as u32);
 
@@ -97,6 +106,6 @@ impl BurnTexture {
             )
         }
 
-        copy_buffer_to_texture(tensor, &self.texture);
+        copy_buffer_to_texture(tensor.into_primitive(), &self.texture, encoder);
     }
 }

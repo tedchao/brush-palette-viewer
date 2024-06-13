@@ -16,11 +16,12 @@ brush-render.path = "../brush-render"
 brush-kernel.path = "../brush-kernel"
 
 # Workspace deps.
-glam = { workspace = true }
-image = { workspace = true }
+glam.workspace = true
+burn.workspace = true
+burn-compute.workspace = true
+burn-wgpu.workspace = true
 
-burn = { workspace = true }
-
+image.workspace = true
 
 # Optional dependencies (can't live in the workspace root).
 rerun = { version = "0.16", default-features = false, features = [
@@ -40,8 +41,7 @@ tracing.workspace = true
 wgpu.workspace = true
 ply-rs.workspace = true
 rand.workspace = true
-burn-compute.workspace = true
-burn-wgpu.workspace = true
+
 wasm-bindgen-futures = "0.4.42"
 web-time = "1.1.0"
 
