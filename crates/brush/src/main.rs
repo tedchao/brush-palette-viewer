@@ -51,7 +51,7 @@ fn main() -> anyhow::Result<()> {
         eframe::run_native(
             "Brush 🖌️",
             native_options,
-            Box::new(move |cc| Box::new(Viewer::new(cc))),
+            Box::new(move |cc| Ok(Box::new(Viewer::new(cc)))),
         )
         .unwrap();
     }
@@ -68,7 +68,7 @@ fn main() -> anyhow::Result<()> {
                 .start(
                     "main_canvas", // hardcode it
                     web_options,
-                    Box::new(|cc| Box::new(Viewer::new(cc))),
+                    Box::new(|cc| Ok(Box::new(Viewer::new(cc)))),
                 )
                 .await
                 .expect("failed to start eframe");
