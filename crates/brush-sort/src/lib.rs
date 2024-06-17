@@ -1,6 +1,6 @@
 use brush_kernel::create_tensor;
-use burn_jit::JitRuntime;
 use burn_wgpu::JitTensor;
+use burn_wgpu::WgpuRuntime;
 use shaders::sort_count;
 use shaders::sort_reduce;
 use shaders::sort_scan;
@@ -24,12 +24,15 @@ kernel_source_gen!(SortScanAdd {}, sort_scan_add, ());
 kernel_source_gen!(SortScan {}, sort_scan, ());
 kernel_source_gen!(SortScatter {}, sort_scatter, sort_scatter::Uniforms);
 
-pub fn radix_argsort<R: JitRuntime>(
-    input_keys: JitTensor<R, u32, 1>,
-    input_values: JitTensor<R, u32, 1>,
-    num_points: JitTensor<R, u32, 1>,
+pub fn radix_argsort(
+    input_keys: JitTensor<WgpuRuntime, u32, 1>,
+    input_values: JitTensor<WgpuRuntime, u32, 1>,
+    num_points: JitTensor<WgpuRuntime, u32, 1>,
     sorting_bits: u32,
-) -> (JitTensor<R, u32, 1>, JitTensor<R, u32, 1>) {
+) -> (
+    JitTensor<WgpuRuntime, u32, 1>,
+    JitTensor<WgpuRuntime, u32, 1>,
+) {
     assert_eq!(input_keys.shape.dims[0], input_values.shape.dims[0]);
     assert!(sorting_bits <= 32);
 
@@ -44,13 +47,14 @@ pub fn radix_argsort<R: JitRuntime>(
 
     let device = &input_keys.device.clone();
 
-    let count_buf = create_tensor::<R, u32, 1>([(max_needed_wgs as usize) * 16], device, client);
-    let reduced_buf = create_tensor::<R, u32, 1>([BLOCK_SIZE as usize], device, client);
+    let count_buf =
+        create_tensor::<u32, 1, WgpuRuntime>([(max_needed_wgs as usize) * 16], device, client);
+    let reduced_buf = create_tensor::<u32, 1, WgpuRuntime>([BLOCK_SIZE as usize], device, client);
 
     let output_keys = input_keys;
     let output_values = input_values;
-    let output_keys_swap = create_tensor::<R, u32, 1>([max_n as usize], device, client);
-    let output_values_swap = create_tensor::<R, u32, 1>([max_n as usize], device, client);
+    let output_keys_swap = create_tensor::<u32, 1, _>([max_n as usize], device, client);
+    let output_values_swap = create_tensor::<u32, 1, _>([max_n as usize], device, client);
 
     // NB: We fill in num_keys from the GPU!
     // This at least prevents sorting values we don't need, but really
@@ -138,9 +142,9 @@ mod tests {
     use crate::radix_argsort;
     use brush_kernel::bitcast_tensor;
     use burn::tensor::{Int, Tensor};
-    use burn_wgpu::{AutoGraphicsApi, JitBackend, WgpuRuntime};
+    use burn_wgpu::{JitBackend, WgpuRuntime};
 
-    type Backend = JitBackend<WgpuRuntime<AutoGraphicsApi>, f32, i32>;
+    type Backend = JitBackend<WgpuRuntime, f32, i32>;
 
     pub fn argsort<T: Ord>(data: &[T]) -> Vec<usize> {
         let mut indices = (0..data.len()).collect::<Vec<_>>();

@@ -194,7 +194,7 @@ pub fn bitcast_tensor<const D: usize, R: JitRuntime, EIn: JitElement, EOut: JitE
 }
 
 // Reserve a buffer from the client for the given shape.
-pub fn create_tensor<R: JitRuntime, E: JitElement, const D: usize>(
+pub fn create_tensor<E: JitElement, const D: usize, R: JitRuntime>(
     shape: [usize; D],
     device: &R::Device,
     client: &ComputeClient<R::Server, R::Channel>,

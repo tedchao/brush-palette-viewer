@@ -9,7 +9,7 @@ use crate::{
 };
 use brush_render::camera::Camera;
 use burn::{backend::Autodiff, module::AutodiffModule};
-use burn_wgpu::{AutoGraphicsApi, JitBackend, RuntimeOptions, WgpuDevice, WgpuRuntime};
+use burn_wgpu::{JitBackend, RuntimeOptions, WgpuDevice, WgpuRuntime};
 use egui::{pos2, CollapsingHeader, Color32, Rect};
 use glam::{Mat4, Quat, Vec2, Vec3};
 
@@ -22,7 +22,7 @@ use std::time::{Duration, Instant};
 #[cfg(target_arch = "wasm32")]
 use web_time::{Duration, Instant};
 
-type Backend = Autodiff<JitBackend<WgpuRuntime<AutoGraphicsApi>, f32, i32>>;
+type Backend = Autodiff<JitBackend<WgpuRuntime, f32, i32>>;
 
 struct TrainingUI {
     dataloader: SceneLoader<Backend>,

@@ -324,7 +324,7 @@ dependencies = [
  "futures-io",
  "futures-lite 2.3.0",
  "parking",
- "polling 3.7.1",
+ "polling 3.7.2",
  "rustix 0.38.34",
  "slab",
  "tracing",
@@ -561,9 +561,9 @@ checksum = "cf4b9d6a944f767f8e5e0db018570623c85f3d925ac718db4e06d0187adb21c1"
 
 [[package]]
 name = "bitstream-io"
-version = "2.3.0"
+version = "2.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7c12d1856e42f0d817a835fe55853957c85c8c8a470114029143d3f12671446e"
+checksum = "eac55ccd165b210af261b1812cf29a0b9e6303b480ff0df603c037129ff357fe"
 
 [[package]]
 name = "block"
@@ -771,7 +771,7 @@ checksum = "79296716171880943b8470b5f8d03aa55eb2e645a4874bdbb28adb49162e012c"
 [[package]]
 name = "burn"
 version = "0.14.0"
-source = "git+https://github.com/tracel-ai/burn.git#5e58ae1a02a09e9bc9871dd4bad31b67c82eedfb"
+source = "git+https://github.com/tracel-ai/burn.git#8071b637b87b28b5a383c563693f57a37abeeb06"
 dependencies = [
  "burn-core",
  "burn-train",
@@ -780,7 +780,7 @@ dependencies = [
 [[package]]
 name = "burn-autodiff"
 version = "0.14.0"
-source = "git+https://github.com/tracel-ai/burn.git#5e58ae1a02a09e9bc9871dd4bad31b67c82eedfb"
+source = "git+https://github.com/tracel-ai/burn.git#8071b637b87b28b5a383c563693f57a37abeeb06"
 dependencies = [
  "burn-common",
  "burn-tensor",
@@ -792,7 +792,7 @@ dependencies = [
 [[package]]
 name = "burn-candle"
 version = "0.14.0"
-source = "git+https://github.com/tracel-ai/burn.git#5e58ae1a02a09e9bc9871dd4bad31b67c82eedfb"
+source = "git+https://github.com/tracel-ai/burn.git#8071b637b87b28b5a383c563693f57a37abeeb06"
 dependencies = [
  "burn-tensor",
  "candle-core",
@@ -803,7 +803,7 @@ dependencies = [
 [[package]]
 name = "burn-common"
 version = "0.14.0"
-source = "git+https://github.com/tracel-ai/burn.git#5e58ae1a02a09e9bc9871dd4bad31b67c82eedfb"
+source = "git+https://github.com/tracel-ai/burn.git#8071b637b87b28b5a383c563693f57a37abeeb06"
 dependencies = [
  "async-trait",
  "derive-new",
@@ -818,7 +818,7 @@ dependencies = [
 [[package]]
 name = "burn-compute"
 version = "0.14.0"
-source = "git+https://github.com/tracel-ai/burn.git#5e58ae1a02a09e9bc9871dd4bad31b67c82eedfb"
+source = "git+https://github.com/tracel-ai/burn.git#8071b637b87b28b5a383c563693f57a37abeeb06"
 dependencies = [
  "burn-common",
  "derive-new",
@@ -835,7 +835,7 @@ dependencies = [
 [[package]]
 name = "burn-core"
 version = "0.14.0"
-source = "git+https://github.com/tracel-ai/burn.git#5e58ae1a02a09e9bc9871dd4bad31b67c82eedfb"
+source = "git+https://github.com/tracel-ai/burn.git#8071b637b87b28b5a383c563693f57a37abeeb06"
 dependencies = [
  "bincode 2.0.0-rc.3",
  "burn-autodiff",
@@ -863,7 +863,7 @@ dependencies = [
 [[package]]
 name = "burn-cube"
 version = "0.14.0"
-source = "git+https://github.com/tracel-ai/burn.git#5e58ae1a02a09e9bc9871dd4bad31b67c82eedfb"
+source = "git+https://github.com/tracel-ai/burn.git#8071b637b87b28b5a383c563693f57a37abeeb06"
 dependencies = [
  "burn-compute",
  "burn-cube-macros",
@@ -878,7 +878,7 @@ dependencies = [
 [[package]]
 name = "burn-cube-macros"
 version = "0.14.0"
-source = "git+https://github.com/tracel-ai/burn.git#5e58ae1a02a09e9bc9871dd4bad31b67c82eedfb"
+source = "git+https://github.com/tracel-ai/burn.git#8071b637b87b28b5a383c563693f57a37abeeb06"
 dependencies = [
  "derive-new",
  "proc-macro2",
@@ -889,7 +889,7 @@ dependencies = [
 [[package]]
 name = "burn-dataset"
 version = "0.14.0"
-source = "git+https://github.com/tracel-ai/burn.git#5e58ae1a02a09e9bc9871dd4bad31b67c82eedfb"
+source = "git+https://github.com/tracel-ai/burn.git#8071b637b87b28b5a383c563693f57a37abeeb06"
 dependencies = [
  "csv",
  "derive-new",
@@ -914,7 +914,7 @@ dependencies = [
 [[package]]
 name = "burn-derive"
 version = "0.14.0"
-source = "git+https://github.com/tracel-ai/burn.git#5e58ae1a02a09e9bc9871dd4bad31b67c82eedfb"
+source = "git+https://github.com/tracel-ai/burn.git#8071b637b87b28b5a383c563693f57a37abeeb06"
 dependencies = [
  "derive-new",
  "proc-macro2",
@@ -925,7 +925,7 @@ dependencies = [
 [[package]]
 name = "burn-fusion"
 version = "0.14.0"
-source = "git+https://github.com/tracel-ai/burn.git#5e58ae1a02a09e9bc9871dd4bad31b67c82eedfb"
+source = "git+https://github.com/tracel-ai/burn.git#8071b637b87b28b5a383c563693f57a37abeeb06"
 dependencies = [
  "burn-common",
  "burn-tensor",
@@ -939,7 +939,7 @@ dependencies = [
 [[package]]
 name = "burn-jit"
 version = "0.14.0"
-source = "git+https://github.com/tracel-ai/burn.git#5e58ae1a02a09e9bc9871dd4bad31b67c82eedfb"
+source = "git+https://github.com/tracel-ai/burn.git#8071b637b87b28b5a383c563693f57a37abeeb06"
 dependencies = [
  "burn-common",
  "burn-compute",
@@ -961,7 +961,7 @@ dependencies = [
 [[package]]
 name = "burn-ndarray"
 version = "0.14.0"
-source = "git+https://github.com/tracel-ai/burn.git#5e58ae1a02a09e9bc9871dd4bad31b67c82eedfb"
+source = "git+https://github.com/tracel-ai/burn.git#8071b637b87b28b5a383c563693f57a37abeeb06"
 dependencies = [
  "burn-autodiff",
  "burn-common",
@@ -979,7 +979,7 @@ dependencies = [
 [[package]]
 name = "burn-tch"
 version = "0.14.0"
-source = "git+https://github.com/tracel-ai/burn.git#5e58ae1a02a09e9bc9871dd4bad31b67c82eedfb"
+source = "git+https://github.com/tracel-ai/burn.git#8071b637b87b28b5a383c563693f57a37abeeb06"
 dependencies = [
  "burn-tensor",
  "half",
@@ -991,7 +991,7 @@ dependencies = [
 [[package]]
 name = "burn-tensor"
 version = "0.14.0"
-source = "git+https://github.com/tracel-ai/burn.git#5e58ae1a02a09e9bc9871dd4bad31b67c82eedfb"
+source = "git+https://github.com/tracel-ai/burn.git#8071b637b87b28b5a383c563693f57a37abeeb06"
 dependencies = [
  "burn-common",
  "derive-new",
@@ -1006,7 +1006,7 @@ dependencies = [
 [[package]]
 name = "burn-train"
 version = "0.14.0"
-source = "git+https://github.com/tracel-ai/burn.git#5e58ae1a02a09e9bc9871dd4bad31b67c82eedfb"
+source = "git+https://github.com/tracel-ai/burn.git#8071b637b87b28b5a383c563693f57a37abeeb06"
 dependencies = [
  "burn-core",
  "crossterm",
@@ -1025,7 +1025,7 @@ dependencies = [
 [[package]]
 name = "burn-wgpu"
 version = "0.14.0"
-source = "git+https://github.com/tracel-ai/burn.git#5e58ae1a02a09e9bc9871dd4bad31b67c82eedfb"
+source = "git+https://github.com/tracel-ai/burn.git#8071b637b87b28b5a383c563693f57a37abeeb06"
 dependencies = [
  "burn-common",
  "burn-compute",
@@ -1121,7 +1121,7 @@ checksum = "fba7adb4dd5aa98e5553510223000e7148f621165ec5f9acd7113f6ca4995298"
 dependencies = [
  "bitflags 2.5.0",
  "log",
- "polling 3.7.1",
+ "polling 3.7.2",
  "rustix 0.38.34",
  "slab",
  "thiserror",
@@ -2806,6 +2806,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d231dfb89cfffdbc30e7fc41579ed6066ad03abda9e567ccafae602b97ec5024"
 
 [[package]]
+name = "hermit-abi"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fbf6a919d6cf397374f7dfeeea91d974c7c0a7221d0d0f4f20d859d329e53fcc"
+
+[[package]]
 name = "hex"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3093,7 +3099,7 @@ version = "1.0.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "eae7b9aee968036d54dce06cebaefd919e4472e753296daccd6d344e3e2df0c2"
 dependencies = [
- "hermit-abi",
+ "hermit-abi 0.3.9",
  "libc",
  "windows-sys 0.48.0",
 ]
@@ -3104,7 +3110,7 @@ version = "0.4.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f23ff5ef2b80d608d61efee834934d862cd92461afc0560dedf493e4c033738b"
 dependencies = [
- "hermit-abi",
+ "hermit-abi 0.3.9",
  "libc",
  "windows-sys 0.52.0",
 ]
@@ -3433,9 +3439,9 @@ checksum = "490cc448043f947bae3cbee9c203358d62dbee0db12107a74be5c30ccfd09771"
 
 [[package]]
 name = "memchr"
-version = "2.7.3"
+version = "2.7.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6d0d8b92cd8358e8d229c11df9358decae64d137c5be540952c5ca7b25aea768"
+checksum = "78ca9ab1a0babb1e7d5695e3530886289c18cf2f87ec19a575a0abdce112e3a3"
 
 [[package]]
 name = "memmap2"
@@ -3789,7 +3795,7 @@ version = "1.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4161fcb6d602d4d2081af7c3a45852d875a03dd337a6bfdd6e06407b61342a43"
 dependencies = [
- "hermit-abi",
+ "hermit-abi 0.3.9",
  "libc",
 ]
 
@@ -4075,7 +4081,7 @@ checksum = "1e401f977ab385c9e4e3ab30627d6f26d00e2c73eef317493c4ec6d468726cf8"
 dependencies = [
  "cfg-if",
  "libc",
- "redox_syscall 0.5.1",
+ "redox_syscall 0.5.2",
  "smallvec",
  "windows-targets 0.52.5",
 ]
@@ -4229,13 +4235,13 @@ dependencies = [
 
 [[package]]
 name = "polling"
-version = "3.7.1"
+version = "3.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5e6a007746f34ed64099e88783b0ae369eaa3da6392868ba262e2af9b8fbaea1"
+checksum = "a3ed00ed3fbf728b5816498ecd316d1716eecaced9c0c8d2c5a6740ca214985b"
 dependencies = [
  "cfg-if",
  "concurrent-queue",
- "hermit-abi",
+ "hermit-abi 0.4.0",
  "pin-project-lite",
  "rustix 0.38.34",
  "tracing",
@@ -4543,9 +4549,9 @@ dependencies = [
 
 [[package]]
 name = "ravif"
-version = "0.11.5"
+version = "0.11.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bc13288f5ab39e6d7c9d501759712e6969fcc9734220846fc9ed26cae2cc4234"
+checksum = "67376f469e7e7840d0040bbf4b9b3334005bb167f814621326e4c7ab8cd6e944"
 dependencies = [
  "avif-serialize",
  "imgref",
@@ -5102,9 +5108,9 @@ dependencies = [
 
 [[package]]
 name = "redox_syscall"
-version = "0.5.1"
+version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "469052894dcb553421e483e4209ee581a45100d31b4018de03e5a7ad86374a7e"
+checksum = "c82cf8cff14456045f55ec4241383baeff27af886adb72ffb2162f99911de0fd"
 dependencies = [
  "bitflags 2.5.0",
 ]
