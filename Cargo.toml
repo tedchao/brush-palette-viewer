@@ -17,15 +17,16 @@ license = "MIT OR Apache-2.0"
 [workspace.dependencies]
 glam = "0.22"
 
-burn = { git = "https://github.com/tracel-ai/burn.git", features = [
+burn = { git = "https://github.com/tracel-ai/burn.git", default-features = false, features = [
     'wgpu',
     'autodiff',
     'template',
+    "std",
 ] }
-burn-compute = { git = "https://github.com/tracel-ai/burn.git" }
-burn-jit = { git = "https://github.com/tracel-ai/burn.git" }
-burn-wgpu = { git = "https://github.com/tracel-ai/burn.git" }
-burn-cube = { git = "https://github.com/tracel-ai/burn.git" }
+burn-compute = { git = "https://github.com/tracel-ai/burn.git", default-features = false }
+burn-jit = { git = "https://github.com/tracel-ai/burn.git", default-features = false }
+burn-wgpu = { git = "https://github.com/tracel-ai/burn.git", default-features = false }
+burn-cube = { git = "https://github.com/tracel-ai/burn.git", default-features = false }
 
 bytemuck = "1.15"
 ndarray = "0.15"
@@ -50,7 +51,7 @@ egui = { git = "https://github.com/emilk/egui.git" }
 eframe = { git = "https://github.com/emilk/egui.git", default-features = false, features = [
     "wgpu",
 ] }
-egui_extras = { git = "https://github.com/emilk/egui.git", features = [
+egui_extras = { git = "https://github.com/emilk/egui.git", default-features = false, features = [
     "all_loaders",
 ] }
 assert_approx_eq = "1.1.0"

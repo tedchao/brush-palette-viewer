@@ -13,7 +13,7 @@ mod train;
 mod utils;
 mod viewer;
 
-use eframe::{egui_wgpu::WgpuConfiguration, NativeOptions};
+use eframe::egui_wgpu::WgpuConfiguration;
 use std::sync::Arc;
 use viewer::Viewer;
 
@@ -39,7 +39,7 @@ fn main() -> anyhow::Result<()> {
     #[cfg(not(target_arch = "wasm32"))]
     {
         // Build app display.
-        let native_options = NativeOptions {
+        let native_options = eframe::NativeOptions {
             viewport: egui::ViewportBuilder::default()
                 .with_inner_size(egui::Vec2::new(1280.0, 720.0))
                 .with_active(true),
