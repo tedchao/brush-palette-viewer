@@ -18,30 +18,94 @@ use wgpu::CommandEncoderDescriptor;
 
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::{Duration, Instant};
+use std::{
+    sync::mpsc::{self, Receiver, SyncSender, TrySendError},
+    thread,
+};
 
 #[cfg(target_arch = "wasm32")]
 use web_time::{Duration, Instant};
 
-type Backend = Autodiff<JitBackend<WgpuRuntime, f32, i32>>;
+type Backend = JitBackend<WgpuRuntime, f32, i32>;
 
-struct TrainingUI {
-    dataloader: SceneLoader<Backend>,
-    trainer: SplatTrainer<Backend>,
-    train_active: bool,
-    #[cfg(feature = "rerun")]
-    rec: rerun::RecordingStream,
+struct TrainUpdate {
+    pub splats: Splats<Backend>,
+    pub iter: u32,
 }
 
 pub struct Viewer {
     camera: Camera,
-    splats: Option<Splats<Backend>>,
-    training: Option<TrainingUI>,
+    receiver: Option<Receiver<TrainUpdate>>,
+
+    train_iter: u32,
+    start_train_time: Instant,
+
+    ctx: egui::Context,
+
+    render_splats: Option<Splats<Backend>>,
     reference_cameras: Option<Vec<Camera>>,
     backbuffer: Option<BurnTexture>,
     controls: OrbitControls,
     device: WgpuDevice,
     start_transform: Mat4,
-    last_render_time: Instant,
+}
+
+fn train_loop(config: &TrainConfig, device: &WgpuDevice, tx: SyncSender<TrainUpdate>, egui_ctx: egui::Context) {
+    #[cfg(feature = "rerun")]
+    let rec = rerun::RecordingStreamBuilder::new("visualize training")
+        .spawn()
+        .expect("Failed to start rerun");
+
+    println!(
+        "Loading dataset {:?}, {}",
+        std::env::current_dir(),
+        config.scene_path
+    );
+    let scene = dataset_readers::read_scene(&config.scene_path, "transforms_train.json", None);
+
+    #[cfg(feature = "rerun")]
+    scene.visualize(&rec).expect("Failed to visualize scene");
+
+    let batcher_train = SceneBatcher::<Autodiff<Backend>>::new(device.clone());
+
+    let mut splats = Splats::<Autodiff<Backend>>::init_random(config.init_splat_count, 2.0, device);
+    let mut dataloader = SceneLoader::new(scene, batcher_train, 2);
+    let mut trainer = SplatTrainer::new(splats.num_splats(), config, &splats);
+
+    loop {
+        // TODO: On non wasm this really should be threaded.
+        let get_span = info_span!("Get batch").entered();
+        let batch = dataloader.next();
+        drop(get_span);
+
+        splats = trainer
+            .step(
+                batch,
+                splats,
+                #[cfg(feature = "rerun")]
+                &rec,
+            )
+            .unwrap();
+
+        if trainer.iter % 10 == 0 {
+            // Ideally this would drop the old value and set the new value to be consume - that somehow doesn't
+            // seem to be available for channels. I guess modelling shared ownership like that is more like a
+            // mutex than a channel - but the channel interface is nicer.
+
+            let update = TrainUpdate {
+                splats: splats.valid(),
+                iter: trainer.iter,
+            };
+
+            match tx.try_send(update) {
+                Ok(_) => egui_ctx.request_repaint(),
+                // If full, just ignore this and don't send anything.
+                Err(TrySendError::Full(_)) => (),
+                // On a disconnect, we're done.
+                Err(TrySendError::Disconnected(_)) => break,
+            };
+        }
+    }
 }
 
 impl Viewer {
@@ -69,21 +133,26 @@ impl Viewer {
         );
 
         Viewer {
+            receiver: None,
+            train_iter: 0,
+            start_train_time: Instant::now(),
+            ctx: cc.egui_ctx.clone(),
             camera: Camera::new(Vec3::ZERO, Quat::IDENTITY, 0.5, 0.5),
-            training: None,
-            splats: None,
+            render_splats: None,
             reference_cameras: None,
             backbuffer: None,
             controls: OrbitControls::new(15.0),
             device,
             start_transform: glam::Mat4::IDENTITY,
-            last_render_time: Instant::now(),
         }
     }
 
+    fn stop_training(&mut self) {
+        self.receiver = None; // This drops the receiver, which closes the channel.
+    }
+
     pub fn load_splats(&mut self, path: &str, reference_view: Option<&str>) {
-        // Disable training.
-        self.training = None;
+        self.stop_training();
 
         self.reference_cameras =
             reference_view.and_then(|s| dataset_readers::read_viewpoint_data(s).ok());
@@ -92,19 +161,13 @@ impl Viewer {
             self.camera = refs[0].clone();
         }
 
-        self.splats = splat_import::load_splat_from_ply(path, &self.device).ok();
-    }
-
-    pub fn set_splats(&mut self, splats: Splats<Backend>) {
-        self.splats = Some(splats);
+        self.render_splats = splat_import::load_splat_from_ply(path, &self.device).ok();
     }
 
     pub fn start_training(&mut self, path: &str) {
+        self.start_train_time = Instant::now();
+
         <Backend as burn::prelude::Backend>::seed(42);
-        #[cfg(feature = "rerun")]
-        let rec = rerun::RecordingStreamBuilder::new("visualize training")
-            .spawn()
-            .expect("Failed to start rerun");
 
         let config = TrainConfig::new(
             LrConfig::new().with_max_lr(2e-5).with_min_lr(5e-6),
@@ -113,31 +176,12 @@ impl Viewer {
             path.to_owned(),
         );
 
-        let splats = Splats::<Backend>::init_random(config.init_splat_count, 2.0, &self.device);
-
-        println!(
-            "Loading dataset {:?}, {}",
-            std::env::current_dir(),
-            config.scene_path
-        );
-        let scene = dataset_readers::read_scene(&config.scene_path, "transforms_train.json", None);
-
-        #[cfg(feature = "rerun")]
-        scene.visualize(&rec).expect("Failed to visualize scene");
-
-        let batcher_train = SceneBatcher::<Backend>::new(self.device.clone());
-        let dataloader = SceneLoader::new(scene, batcher_train, 2);
-        let trainer = SplatTrainer::new(splats.num_splats(), &config, &splats);
-
-        self.training = Some(TrainingUI {
-            dataloader,
-            trainer,
-            train_active: true,
-            #[cfg(feature = "rerun")]
-            rec,
-        });
-
-        self.splats = Some(splats);
+        // create a channel for the train loop.
+        let (tx, rx) = mpsc::sync_channel(1);
+        let device = self.device.clone();
+        self.receiver = Some(rx);
+        let ctx = self.ctx.clone();
+        thread::spawn(move || train_loop(&config, &device, tx, ctx)); 
     }
 }
 
@@ -180,39 +224,24 @@ impl eframe::App for Viewer {
                 }
             });
 
-            let now = Instant::now();
-            let ms = (now - self.last_render_time).as_secs_f64() * 1000.0;
-            let fps = 1000.0 / ms;
-            self.last_render_time = now;
+            if let Some(rx) = self.receiver.as_ref() {
+                ui.label(format!("Training step {}", self.train_iter));
 
-            ui.label(format!("FPS: {fps:.0} {ms:.0} ms/frame"));
-
-            if let Some(train) = self.training.as_mut() {
-                ui.label(format!("Training step {}", train.trainer.iter));
-                ui.checkbox(&mut train.train_active, "Train");
-
-                // TODO: On non wasm this really should be threaded.
-                let get_span = info_span!("Get batch").entered();
-                let batch = train.dataloader.next();
-                drop(get_span);
-
-                if train.train_active {
-                    let splats = self.splats.take().unwrap();
-
-                    self.splats = Some(
-                        train.trainer
-                            .step(
-                                batch,
-                                splats,
-                                #[cfg(feature = "rerun")]
-                                &train.rec,
-                            )
-                            .unwrap(),
-                    );
+                let steps_per_second = (self.train_iter as f64) / (Instant::now() - self.start_train_time).as_secs_f64();
+                ui.label(format!("Steps/s {:.1}", steps_per_second));
+                
+                // Update splats if a new step has arrived.
+                match rx.try_recv() {
+                    Ok(update) => { 
+                        self.render_splats = Some(update.splats);
+                        self.train_iter = update.iter;
+                    },
+                    Err(mpsc::TryRecvError::Empty) => (), // fine - just keep waiting.
+                    Err(mpsc::TryRecvError::Disconnected) => panic!("Channel broke somehow."),
                 }
             }
 
-            if let Some(splats) = &self.splats {
+            if let Some(splats) = &self.render_splats {
                 CollapsingHeader::new("View Splats").default_open(true).show(ui, |ui| {
                     let size = ui.available_size();
 
@@ -257,39 +286,46 @@ impl eframe::App for Viewer {
                     // TODO: For reference cameras just need to match fov?
                     self.camera.fovx = 0.5;
                     self.camera.fovy = 0.5 * (size.y as f32) / (size.x as f32);
+                    
 
-                    let (img, _) =
-                        splats.clone().valid().render(&self.camera, size, glam::vec3(0.0, 0.0, 0.0), true);
+                    // If there's actual rendering to do, not just an imgui update.
+                    if ctx.has_requested_repaint() {
+                        let span = info_span!("Render splats").entered();
+                        let (img, _) =
+                            splats.clone().render(&self.camera, size, glam::vec3(0.0, 0.0, 0.0), true);
+                        drop(span);
 
-                    let back = self.backbuffer.get_or_insert_with(|| BurnTexture::new(img.clone(), frame));
+                        let back = self.backbuffer.get_or_insert_with(|| BurnTexture::new(img.clone(), frame));
 
-                    {
-                        let state = frame.wgpu_render_state();
-                        let state = state.as_ref().unwrap();
-                        let mut encoder = state
-                            .device
-                            .create_command_encoder(&CommandEncoderDescriptor {
-                                label: Some("viewer encoder"),
-                            });
-                        back.update_texture(img, frame, &mut encoder);
-                        let cmd = encoder.finish();
-                        state.queue.submit([cmd]);
+                        {
+                            let state = frame.wgpu_render_state();
+                            let state = state.as_ref().unwrap();
+                            let mut encoder = state
+                                .device
+                                .create_command_encoder(&CommandEncoderDescriptor {
+                                    label: Some("viewer encoder"),
+                                });
+                            back.update_texture(img, frame, &mut encoder);
+                            let cmd = encoder.finish();
+                            state.queue.submit([cmd]);
+                        }
                     }
 
-                    ui.painter().rect_filled(rect, 0.0, Color32::BLACK);
-                    ui.painter().image(
-                        back.id,
-                        rect,
-                        Rect {
-                            min: pos2(0.0, 0.0),
-                            max: pos2(1.0, 1.0),
-                        },
-                        Color32::WHITE,
-                    );
+
+                    if let Some(back) = self.backbuffer.as_ref() {
+                        ui.painter().rect_filled(rect, 0.0, Color32::BLACK);
+                        ui.painter().image(
+                            back.id,
+                            rect,
+                            Rect {
+                                min: pos2(0.0, 0.0),
+                                max: pos2(1.0, 1.0),
+                            },
+                            Color32::WHITE,
+                        );
+                    }
                 });
             }
-
-            ctx.request_repaint();
         });
     }
 
