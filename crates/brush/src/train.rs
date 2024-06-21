@@ -98,10 +98,6 @@ where
     opt_config: AdamConfig,
     optim: OptimizerAdaptor<Adam<B::InnerBackend>, Splats<B>, B>,
 
-    // Maximum projected radius of each Gaussian in pixel-units. It is
-    // later used during culling.
-    max_radii_2d: Tensor<B, 1>,
-
     // Helper tensors for accumulating the viewspace_xy gradients and the number
     // of observations per gaussian. Used in pruning and densification.
     xy_grad_norm_accum: Tensor<B, 1>,
@@ -207,17 +203,16 @@ where
             sched_mean,
             sched_opac,
             sched_rest,
-            max_radii_2d: Tensor::zeros([num_points], device),
             xy_grad_norm_accum: Tensor::zeros([num_points], device),
         }
     }
 
     fn reset_stats(&mut self, num_points: usize, device: &B::Device) {
-        self.max_radii_2d = Tensor::zeros([num_points], device);
         self.xy_grad_norm_accum = Tensor::zeros([num_points], device);
     }
 
     // Densifies and prunes the Gaussians.
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn densify_and_prune(
         &mut self,
         splats: &mut Splats<B>,
@@ -227,12 +222,6 @@ where
         clone_vs_split_size_threshold: f32,
         device: &B::Device,
     ) {
-        if let Some(threshold) = max_pixel_threshold {
-            // Delete Gaussians with too large of a radius in pixel-units.
-            let big_splats_mask = self.max_radii_2d.clone().greater_elem(threshold);
-            self.prune_points(splats, big_splats_mask)
-        }
-
         if let Some(threshold) = max_world_size_threshold {
             // Delete Gaussians with too large of a radius in world-units.
             let prune_mask = splats
@@ -354,6 +343,7 @@ where
     //
     // Args:
     //   mask: bool[n]. If True, prune this Gaussian.
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn prune_points(&mut self, splats: &mut Splats<B>, prune: Tensor<B, 1, Bool>) {
         // bool[n]. If True, delete these Gaussians.
         let valid_inds = prune.bool_not().argwhere().squeeze(1);
@@ -362,7 +352,6 @@ where
         let new_points = valid_inds.dims()[0];
 
         if new_points < start_splats {
-            self.max_radii_2d = self.max_radii_2d.clone().select(0, valid_inds.clone());
             self.xy_grad_norm_accum = self
                 .xy_grad_norm_accum
                 .clone()
@@ -508,16 +497,6 @@ where
             let _norm_rot_span = SyncSpan::<B>::new("Housekeeping", device);
             splats.norm_rotations();
 
-            for aux in auxes.iter() {
-                let radii = Tensor::zeros_like(&aux.radii_compact).select_assign(
-                    0,
-                    aux.global_from_compact_gid.clone(),
-                    aux.radii_compact.clone(),
-                );
-
-                self.max_radii_2d = Tensor::max_pair(self.max_radii_2d.clone(), radii.clone());
-            }
-
             // TODO: Maybe can batch this.
             let xys_grad = Tensor::from_inner(splats.xys_dummy.grad_remove(&mut grads).unwrap());
 
@@ -534,6 +513,7 @@ where
             );
         }
 
+        #[cfg(not(target_arch = "wasm32"))]
         if self.iter % self.config.refine_every == 0 {
             // Remove barely visible gaussians.
             let prule_alpha_thresh = self.config.prune_alpha_thresh;

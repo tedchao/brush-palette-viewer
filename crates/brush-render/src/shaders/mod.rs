@@ -10,9 +10,23 @@ fn create_composer() -> naga_oil::compose::Composer {
     }).unwrap();
     composer
 }
+pub(crate) mod arrange {
+    pub(crate) const WORKGROUP_SIZE: [u32; 3] = [256, 1, 1];
+    
+    pub(crate) fn create_shader_source(
+       shader_defs: std::collections::HashMap<String, naga_oil::compose::ShaderDefValue>
+    ) -> naga::Module {
+        let mut composer = super::create_composer();
+        composer.make_naga_module(naga_oil::compose::NagaModuleDescriptor {
+            source: include_str!("arrange.wgsl"),
+            file_path: "src/shaders/arrange.wgsl",
+            shader_defs,
+            ..Default::default()
+        }).unwrap()
+    }
+}
 pub(crate) mod project_forward {
     pub(crate) const WORKGROUP_SIZE: [u32; 3] = [256, 1, 1];
-    pub(crate) const TILE_WIDTH: u32 = 16;
     pub(crate) const COV_BLUR: f32 = 0.3;
     #[repr(C, align(16))]
     #[derive(bytemuck::NoUninit, Debug, PartialEq, Clone, Copy)]
@@ -20,9 +34,7 @@ pub(crate) mod project_forward {
         pub(crate) viewmat: [[f32; 4]; 4],
         pub(crate) focal: [f32; 2],
         pub(crate) pixel_center: [f32; 2],
-        pub(crate) img_size: [u32; 2],
-        pub(crate) clip_thresh: f32,
-        pub(crate) sh_degree: u32,
+        pub(crate) img_size: [u32; 4],
     }
     
     pub(crate) fn create_shader_source(
@@ -32,6 +44,30 @@ pub(crate) mod project_forward {
         composer.make_naga_module(naga_oil::compose::NagaModuleDescriptor {
             source: include_str!("project_forward.wgsl"),
             file_path: "src/shaders/project_forward.wgsl",
+            shader_defs,
+            ..Default::default()
+        }).unwrap()
+    }
+}
+pub(crate) mod project_visible {
+    pub(crate) const WORKGROUP_SIZE: [u32; 3] = [256, 1, 1];
+    pub(crate) const TILE_WIDTH: u32 = 16;
+    #[repr(C, align(16))]
+    #[derive(bytemuck::NoUninit, Debug, PartialEq, Clone, Copy)]
+    pub(crate) struct Uniforms {
+        pub(crate) viewmat: [[f32; 4]; 4],
+        pub(crate) img_size: [u32; 2],
+        pub(crate) tile_bounds: [u32; 2],
+        pub(crate) sh_degree: [u32; 4],
+    }
+    
+    pub(crate) fn create_shader_source(
+       shader_defs: std::collections::HashMap<String, naga_oil::compose::ShaderDefValue>
+    ) -> naga::Module {
+        let mut composer = super::create_composer();
+        composer.make_naga_module(naga_oil::compose::NagaModuleDescriptor {
+            source: include_str!("project_visible.wgsl"),
+            file_path: "src/shaders/project_visible.wgsl",
             shader_defs,
             ..Default::default()
         }).unwrap()

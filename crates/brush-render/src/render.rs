@@ -2,8 +2,8 @@ use super::sync_span::SyncSpan as SyncSpanRaw;
 use crate::camera::Camera;
 use crate::dim_check::DimCheck;
 use crate::kernels::{
-    GetTileBinEdges, MapGaussiansToIntersect, ProjectBackwards, ProjectSplats, Rasterize,
-    RasterizeBackwards,
+    Arrange, GetTileBinEdges, MapGaussiansToIntersect, ProjectBackwards, ProjectSplats,
+    ProjectVisible, Rasterize, RasterizeBackwards,
 };
 use crate::shaders::get_tile_bin_edges::VERTICAL_GROUPS;
 use brush_kernel::{bitcast_tensor, create_tensor, SplatKernel};
@@ -87,7 +87,6 @@ fn render_forward(
     let xys = create_tensor::<f32, 2, _>([num_points, 2], device, client);
     let depths = create_tensor::<f32, 1, _>([num_points], device, client);
     let colors = create_tensor::<f32, 2, _>([num_points, 4], device, client);
-    let radii = create_tensor::<u32, 1, _>([num_points], device, client);
     let conic_comps = create_tensor::<f32, 2, _>([num_points, 4], device, client);
 
     // A note on some confusing naming that'll be used throughout this function:
@@ -111,6 +110,7 @@ fn render_forward(
     let num_visible = bitcast_tensor(BurnBack::int_zeros([1].into(), device));
     // Compaction buffer permutation.
     let global_from_compact_gid = create_tensor::<u32, 1, _>([num_points], device, client);
+    drop(setup_span);
 
     // TODO: This should just be:
     // let arranged_ids = BurnBack::int_arange();
@@ -118,7 +118,16 @@ fn render_forward(
     // Instead just fill this in the kernel, not great but it works.
     let arranged_ids = create_tensor::<u32, 1, _>([num_points], device, client);
 
-    drop(setup_span);
+    {
+        let _span = SyncSpan::new("Arrange", device);
+        Arrange::new().execute(
+            client,
+            (),
+            &[],
+            &[arranged_ids.handle.clone().binding()],
+            [num_points as u32],
+        );
+    }
 
     let sh_degree = sh_degree_from_coeffs(sh_coeffs.dims()[1] / 3);
 
@@ -131,27 +140,47 @@ fn render_forward(
                 viewmat: camera.world_to_local().to_cols_array_2d(),
                 focal: camera.focal(img_size).into(),
                 pixel_center: camera.center(img_size).into(),
+                img_size: [img_size.x, img_size.y, 0, 0],
+            },
+            &[
+                means.clone().into_primitive().handle.binding(),
+                log_scales.clone().into_primitive().handle.binding(),
+                quats.clone().into_primitive().handle.binding(),
+            ],
+            &[
+                global_from_compact_gid.handle.clone().binding(),
+                xys.handle.clone().binding(),
+                conic_comps.handle.clone().binding(),
+                depths.handle.clone().binding(),
+                num_visible.handle.clone().binding(),
+            ],
+            [num_points as u32],
+        );
+    }
+
+    {
+        let _span = SyncSpan::new("ProjectVisible", device);
+
+        ProjectVisible::new().execute(
+            client,
+            shaders::project_visible::Uniforms {
+                viewmat: camera.world_to_local().to_cols_array_2d(),
                 img_size: img_size.into(),
-                clip_thresh: 0.01,
-                sh_degree: sh_degree as u32,
+                tile_bounds: tile_bounds.into(),
+                sh_degree: [sh_degree as u32, 0, 0, 0],
             },
             &[
                 means.into_primitive().handle.binding(),
-                log_scales.into_primitive().handle.binding(),
-                quats.into_primitive().handle.binding(),
                 sh_coeffs.into_primitive().handle.binding(),
                 raw_opacities.into_primitive().handle.binding(),
-            ],
-            &[
-                arranged_ids.handle.clone().binding(),
                 global_from_compact_gid.handle.clone().binding(),
                 xys.handle.clone().binding(),
-                depths.handle.clone().binding(),
-                colors.handle.clone().binding(),
-                radii.handle.clone().binding(),
                 conic_comps.handle.clone().binding(),
-                num_tiles_hit.handle.clone().binding(),
                 num_visible.handle.clone().binding(),
+            ],
+            &[
+                colors.handle.clone().binding(),
+                num_tiles_hit.handle.clone().binding(),
             ],
             [num_points as u32],
         );
@@ -219,7 +248,6 @@ fn render_forward(
                 xys.handle.clone().binding(),
                 conic_comps.handle.clone().binding(),
                 colors.handle.clone().binding(),
-                radii.handle.clone().binding(),
                 cum_tiles_hit.handle.clone().binding(),
                 num_visible.handle.clone().binding(),
             ],
@@ -322,7 +350,6 @@ fn render_forward(
             num_intersects: Tensor::from_primitive(bitcast_tensor(num_intersects)),
             tile_bins: Tensor::from_primitive(bitcast_tensor(tile_bins)),
             cum_tiles_hit: Tensor::from_primitive(bitcast_tensor(cum_tiles_hit)),
-            radii_compact: Tensor::from_primitive(bitcast_tensor(radii)),
             conic_comps: Tensor::from_primitive(bitcast_tensor(conic_comps)),
             colors: Tensor::from_primitive(colors),
             depths: Tensor::from_primitive(depths),
@@ -438,7 +465,6 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
             num_visible: Tensor::from_inner(aux.num_visible),
             num_intersects: Tensor::from_inner(aux.num_intersects),
             tile_bins: Tensor::from_inner(aux.tile_bins),
-            radii_compact: Tensor::from_inner(aux.radii_compact),
             depthsort_gid_from_isect: Tensor::from_inner(aux.depthsort_gid_from_isect),
             compact_from_depthsort_gid: Tensor::from_inner(aux.compact_from_depthsort_gid),
             depths: Tensor::from_inner(aux.depths),

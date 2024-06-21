@@ -11,12 +11,11 @@ struct Uniforms {
 @group(0) @binding(3) var<storage> conic_comp: array<vec4f>;
 @group(0) @binding(4) var<storage> colors: array<vec4f>;
 
-@group(0) @binding(5) var<storage> radii: array<u32>;
-@group(0) @binding(6) var<storage> cum_tiles_hit: array<u32>;
-@group(0) @binding(7) var<storage> num_visible: array<u32>;
+@group(0) @binding(5) var<storage> cum_tiles_hit: array<u32>;
+@group(0) @binding(6) var<storage> num_visible: array<u32>;
 
-@group(0) @binding(8) var<storage, read_write> tile_id_from_isect: array<u32>;
-@group(0) @binding(9) var<storage, read_write> depthsort_gid_from_isect: array<u32>;
+@group(0) @binding(7) var<storage, read_write> tile_id_from_isect: array<u32>;
+@group(0) @binding(8) var<storage, read_write> depthsort_gid_from_isect: array<u32>;
 
 @compute
 @workgroup_size(256, 1, 1)
@@ -28,18 +27,18 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
     }
 
     let compact_gid = compact_from_depthsort_gid[depthsort_gid];
+    let conic = conic_comp[compact_gid].xyz;
+    let opac = colors[compact_gid].w;
 
-    let radius = radii[compact_gid];
+    let radius = helpers::radius_from_conic(conic, opac);
+
     let tile_bounds = uniforms.tile_bounds;
 
     // get the tile bbox for gaussian
     let xy = xys[compact_gid];
-    let tile_minmax = helpers::get_tile_bbox(xy, radius, tile_bounds);
+    let tile_minmax = helpers::get_tile_bbox(xy, u32(radius), tile_bounds);
     let tile_min = tile_minmax.xy;
     let tile_max = tile_minmax.zw;
-
-    let conic = conic_comp[compact_gid].xyz;
-    let opac = colors[compact_gid].w;
 
     // Get exclusive prefix sum of tiles hit.
     var isect_id = 0u;

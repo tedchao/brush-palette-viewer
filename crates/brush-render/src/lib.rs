@@ -17,7 +17,6 @@ pub struct RenderAux<B: Backend> {
     pub num_visible: Tensor<B, 1, Int>,
     pub num_intersects: Tensor<B, 1, Int>,
     pub tile_bins: Tensor<B, 3, Int>,
-    pub radii_compact: Tensor<B, 1>,
     pub depthsort_gid_from_isect: Tensor<B, 1, Int>,
     pub compact_from_depthsort_gid: Tensor<B, 1, Int>,
     pub depths: Tensor<B, 1>,
