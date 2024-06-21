@@ -14,7 +14,9 @@ mod utils;
 mod viewer;
 
 use eframe::egui_wgpu::WgpuConfiguration;
+use rand::rngs::adapter;
 use std::sync::Arc;
+use tracing::error;
 use viewer::Viewer;
 
 #[cfg(feature = "tracy")]
@@ -57,6 +59,9 @@ fn main() -> anyhow::Result<()> {
 
     #[cfg(target_arch = "wasm32")]
     {
+        console_error_panic_hook::set_once();
+        tracing_wasm::set_as_global_default();
+
         let web_options = eframe::WebOptions {
             wgpu_options,
             ..Default::default()

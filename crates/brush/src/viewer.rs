@@ -14,14 +14,12 @@ use egui::{pos2, CollapsingHeader, Color32, Rect};
 use glam::{Mat4, Quat, Vec2, Vec3};
 
 use tracing::info_span;
+use wasm_bindgen_futures::spawn_local;
 use wgpu::CommandEncoderDescriptor;
 
+use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::{Duration, Instant};
-use std::{
-    sync::mpsc::{self, Receiver, SyncSender, TrySendError},
-    thread,
-};
 
 #[cfg(target_arch = "wasm32")]
 use web_time::{Duration, Instant};
@@ -50,7 +48,12 @@ pub struct Viewer {
     start_transform: Mat4,
 }
 
-fn train_loop(config: &TrainConfig, device: &WgpuDevice, tx: SyncSender<TrainUpdate>, egui_ctx: egui::Context) {
+async fn train_loop(
+    config: TrainConfig,
+    device: WgpuDevice,
+    tx: SyncSender<TrainUpdate>,
+    egui_ctx: egui::Context,
+) {
     #[cfg(feature = "rerun")]
     let rec = rerun::RecordingStreamBuilder::new("visualize training")
         .spawn()
@@ -105,6 +108,8 @@ fn train_loop(config: &TrainConfig, device: &WgpuDevice, tx: SyncSender<TrainUpd
                 Err(TrySendError::Disconnected(_)) => break,
             };
         }
+
+        futures_lite::future::yield_now().await;
     }
 }
 
@@ -181,7 +186,12 @@ impl Viewer {
         let device = self.device.clone();
         self.receiver = Some(rx);
         let ctx = self.ctx.clone();
-        thread::spawn(move || train_loop(&config, &device, tx, ctx)); 
+
+        #[cfg(not(target_arch = "wasm32"))]
+        thread::spawn(move || pollster::block_on(train_loop(config, device, tx, ctx)));
+
+        #[cfg(target_arch = "wasm32")]
+        spawn_local(train_loop(config, device, tx, ctx));
     }
 }
 
@@ -227,17 +237,18 @@ impl eframe::App for Viewer {
             if let Some(rx) = self.receiver.as_ref() {
                 ui.label(format!("Training step {}", self.train_iter));
 
-                let steps_per_second = (self.train_iter as f64) / (Instant::now() - self.start_train_time).as_secs_f64();
+                let steps_per_second = (self.train_iter as f64)
+                    / (Instant::now() - self.start_train_time).as_secs_f64();
                 ui.label(format!("Steps/s {:.1}", steps_per_second));
-                
+
                 // Update splats if a new step has arrived.
                 match rx.try_recv() {
-                    Ok(update) => { 
+                    Ok(update) => {
                         self.render_splats = Some(update.splats);
                         self.train_iter = update.iter;
-                    },
+                    }
                     Err(mpsc::TryRecvError::Empty) => (), // fine - just keep waiting.
-                    Err(mpsc::TryRecvError::Disconnected) => panic!("Channel broke somehow."),
+                    Err(mpsc::TryRecvError::Disconnected) => self.receiver = None, // closed channel.
                 }
             }
 
@@ -246,7 +257,10 @@ impl eframe::App for Viewer {
                     let size = ui.available_size();
 
                     // Round to 64 pixels for buffer alignment.
-                    let size = glam::uvec2(((size.x as u32).div_ceil(64) * 64).max(32), (size.y as u32).max(32));
+                    let size = glam::uvec2(
+                        ((size.x as u32).div_ceil(64) * 64).max(32),
+                        (size.y as u32).max(32),
+                    );
 
                     let (rect, response) = ui.allocate_exact_size(
                         egui::Vec2::new(size.x as f32, size.y as f32),
@@ -286,31 +300,35 @@ impl eframe::App for Viewer {
                     // TODO: For reference cameras just need to match fov?
                     self.camera.fovx = 0.5;
                     self.camera.fovy = 0.5 * (size.y as f32) / (size.x as f32);
-                    
 
                     // If there's actual rendering to do, not just an imgui update.
                     if ctx.has_requested_repaint() {
                         let span = info_span!("Render splats").entered();
-                        let (img, _) =
-                            splats.clone().render(&self.camera, size, glam::vec3(0.0, 0.0, 0.0), true);
+                        let (img, _) = splats.clone().render(
+                            &self.camera,
+                            size,
+                            glam::vec3(0.0, 0.0, 0.0),
+                            true,
+                        );
                         drop(span);
 
-                        let back = self.backbuffer.get_or_insert_with(|| BurnTexture::new(img.clone(), frame));
+                        let back = self
+                            .backbuffer
+                            .get_or_insert_with(|| BurnTexture::new(img.clone(), frame));
 
                         {
                             let state = frame.wgpu_render_state();
                             let state = state.as_ref().unwrap();
-                            let mut encoder = state
-                                .device
-                                .create_command_encoder(&CommandEncoderDescriptor {
+                            let mut encoder = state.device.create_command_encoder(
+                                &CommandEncoderDescriptor {
                                     label: Some("viewer encoder"),
-                                });
+                                },
+                            );
                             back.update_texture(img, frame, &mut encoder);
                             let cmd = encoder.finish();
                             state.queue.submit([cmd]);
                         }
                     }
-
 
                     if let Some(back) = self.backbuffer.as_ref() {
                         ui.painter().rect_filled(rect, 0.0, Color32::BLACK);
