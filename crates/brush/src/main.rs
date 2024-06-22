@@ -14,9 +14,7 @@ mod utils;
 mod viewer;
 
 use eframe::egui_wgpu::WgpuConfiguration;
-use rand::rngs::adapter;
 use std::sync::Arc;
-use tracing::error;
 use viewer::Viewer;
 
 #[cfg(feature = "tracy")]

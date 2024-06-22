@@ -3,7 +3,7 @@ use crate::{
     dataset_readers,
     gaussian_splats::Splats,
     orbit_controls::OrbitControls,
-    scene::{SceneBatcher, SceneLoader},
+    scene::{self, SceneBatcher, SceneLoader},
     splat_import,
     train::{LrConfig, SplatTrainer, TrainConfig},
 };
@@ -13,8 +13,8 @@ use burn_wgpu::{JitBackend, RuntimeOptions, WgpuDevice, WgpuRuntime};
 use egui::{pos2, CollapsingHeader, Color32, Rect};
 use glam::{Mat4, Quat, Vec2, Vec3};
 
-use tracing::info_span;
-use wasm_bindgen_futures::spawn_local;
+use rfd::AsyncFileDialog;
+use tracing::{info, info_span};
 use wgpu::CommandEncoderDescriptor;
 
 use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
@@ -24,8 +24,12 @@ use std::time::{Duration, Instant};
 #[cfg(target_arch = "wasm32")]
 use web_time::{Duration, Instant};
 
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen_futures::spawn_local;
+
 type Backend = JitBackend<WgpuRuntime, f32, i32>;
 
+#[derive(Debug)]
 struct TrainUpdate {
     pub splats: Splats<Backend>,
     pub iter: u32,
@@ -48,6 +52,16 @@ pub struct Viewer {
     start_transform: Mat4,
 }
 
+#[cfg(target_arch = "wasm32")]
+async fn yield_macro() {
+    gloo_timers::future::TimeoutFuture::new(0).await;
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+async fn yield_macro() {
+    futures_lite::future::yield_now().await;
+}
+
 async fn train_loop(
     config: TrainConfig,
     device: WgpuDevice,
@@ -59,24 +73,30 @@ async fn train_loop(
         .spawn()
         .expect("Failed to start rerun");
 
-    println!(
-        "Loading dataset {:?}, {}",
-        std::env::current_dir(),
-        config.scene_path
-    );
-    let scene = dataset_readers::read_scene(&config.scene_path, "transforms_train.json", None);
+    let file = AsyncFileDialog::new()
+        .add_filter("scene", &["zip"])
+        .set_directory("/")
+        .pick_file()
+        .await
+        .unwrap();
+
+    let zip_data = file.read().await;
+    let cameras = dataset_readers::read_synthetic_nerf_data(&zip_data, None)
+        .await
+        .unwrap();
+    let scene = scene::Scene::new(cameras);
 
     #[cfg(feature = "rerun")]
     scene.visualize(&rec).expect("Failed to visualize scene");
 
     let batcher_train = SceneBatcher::<Autodiff<Backend>>::new(device.clone());
 
-    let mut splats = Splats::<Autodiff<Backend>>::init_random(config.init_splat_count, 2.0, device);
+    let mut splats =
+        Splats::<Autodiff<Backend>>::init_random(config.init_splat_count, 2.0, &device);
     let mut dataloader = SceneLoader::new(scene, batcher_train, 2);
-    let mut trainer = SplatTrainer::new(splats.num_splats(), config, &splats);
+    let mut trainer = SplatTrainer::new(splats.num_splats(), &config, &splats);
 
     loop {
-        // TODO: On non wasm this really should be threaded.
         let get_span = info_span!("Get batch").entered();
         let batch = dataloader.next();
         drop(get_span);
@@ -105,11 +125,12 @@ async fn train_loop(
                 // If full, just ignore this and don't send anything.
                 Err(TrySendError::Full(_)) => (),
                 // On a disconnect, we're done.
-                Err(TrySendError::Disconnected(_)) => break,
+                Err(TrySendError::Disconnected(_)) => (),
             };
-        }
 
-        futures_lite::future::yield_now().await;
+            info!("Next train iteration");
+            yield_macro().await;
+        }
     }
 }
 
@@ -169,7 +190,7 @@ impl Viewer {
         self.render_splats = splat_import::load_splat_from_ply(path, &self.device).ok();
     }
 
-    pub fn start_training(&mut self, path: &str) {
+    pub fn start_training(&mut self) {
         self.start_train_time = Instant::now();
 
         <Backend as burn::prelude::Backend>::seed(42);
@@ -178,7 +199,6 @@ impl Viewer {
             LrConfig::new().with_max_lr(2e-5).with_min_lr(5e-6),
             LrConfig::new().with_max_lr(4e-2).with_min_lr(2e-2),
             LrConfig::new().with_max_lr(1e-2).with_min_lr(6e-3),
-            path.to_owned(),
         );
 
         // create a channel for the train loop.
@@ -188,7 +208,7 @@ impl Viewer {
         let ctx = self.ctx.clone();
 
         #[cfg(not(target_arch = "wasm32"))]
-        thread::spawn(move || pollster::block_on(train_loop(config, device, tx, ctx)));
+        std::thread::spawn(move || pollster::block_on(train_loop(config, device, tx, ctx)));
 
         #[cfg(target_arch = "wasm32")]
         spawn_local(train_loop(config, device, tx, ctx));
@@ -226,13 +246,9 @@ impl eframe::App for Viewer {
             });
 
             ui.label("Train a new model.");
-            ui.horizontal(|ui| {
-                for r in ["chair", "drums", "ficus", "hotdog", "lego", "materials", "mic", "ship"] {
-                    if ui.button(r.to_string()).clicked() {
-                        self.start_training(&format!("./brush_data/nerf_synthetic/{r}/"))
-                    }
-                }
-            });
+            if ui.button("Load train zip").clicked() {
+                self.start_training();
+            }
 
             if let Some(rx) = self.receiver.as_ref() {
                 ui.label(format!("Training step {}", self.train_iter));

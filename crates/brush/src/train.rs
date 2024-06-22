@@ -35,8 +35,6 @@ pub(crate) struct TrainConfig {
     #[config(default = 10000)]
     pub(crate) schedule_steps: u32,
 
-    pub scene_path: String,
-
     #[config(default = 42)]
     pub(crate) seed: u64,
     #[config(default = 400)]
@@ -59,8 +57,6 @@ pub(crate) struct TrainConfig {
     // threshold of scale for culling huge gaussians.
     #[config(default = 0.5)]
     pub(crate) cull_scale_thresh: f32,
-    #[config(default = 0.15)]
-    pub(crate) cull_screen_size: f32,
     #[config(default = 30)]
     pub(crate) reset_alpha_every: u32,
 
@@ -217,7 +213,6 @@ where
         &mut self,
         splats: &mut Splats<B>,
         grad_threshold: f32,
-        max_pixel_threshold: Option<f32>,
         max_world_size_threshold: Option<f32>,
         clone_vs_split_size_threshold: f32,
         device: &B::Device,
@@ -536,7 +531,6 @@ where
                 self.densify_and_prune(
                     &mut splats,
                     self.config.clone_split_grad_threshold / max_img_size,
-                    Some(self.config.cull_screen_size * max_img_size),
                     Some(self.config.cull_scale_thresh),
                     self.config.split_clone_size_threshold,
                     device,

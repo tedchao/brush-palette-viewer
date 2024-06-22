@@ -1,10 +1,11 @@
+use std::path::Path;
 use std::path::PathBuf;
 
-use crate::scene;
 use anyhow::Context;
 use anyhow::Result;
 use brush_render::camera;
 use brush_render::camera::Camera;
+use futures_lite::AsyncReadExt;
 use ndarray::Array3;
 
 #[derive(Debug, Default, Clone)]
@@ -13,18 +14,51 @@ pub(crate) struct InputView {
     pub(crate) image: Array3<f32>,
 }
 
-fn read_synthetic_nerf_data(
-    base_path: &str,
-    transformsfile: &str,
-    extension: &str,
+fn normalized_path_string(path: &Path) -> String {
+    Path::new(path)
+        .components()
+        .collect::<PathBuf>()
+        .to_str()
+        .unwrap()
+        .replace(std::path::MAIN_SEPARATOR, "/")
+}
+
+pub async fn read_synthetic_nerf_data(
+    zip_data: &[u8],
     max_frames: Option<usize>,
 ) -> Result<Vec<InputView>> {
     let mut cameras = vec![];
 
-    let path = PathBuf::from(base_path).join(transformsfile);
-    let file = std::fs::read_to_string(path).expect("Couldn't find transforms file.");
+    let archive = async_zip::base::read::mem::ZipFileReader::new(zip_data.to_owned()).await?;
 
-    let contents: serde_json::Value = serde_json::from_str(&file).unwrap();
+    let entry = archive
+        .file()
+        .entries()
+        .iter()
+        .enumerate()
+        .find(|(_, x)| {
+            !x.dir().is_ok_and(|x| x)
+                && x.filename()
+                    .as_str()
+                    .unwrap()
+                    .contains("transforms_train.json")
+        })
+        .unwrap();
+
+    let transform_fname = &entry.1.filename().as_str().unwrap();
+    let base_path = std::path::Path::new(transform_fname)
+        .parent()
+        .unwrap_or(std::path::Path::new("./"));
+
+    let mut transform_buf = String::new();
+    archive
+        .reader_with_entry(entry.0)
+        .await
+        .unwrap()
+        .read_to_string(&mut transform_buf)
+        .await?;
+
+    let contents: serde_json::Value = serde_json::from_str(&transform_buf)?;
     let fovx = contents
         .get("camera_angle_x")
         .context("Camera angle x")?
@@ -69,8 +103,28 @@ fn read_synthetic_nerf_data(
             .as_str()
             .context("File path as str")?;
 
-        let image_path = PathBuf::from(base_path).join(image_file_path.to_string() + extension);
-        let image = image::io::Reader::open(image_path)?.decode()?;
+        let image_path =
+            normalized_path_string(&base_path.join(image_file_path.to_owned() + ".png"));
+
+        let img_index = archive
+            .file()
+            .entries()
+            .iter()
+            .position(|x| x.filename().as_str().unwrap() == image_path)
+            .unwrap();
+        let mut img_buffer = Vec::new();
+        archive
+            .reader_with_entry(img_index)
+            .await?
+            .read_to_end(&mut img_buffer)
+            .await?;
+        // Create a cursor from the buffer
+        let cursor = std::io::Cursor::new(img_buffer);
+        let image = image::io::Reader::new(cursor)
+            .with_guessed_format()?
+            .decode()?;
+
+        // let image = image::io::Reader::open(image_path)?.decode()?;
         let image = image.resize(400, 400, image::imageops::FilterType::Lanczos3);
 
         let im_data = image.to_rgba8().into_vec();
@@ -165,14 +219,4 @@ pub(crate) fn read_viewpoint_data(file: &str) -> Result<Vec<Camera>> {
     }
 
     Ok(cameras)
-}
-
-pub(crate) fn read_scene(
-    scene_path: &str,
-    transforms: &str,
-    max_images: Option<usize>,
-) -> scene::Scene {
-    let train_cams = read_synthetic_nerf_data(scene_path, transforms, ".png", max_images)
-        .expect("Failed to load train cameras.");
-    scene::Scene::new(train_cams)
 }

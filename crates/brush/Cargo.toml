@@ -49,6 +49,10 @@ async-executor = "1.12.0"
 tracing-wasm = "0.2.1"
 console_error_panic_hook = "0.1.7"
 pollster = "0.3.0"
+gloo-timers = { version = "0.3.0", features = ["futures"] }
+wasm-bindgen = "0.2.92"
+rfd = "0.14.1"
+async_zip = { version = "0.0.17", features = ["full-wasm"] }
 
 [features]
 tracy = ["dep:tracing-tracy"]
