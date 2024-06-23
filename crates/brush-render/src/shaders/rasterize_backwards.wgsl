@@ -11,7 +11,7 @@ struct Uniforms {
 
 @group(0) @binding(0) var<storage> uniforms: Uniforms;
 
-@group(0) @binding(1) var<storage, read> depthsort_gid_from_isect: array<u32>;
+@group(0) @binding(1) var<storage> depthsort_gid_from_isect: array<u32>;
 @group(0) @binding(2) var<storage> compact_from_depthsort_gid: array<u32>;
 @group(0) @binding(3) var<storage> tile_bins: array<vec2u>;
 @group(0) @binding(4) var<storage> xys: array<vec2f>;

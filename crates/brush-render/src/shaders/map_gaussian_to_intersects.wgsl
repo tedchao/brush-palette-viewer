@@ -36,7 +36,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
 
     // get the tile bbox for gaussian
     let xy = xys[compact_gid];
-    let tile_minmax = helpers::get_tile_bbox(xy, u32(radius), tile_bounds);
+    let tile_minmax = helpers::get_tile_bbox(xy, radius, tile_bounds);
     let tile_min = tile_minmax.xy;
     let tile_max = tile_minmax.zw;
 

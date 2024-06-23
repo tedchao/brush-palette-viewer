@@ -89,14 +89,16 @@ fn simple_sign(x: f32) -> f32 {
     return -1.0;
 }
 
-fn radius_from_conic(conic: vec3f, opac: f32) -> f32 {
+fn radius_from_conic(conic: vec3f, opac: f32) -> u32 {
     // Calculate tbe pixel radius.
-
     // Original implementation:
-    // let b = 0.5 * (cov2d.x + cov2d.z);
-    // let v1 = b + sqrt(max(0.1f, b * b - det));
-    // let v2 = b - sqrt(max(0.1f, b * b - det));
-    // let radius = u32(ceil(3.0 * sqrt(max(0.0, max(v1, v2)))));
+    let det = 1.0 / (conic.x * conic.z - conic.y * conic.y);
+    let cov2d = vec3f(conic.z, -conic.y, conic.x) * det;
+    let b = 0.5 * (cov2d.x + cov2d.z);
+    let v1 = b + sqrt(max(0.1f, b * b - det));
+    let v2 = b - sqrt(max(0.1f, b * b - det));
+    let radius = 3.0 * sqrt(max(0.0, max(v1, v2)));
+    return u32(ceil(radius));
 
     // I think we can do better and derive an exact bound when we hit some eps threshold.
     // Also, we should take into account the opoacity of the gaussian.
@@ -109,11 +111,11 @@ fn radius_from_conic(conic: vec3f, opac: f32) -> f32 {
     // //
     // // we actually go for 2.0 / 255.0 or so to match the cutoff from gsplat better.
     // // maybe can be more precise here if we don't need 1:1 compat with gsplat anymore.
-    let trace = conic.x + conic.z;
-    let determinant = conic.x * conic.z - conic.y * conic.y;
-    let l_min = 0.5 * (trace - sqrt(trace * trace - 4 * determinant));
-    let eps_const = -2.0 * log(1.0 / (opac * 255.0));
-    return sqrt(eps_const / l_min);
+    // let trace = conic.x + conic.z;
+    // let determinant = conic.x * conic.z - conic.y * conic.y;
+    // let l_min = 0.5 * (trace - sqrt(trace * trace - 4 * determinant));
+    // let eps_const = -2.0 * log(1.0 / (opac * 255.0));
+    // return sqrt(eps_const / l_min);
 }
 
 // Adopted method from: https://www.geometrictools.com/Documentation/IntersectionRectangleEllipse.pdf

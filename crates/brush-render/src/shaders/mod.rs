@@ -27,6 +27,7 @@ pub(crate) mod arrange {
 }
 pub(crate) mod project_forward {
     pub(crate) const WORKGROUP_SIZE: [u32; 3] = [256, 1, 1];
+    pub(crate) const TILE_WIDTH: u32 = 16;
     pub(crate) const COV_BLUR: f32 = 0.3;
     #[repr(C, align(16))]
     #[derive(bytemuck::NoUninit, Debug, PartialEq, Clone, Copy)]

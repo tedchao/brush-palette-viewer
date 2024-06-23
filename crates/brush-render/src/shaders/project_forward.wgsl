@@ -46,6 +46,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
 
     // Project world space to camera space.
     let mean = vec3f(means[global_gid * 3 + 0], means[global_gid * 3 + 1], means[global_gid * 3 + 2]);
+    let tile_bounds = vec2u(helpers::ceil_div(uniforms.img_size.x, helpers::TILE_WIDTH), helpers::ceil_div(uniforms.img_size.y, helpers::TILE_WIDTH));
 
     let W = mat3x3f(viewmat[0].xyz, viewmat[1].xyz, viewmat[2].xyz);
     let p_view = W * mean + viewmat[3].xyz;
@@ -83,18 +84,27 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
     let c01 = cov[0][1];
 
     // add a little blur along axes and save upper triangular elements
-    let det = c00 * c11 - c01 * c01;
     let cov2d = vec3f(c00, c01, c11);
+    let det = cov2d.x * cov2d.z - cov2d.y * cov2d.y;
 
     if det == 0.0 {
         return;
     }
-    
+
     // Calculate ellipse conic.
     let conic = vec3f(cov2d.z, -cov2d.y, cov2d.x) * (1.0 / det);
-
     // compute the projected mean
     let xy = project_pix(focal, p_view, pixel_center);
+
+    let radius = helpers::radius_from_conic(conic, 1.0);
+
+    let tile_minmax = helpers::get_tile_bbox(xy, radius, tile_bounds);
+    let tile_min = tile_minmax.xy;
+    let tile_max = tile_minmax.zw;
+
+    if (tile_max.x - tile_min.x) == 0u || (tile_max.y - tile_min.y) == 0u {
+        return;
+    }
 
     // Now write all the data to the buffers.
     let write_id = atomicAdd(&num_visible, 1u);

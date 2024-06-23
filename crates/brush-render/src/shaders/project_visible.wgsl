@@ -263,7 +263,7 @@ fn main(@builtin(global_invocation_id) compact_gid: vec3u) {
     let xy = xys[compact_gid.x];
     let radius = helpers::radius_from_conic(conic, opac);
 
-    let tile_minmax = helpers::get_tile_bbox(xy, u32(radius), uniforms.tile_bounds);
+    let tile_minmax = helpers::get_tile_bbox(xy, radius, uniforms.tile_bounds);
     let tile_min = tile_minmax.xy;
     let tile_max = tile_minmax.zw;
     var tile_area = 0u;
