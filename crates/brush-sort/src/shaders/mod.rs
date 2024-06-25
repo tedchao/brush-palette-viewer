@@ -91,10 +91,10 @@ pub(crate) mod sort_scatter {
     }
 }
 pub(crate) mod sorting {
-    pub(crate) const WG: u32 = 256;
-    pub(crate) const BLOCK_SIZE: u32 = 1024;
     pub(crate) const BIN_COUNT: u32 = 16;
-    pub(crate) const ELEMENTS_PER_THREAD: u32 = 4;
     pub(crate) const BITS_PER_PASS: u32 = 4;
+    pub(crate) const BLOCK_SIZE: u32 = 1024;
+    pub(crate) const ELEMENTS_PER_THREAD: u32 = 4;
     pub(crate) const VERTICAL_GROUPS: u32 = 8;
+    pub(crate) const WG: u32 = 256;
 }

@@ -92,8 +92,13 @@ pub(crate) mod grads {
 }
 pub(crate) mod helpers {
     pub(crate) const COV_BLUR: f32 = 0.3 as f32;
-    pub(crate) const TILE_WIDTH: u32 = 20;
-    pub(crate) const TILE_SIZE: u32 = 400;
+    #[repr(C, align(4))]
+    #[derive(bytemuck::Pod, bytemuck::Zeroable, Debug, PartialEq, Clone, Copy)]
+    pub(crate) struct PackedVec3 {
+            pub(crate) x: f32,
+            pub(crate) y: f32,
+            pub(crate) z: f32,
+    }
     #[repr(C, align(4))]
     #[derive(bytemuck::Pod, bytemuck::Zeroable, Debug, PartialEq, Clone, Copy)]
     pub(crate) struct ProjectedSplat {
@@ -121,13 +126,8 @@ pub(crate) mod helpers {
             pub(crate) total_splats: u32,
             pub(crate) padding: u32,
     }
-    #[repr(C, align(4))]
-    #[derive(bytemuck::Pod, bytemuck::Zeroable, Debug, PartialEq, Clone, Copy)]
-    pub(crate) struct PackedVec3 {
-            pub(crate) x: f32,
-            pub(crate) y: f32,
-            pub(crate) z: f32,
-    }
+    pub(crate) const TILE_SIZE: u32 = 400;
+    pub(crate) const TILE_WIDTH: u32 = 20;
 }
 pub(crate) mod map_gaussian_to_intersects {
     pub(crate) const WORKGROUP_SIZE: [u32; 3] = [256, 1, 1];

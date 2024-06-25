@@ -310,8 +310,11 @@ pub fn build_modules(
         match m.1 {
             ModuleInfo::Include { constants, types } => {
                 code.add_line(&format!("pub(crate) mod {} {{", m.0));
-                for c in constants.values().chain(types.values()) {
-                    code.add_lines(c);
+
+                let mut writes: Vec<_> = constants.iter().chain(types.iter()).collect();
+                writes.sort_by_key(|x| x.0.clone());
+                for c in writes {
+                    code.add_lines(c.1);
                 }
                 code.add_line("}");
             }
@@ -329,12 +332,13 @@ pub fn build_modules(
                     "pub(crate) const WORKGROUP_SIZE: [u32; 3] = [{wg_x}, {wg_y}, {wg_z}];"
                 ));
 
-                for c in constants.values().chain(types.values()) {
-                    code.add_lines(c);
+                let mut writes: Vec<_> = constants.iter().chain(types.iter()).collect();
+                writes.sort_by_key(|x| x.0.clone());
+                for c in writes {
+                    code.add_lines(c.1);
                 }
 
                 let rel_path = path.replace(base_path, "");
-
                 code.add_lines(&[
                     "",
                     "pub(crate) fn create_shader_source(",
