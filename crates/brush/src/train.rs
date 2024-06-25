@@ -489,7 +489,7 @@ where
         drop(step_span);
 
         {
-            let _norm_rot_span = SyncSpan::<B>::new("Housekeeping", device);
+            let _span = SyncSpan::<B>::new("Housekeeping", device);
             splats.norm_rotations();
 
             // TODO: Maybe can batch this.
@@ -501,7 +501,7 @@ where
                 self.xy_grad_norm_accum.clone(),
                 xys_grad
                     .clone()
-                    .mul(xys_grad.clone())
+                    .powf_scalar(2.0)
                     .sum_dim(1)
                     .squeeze(1)
                     .sqrt(),
