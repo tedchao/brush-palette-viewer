@@ -30,7 +30,10 @@ burn-compute = { git = "https://github.com/tracel-ai/burn.git", features = [
     "channel-cell",
     "storage-bytes",
 ], default-features = false }
-burn-jit = { git = "https://github.com/tracel-ai/burn.git", default-features = false }
+
+burn-jit = { git = "https://github.com/tracel-ai/burn.git", features = [
+    "autotune",
+], default-features = false }
 burn-wgpu = { git = "https://github.com/tracel-ai/burn.git", default-features = false }
 burn-cube = { git = "https://github.com/tracel-ai/burn.git", default-features = false }
 
