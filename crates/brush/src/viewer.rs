@@ -14,7 +14,7 @@ use egui::{pos2, CollapsingHeader, Color32, Rect};
 use glam::{Mat4, Quat, Vec2, Vec3};
 
 use rfd::AsyncFileDialog;
-use tracing::{info, info_span};
+use tracing::info_span;
 use wgpu::CommandEncoderDescriptor;
 
 use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
@@ -52,14 +52,9 @@ pub struct Viewer {
     start_transform: Mat4,
 }
 
-#[cfg(target_arch = "wasm32")]
 async fn yield_macro() {
+    #[cfg(target_arch = "wasm32")]
     gloo_timers::future::TimeoutFuture::new(0).await;
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-async fn yield_macro() {
-    futures_lite::future::yield_now().await;
 }
 
 async fn train_loop(
@@ -89,11 +84,11 @@ async fn train_loop(
     #[cfg(feature = "rerun")]
     scene.visualize(&rec).expect("Failed to visualize scene");
 
-    let batcher_train = SceneBatcher::<Autodiff<Backend>>::new(device.clone());
-
     let mut splats =
         Splats::<Autodiff<Backend>>::init_random(config.init_splat_count, 2.0, &device);
-    let mut dataloader = SceneLoader::new(scene, batcher_train, 2);
+
+    let batcher_train = SceneBatcher::<Autodiff<Backend>>::new(device.clone());
+    let mut dataloader = SceneLoader::new(scene, batcher_train, 1);
     let mut trainer = SplatTrainer::new(splats.num_splats(), &config, &splats);
 
     loop {
@@ -127,10 +122,9 @@ async fn train_loop(
                 // On a disconnect, we're done.
                 Err(TrySendError::Disconnected(_)) => (),
             };
-
-            info!("Next train iteration");
-            yield_macro().await;
         }
+
+        yield_macro().await;
     }
 }
 
@@ -262,7 +256,7 @@ impl eframe::App for Viewer {
                     Ok(update) => {
                         self.render_splats = Some(update.splats);
                         self.train_iter = update.iter;
-                    }
+                    },
                     Err(mpsc::TryRecvError::Empty) => (), // fine - just keep waiting.
                     Err(mpsc::TryRecvError::Disconnected) => self.receiver = None, // closed channel.
                 }
