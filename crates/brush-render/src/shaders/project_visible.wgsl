@@ -1,29 +1,17 @@
 #import helpers;
 
-struct Uniforms {
-    // View matrix transform world to view position.
-    viewmat: mat4x4f,
-    // Img resolution (w, h)
-    img_size: vec2u,
+@group(0) @binding(0) var<storage> uniforms: helpers::RenderUniforms;
 
-    tile_bounds: vec2u,
+@group(0) @binding(1) var<storage> means: array<helpers::PackedVec3>;
+@group(0) @binding(2) var<storage> log_scales: array<helpers::PackedVec3>;
+@group(0) @binding(3) var<storage> quats: array<vec4f>;
+@group(0) @binding(4) var<storage> coeffs: array<f32>;
+@group(0) @binding(5) var<storage> raw_opacities: array<f32>;
 
-    sh_degree: vec4u,
-}
+@group(0) @binding(6) var<storage> global_from_compact_gid: array<u32>;
 
-@group(0) @binding(0) var<storage> uniforms: Uniforms;
-
-@group(0) @binding(1) var<storage> means: array<f32>; // packed vec3
-@group(0) @binding(2) var<storage> coeffs: array<f32>;
-@group(0) @binding(3) var<storage> raw_opacities: array<f32>;
-@group(0) @binding(4) var<storage> global_from_compact_gid: array<u32>;
-
-@group(0) @binding(5) var<storage> xys: array<vec2f>;
-@group(0) @binding(6) var<storage> conic_comps: array<vec4f>;
-@group(0) @binding(7) var<storage> num_visible: u32;
-
-@group(0) @binding(8) var<storage, read_write> colors: array<vec4f>;
-@group(0) @binding(9) var<storage, read_write> num_tiles_hit: array<u32>;
+@group(0) @binding(7) var<storage, read_write> projected: array<helpers::ProjectedSplat>;
+@group(0) @binding(8) var<storage, read_write> num_tiles_hit: array<u32>;
 
 struct ShCoeffs {
     b0_c0: vec3f,
@@ -174,16 +162,31 @@ fn read_coeffs(base_id: ptr<function, u32>) -> vec3f {
 
 @compute
 @workgroup_size(256, 1, 1)
-fn main(@builtin(global_invocation_id) compact_gid: vec3u) {
-    if compact_gid.x >= num_visible {
+fn main(@builtin(global_invocation_id) gid: vec3u) {
+    let compact_gid = gid.x;
+
+    if compact_gid >= uniforms.num_visible {
         return;
     }
 
-    let global_gid = global_from_compact_gid[compact_gid.x];
+    let global_gid = global_from_compact_gid[compact_gid];
 
+    // Project world space to camera space.
+    let mean = helpers::as_vec(means[global_gid]);
+    let scale = exp(helpers::as_vec(log_scales[global_gid]));
+    let quat = quats[global_gid];
     let opac = sigmoid(raw_opacities[global_gid]);
 
-    let sh_degree = uniforms.sh_degree.x;
+    let viewmat = uniforms.viewmat;
+    let W = mat3x3f(viewmat[0].xyz, viewmat[1].xyz, viewmat[2].xyz);
+    let p_view = W * mean + viewmat[3].xyz;
+    let cov2d = helpers::calc_cov2d(uniforms.focal, uniforms.img_size, viewmat, p_view, scale, quat);
+    let conic = helpers::cov_to_conic(cov2d);
+
+    // compute the projected mean
+    let xy = helpers::project_pix(uniforms.focal, p_view, uniforms.pixel_center);
+
+    let sh_degree = uniforms.sh_degree;
     let num_coeffs = num_sh_coeffs(sh_degree);
     var base_id = global_gid * num_coeffs * 3;
 
@@ -226,41 +229,9 @@ fn main(@builtin(global_invocation_id) compact_gid: vec3u) {
         }
     }
 
-    let mean = vec3f(means[global_gid * 3 + 0], means[global_gid * 3 + 1], means[global_gid * 3 + 2]);
-
     let viewdir = normalize(-uniforms.viewmat[3].xyz - mean);
-
     let color = max(sh_coeffs_to_color(sh_degree, viewdir, sh) + vec3f(0.5), vec3f(0.0));
 
-
-    // // If this will not be visible in any pixel - bail.
-    // let nearest_pix = floor(xy) + 0.5;
-    // let vis = opac * helpers::calc_vis(nearest_pix, conic, xy);
-    // if vis < 1.0 / 255.0 {
-    //     return;
-    // }
-
-    // Calculate tbe pixel radius.
-
-    // Original implementation:
-    // let b = 0.5 * (cov2d.x + cov2d.z);
-    // let v1 = b + sqrt(max(0.1f, b * b - det));
-    // let v2 = b - sqrt(max(0.1f, b * b - det));
-    // let radius = u32(ceil(3.0 * sqrt(max(0.0, max(v1, v2)))));
-
-    // I think we can do better and derive an exact bound when we hit some eps threshold.
-    // Also, we should take into account the opoacity of the gaussian.
-    // So, opac * exp(-0.5 * x^T Sigma^-1 x) = eps  (with eps being e.g. 1.0 / 255.0).
-    // x^T Sigma^-1 x = -2 * log(eps / opac)
-    // Find maximal |x| using quadratic form
-    // |x|^2 = c / lambd_min.
-
-    // // Now solve for maximal |r| such that min alpha = 1.0 / 255.0.
-    // //
-    // // we actually go for 2.0 / 255.0 or so to match the cutoff from gsplat better.
-    // // maybe can be more precise here if we don't need 1:1 compat with gsplat anymore.
-    let conic = conic_comps[compact_gid.x].xyz;
-    let xy = xys[compact_gid.x];
     let radius = helpers::radius_from_conic(conic, opac);
 
     let tile_minmax = helpers::get_tile_bbox(xy, radius, uniforms.tile_bounds);
@@ -276,6 +247,6 @@ fn main(@builtin(global_invocation_id) compact_gid: vec3u) {
         }
     }
 
-    colors[compact_gid.x] = vec4f(color, opac);
-    num_tiles_hit[compact_gid.x] = u32(tile_area);
+    projected[compact_gid] = helpers::ProjectedSplat(xy.x, xy.y, conic.x, conic.y, conic.z, color.x, color.y, color.z, opac);
+    num_tiles_hit[compact_gid] = u32(tile_area);
 }

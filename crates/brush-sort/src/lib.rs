@@ -1,4 +1,5 @@
 use brush_kernel::create_tensor;
+use brush_kernel::create_uniform_buffer;
 use burn_wgpu::JitTensor;
 use burn_wgpu::WgpuRuntime;
 use shaders::sort_count;
@@ -13,16 +14,16 @@ use brush_kernel::SplatKernel;
 
 mod shaders;
 
-const WG: u32 = shaders::sort_count::WG;
-const ELEMENTS_PER_THREAD: u32 = shaders::sort_count::ELEMENTS_PER_THREAD;
+const WG: u32 = shaders::sorting::WG;
+const ELEMENTS_PER_THREAD: u32 = shaders::sorting::ELEMENTS_PER_THREAD;
 const BLOCK_SIZE: u32 = WG * ELEMENTS_PER_THREAD;
-const BIN_COUNT: u32 = shaders::sort_count::BIN_COUNT;
+const BIN_COUNT: u32 = shaders::sorting::BIN_COUNT;
 
-kernel_source_gen!(SortCount {}, sort_count, sort_count::Uniforms);
-kernel_source_gen!(SortReduce {}, sort_reduce, ());
-kernel_source_gen!(SortScanAdd {}, sort_scan_add, ());
-kernel_source_gen!(SortScan {}, sort_scan, ());
-kernel_source_gen!(SortScatter {}, sort_scatter, sort_scatter::Uniforms);
+kernel_source_gen!(SortCount {}, sort_count);
+kernel_source_gen!(SortReduce {}, sort_reduce);
+kernel_source_gen!(SortScanAdd {}, sort_scan_add);
+kernel_source_gen!(SortScan {}, sort_scan);
+kernel_source_gen!(SortScatter {}, sort_scatter);
 
 pub fn radix_argsort(
     input_keys: JitTensor<WgpuRuntime, u32, 1>,
@@ -69,62 +70,66 @@ pub fn radix_argsort(
             (&output_keys, &output_values)
         };
 
-        let effective_wg_vert = max_needed_wgs.div_ceil(shaders::sort_count::VERTICAL_GROUPS);
+        let effective_wg_vert = max_needed_wgs.div_ceil(shaders::sorting::VERTICAL_GROUPS);
+
+        let uniforms_buffer: JitTensor<WgpuRuntime, u32, 1> = create_uniform_buffer(
+            shaders::sort_count::Uniforms { shift: pass * 4 },
+            device,
+            client,
+        );
+
         SortCount::new().execute(
             client,
-            shaders::sort_count::Uniforms { shift: pass * 4 },
             &[
+                uniforms_buffer.clone().handle.binding(),
                 num_points.handle.clone().binding(),
                 last_out.handle.clone().binding(),
+                count_buf.clone().handle.binding(),
             ],
-            &[count_buf.clone().handle.binding()],
-            [effective_wg_vert * WG, shaders::sort_count::VERTICAL_GROUPS],
+            [effective_wg_vert * WG, shaders::sorting::VERTICAL_GROUPS],
         );
 
         SortReduce::new().execute(
             client,
-            (),
             &[
                 num_points.handle.clone().binding(),
                 count_buf.clone().handle.binding(),
+                reduced_buf.clone().handle.binding(),
             ],
-            &[reduced_buf.clone().handle.binding()],
             [max_num_reduce_wgs * WG],
         );
 
         SortScan::new().execute(
             client,
-            (),
-            &[num_points.handle.clone().binding()],
-            &[reduced_buf.clone().handle.binding()],
+            &[
+                num_points.handle.clone().binding(),
+                reduced_buf.clone().handle.binding(),
+            ],
             [1, 1, 1],
         );
 
         SortScanAdd::new().execute(
             client,
-            (),
             &[
                 num_points.handle.clone().binding(),
                 reduced_buf.clone().handle.binding(),
+                count_buf.clone().handle.binding(),
             ],
-            &[count_buf.clone().handle.binding()],
             [max_num_reduce_wgs * WG],
         );
 
         SortScatter::new().execute(
             client,
-            shaders::sort_scatter::Uniforms { shift: pass * 4 },
             &[
+                uniforms_buffer.handle.binding(),
                 num_points.handle.clone().binding(),
                 last_out.handle.clone().binding(),
                 last_out_values.handle.clone().binding(),
                 count_buf.handle.clone().binding(),
+                to.handle.clone().binding(),
+                to_val.handle.clone().binding(),
             ],
-            &[to.handle.clone().binding(), to_val.handle.clone().binding()],
-            [
-                effective_wg_vert * WG,
-                shaders::sort_scatter::VERTICAL_GROUPS,
-            ],
+            [effective_wg_vert * WG, shaders::sorting::VERTICAL_GROUPS],
         );
 
         (last_out, last_out_values) = (&to, &to_val);

@@ -14,18 +14,18 @@ pub mod sync_span;
 
 #[derive(Debug, Clone)]
 pub struct RenderAux<B: Backend> {
-    pub num_visible: Tensor<B, 1, Int>,
+    pub uniforms_buffer: Tensor<B, 1, Int>,
+    pub projected_splats: Tensor<B, 2>,
+
     pub num_intersects: Tensor<B, 1, Int>,
-    pub tile_bins: Tensor<B, 3, Int>,
-    pub depthsort_gid_from_isect: Tensor<B, 1, Int>,
-    pub compact_from_depthsort_gid: Tensor<B, 1, Int>,
-    pub depths: Tensor<B, 1>,
-    pub cum_tiles_hit: Tensor<B, 1, Int>,
-    pub conic_comps: Tensor<B, 2>,
-    pub colors: Tensor<B, 2>,
+    pub num_visible: Tensor<B, 1, Int>,
+
     pub final_index: Tensor<B, 2, Int>,
+    pub cum_tiles_hit: Tensor<B, 1, Int>,
+
+    pub tile_bins: Tensor<B, 3, Int>,
+    pub compact_gid_from_isect: Tensor<B, 1, Int>,
     pub global_from_compact_gid: Tensor<B, 1, Int>,
-    pub xys: Tensor<B, 2>,
 }
 
 impl<B: Backend> RenderAux<B> {

@@ -12,13 +12,11 @@ fn create_composer() -> naga_oil::compose::Composer {
 }
 pub(crate) mod prefix_sum_add_scanned_sums {
     pub(crate) const WORKGROUP_SIZE: [u32; 3] = [512, 1, 1];
-    pub(crate) const THREADS_PER_GROUP: u32 = 512;
     
     pub(crate) fn create_shader_source(
        shader_defs: std::collections::HashMap<String, naga_oil::compose::ShaderDefValue>
     ) -> naga::Module {
-        let mut composer = super::create_composer();
-        composer.make_naga_module(naga_oil::compose::NagaModuleDescriptor {
+        super::create_composer().make_naga_module(naga_oil::compose::NagaModuleDescriptor {
             source: include_str!("prefix_sum_add_scanned_sums.wgsl"),
             file_path: "src/shaders/prefix_sum_add_scanned_sums.wgsl",
             shader_defs,
@@ -26,33 +24,32 @@ pub(crate) mod prefix_sum_add_scanned_sums {
         }).unwrap()
     }
 }
-pub(crate) mod prefix_sum_scan_sums {
-    pub(crate) const WORKGROUP_SIZE: [u32; 3] = [512, 1, 1];
+pub(crate) mod prefix_sum_helpers {
     pub(crate) const THREADS_PER_GROUP: u32 = 512;
+}
+pub(crate) mod prefix_sum_scan {
+    pub(crate) const WORKGROUP_SIZE: [u32; 3] = [512, 1, 1];
     
     pub(crate) fn create_shader_source(
        shader_defs: std::collections::HashMap<String, naga_oil::compose::ShaderDefValue>
     ) -> naga::Module {
-        let mut composer = super::create_composer();
-        composer.make_naga_module(naga_oil::compose::NagaModuleDescriptor {
-            source: include_str!("prefix_sum_scan_sums.wgsl"),
-            file_path: "src/shaders/prefix_sum_scan_sums.wgsl",
+        super::create_composer().make_naga_module(naga_oil::compose::NagaModuleDescriptor {
+            source: include_str!("prefix_sum_scan.wgsl"),
+            file_path: "src/shaders/prefix_sum_scan.wgsl",
             shader_defs,
             ..Default::default()
         }).unwrap()
     }
 }
-pub(crate) mod prefix_sum_scan {
+pub(crate) mod prefix_sum_scan_sums {
     pub(crate) const WORKGROUP_SIZE: [u32; 3] = [512, 1, 1];
-    pub(crate) const THREADS_PER_GROUP: u32 = 512;
     
     pub(crate) fn create_shader_source(
        shader_defs: std::collections::HashMap<String, naga_oil::compose::ShaderDefValue>
     ) -> naga::Module {
-        let mut composer = super::create_composer();
-        composer.make_naga_module(naga_oil::compose::NagaModuleDescriptor {
-            source: include_str!("prefix_sum_scan.wgsl"),
-            file_path: "src/shaders/prefix_sum_scan.wgsl",
+        super::create_composer().make_naga_module(naga_oil::compose::NagaModuleDescriptor {
+            source: include_str!("prefix_sum_scan_sums.wgsl"),
+            file_path: "src/shaders/prefix_sum_scan_sums.wgsl",
             shader_defs,
             ..Default::default()
         }).unwrap()

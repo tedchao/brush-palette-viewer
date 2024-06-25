@@ -1,33 +1,18 @@
 #import helpers
 
-struct Uniforms {
-    // Background color behind splats.
-    background: vec3f,
-    // Img resolution (w, h)
-    img_size: vec2u,
-    // Max time dimension.
-    tile_bounds: vec2u
-}
-
-@group(0) @binding(0) var<storage, read> uniforms: Uniforms;
-
-@group(0) @binding(1) var<storage, read> depthsort_gid_from_isect: array<u32>;
-@group(0) @binding(2) var<storage> compact_from_depthsort_gid: array<u32>;
-@group(0) @binding(3) var<storage, read> tile_bins: array<vec2u>;
-@group(0) @binding(4) var<storage, read> xys: array<vec2f>;
-@group(0) @binding(5) var<storage, read> conic_comps: array<vec4f>;
-@group(0) @binding(6) var<storage, read> colors: array<vec4f>;
+@group(0) @binding(0) var<storage> uniforms: helpers::RenderUniforms;
+@group(0) @binding(1) var<storage> compact_gid_from_isect: array<u32>;
+@group(0) @binding(2) var<storage> tile_bins: array<vec2u>;
+@group(0) @binding(3) var<storage> projected_splats: array<helpers::ProjectedSplat>;
 
 #ifdef RASTER_U32
-    @group(0) @binding(7) var<storage, read_write> out_img: array<u32>;
+    @group(0) @binding(4) var<storage, read_write> out_img: array<u32>;
 #else
-    @group(0) @binding(7) var<storage, read_write> out_img: array<vec4f>;
-    @group(0) @binding(8) var<storage, read_write> final_index : array<u32>;
+    @group(0) @binding(4) var<storage, read_write> out_img: array<vec4f>;
+    @group(0) @binding(5) var<storage, read_write> final_index : array<u32>;
 #endif
 
-var<workgroup> xy_batch: array<vec2f, helpers::TILE_SIZE>;
-var<workgroup> colors_batch: array<vec4f, helpers::TILE_SIZE>;
-var<workgroup> conic_comp_batch: array<vec4f, helpers::TILE_SIZE>;
+var<workgroup> local_batch: array<helpers::ProjectedSplat, helpers::TILE_SIZE>;
 
 // kernel function for rasterizing each tile
 // each thread treats a single pixel
@@ -80,11 +65,8 @@ fn main(
         let isect_id = batch_start + local_idx;
 
         if isect_id <= range.y {
-            let depthsort_gid = depthsort_gid_from_isect[isect_id];
-            let compact_gid = compact_from_depthsort_gid[depthsort_gid];
-            xy_batch[local_idx] = xys[compact_gid];
-            conic_comp_batch[local_idx] = conic_comps[compact_gid];
-            colors_batch[local_idx] = colors[compact_gid];
+            let compact_gid = compact_gid_from_isect[isect_id];
+            local_batch[local_idx] = projected_splats[compact_gid];
         }
         workgroupBarrier();
 
@@ -92,18 +74,15 @@ fn main(
         let remaining = min(helpers::TILE_SIZE, range.y - batch_start);
     
         for (var t = 0u; t < remaining && !done; t++) {
-            let xy = xy_batch[t];
-            let conic_comp = conic_comp_batch[t];
-            let color_opac = colors_batch[t];
+            let projected = local_batch[t];
+            let xy = vec2f(projected.x, projected.y);
+            let conic = vec3f(projected.conic_x, projected.conic_y, projected.conic_z);
+            let color = vec4f(projected.r, projected.g, projected.b, projected.a);
 
-            let conic = conic_comp.xyz;
-            // TODO: Re-enable compensation.
-            // let compensation = conic_comp.w;
-            let opac = color_opac.w;
             let delta = xy - pixel_coord;
             let sigma = 0.5f * (conic.x * delta.x * delta.x + conic.z * delta.y * delta.y) + conic.y * delta.x * delta.y;
             let vis = exp(-sigma);
-            let alpha = min(0.999f, opac * vis);
+            let alpha = min(0.999f, color.w * vis);
 
             if sigma >= 0.0 && alpha >= 1.0 / 255.0 {
                 let next_T = T * (1.0 - alpha);
@@ -113,7 +92,7 @@ fn main(
                 }
 
                 let fac = alpha * T;
-                let c = color_opac.xyz;
+                let c = color.xyz;
                 pix_out += c * fac;
                 T = next_T;
                 final_idx = batch_start + t;
@@ -122,7 +101,7 @@ fn main(
     }
 
     if inside {
-        let final_color = vec4f(pix_out + T * background, 1.0 - T);
+        let final_color = vec4f(pix_out + T * background.xyz, 1.0 - T);
 
         #ifdef RASTER_U32
             let colors_u = vec4u(clamp(final_color * 255.0, vec4f(0.0), vec4f(255.0)));

@@ -1,12 +1,14 @@
+use std::mem::{offset_of, size_of};
+
 use super::sync_span::SyncSpan as SyncSpanRaw;
 use crate::camera::Camera;
 use crate::dim_check::DimCheck;
 use crate::kernels::{
-    Arrange, GetTileBinEdges, MapGaussiansToIntersect, ProjectBackwards, ProjectSplats,
+    GatherGrads, GetTileBinEdges, MapGaussiansToIntersect, ProjectBackwards, ProjectSplats,
     ProjectVisible, Rasterize, RasterizeBackwards,
 };
 use crate::shaders::get_tile_bin_edges::VERTICAL_GROUPS;
-use brush_kernel::{bitcast_tensor, create_tensor, SplatKernel};
+use brush_kernel::{bitcast_tensor, create_tensor, create_uniform_buffer, SplatKernel};
 use brush_prefix_sum::prefix_sum;
 use brush_sort::radix_argsort;
 use burn::backend::autodiff::NodeID;
@@ -26,7 +28,7 @@ use burn::backend::{
     },
     Autodiff,
 };
-use glam::{uvec2, Vec3, Vec3Swizzles};
+use glam::uvec2;
 
 type BurnBack = JitBackend<WgpuRuntime, f32, i32>;
 
@@ -75,8 +77,8 @@ fn render_forward(
 
     // Divide screen into tiles.
     let tile_bounds = uvec2(
-        img_size.x.div_ceil(shaders::rasterize::TILE_WIDTH),
-        img_size.y.div_ceil(shaders::rasterize::TILE_WIDTH),
+        img_size.x.div_ceil(shaders::helpers::TILE_WIDTH),
+        img_size.y.div_ceil(shaders::helpers::TILE_WIDTH),
     );
 
     let num_points = means.dims()[0];
@@ -84,10 +86,7 @@ fn render_forward(
     // Projected gaussian values.
     let client = &means.clone().into_primitive().client;
 
-    let xys = create_tensor::<f32, 2, _>([num_points, 2], device, client);
     let depths = create_tensor::<f32, 1, _>([num_points], device, client);
-    let colors = create_tensor::<f32, 2, _>([num_points, 4], device, client);
-    let conic_comps = create_tensor::<f32, 2, _>([num_points, 4], device, client);
 
     // A note on some confusing naming that'll be used throughout this function:
     // Gaussians are stored in various states of buffers, eg. at the start they're all in one big bufffer,
@@ -96,142 +95,119 @@ fn render_forward(
     // what is indexing what. So, for some sanity, try to match a few "gaussian ids" (gid) variable names.
     // - Global Gaussin ID - global_gid
     // - Compacted Gaussian ID - compact_gid
-    // - Compacted Gaussian ID sorted by depth - depthsort_gid
     // - Per tile intersection depth sorted ID - tiled_gid
     // - Sorted by tile per tile intersection depth sorted ID - sorted_tiled_gid
     // Then, various buffers map between these, which are named x_from_y_gid, eg.
-    //  global_from_compact_gid or compact_from_depthsort_gid.
+    //  global_from_compact_gid.
 
     // Tile rendering setup.
 
-    // Number of tiles hit per splat.
-    let num_tiles_hit = BurnBack::int_zeros([num_points].into(), device);
-    // Atomic counter of number of visible splats.
-    let num_visible = bitcast_tensor(BurnBack::int_zeros([1].into(), device));
     // Compaction buffer permutation.
-    let global_from_compact_gid = create_tensor::<u32, 1, _>([num_points], device, client);
+    let global_from_presort_gid = create_tensor::<u32, 1, _>([num_points], device, client);
     drop(setup_span);
 
-    // TODO: This should just be:
-    // let arranged_ids = BurnBack::int_arange();
-    // but atm Burn only has a CPU version of arange which is way too slow :/
-    // Instead just fill this in the kernel, not great but it works.
-    let arranged_ids = create_tensor::<u32, 1, _>([num_points], device, client);
-
-    {
-        let _span = SyncSpan::new("Arrange", device);
-        Arrange::new().execute(
-            client,
-            (),
-            &[],
-            &[arranged_ids.handle.clone().binding()],
-            [num_points as u32],
-        );
-    }
-
     let sh_degree = sh_degree_from_coeffs(sh_coeffs.dims()[1] / 3);
+    let total_splats = means.dims()[0] as u32;
+    let uniforms_buffer = create_uniform_buffer(
+        shaders::helpers::RenderUniforms {
+            viewmat: camera.world_to_local().to_cols_array_2d(),
+            focal: camera.focal(img_size).into(),
+            pixel_center: camera.center(img_size).into(),
+            img_size: img_size.into(),
+            tile_bounds: tile_bounds.into(),
+            num_visible: 0,
+            background: [background.x, background.y, background.z, 0.0],
+            sh_degree: sh_degree as u32,
+            total_splats,
+            padding: 0,
+        },
+        device,
+        client,
+    );
 
     {
         let _span = SyncSpan::new("ProjectSplats", device);
 
         ProjectSplats::new().execute(
             client,
-            shaders::project_forward::Uniforms {
-                viewmat: camera.world_to_local().to_cols_array_2d(),
-                focal: camera.focal(img_size).into(),
-                pixel_center: camera.center(img_size).into(),
-                img_size: [img_size.x, img_size.y, 0, 0],
-            },
             &[
+                uniforms_buffer.clone().handle.binding(),
                 means.clone().into_primitive().handle.binding(),
                 log_scales.clone().into_primitive().handle.binding(),
                 quats.clone().into_primitive().handle.binding(),
-            ],
-            &[
-                global_from_compact_gid.handle.clone().binding(),
-                xys.handle.clone().binding(),
-                conic_comps.handle.clone().binding(),
+                global_from_presort_gid.handle.clone().binding(),
                 depths.handle.clone().binding(),
-                num_visible.handle.clone().binding(),
             ],
             [num_points as u32],
         );
     }
+
+    // Get just the number of visible splats from the uniforms buffer.
+    let num_vis_field_offset = offset_of!(shaders::helpers::RenderUniforms, num_visible) / 4;
+    let num_visible = bitcast_tensor(BurnBack::int_slice(
+        bitcast_tensor(uniforms_buffer.clone()),
+        [num_vis_field_offset..num_vis_field_offset + 1],
+    ));
+
+    let depth_sort_span = SyncSpan::new("DepthSort", device);
+    // Interpret the depth as a u32. This is fine for a radix sort, as long as the depth > 0.0,
+    // which we know to be the case given how we cull splats.
+    let (_, global_from_compact_gid) = radix_argsort(
+        bitcast_tensor(depths),
+        global_from_presort_gid,
+        num_visible.clone(),
+        32,
+    );
+    drop(depth_sort_span);
+
+    let projected_size = size_of::<shaders::helpers::ProjectedSplat>() / size_of::<f32>();
+    let projected_splats = create_tensor::<f32, 2, _>([num_points, projected_size], device, client);
+
+    // Number of tiles hit per splat.
+    let num_tiles_hit = BurnBack::int_zeros([num_points].into(), device);
 
     {
         let _span = SyncSpan::new("ProjectVisible", device);
 
         ProjectVisible::new().execute(
             client,
-            shaders::project_visible::Uniforms {
-                viewmat: camera.world_to_local().to_cols_array_2d(),
-                img_size: img_size.into(),
-                tile_bounds: tile_bounds.into(),
-                sh_degree: [sh_degree as u32, 0, 0, 0],
-            },
             &[
+                uniforms_buffer.clone().handle.binding(),
                 means.into_primitive().handle.binding(),
+                log_scales.into_primitive().handle.binding(),
+                quats.into_primitive().handle.binding(),
                 sh_coeffs.into_primitive().handle.binding(),
                 raw_opacities.into_primitive().handle.binding(),
                 global_from_compact_gid.handle.clone().binding(),
-                xys.handle.clone().binding(),
-                conic_comps.handle.clone().binding(),
-                num_visible.handle.clone().binding(),
-            ],
-            &[
-                colors.handle.clone().binding(),
+                projected_splats.handle.clone().binding(),
                 num_tiles_hit.handle.clone().binding(),
             ],
             [num_points as u32],
         );
     }
 
-    let depth_sort_span = SyncSpan::new("DepthSort", device);
-    // Interpret the depth as a u32. This is fine for a radix sort, as long as the depth > 0.0,
-    // which we know to be the case given how we cull splats.
-    let (_, compact_from_depthsort_gid) = radix_argsort(
-        bitcast_tensor(depths.clone()),
-        arranged_ids,
-        num_visible.clone(),
-        32,
-    );
-    drop(depth_sort_span);
-
-    let cum_hit_span = SyncSpan::new("TilesPermute", device);
-    // Permute the number of tiles hit for the sorted gaussians.
-    // This means num_tiles_hit is not stored per compact_gid, but per depthsort_gid.
-    let num_tiles_hit = bitcast_tensor(BurnBack::int_gather(
-        0,
-        bitcast_tensor(num_tiles_hit),
-        bitcast_tensor(compact_from_depthsort_gid.clone()),
-    ));
-
     // Calculate cumulative sums as offsets for the intersections buffer.
     // TODO: Only need to do this up to num_visible gaussians really.
-    let cum_tiles_hit = prefix_sum(num_tiles_hit);
+    let cum_tiles_hit = prefix_sum(bitcast_tensor(num_tiles_hit));
 
-    let num_intersects = bitcast_tensor(BurnBack::int_slice(
+    let num_intersections = bitcast_tensor(BurnBack::int_slice(
         bitcast_tensor(cum_tiles_hit.clone()),
         [num_points - 1..num_points],
     ));
 
     let num_tiles = tile_bounds[0] * tile_bounds[1];
 
-    // TODO: On wasm, we cannot do a sync readback at all.
+    // On wasm, we cannot do a sync readback at all.
     // Instead, can just estimate a max number of intersects. All the kernels only handle the actual
     // cound of intersects, and spin up empty threads for the rest atm. In the future, could use indirect
     // dispatch to avoid this.
     // Estimating the max number of intersects can be a bad hack though... The worst case sceneario is so massive
     // that it's easy to run out of memory... How do we actually properly deal with this :/
-    let max_intersects = (num_points * (num_tiles as usize)).min(256 * 4 * 65535);
-    //let max_intersects =
-    //    read_buffer_as_u32(client, num_intersects.clone().handle.binding())[0] as usize;
+    let max_intersects = (num_points * (num_tiles as usize)).min(128 * 65535);
 
     // Each intersection maps to a gaussian.
     let tile_id_from_isect = create_tensor::<u32, 1, _>([max_intersects], device, client);
-    let depthsort_gid_from_isect = create_tensor::<u32, 1, _>([max_intersects], device, client);
-
-    drop(cum_hit_span);
+    let compact_gid_from_isect = create_tensor::<u32, 1, _>([max_intersects], device, client);
 
     {
         let _span = SyncSpan::new("MapGaussiansToIntersect", device);
@@ -240,20 +216,12 @@ fn render_forward(
         // TODO: Really want to do an indirect dispatch here for num_visible.
         MapGaussiansToIntersect::new().execute(
             client,
-            shaders::map_gaussian_to_intersects::Uniforms {
-                tile_bounds: tile_bounds.into(),
-            },
             &[
-                compact_from_depthsort_gid.handle.clone().binding(),
-                xys.handle.clone().binding(),
-                conic_comps.handle.clone().binding(),
-                colors.handle.clone().binding(),
+                uniforms_buffer.clone().handle.binding(),
+                projected_splats.handle.clone().binding(),
                 cum_tiles_hit.handle.clone().binding(),
-                num_visible.handle.clone().binding(),
-            ],
-            &[
                 tile_id_from_isect.handle.clone().binding(),
-                depthsort_gid_from_isect.handle.clone().binding(),
+                compact_gid_from_isect.handle.clone().binding(),
             ],
             [num_points as u32],
         );
@@ -264,10 +232,10 @@ fn render_forward(
     let bits = u32::BITS - num_tiles.leading_zeros();
 
     let tile_sort_span = SyncSpan::new("Tile sort", device);
-    let (tile_id_from_isect, depthsort_gid_from_isect) = radix_argsort(
+    let (tile_id_from_isect, compact_gid_from_isect) = radix_argsort(
         tile_id_from_isect,
-        depthsort_gid_from_isect,
-        num_intersects.clone(),
+        compact_gid_from_isect,
+        num_intersections.clone(),
         bits,
     );
     drop(tile_sort_span);
@@ -279,12 +247,11 @@ fn render_forward(
     );
     GetTileBinEdges::new().execute(
         client,
-        (),
         &[
             tile_id_from_isect.handle.binding(),
-            num_intersects.handle.clone().binding(),
+            num_intersections.handle.clone().binding(),
+            tile_bins.handle.clone().binding(),
         ],
-        &[tile_bins.handle.clone().binding()],
         [
             (max_intersects as u32).div_ceil(shaders::get_tile_bin_edges::VERTICAL_GROUPS),
             VERTICAL_GROUPS,
@@ -308,59 +275,41 @@ fn render_forward(
         client,
     );
 
+    // Only record the final visible splat per tile if we're not rendering a u32 buffer.
+    // If we're renering a u32 buffer, we can't autodiff anyway, and final index is only needed for
+    // the backward pass.
+    let mut handles = vec![
+        uniforms_buffer.clone().handle.binding(),
+        compact_gid_from_isect.handle.clone().binding(),
+        tile_bins.handle.clone().binding(),
+        projected_splats.handle.clone().binding(),
+        out_img.handle.clone().binding(),
+    ];
+
     // Record the final visible splat per tile.
     let final_index =
         create_tensor::<u32, 2, _>([img_size.x as usize, img_size.y as usize], device, client);
 
-    // Only record the final visible splat per tile if we're not rendering a u32 buffer.
-    // If we're renering a u32 buffer, we can't autodiff anyway, and final index is only needed for
-    // the backward pass.
-    let mut out_binds = vec![out_img.handle.clone().binding()];
     if !raster_u32 {
-        out_binds.push(final_index.handle.clone().binding());
+        handles.push(final_index.handle.clone().binding());
     }
 
-    Rasterize::new(raster_u32).execute(
-        client,
-        shaders::rasterize::Uniforms {
-            img_size: img_size.into(),
-            background: background.xyzx().into(),
-            tile_bounds: tile_bounds.into(),
-        },
-        &[
-            depthsort_gid_from_isect.handle.clone().binding(),
-            compact_from_depthsort_gid.handle.clone().binding(),
-            tile_bins.handle.clone().binding(),
-            xys.handle.clone().binding(),
-            conic_comps.handle.clone().binding(),
-            colors.handle.clone().binding(),
-        ],
-        out_binds.as_slice(),
-        [img_size.x, img_size.y],
-    );
+    Rasterize::new(raster_u32).execute(client, &handles, [img_size.x, img_size.y]);
     drop(tile_edge_span);
 
     // TODO: Atm this all still crashes if we're rendering <4 splats due to wgpu
     // limitations on buffer sizes.
-
     (
         Tensor::from_primitive(out_img),
         RenderAux {
+            uniforms_buffer: Tensor::from_primitive(bitcast_tensor(uniforms_buffer)),
             num_visible: Tensor::from_primitive(bitcast_tensor(num_visible)),
-            num_intersects: Tensor::from_primitive(bitcast_tensor(num_intersects)),
+            num_intersects: Tensor::from_primitive(bitcast_tensor(num_intersections)),
             tile_bins: Tensor::from_primitive(bitcast_tensor(tile_bins)),
             cum_tiles_hit: Tensor::from_primitive(bitcast_tensor(cum_tiles_hit)),
-            conic_comps: Tensor::from_primitive(bitcast_tensor(conic_comps)),
-            colors: Tensor::from_primitive(colors),
-            depths: Tensor::from_primitive(depths),
-            xys: Tensor::from_primitive(bitcast_tensor(xys)),
+            projected_splats: Tensor::from_primitive(bitcast_tensor(projected_splats)),
             final_index: Tensor::from_primitive(bitcast_tensor(final_index)),
-            depthsort_gid_from_isect: Tensor::from_primitive(bitcast_tensor(
-                depthsort_gid_from_isect,
-            )),
-            compact_from_depthsort_gid: Tensor::from_primitive(bitcast_tensor(
-                compact_from_depthsort_gid,
-            )),
+            compact_gid_from_isect: Tensor::from_primitive(bitcast_tensor(compact_gid_from_isect)),
             global_from_compact_gid: Tensor::from_primitive(bitcast_tensor(
                 global_from_compact_gid,
             )),
@@ -398,9 +347,6 @@ impl Backend for BurnBack {
 
 #[derive(Debug, Clone)]
 struct GaussianBackwardState {
-    cam: Camera,
-    background: Vec3,
-
     // Splat inputs.
     means: NodeID,
     log_scales: NodeID,
@@ -462,16 +408,14 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
         // Return aux with tensors lifted to the current backend
         // (from the original non autodiff backend).
         let wrap_aux = RenderAux::<Self> {
+            uniforms_buffer: Tensor::from_inner(aux.uniforms_buffer),
             num_visible: Tensor::from_inner(aux.num_visible),
+
             num_intersects: Tensor::from_inner(aux.num_intersects),
             tile_bins: Tensor::from_inner(aux.tile_bins),
-            depthsort_gid_from_isect: Tensor::from_inner(aux.depthsort_gid_from_isect),
-            compact_from_depthsort_gid: Tensor::from_inner(aux.compact_from_depthsort_gid),
-            depths: Tensor::from_inner(aux.depths),
-            xys: Tensor::from_inner(aux.xys),
+            compact_gid_from_isect: Tensor::from_inner(aux.compact_gid_from_isect),
+            projected_splats: Tensor::from_inner(aux.projected_splats),
             cum_tiles_hit: Tensor::from_inner(aux.cum_tiles_hit),
-            conic_comps: Tensor::from_inner(aux.conic_comps),
-            colors: Tensor::from_inner(aux.colors),
             final_index: Tensor::from_inner(aux.final_index),
             global_from_compact_gid: Tensor::from_inner(aux.global_from_compact_gid),
         };
@@ -484,8 +428,6 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
                     log_scales: prep.checkpoint(&log_scales.into_primitive()),
                     quats: prep.checkpoint(&quats.into_primitive()),
                     raw_opac: prep.checkpoint(&raw_opacity.into_primitive()),
-                    cam: camera.clone(),
-                    background,
                     sh_degree,
                     aux: orig_aux,
                     out_img: out_img.clone(),
@@ -524,10 +466,6 @@ impl Backward<BurnBack, 3, 6> for RenderBackwards {
 
         let img_dimgs = state.out_img.dims();
         let img_size = glam::uvec2(img_dimgs[1] as u32, img_dimgs[0] as u32);
-        let tile_bounds = uvec2(
-            img_size.x.div_ceil(shaders::rasterize::TILE_WIDTH),
-            img_size.y.div_ceil(shaders::rasterize::TILE_WIDTH),
-        );
 
         let v_output = grads.consume::<BurnBack, 3>(&ops.node);
         let client = &v_output.client;
@@ -541,20 +479,15 @@ impl Backward<BurnBack, 3, 6> for RenderBackwards {
             checkpointer.retrieve_node_output::<FloatTensor<BurnBack, 1>>(state.raw_opac);
 
         let num_points = means.shape.dims[0];
-
-        let max_intersects = aux.depthsort_gid_from_isect.shape().dims[0];
+        let max_intersects = aux.compact_gid_from_isect.shape().dims[0];
 
         // All the gradients _per tile_. These are later summed up in the final
         // backward projection pass.
-        let v_xy_scatter =
-            create_tensor::<f32, 2, WgpuRuntime>([max_intersects, 2], device, client);
-        // Nb: this could be 3 floats - but that doesn't play well with wgsl alignment requirements.
-        let v_conic_scatter =
-            create_tensor::<f32, 2, WgpuRuntime>([max_intersects, 4], device, client);
-        let v_colors_scatter =
-            create_tensor::<f32, 2, WgpuRuntime>([max_intersects, 4], device, client);
+        let scatter_size = size_of::<shaders::grads::ScatterGradient>() / size_of::<f32>();
+        let scatter_grads =
+            create_tensor::<f32, 2, WgpuRuntime>([max_intersects, scatter_size], device, client);
 
-        // This is an offset into the scatter tensor buffer. Important to start at zero.
+        // Exclusive prefix sum of the number of visible splats.
         let hit_ids = BurnBack::int_zeros([num_points].into(), device);
 
         {
@@ -562,37 +495,65 @@ impl Backward<BurnBack, 3, 6> for RenderBackwards {
 
             RasterizeBackwards::new().execute(
                 client,
-                shaders::rasterize_backwards::Uniforms {
-                    img_size: img_size.into(),
-                    background: state.background.xyzx().into(),
-                    tile_bounds: tile_bounds.into(),
-                },
                 &[
-                    aux.depthsort_gid_from_isect
-                        .into_primitive()
-                        .handle
-                        .binding(),
-                    aux.compact_from_depthsort_gid
+                    aux.uniforms_buffer
                         .clone()
                         .into_primitive()
                         .handle
                         .binding(),
+                    aux.compact_gid_from_isect.into_primitive().handle.binding(),
                     aux.tile_bins.into_primitive().handle.binding(),
-                    aux.xys.into_primitive().handle.binding(),
-                    aux.cum_tiles_hit.clone().into_primitive().handle.binding(),
-                    aux.conic_comps.clone().into_primitive().handle.binding(),
-                    aux.colors.clone().into_primitive().handle.binding(),
+                    aux.projected_splats.into_primitive().handle.binding(),
                     aux.final_index.into_primitive().handle.binding(),
                     state.out_img.into_primitive().handle.binding(),
                     v_output.handle.binding(),
-                ],
-                &[
-                    v_xy_scatter.handle.clone().binding(),
-                    v_conic_scatter.handle.clone().binding(),
-                    v_colors_scatter.handle.clone().binding(),
-                    hit_ids.handle.clone().binding(),
+                    scatter_grads.handle.clone().binding(),
+                    aux.cum_tiles_hit
+                        .clone()
+                        .into_primitive()
+                        .handle
+                        .clone()
+                        .binding(),
+                    hit_ids.handle.binding(),
                 ],
                 [img_size.x, img_size.y],
+            );
+        }
+
+        let v_xys = BurnBack::float_zeros([num_points, 2].into(), device);
+        let v_conics = BurnBack::float_zeros([num_points, 4].into(), device);
+        let v_coeffs = BurnBack::float_zeros(
+            [num_points, num_sh_coeffs(state.sh_degree) * 3].into(),
+            device,
+        );
+        let v_opacities = BurnBack::float_zeros([num_points].into(), device);
+
+        {
+            let _span = SyncSpan::new("ColorGrads", device);
+
+            GatherGrads::new().execute(
+                client,
+                &[
+                    aux.uniforms_buffer
+                        .clone()
+                        .into_primitive()
+                        .handle
+                        .binding(),
+                    aux.global_from_compact_gid
+                        .clone()
+                        .into_primitive()
+                        .handle
+                        .binding(),
+                    aux.cum_tiles_hit.clone().into_primitive().handle.binding(),
+                    raw_opac.clone().handle.binding(),
+                    means.clone().handle.binding(),
+                    scatter_grads.clone().handle.binding(),
+                    v_xys.handle.clone().binding(),
+                    v_conics.handle.clone().binding(),
+                    v_coeffs.handle.clone().binding(),
+                    v_opacities.handle.clone().binding(),
+                ],
+                [num_points as u32],
             );
         }
 
@@ -603,54 +564,26 @@ impl Backward<BurnBack, 3, 6> for RenderBackwards {
         let v_means = BurnBack::float_zeros([num_points, 3].into(), device);
         let v_scales = BurnBack::float_zeros([num_points, 3].into(), device);
         let v_quats = BurnBack::float_zeros([num_points, 4].into(), device);
-        let v_coeffs = BurnBack::float_zeros(
-            [num_points, num_sh_coeffs(state.sh_degree) * 3].into(),
-            device,
-        );
-        let v_opac = BurnBack::float_zeros([num_points].into(), device);
-        let v_xys = BurnBack::float_zeros([num_points, 2].into(), device);
 
         {
             let _span = SyncSpan::new("ProjectBackwards", device);
 
             ProjectBackwards::new().execute(
                 client,
-                shaders::project_backwards::Uniforms {
-                    viewmat: state.cam.world_to_local().to_cols_array_2d(),
-                    focal: state.cam.focal(img_size).into(),
-                    img_size: img_size.into(),
-                    sh_degree_pad: glam::UVec4::new(state.sh_degree as u32, 0, 0, 0).into(),
-                },
                 &[
+                    aux.uniforms_buffer.into_primitive().handle.binding(),
                     means.handle.binding(),
                     log_scales.handle.binding(),
                     quats.handle.binding(),
-                    raw_opac.handle.binding(),
-                    aux.conic_comps.into_primitive().handle.binding(),
-                    aux.cum_tiles_hit.into_primitive().handle.clone().binding(),
-                    v_xy_scatter.handle.binding(),
-                    v_conic_scatter.handle.binding(),
-                    v_colors_scatter.handle.binding(),
-                    aux.num_visible.into_primitive().handle.clone().binding(),
                     aux.global_from_compact_gid
                         .into_primitive()
                         .handle
-                        .clone()
                         .binding(),
-                    aux.compact_from_depthsort_gid
-                        .clone()
-                        .into_primitive()
-                        .handle
-                        .clone()
-                        .binding(),
-                ],
-                &[
-                    v_means.handle.clone().binding(),
                     v_xys.handle.clone().binding(),
+                    v_conics.handle.binding(),
+                    v_means.handle.clone().binding(),
                     v_scales.handle.clone().binding(),
                     v_quats.handle.clone().binding(),
-                    v_coeffs.handle.clone().binding(),
-                    v_opac.handle.clone().binding(),
                 ],
                 [num_points as u32],
             );
@@ -683,7 +616,7 @@ impl Backward<BurnBack, 3, 6> for RenderBackwards {
         }
 
         if let Some(node) = raw_opacity_parent {
-            grads.register::<BurnBack, 1>(node.id, v_opac);
+            grads.register::<BurnBack, 1>(node.id, v_opacities);
         }
     }
 }
@@ -724,7 +657,7 @@ mod tests {
 
     use super::*;
     use assert_approx_eq::assert_approx_eq;
-    use burn::tensor::{Data, Float};
+    use burn::tensor::{Data, ElementConversion, Float};
     use burn_wgpu::WgpuDevice;
 
     type DiffBack = Autodiff<BurnBack>;
@@ -768,8 +701,6 @@ mod tests {
 
         let rgb = output.clone().slice([0..32, 0..32, 0..3]);
         let alpha = output.clone().slice([0..32, 0..32, 3..4]);
-        // TODO: Maybe use all_close from burn - but that seems to be
-        // broken atm.
         assert_approx_eq!(rgb.clone().mean().to_data().value[0], 0.123, 1e-5);
         assert_approx_eq!(alpha.clone().mean().to_data().value[0], 0.0);
     }
@@ -920,13 +851,14 @@ mod tests {
                 )?;
             }
 
-            let num_visible = aux.num_visible.to_data().value[0] as usize;
+            let num_visible = aux.num_visible.into_scalar().elem::<u32>() as usize;
             let perm = aux.global_from_compact_gid.clone();
 
-            let xys = aux.xys.slice([0..num_visible]);
-            let xys_ref = xys_ref.select(0, perm.clone()).slice([0..num_visible]);
+            let projected_splats = aux.projected_splats.slice([0..num_visible]);
+            let xys = projected_splats.clone().slice([0..num_visible, 0..2]);
+            let conics = projected_splats.clone().slice([0..num_visible, 2..5]);
 
-            let conics = aux.conic_comps.slice([0..num_visible, 0..3]);
+            let xys_ref = xys_ref.select(0, perm.clone()).slice([0..num_visible]);
             let conics_ref = conics_ref.select(0, perm.clone()).slice([0..num_visible]);
 
             let grads = (out_rgb.clone() - crab_tens.clone())

@@ -1,6 +1,6 @@
 mod codewriter;
 
-use std::{borrow::Cow, io, sync::OnceLock};
+use std::{borrow::Cow, collections::HashMap, io, sync::OnceLock};
 
 use anyhow::Result;
 use naga::{proc::GlobalCtx, Handle};
@@ -12,6 +12,19 @@ use thiserror::Error;
 
 const DECORATION_PRE: &str = "X_naga_oil_mod_X";
 const DECORATION_POST: &str = "X";
+
+enum ModuleInfo {
+    Include {
+        constants: HashMap<String, Vec<String>>,
+        types: HashMap<String, Vec<String>>,
+    },
+    File {
+        path: String,
+        wg_size: [u32; 3],
+        constants: HashMap<String, Vec<String>>,
+        types: HashMap<String, Vec<String>>,
+    },
+}
 
 /// Converts
 ///   * "\"../types\"::RtsStruct" => "types::RtsStruct"
@@ -59,10 +72,12 @@ fn demangle_str(string: &str) -> Cow<str> {
     })
 }
 
-fn name_from_mangled(string: &str) -> String {
+fn mod_name_from_mangled(string: &str) -> (String, String) {
     let demangled = demangle_str(string);
     let mut parts = demangled.as_ref().split("::").collect::<Vec<&str>>();
-    parts.pop().unwrap().to_owned()
+    let name = parts.pop().unwrap().to_owned();
+    let mod_name = parts.join("::");
+    (mod_name, name)
 }
 
 fn rust_type_name(ty: Handle<naga::Type>, ctx: &GlobalCtx) -> String {
@@ -70,12 +85,14 @@ fn rust_type_name(ty: Handle<naga::Type>, ctx: &GlobalCtx) -> String {
 
     match wgsl_name.as_str() {
         "i32" | "u32" | "f32" => wgsl_name,
+        "atomic<u32>" => "u32".to_owned(),
+        "atomic<i32>" => "i32".to_owned(),
         "vec2<f32>" => "[f32; 2]".to_owned(),
-        "vec3<f32>" => "[f32; 4]".to_owned(),
         "vec4<f32>" => "[f32; 4]".to_owned(),
         "mat4x4<f32>" => "[[f32; 4]; 4]".to_owned(),
         "vec2<u32>" => "[u32; 2]".to_owned(),
-        "vec3<u32>" => "[u32: 4]".to_owned(),
+        "vec3<u32>" => "[u32; 4]".to_owned(),
+        "vec3<f32>" => "[f32; 4]".to_owned(),
         "vec4<u32>" => "[u32; 4]".to_owned(),
         _ => panic!("{}", wgsl_name),
     }
@@ -85,9 +102,9 @@ fn alignment_of(ty: Handle<naga::Type>, ctx: &GlobalCtx) -> usize {
     let wgsl_name = ty.to_wgsl(ctx);
 
     match wgsl_name.as_str() {
-        "i32" | "u32" | "f32" => 4,
+        "i32" | "u32" | "f32" | "atomic<u32>" | "atomic<i32>" => 4,
         "vec2<f32>" | "vec2<u32>" => 8,
-        "vec3<f32>" | "vec4<f32>" | "mat4x4<f32>" | "vec3<u32>" | "vec4<u32>" => 16,
+        "vec3<f32>" | "vec4<f32>" | "mat4x4<f32>" | "vec4<u32>" => 16,
         _ => panic!("{}", wgsl_name),
     }
 }
@@ -120,14 +137,16 @@ pub fn build_modules(
     ]);
 
     let mut composer = Composer::default();
+    let mut modules = HashMap::new();
+
     for include in includes {
         let helper_source = &std::fs::read_to_string(include).unwrap();
-        let helper_name = make_valid_rust_import(include);
+        let include_name = make_valid_rust_import(include);
         composer
             .add_composable_module(ComposableModuleDescriptor {
                 source: helper_source,
                 file_path: &include.replace(base_path, ""),
-                as_name: Some(helper_name.to_string()),
+                as_name: Some(include_name.to_string()),
                 ..Default::default()
             })
             .unwrap();
@@ -140,10 +159,19 @@ pub fn build_modules(
             "composer.add_composable_module(naga_oil::compose::ComposableModuleDescriptor {",
             &format!("source: include_str!(\"./{rel_path}\"),"),
             &format!("file_path: \"{rel_path}\","),
-            &format!("as_name: Some(\"{helper_name}\".to_string()),"),
+            &format!("as_name: Some(\"{include_name}\".to_string()),"),
             "..Default::default()",
             "}).unwrap();",
         ]);
+
+        println!("adding {} ", include_name);
+        modules.insert(
+            include_name,
+            ModuleInfo::Include {
+                constants: HashMap::new(),
+                types: HashMap::new(),
+            },
+        );
     }
 
     code.add_lines(&["composer", "}"]);
@@ -169,21 +197,16 @@ pub fn build_modules(
         assert!(entries.len() == 1, "Must have 1 entry per file");
 
         let entry = &entries[0];
-        let [wg_x, wg_y, wg_z] = entry.workgroup_size;
-
         let mod_name = make_valid_rust_import(path);
-        code.add_line(&format!("pub(crate) mod {mod_name} {{"));
-        code.add_line(&format!(
-            "pub(crate) const WORKGROUP_SIZE: [u32; 3] = [{wg_x}, {wg_y}, {wg_z}];"
-        ));
-
         let ctx = &module.to_ctx();
+
+        let mut constants = HashMap::new();
 
         for t in module.constants.iter() {
             let type_and_value = match module.global_expressions[t.1.init] {
                 naga::Expression::Literal(literal) => match literal {
-                    naga::Literal::F64(v) => Some(format!("f32 = {v}")),
-                    naga::Literal::F32(v) => Some(format!("f32 = {v}")),
+                    naga::Literal::F64(v) => Some(format!("f64 = {v} as f64")),
+                    naga::Literal::F32(v) => Some(format!("f32 = {v} as f32")),
                     naga::Literal::U32(v) => Some(format!("u32 = {v}")),
                     naga::Literal::I32(v) => Some(format!("i32 = {v}")),
                     naga::Literal::Bool(v) => Some(format!("bool = {v}")),
@@ -196,63 +219,138 @@ pub fn build_modules(
             };
 
             if let Some(type_and_value) = type_and_value {
-                if let Some(name) = t.1.name.as_ref() {
-                    code.add_line(&format!(
-                        "pub(crate) const {}: {type_and_value};",
-                        name_from_mangled(name)
-                    ));
+                if let Some(mangled_name) = t.1.name.as_ref() {
+                    let (m, name) = mod_name_from_mangled(mangled_name);
+                    let constant_str = vec![format!("pub(crate) const {name}: {type_and_value};")];
+
+                    let map = if m == mod_name || m.is_empty() {
+                        &mut constants
+                    } else {
+                        match modules.get_mut(&m).unwrap() {
+                            ModuleInfo::Include {
+                                constants,
+                                types: _,
+                            } => constants,
+                            _ => todo!(),
+                        }
+                    };
+                    map.insert(name.to_owned(), constant_str);
                 }
             }
         }
 
+        let mut types = HashMap::new();
+
         for t in module.types.iter() {
             match &t.1.inner {
-                naga::TypeInner::Struct { members, span: _ }
-                    if t.1.name.as_ref().unwrap() == "Uniforms" =>
-                {
+                naga::TypeInner::Struct { members, span: _ } => {
                     if members.is_empty() {
                         continue;
                     }
+
+                    let mangled_name = t.1.name.as_ref().unwrap();
+                    let (m, name) = mod_name_from_mangled(mangled_name);
+
                     let max_align = members
                         .iter()
                         .map(|x| alignment_of(x.ty, ctx))
                         .max()
                         .unwrap();
 
-                    code.add_line(&format!("#[repr(C, align({max_align}))]"));
-                    code.add_line("#[derive(bytemuck::NoUninit, Debug, PartialEq, Clone, Copy)]");
-                    code.add_line("pub(crate) struct Uniforms {");
+                    let mut struct_str = vec![format!("#[repr(C, align({max_align}))]")];
+                    struct_str.push("#[derive(bytemuck::Pod, bytemuck::Zeroable, Debug, PartialEq, Clone, Copy)]".to_owned());
+                    struct_str.push(format!("pub(crate) struct {name} {{"));
                     for member in members {
                         let rust_name = rust_type_name(member.ty, ctx);
-                        code.add_line(&format!(
-                            "pub(crate) {}: {},",
-                            member.name.as_ref().unwrap(),
-                            rust_name
-                        ));
+
+                        struct_str.push(
+                            format!(
+                                "    pub(crate) {}: {},",
+                                member.name.as_ref().unwrap(),
+                                rust_name
+                            )
+                            .to_owned(),
+                        );
                     }
-                    code.add_line("}");
+                    struct_str.push("}".to_owned());
+
+                    let map = if m == mod_name || m.is_empty() {
+                        &mut types
+                    } else {
+                        match modules.get_mut(&m).unwrap() {
+                            ModuleInfo::Include {
+                                constants: _,
+                                types,
+                            } => types,
+                            _ => todo!(),
+                        }
+                    };
+                    map.insert(name.to_owned(), struct_str);
                 }
                 _ => continue,
             }
         }
 
-        let rel_path = path.replace(base_path, "");
+        modules.insert(
+            mod_name,
+            ModuleInfo::File {
+                path: path.to_string(),
+                wg_size: entry.workgroup_size,
+                constants,
+                types,
+            },
+        );
+    }
 
-        code.add_lines(&[
-            "",
-            "pub(crate) fn create_shader_source(",
-            "   shader_defs: std::collections::HashMap<String, naga_oil::compose::ShaderDefValue>",
-            ") -> naga::Module {",
-            "let mut composer = super::create_composer();",
-            "composer.make_naga_module(naga_oil::compose::NagaModuleDescriptor {",
-            &format!("source: include_str!(\"{rel_path}\"),"),
-            &format!("file_path: \"{path}\","),
-            "shader_defs,",
-            "..Default::default()",
-            "}).unwrap()",
-            "}",
-            "}",
-        ]);
+    // Make sure output is ordered deterministically.
+    let mut mods: Vec<_> = modules.iter().collect();
+    mods.sort_by_key(|x| x.0.clone());
+
+    for m in mods {
+        match m.1 {
+            ModuleInfo::Include { constants, types } => {
+                code.add_line(&format!("pub(crate) mod {} {{", m.0));
+                for c in constants.values().chain(types.values()) {
+                    code.add_lines(c);
+                }
+                code.add_line("}");
+            }
+
+            ModuleInfo::File {
+                path,
+                constants,
+                types,
+                wg_size,
+            } => {
+                code.add_line(&format!("pub(crate) mod {} {{", m.0));
+
+                let [wg_x, wg_y, wg_z] = wg_size;
+                code.add_line(&format!(
+                    "pub(crate) const WORKGROUP_SIZE: [u32; 3] = [{wg_x}, {wg_y}, {wg_z}];"
+                ));
+
+                for c in constants.values().chain(types.values()) {
+                    code.add_lines(c);
+                }
+
+                let rel_path = path.replace(base_path, "");
+
+                code.add_lines(&[
+                    "",
+                    "pub(crate) fn create_shader_source(",
+                    "   shader_defs: std::collections::HashMap<String, naga_oil::compose::ShaderDefValue>",
+                    ") -> naga::Module {",
+                    "super::create_composer().make_naga_module(naga_oil::compose::NagaModuleDescriptor {",
+                    &format!("source: include_str!(\"{rel_path}\"),"),
+                    &format!("file_path: \"{path}\","),
+                    "shader_defs,",
+                    "..Default::default()",
+                    "}).unwrap()",
+                    "}",
+                    "}",
+                ]);
+            }
+        }
     }
 
     std::fs::write(output_path, code.string())?;

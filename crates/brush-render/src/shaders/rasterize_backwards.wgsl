@@ -1,38 +1,23 @@
 #import helpers;
 
-struct Uniforms {
-    // Background color behind the splats.
-    background: vec3f,
-    // Img resolution (w, h)
-    img_size: vec2u,
-    // Max tile bounds.
-    tile_bounds: vec2u,
-}
+@group(0) @binding(0) var<storage> uniforms: helpers::RenderUniforms;
 
-@group(0) @binding(0) var<storage> uniforms: Uniforms;
+@group(0) @binding(1) var<storage> compact_gid_from_isect: array<u32>;
+@group(0) @binding(2) var<storage> tile_bins: array<vec2u>;
 
-@group(0) @binding(1) var<storage> depthsort_gid_from_isect: array<u32>;
-@group(0) @binding(2) var<storage> compact_from_depthsort_gid: array<u32>;
-@group(0) @binding(3) var<storage> tile_bins: array<vec2u>;
-@group(0) @binding(4) var<storage> xys: array<vec2f>;
-@group(0) @binding(5) var<storage> cum_tiles_hit: array<u32>;
-@group(0) @binding(6) var<storage> conic_comps: array<vec4f>;
-@group(0) @binding(7) var<storage> colors: array<vec4f>;
+@group(0) @binding(3) var<storage> projected_splats: array<helpers::ProjectedSplat>;
 
-@group(0) @binding(8) var<storage> final_index: array<u32>;
+@group(0) @binding(4) var<storage> final_index: array<u32>;
+@group(0) @binding(5) var<storage> output: array<vec4f>;
+@group(0) @binding(6) var<storage> v_output: array<vec4f>;
 
-@group(0) @binding(9) var<storage> output: array<vec4f>;
-@group(0) @binding(10) var<storage> v_output: array<vec4f>;
+@group(0) @binding(7) var<storage, read_write> scatter_grads: array<grads::ScatterGradient>;
 
-@group(0) @binding(11) var<storage, read_write> v_xy: array<vec2f>;
-@group(0) @binding(12) var<storage, read_write> v_conic: array<vec4f>;
-@group(0) @binding(13) var<storage, read_write> v_colors: array<vec4f>;
+@group(0) @binding(8) var<storage> cum_tiles_hit: array<u32>;
 
-@group(0) @binding(14) var<storage, read_write> hit_ids: array<atomic<u32>>;
+@group(0) @binding(9) var<storage, read_write> hit_ids: array<atomic<u32>>;
 
-var<workgroup> xy_batch: array<vec2f, helpers::TILE_SIZE>;
-var<workgroup> colors_batch: array<vec4f, helpers::TILE_SIZE>;
-var<workgroup> conic_comp_batch: array<vec4f, helpers::TILE_SIZE>;
+var<workgroup> local_batch: array<helpers::ProjectedSplat, helpers::TILE_SIZE>;
 
 var<workgroup> v_conic_local: array<vec3f, helpers::TILE_SIZE>;
 var<workgroup> v_xy_local: array<vec2f, helpers::TILE_SIZE>;
@@ -49,7 +34,7 @@ fn main(
     @builtin(local_invocation_index) local_idx: u32,
     @builtin(workgroup_id) workgroup_id: vec3u,
 ) {
-    let background = uniforms.background;
+    let background = uniforms.background.xyz;
     let img_size = uniforms.img_size;
 
     let tile_loc = workgroup_id.xy;
@@ -98,12 +83,8 @@ fn main(
         let isect_id = batch_end - local_idx;
 
         if isect_id >= range.x {
-            let depthsort_gid = depthsort_gid_from_isect[isect_id];
-            let compact_gid = compact_from_depthsort_gid[depthsort_gid];
-
-            xy_batch[local_idx] = xys[compact_gid];
-            conic_comp_batch[local_idx] = conic_comps[compact_gid];
-            colors_batch[local_idx] = colors[compact_gid];
+            let compact_gid = compact_gid_from_isect[isect_id];
+            local_batch[local_idx] = projected_splats[compact_gid];
         }
 
         // wait for other threads to collect the gaussians in batch
@@ -122,16 +103,15 @@ fn main(
             let isect_id = batch_end - t;
 
             if inside && isect_id >= range.x && isect_id <= bin_final {
-                let conic_comp = conic_comp_batch[t];
-                let conic = conic_comp.xyz;
-                // TODO: Re-enable compensation.
-                // let compensation = conic_comp.w;
-                let xy = xy_batch[t];
-                let opac = colors_batch[t].w;
+                let projected = local_batch[t];
+                let xy = vec2f(projected.x, projected.y);
+                let conic = vec3f(projected.conic_x, projected.conic_y, projected.conic_z);
+                let color = vec4f(projected.r, projected.g, projected.b, projected.a);
+
                 let delta = xy - pixel_coord;
                 let sigma = 0.5f * (conic.x * delta.x * delta.x + conic.z * delta.y * delta.y) + conic.y * delta.x * delta.y;
                 let vis = exp(-sigma);
-                let alpha = min(0.99f, opac * vis);
+                let alpha = min(0.99f, color.w * vis);
 
                 // Nb: Don't continue; here - local_idx == 0 always
                 // needs to write out gradients.
@@ -143,17 +123,16 @@ fn main(
                     let fac = alpha * T;
                     var v_alpha = 0.0;
 
-                    let rgb = colors_batch[t].xyz;
                     // contribution from this pixel
-                    v_alpha += dot(rgb * T - buffer * ra, v_out.xyz);
+                    v_alpha += dot(color.xyz * T - buffer * ra, v_out.xyz);
                     v_alpha += T_final * ra * v_out.w;
                     // contribution from background pixel
                     v_alpha -= dot(T_final * ra * background, v_out.xyz);
 
                     // update the running sum
-                    buffer += rgb.xyz * fac;
+                    buffer += color.xyz * fac;
 
-                    let v_sigma = -opac * vis * v_alpha;
+                    let v_sigma = -color.w * vis * v_alpha;
 
                     v_conic_local[local_idx] = vec3f(0.5f * v_sigma * delta.x * delta.x, 
                                                     v_sigma * delta.x * delta.y,
@@ -187,7 +166,7 @@ fn main(
             workgroupBarrier();
 
             if local_idx == 0 {
-                let depthsort_gid = depthsort_gid_from_isect[isect_id];
+                let compact_gid = compact_gid_from_isect[isect_id];
 
                 // Gather workgroup sums.
                 var v_colors_sum = vec4f(0.0);
@@ -201,16 +180,23 @@ fn main(
                 }
 
                 var offset = 0u;
-                if depthsort_gid > 0 {
-                    offset = cum_tiles_hit[depthsort_gid - 1];
+                if compact_gid > 0 {
+                    offset = cum_tiles_hit[compact_gid - 1];
                 }
-                let hit_id = atomicAdd(&hit_ids[depthsort_gid], 1u);
-
-                // Scatter the gradients to the gradient per intersection buffer.
+                let hit_id = atomicAdd(&hit_ids[compact_gid], 1u);
                 let write_id = offset + hit_id;
-                v_xy[write_id] = v_xy_sum;
-                v_conic[write_id] = vec4f(v_conic_sum, 0.0);
-                v_colors[write_id] = v_colors_sum;
+
+                scatter_grads[write_id] = grads::ScatterGradient(
+                    v_xy_sum.x,
+                    v_xy_sum.y,
+                    v_conic_sum.x,
+                    v_conic_sum.y,
+                    v_conic_sum.z,
+                    v_colors_sum.x,
+                    v_colors_sum.y,
+                    v_colors_sum.z,
+                    v_colors_sum.w,
+                );
             }
         }
     }

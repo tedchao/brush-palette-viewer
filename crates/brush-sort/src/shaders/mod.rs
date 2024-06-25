@@ -12,22 +12,16 @@ fn create_composer() -> naga_oil::compose::Composer {
 }
 pub(crate) mod sort_count {
     pub(crate) const WORKGROUP_SIZE: [u32; 3] = [256, 1, 1];
-    pub(crate) const WG: u32 = 256;
-    pub(crate) const BIN_COUNT: u32 = 16;
-    pub(crate) const ELEMENTS_PER_THREAD: u32 = 4;
-    pub(crate) const BLOCK_SIZE: u32 = 1024;
-    pub(crate) const VERTICAL_GROUPS: u32 = 8;
     #[repr(C, align(4))]
-    #[derive(bytemuck::NoUninit, Debug, PartialEq, Clone, Copy)]
+    #[derive(bytemuck::Pod, bytemuck::Zeroable, Debug, PartialEq, Clone, Copy)]
     pub(crate) struct Uniforms {
-        pub(crate) shift: u32,
+            pub(crate) shift: u32,
     }
     
     pub(crate) fn create_shader_source(
        shader_defs: std::collections::HashMap<String, naga_oil::compose::ShaderDefValue>
     ) -> naga::Module {
-        let mut composer = super::create_composer();
-        composer.make_naga_module(naga_oil::compose::NagaModuleDescriptor {
+        super::create_composer().make_naga_module(naga_oil::compose::NagaModuleDescriptor {
             source: include_str!("sort_count.wgsl"),
             file_path: "src/shaders/sort_count.wgsl",
             shader_defs,
@@ -37,16 +31,11 @@ pub(crate) mod sort_count {
 }
 pub(crate) mod sort_reduce {
     pub(crate) const WORKGROUP_SIZE: [u32; 3] = [256, 1, 1];
-    pub(crate) const WG: u32 = 256;
-    pub(crate) const BIN_COUNT: u32 = 16;
-    pub(crate) const ELEMENTS_PER_THREAD: u32 = 4;
-    pub(crate) const BLOCK_SIZE: u32 = 1024;
     
     pub(crate) fn create_shader_source(
        shader_defs: std::collections::HashMap<String, naga_oil::compose::ShaderDefValue>
     ) -> naga::Module {
-        let mut composer = super::create_composer();
-        composer.make_naga_module(naga_oil::compose::NagaModuleDescriptor {
+        super::create_composer().make_naga_module(naga_oil::compose::NagaModuleDescriptor {
             source: include_str!("sort_reduce.wgsl"),
             file_path: "src/shaders/sort_reduce.wgsl",
             shader_defs,
@@ -54,37 +43,13 @@ pub(crate) mod sort_reduce {
         }).unwrap()
     }
 }
-pub(crate) mod sort_scan_add {
-    pub(crate) const WORKGROUP_SIZE: [u32; 3] = [256, 1, 1];
-    pub(crate) const WG: u32 = 256;
-    pub(crate) const BIN_COUNT: u32 = 16;
-    pub(crate) const ELEMENTS_PER_THREAD: u32 = 4;
-    pub(crate) const BLOCK_SIZE: u32 = 1024;
-    
-    pub(crate) fn create_shader_source(
-       shader_defs: std::collections::HashMap<String, naga_oil::compose::ShaderDefValue>
-    ) -> naga::Module {
-        let mut composer = super::create_composer();
-        composer.make_naga_module(naga_oil::compose::NagaModuleDescriptor {
-            source: include_str!("sort_scan_add.wgsl"),
-            file_path: "src/shaders/sort_scan_add.wgsl",
-            shader_defs,
-            ..Default::default()
-        }).unwrap()
-    }
-}
 pub(crate) mod sort_scan {
     pub(crate) const WORKGROUP_SIZE: [u32; 3] = [256, 1, 1];
-    pub(crate) const WG: u32 = 256;
-    pub(crate) const BIN_COUNT: u32 = 16;
-    pub(crate) const ELEMENTS_PER_THREAD: u32 = 4;
-    pub(crate) const BLOCK_SIZE: u32 = 1024;
     
     pub(crate) fn create_shader_source(
        shader_defs: std::collections::HashMap<String, naga_oil::compose::ShaderDefValue>
     ) -> naga::Module {
-        let mut composer = super::create_composer();
-        composer.make_naga_module(naga_oil::compose::NagaModuleDescriptor {
+        super::create_composer().make_naga_module(naga_oil::compose::NagaModuleDescriptor {
             source: include_str!("sort_scan.wgsl"),
             file_path: "src/shaders/sort_scan.wgsl",
             shader_defs,
@@ -92,29 +57,44 @@ pub(crate) mod sort_scan {
         }).unwrap()
     }
 }
+pub(crate) mod sort_scan_add {
+    pub(crate) const WORKGROUP_SIZE: [u32; 3] = [256, 1, 1];
+    
+    pub(crate) fn create_shader_source(
+       shader_defs: std::collections::HashMap<String, naga_oil::compose::ShaderDefValue>
+    ) -> naga::Module {
+        super::create_composer().make_naga_module(naga_oil::compose::NagaModuleDescriptor {
+            source: include_str!("sort_scan_add.wgsl"),
+            file_path: "src/shaders/sort_scan_add.wgsl",
+            shader_defs,
+            ..Default::default()
+        }).unwrap()
+    }
+}
 pub(crate) mod sort_scatter {
     pub(crate) const WORKGROUP_SIZE: [u32; 3] = [256, 1, 1];
-    pub(crate) const WG: u32 = 256;
-    pub(crate) const BITS_PER_PASS: u32 = 4;
-    pub(crate) const BIN_COUNT: u32 = 16;
-    pub(crate) const ELEMENTS_PER_THREAD: u32 = 4;
-    pub(crate) const BLOCK_SIZE: u32 = 1024;
-    pub(crate) const VERTICAL_GROUPS: u32 = 8;
     #[repr(C, align(4))]
-    #[derive(bytemuck::NoUninit, Debug, PartialEq, Clone, Copy)]
+    #[derive(bytemuck::Pod, bytemuck::Zeroable, Debug, PartialEq, Clone, Copy)]
     pub(crate) struct Uniforms {
-        pub(crate) shift: u32,
+            pub(crate) shift: u32,
     }
     
     pub(crate) fn create_shader_source(
        shader_defs: std::collections::HashMap<String, naga_oil::compose::ShaderDefValue>
     ) -> naga::Module {
-        let mut composer = super::create_composer();
-        composer.make_naga_module(naga_oil::compose::NagaModuleDescriptor {
+        super::create_composer().make_naga_module(naga_oil::compose::NagaModuleDescriptor {
             source: include_str!("sort_scatter.wgsl"),
             file_path: "src/shaders/sort_scatter.wgsl",
             shader_defs,
             ..Default::default()
         }).unwrap()
     }
+}
+pub(crate) mod sorting {
+    pub(crate) const WG: u32 = 256;
+    pub(crate) const BLOCK_SIZE: u32 = 1024;
+    pub(crate) const BIN_COUNT: u32 = 16;
+    pub(crate) const ELEMENTS_PER_THREAD: u32 = 4;
+    pub(crate) const BITS_PER_PASS: u32 = 4;
+    pub(crate) const VERTICAL_GROUPS: u32 = 8;
 }

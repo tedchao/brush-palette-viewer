@@ -8,9 +8,9 @@ use shaders::prefix_sum_add_scanned_sums;
 use shaders::prefix_sum_scan;
 use shaders::prefix_sum_scan_sums;
 
-kernel_source_gen!(PrefixSumScan {}, prefix_sum_scan, ());
-kernel_source_gen!(PrefixSumScanSums {}, prefix_sum_scan_sums, ());
-kernel_source_gen!(PrefixSumAddScannedSums {}, prefix_sum_add_scanned_sums, ());
+kernel_source_gen!(PrefixSumScan {}, prefix_sum_scan);
+kernel_source_gen!(PrefixSumScanSums {}, prefix_sum_scan_sums);
+kernel_source_gen!(PrefixSumAddScannedSums {}, prefix_sum_add_scanned_sums);
 
 use burn_wgpu::JitTensor;
 use tracing::info_span;
@@ -18,16 +18,14 @@ use tracing::info_span;
 pub fn prefix_sum(input: JitTensor<WgpuRuntime, u32, 1>) -> JitTensor<WgpuRuntime, u32, 1> {
     let _span = info_span!("prefix sum");
 
-    let threads_per_group = shaders::prefix_sum_scan::THREADS_PER_GROUP as usize;
+    let threads_per_group = shaders::prefix_sum_helpers::THREADS_PER_GROUP as usize;
     let num = input.shape.dims[0];
     let client = &input.client;
     let outputs = create_tensor(input.shape.dims, &input.device, client);
 
     PrefixSumScan::new().execute(
         client,
-        (),
-        &[input.handle.binding()],
-        &[outputs.handle.clone().binding()],
+        &[input.handle.binding(), outputs.handle.clone().binding()],
         [num as u32, 1, 1],
     );
 
@@ -50,18 +48,20 @@ pub fn prefix_sum(input: JitTensor<WgpuRuntime, u32, 1>) -> JitTensor<WgpuRuntim
 
     PrefixSumScanSums::new().execute(
         client,
-        (),
-        &[outputs.handle.clone().binding()],
-        &[group_buffer[0].handle.clone().binding()],
+        &[
+            outputs.handle.clone().binding(),
+            group_buffer[0].handle.clone().binding(),
+        ],
         [work_size[0] as u32],
     );
 
     for l in 0..(group_buffer.len() - 1) {
         PrefixSumScanSums::new().execute(
             client,
-            (),
-            &[group_buffer[l].handle.clone().binding()],
-            &[group_buffer[l + 1].handle.clone().binding()],
+            &[
+                group_buffer[l].handle.clone().binding(),
+                group_buffer[l + 1].handle.clone().binding(),
+            ],
             [work_size[l + 1] as u32],
         );
     }
@@ -70,18 +70,20 @@ pub fn prefix_sum(input: JitTensor<WgpuRuntime, u32, 1>) -> JitTensor<WgpuRuntim
         let work_sz = work_size[l - 1];
         PrefixSumAddScannedSums::new().execute(
             client,
-            (),
-            &[group_buffer[l].handle.clone().binding()],
-            &[group_buffer[l - 1].handle.clone().binding()],
+            &[
+                group_buffer[l].handle.clone().binding(),
+                group_buffer[l - 1].handle.clone().binding(),
+            ],
             [work_sz as u32],
         );
     }
 
     PrefixSumAddScannedSums::new().execute(
         client,
-        (),
-        &[group_buffer[0].handle.clone().binding()],
-        &[outputs.handle.clone().binding()],
+        &[
+            group_buffer[0].handle.clone().binding(),
+            outputs.handle.clone().binding(),
+        ],
         [(work_size[0] * threads_per_group) as u32, 1, 1],
     );
 
