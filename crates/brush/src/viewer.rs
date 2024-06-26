@@ -37,7 +37,7 @@ struct TrainUpdate {
 
 pub struct Viewer {
     camera: Camera,
-    receiver: Option<Receiver<Option<TrainUpdate>>>,
+    receiver: Option<Receiver<Option<Splats<Autodiff<Backend>>>>>,
 
     last_train_iter: u32,
     last_update: Instant,
@@ -58,7 +58,7 @@ async fn yield_macro() {
 async fn open_file(
     config: TrainConfig,
     device: WgpuDevice,
-    updater: Updater<Option<TrainUpdate>>,
+    updater: Updater<Option<Splats<Autodiff<Backend>>>>,
     egui_ctx: egui::Context,
 ) {
     #[cfg(feature = "rerun")]
@@ -73,9 +73,11 @@ async fn open_file(
         .await
         .unwrap();
 
-    if file.file_name().contains(".ply") {
-        let splats = splat_import::load_splat_from_ply::<Backend>(file.path(), &device);
+    let file_data = file.read().await;
 
+    if file.file_name().contains(".ply") {
+        let splats =
+            splat_import::load_splat_from_ply::<Autodiff<Backend>>(&file_data, &device, &updater);
         // TODO: Send over the channel? Or whats good here?
         // let (tx, rx) = single_value_channel::channel();
         // self.reference_cameras =
@@ -85,12 +87,14 @@ async fn open_file(
         // }
 
         if let Ok(splats) = splats {
-            let update = TrainUpdate { splats, iter: 0 };
-            let _ = updater.update(Some(update));
+            // let update = TrainUpdate {
+            //     splats: splats.valid(),
+            //     iter: 0,
+            // };
+            let _ = updater.update(Some(splats));
         }
     } else {
-        let zip_data = file.read().await;
-        let cameras = dataset_readers::read_synthetic_nerf_data(&zip_data, None)
+        let cameras = dataset_readers::read_synthetic_nerf_data(&file_data, None)
             .await
             .unwrap();
         let scene = scene::Scene::new(cameras);
@@ -123,12 +127,12 @@ async fn open_file(
                 // Ideally this would drop the old value and set the new value to be consume - that somehow doesn't
                 // seem to be available for channels. I guess modelling shared ownership like that is more like a
                 // mutex than a channel - but the channel interface is nicer.
-                let update = TrainUpdate {
-                    splats: splats.valid(),
-                    iter: trainer.iter,
-                };
+                // let update = TrainUpdate {
+                //     splats: splats.valid(),
+                //     iter: trainer.iter,
+                // };
 
-                match updater.update(Some(update)) {
+                match updater.update(Some(splats.clone())) {
                     Ok(_) => egui_ctx.request_repaint(),
                     Err(_) => break, // channel closed, bail.
                 };
@@ -229,11 +233,11 @@ impl eframe::App for Viewer {
 
             if let Some(rx) = self.receiver.as_mut() {
                 if let Some(update) = rx.latest() {
-                    let splats = &update.splats;
+                    let splats = &update.valid();
 
-                    if update.iter > 0 {
-                        ui.label(format!("Training step {}", update.iter));
-                    }
+                    // if update.iter > 0 {
+                    //     ui.label(format!("Training step {}", update.iter));
+                    // }
 
                     CollapsingHeader::new("View Splats")
                         .default_open(true)
