@@ -86,9 +86,13 @@ impl PropertyAccess for GaussianData {
     }
 }
 
-pub fn load_splat_from_ply<B: Backend>(file: &str, device: &B::Device) -> Result<Splats<B>> {
+// TODO: Make async, stream results.
+pub fn load_splat_from_ply<B: Backend>(
+    path: &std::path::Path,
+    device: &B::Device,
+) -> Result<Splats<B>> {
     // set up a reader, in this case a file.
-    let f = std::fs::File::open(file).unwrap();
+    let f = std::fs::File::open(path).unwrap();
     let mut reader = BufReader::new(f);
     let gaussian_parser = Parser::<GaussianData>::new();
     let header = gaussian_parser.read_header(&mut reader)?;

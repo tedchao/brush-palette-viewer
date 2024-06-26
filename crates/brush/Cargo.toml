@@ -53,6 +53,7 @@ gloo-timers = { version = "0.3.0", features = ["futures"] }
 wasm-bindgen = "0.2.92"
 rfd = "0.14.1"
 async_zip = { version = "0.0.17", features = ["full-wasm"] }
+single_value_channel = "1.2.2"
 
 [features]
 tracy = ["dep:tracing-tracy"]
