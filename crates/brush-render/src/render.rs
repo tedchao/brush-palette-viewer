@@ -65,6 +65,10 @@ fn render_forward(
     let _render_span = info_span!("render_gaussians").entered();
     let device = &means.device().clone();
 
+    // Check whether any work needs to be flushed.
+    let _span = SyncSpan::new("pre setup", device);
+    drop(_span);
+
     let setup_span = SyncSpan::new("setup", device);
 
     // Check whether dimesions are valid.
@@ -104,7 +108,6 @@ fn render_forward(
 
     // Compaction buffer permutation.
     let global_from_presort_gid = create_tensor::<u32, 1, _>([num_points], device, client);
-    drop(setup_span);
 
     let sh_degree = sh_degree_from_coeffs(sh_coeffs.dims()[1] / 3);
     let total_splats = means.dims()[0] as u32;
@@ -124,6 +127,8 @@ fn render_forward(
         device,
         client,
     );
+
+    drop(setup_span);
 
     {
         let _span = SyncSpan::new("ProjectSplats", device);

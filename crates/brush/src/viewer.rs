@@ -7,7 +7,7 @@ use crate::{
     splat_import,
     train::{LrConfig, SplatTrainer, TrainConfig},
 };
-use brush_render::camera::Camera;
+use brush_render::{camera::Camera, sync_span::SyncSpan};
 use burn::{backend::Autodiff, module::AutodiffModule};
 use burn_wgpu::{JitBackend, RuntimeOptions, WgpuDevice, WgpuRuntime};
 use egui::{pos2, CollapsingHeader, Color32, Rect};
@@ -314,7 +314,7 @@ impl eframe::App for Viewer {
                     // If there's actual rendering to do, not just an imgui update.
                     if ctx.has_requested_repaint() {
                         let span = info_span!("Render splats").entered();
-                        let (img, _) = splats.clone().render(
+                        let (img, _) = splats.render(
                             &self.camera,
                             size,
                             glam::vec3(0.0, 0.0, 0.0),
