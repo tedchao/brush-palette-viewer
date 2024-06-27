@@ -193,15 +193,11 @@ mod tests {
             let values = bitcast_tensor(values);
             let (ret_keys, ret_values) = radix_argsort(keys, values, num_points, 32);
 
-            let ret_keys: Vec<i32> =
-                Tensor::<Backend, 1, Int>::from_primitive(bitcast_tensor(ret_keys))
-                    .to_data()
-                    .value;
+            let ret_keys =
+                Tensor::<Backend, 1, Int>::from_primitive(bitcast_tensor(ret_keys)).to_data();
 
-            let ret_values: Vec<i32> =
-                Tensor::<Backend, 1, Int>::from_primitive(bitcast_tensor(ret_values))
-                    .to_data()
-                    .value;
+            let ret_values =
+                Tensor::<Backend, 1, Int>::from_primitive(bitcast_tensor(ret_values)).to_data();
 
             let inds = argsort(&keys_inp);
 
@@ -209,13 +205,15 @@ mod tests {
             let ref_values: Vec<u32> = inds.iter().map(|&i| values_inp[i] as u32).collect();
 
             for (((key, val), ref_key), ref_val) in ret_keys
-                .into_iter()
-                .zip(ret_values)
+                .as_slice::<u32>()
+                .unwrap()
+                .iter()
+                .zip(ret_values.as_slice::<u32>().unwrap())
                 .zip(ref_keys)
                 .zip(ref_values)
             {
-                assert_eq!(key, ref_key as i32);
-                assert_eq!(val, ref_val as i32);
+                assert_eq!(*key, ref_key);
+                assert_eq!(*val, ref_val);
             }
         }
     }
@@ -228,7 +226,7 @@ mod tests {
         reader.read_to_string(&mut content).unwrap();
 
         // Split on newlines to get each record
-        let keys_inp: Vec<i32> = content
+        let keys_inp: Vec<_> = content
             .split(',')
             .map(|field| field.trim().parse().unwrap())
             .collect();
@@ -248,28 +246,25 @@ mod tests {
 
         let (ret_keys, ret_values) = radix_argsort(keys, values, num_points, 32);
 
-        let ret_keys: Vec<i32> =
-            Tensor::<Backend, 1, Int>::from_primitive(bitcast_tensor(ret_keys))
-                .to_data()
-                .value;
-
-        let ret_values: Vec<i32> =
-            Tensor::<Backend, 1, Int>::from_primitive(bitcast_tensor(ret_values))
-                .to_data()
-                .value;
+        let ret_keys =
+            Tensor::<Backend, 1, Int>::from_primitive(bitcast_tensor(ret_keys)).to_data();
+        let ret_values =
+            Tensor::<Backend, 1, Int>::from_primitive(bitcast_tensor(ret_values)).to_data();
         let inds = argsort(&keys_inp);
 
-        let ref_keys: Vec<i32> = inds.iter().map(|&i| keys_inp[i]).collect();
-        let ref_values: Vec<i32> = inds.iter().map(|&i| values_inp[i]).collect();
+        let ref_keys: Vec<u32> = inds.iter().map(|&i| keys_inp[i]).collect();
+        let ref_values: Vec<u32> = inds.iter().map(|&i| values_inp[i]).collect();
 
         for (((key, val), ref_key), ref_val) in ret_keys
-            .into_iter()
-            .zip(ret_values)
+            .as_slice::<u32>()
+            .unwrap()
+            .iter()
+            .zip(ret_values.as_slice::<u32>().unwrap())
             .zip(ref_keys)
             .zip(ref_values)
         {
-            assert_eq!(key, ref_key);
-            assert_eq!(val, ref_val);
+            assert_eq!(*key, ref_key);
+            assert_eq!(*val, ref_val);
         }
     }
 }

@@ -780,7 +780,7 @@ checksum = "79296716171880943b8470b5f8d03aa55eb2e645a4874bdbb28adb49162e012c"
 [[package]]
 name = "burn"
 version = "0.14.0"
-source = "git+https://github.com/tracel-ai/burn.git#2fbc4628f3ddbd25e223084985c94d2c46dccb58"
+source = "git+https://github.com/tracel-ai/burn.git#6250fa89c87ffcfb7cfa17b47925e8b294812d03"
 dependencies = [
  "burn-core",
 ]
@@ -788,7 +788,7 @@ dependencies = [
 [[package]]
 name = "burn-autodiff"
 version = "0.14.0"
-source = "git+https://github.com/tracel-ai/burn.git#2fbc4628f3ddbd25e223084985c94d2c46dccb58"
+source = "git+https://github.com/tracel-ai/burn.git#6250fa89c87ffcfb7cfa17b47925e8b294812d03"
 dependencies = [
  "burn-common",
  "burn-tensor",
@@ -800,7 +800,7 @@ dependencies = [
 [[package]]
 name = "burn-candle"
 version = "0.14.0"
-source = "git+https://github.com/tracel-ai/burn.git#2fbc4628f3ddbd25e223084985c94d2c46dccb58"
+source = "git+https://github.com/tracel-ai/burn.git#6250fa89c87ffcfb7cfa17b47925e8b294812d03"
 dependencies = [
  "burn-tensor",
  "candle-core",
@@ -811,7 +811,7 @@ dependencies = [
 [[package]]
 name = "burn-common"
 version = "0.14.0"
-source = "git+https://github.com/tracel-ai/burn.git#2fbc4628f3ddbd25e223084985c94d2c46dccb58"
+source = "git+https://github.com/tracel-ai/burn.git#6250fa89c87ffcfb7cfa17b47925e8b294812d03"
 dependencies = [
  "async-trait",
  "data-encoding",
@@ -826,7 +826,7 @@ dependencies = [
 [[package]]
 name = "burn-compute"
 version = "0.14.0"
-source = "git+https://github.com/tracel-ai/burn.git#2fbc4628f3ddbd25e223084985c94d2c46dccb58"
+source = "git+https://github.com/tracel-ai/burn.git#6250fa89c87ffcfb7cfa17b47925e8b294812d03"
 dependencies = [
  "burn-common",
  "derive-new",
@@ -839,7 +839,7 @@ dependencies = [
 [[package]]
 name = "burn-core"
 version = "0.14.0"
-source = "git+https://github.com/tracel-ai/burn.git#2fbc4628f3ddbd25e223084985c94d2c46dccb58"
+source = "git+https://github.com/tracel-ai/burn.git#6250fa89c87ffcfb7cfa17b47925e8b294812d03"
 dependencies = [
  "bincode 2.0.0-rc.3",
  "burn-autodiff",
@@ -865,7 +865,7 @@ dependencies = [
 [[package]]
 name = "burn-cube"
 version = "0.14.0"
-source = "git+https://github.com/tracel-ai/burn.git#2fbc4628f3ddbd25e223084985c94d2c46dccb58"
+source = "git+https://github.com/tracel-ai/burn.git#6250fa89c87ffcfb7cfa17b47925e8b294812d03"
 dependencies = [
  "burn-compute",
  "burn-cube-macros",
@@ -881,7 +881,7 @@ dependencies = [
 [[package]]
 name = "burn-cube-macros"
 version = "0.14.0"
-source = "git+https://github.com/tracel-ai/burn.git#2fbc4628f3ddbd25e223084985c94d2c46dccb58"
+source = "git+https://github.com/tracel-ai/burn.git#6250fa89c87ffcfb7cfa17b47925e8b294812d03"
 dependencies = [
  "derive-new",
  "proc-macro2",
@@ -892,7 +892,7 @@ dependencies = [
 [[package]]
 name = "burn-derive"
 version = "0.14.0"
-source = "git+https://github.com/tracel-ai/burn.git#2fbc4628f3ddbd25e223084985c94d2c46dccb58"
+source = "git+https://github.com/tracel-ai/burn.git#6250fa89c87ffcfb7cfa17b47925e8b294812d03"
 dependencies = [
  "derive-new",
  "proc-macro2",
@@ -903,7 +903,7 @@ dependencies = [
 [[package]]
 name = "burn-jit"
 version = "0.14.0"
-source = "git+https://github.com/tracel-ai/burn.git#2fbc4628f3ddbd25e223084985c94d2c46dccb58"
+source = "git+https://github.com/tracel-ai/burn.git#6250fa89c87ffcfb7cfa17b47925e8b294812d03"
 dependencies = [
  "burn-common",
  "burn-compute",
@@ -924,7 +924,7 @@ dependencies = [
 [[package]]
 name = "burn-ndarray"
 version = "0.14.0"
-source = "git+https://github.com/tracel-ai/burn.git#2fbc4628f3ddbd25e223084985c94d2c46dccb58"
+source = "git+https://github.com/tracel-ai/burn.git#6250fa89c87ffcfb7cfa17b47925e8b294812d03"
 dependencies = [
  "burn-autodiff",
  "burn-common",
@@ -942,9 +942,10 @@ dependencies = [
 [[package]]
 name = "burn-tensor"
 version = "0.14.0"
-source = "git+https://github.com/tracel-ai/burn.git#2fbc4628f3ddbd25e223084985c94d2c46dccb58"
+source = "git+https://github.com/tracel-ai/burn.git#6250fa89c87ffcfb7cfa17b47925e8b294812d03"
 dependencies = [
  "burn-common",
+ "bytemuck",
  "derive-new",
  "half",
  "hashbrown 0.14.5",
@@ -957,7 +958,7 @@ dependencies = [
 [[package]]
 name = "burn-wgpu"
 version = "0.14.0"
-source = "git+https://github.com/tracel-ai/burn.git#2fbc4628f3ddbd25e223084985c94d2c46dccb58"
+source = "git+https://github.com/tracel-ai/burn.git#6250fa89c87ffcfb7cfa17b47925e8b294812d03"
 dependencies = [
  "burn-common",
  "burn-compute",
@@ -1111,9 +1112,9 @@ dependencies = [
 
 [[package]]
 name = "cc"
-version = "1.0.100"
+version = "1.0.101"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c891175c3fb232128f48de6590095e59198bbeb8620c310be349bfc3afd12c7b"
+checksum = "ac367972e516d45567c7eafc73d24e1c193dcf200a8d94e9db7b3d38b349572d"
 dependencies = [
  "jobserver",
  "libc",
@@ -1564,7 +1565,7 @@ dependencies = [
 [[package]]
 name = "ecolor"
 version = "0.27.2"
-source = "git+https://github.com/emilk/egui.git#10571e9da5b3658964adc8b85c7e3f8c1353e0db"
+source = "git+https://github.com/emilk/egui.git#ce0e20050302be9ef6509aaa5ba3a39c64bfae00"
 dependencies = [
  "bytemuck",
  "emath 0.27.2 (git+https://github.com/emilk/egui.git)",
@@ -1573,7 +1574,7 @@ dependencies = [
 [[package]]
 name = "eframe"
 version = "0.27.2"
-source = "git+https://github.com/emilk/egui.git#10571e9da5b3658964adc8b85c7e3f8c1353e0db"
+source = "git+https://github.com/emilk/egui.git#ce0e20050302be9ef6509aaa5ba3a39c64bfae00"
 dependencies = [
  "ahash",
  "bytemuck",
@@ -1604,7 +1605,7 @@ dependencies = [
 [[package]]
 name = "egui"
 version = "0.27.2"
-source = "git+https://github.com/emilk/egui.git#10571e9da5b3658964adc8b85c7e3f8c1353e0db"
+source = "git+https://github.com/emilk/egui.git#ce0e20050302be9ef6509aaa5ba3a39c64bfae00"
 dependencies = [
  "ahash",
  "emath 0.27.2 (git+https://github.com/emilk/egui.git)",
@@ -1616,7 +1617,7 @@ dependencies = [
 [[package]]
 name = "egui-wgpu"
 version = "0.27.2"
-source = "git+https://github.com/emilk/egui.git#10571e9da5b3658964adc8b85c7e3f8c1353e0db"
+source = "git+https://github.com/emilk/egui.git#ce0e20050302be9ef6509aaa5ba3a39c64bfae00"
 dependencies = [
  "ahash",
  "bytemuck",
@@ -1634,7 +1635,7 @@ dependencies = [
 [[package]]
 name = "egui-winit"
 version = "0.27.2"
-source = "git+https://github.com/emilk/egui.git#10571e9da5b3658964adc8b85c7e3f8c1353e0db"
+source = "git+https://github.com/emilk/egui.git#ce0e20050302be9ef6509aaa5ba3a39c64bfae00"
 dependencies = [
  "ahash",
  "arboard",
@@ -1650,7 +1651,7 @@ dependencies = [
 [[package]]
 name = "egui_extras"
 version = "0.27.2"
-source = "git+https://github.com/emilk/egui.git#10571e9da5b3658964adc8b85c7e3f8c1353e0db"
+source = "git+https://github.com/emilk/egui.git#ce0e20050302be9ef6509aaa5ba3a39c64bfae00"
 dependencies = [
  "ahash",
  "egui",
@@ -1678,9 +1679,9 @@ dependencies = [
 
 [[package]]
 name = "either"
-version = "1.12.0"
+version = "1.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3dca9240753cf90908d7e4aac30f630662b02aebaa1b58a3cadabdb23385b58b"
+checksum = "60b1af1c220855b6ceac025d3f6ecdd2b7c4894bfe9cd9bda4fbb4bc7c0d4cf0"
 
 [[package]]
 name = "emath"
@@ -1691,7 +1692,7 @@ checksum = "e4c3a552cfca14630702449d35f41c84a0d15963273771c6059175a803620f3f"
 [[package]]
 name = "emath"
 version = "0.27.2"
-source = "git+https://github.com/emilk/egui.git#10571e9da5b3658964adc8b85c7e3f8c1353e0db"
+source = "git+https://github.com/emilk/egui.git#ce0e20050302be9ef6509aaa5ba3a39c64bfae00"
 dependencies = [
  "bytemuck",
 ]
@@ -1777,7 +1778,7 @@ dependencies = [
 [[package]]
 name = "epaint"
 version = "0.27.2"
-source = "git+https://github.com/emilk/egui.git#10571e9da5b3658964adc8b85c7e3f8c1353e0db"
+source = "git+https://github.com/emilk/egui.git#ce0e20050302be9ef6509aaa5ba3a39c64bfae00"
 dependencies = [
  "ab_glyph",
  "ahash",
@@ -2876,12 +2877,12 @@ dependencies = [
 
 [[package]]
 name = "memory-stats"
-version = "1.1.0"
+version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "34f79cf9964c5c9545493acda1263f1912f8d2c56c8a2ffee2606cb960acaacc"
+checksum = "c73f5c649995a115e1a0220b35e4df0a1294500477f97a91d0660fb5abeb574a"
 dependencies = [
  "libc",
- "winapi",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -5870,9 +5871,9 @@ dependencies = [
 
 [[package]]
 name = "wgpu-core"
-version = "0.21.0"
+version = "0.21.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d59e0d5fc509601c69e4e1fa06c1eb3c4c9f12956a5e30c79b61ef1c1be7daf0"
+checksum = "d50819ab545b867d8a454d1d756b90cd5f15da1f2943334ca314af10583c9d39"
 dependencies = [
  "arrayvec",
  "bit-vec",
@@ -5897,9 +5898,9 @@ dependencies = [
 
 [[package]]
 name = "wgpu-hal"
-version = "0.21.0"
+version = "0.21.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6aa24c3889f885a3fb9133b454c8418bfcfaadcfe4ed3be96ac80e76703b863b"
+checksum = "172e490a87295564f3fcc0f165798d87386f6231b04d4548bca458cbbfd63222"
 dependencies = [
  "android_system_properties",
  "arrayvec",

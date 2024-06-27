@@ -662,7 +662,7 @@ mod tests {
 
     use super::*;
     use assert_approx_eq::assert_approx_eq;
-    use burn::tensor::{Data, ElementConversion, Float};
+    use burn::tensor::{ElementConversion, Float, TensorData};
     use burn_wgpu::WgpuDevice;
 
     type DiffBack = Autodiff<BurnBack>;
@@ -686,7 +686,8 @@ mod tests {
         let xy_dummy = Tensor::<DiffBack, 2, _>::zeros([num_points, 2], &device);
 
         let log_scales = Tensor::ones([num_points, 3], &device) * 2.0;
-        let quats = Tensor::from_data(glam::Quat::IDENTITY.to_array(), &device)
+
+        let quats = Tensor::<_, 1, _>::from_floats(glam::Quat::IDENTITY.to_array(), &device)
             .unsqueeze_dim(0)
             .repeat(0, num_points);
         let sh_coeffs = Tensor::ones([num_points, 4], &device);
@@ -706,8 +707,10 @@ mod tests {
 
         let rgb = output.clone().slice([0..32, 0..32, 0..3]);
         let alpha = output.clone().slice([0..32, 0..32, 3..4]);
-        assert_approx_eq!(rgb.clone().mean().to_data().value[0], 0.123, 1e-5);
-        assert_approx_eq!(alpha.clone().mean().to_data().value[0], 0.0);
+        let rgb_mean = rgb.clone().mean().to_data().as_slice::<f32>().unwrap()[0];
+        let alpha_mean = alpha.clone().mean().to_data().as_slice::<f32>().unwrap()[0];
+        assert_approx_eq!(rgb_mean, 0.123, 1e-5);
+        assert_approx_eq!(alpha_mean, 0.0);
     }
 
     fn float_from_u8(data: &[u8]) -> Vec<f32> {
@@ -718,28 +721,21 @@ mod tests {
 
     // Nb: this only handles float tensors, good enough :)
     fn safe_tensor_to_burn1<B: Backend>(t: TensorView, device: &B::Device) -> Tensor<B, 1, Float> {
-        Tensor::from_data(
-            Data::new(float_from_u8(t.data()), [t.shape()[0]].into()).convert(),
-            device,
-        )
+        let data = TensorData::new::<f32, _>(float_from_u8(t.data()), [t.shape()[0]]);
+        Tensor::from_data(data, device)
     }
 
     fn safe_tensor_to_burn2<B: Backend>(t: TensorView, device: &B::Device) -> Tensor<B, 2, Float> {
-        Tensor::from_data(
-            Data::new(float_from_u8(t.data()), [t.shape()[0], t.shape()[1]].into()).convert(),
-            device,
-        )
+        let data = TensorData::new::<f32, _>(float_from_u8(t.data()), [t.shape()[0], t.shape()[1]]);
+        Tensor::from_data(data, device)
     }
 
     fn safe_tensor_to_burn3<B: Backend>(t: TensorView, device: &B::Device) -> Tensor<B, 3, Float> {
-        Tensor::from_data(
-            Data::new(
-                float_from_u8(t.data()),
-                [t.shape()[0], t.shape()[1], t.shape()[2]].into(),
-            )
-            .convert(),
-            device,
-        )
+        let data = TensorData::new::<f32, _>(
+            float_from_u8(t.data()),
+            [t.shape()[0], t.shape()[1], t.shape()[2]],
+        );
+        Tensor::from_data(data, device)
     }
 
     #[test]
@@ -752,7 +748,7 @@ mod tests {
         // Convert the image to RGB format
         // Get the raw buffer
         let raw_buffer = crab_img.to_rgb8().into_raw();
-        let crab_tens: Tensor<DiffBack, 3> = Tensor::from_floats(
+        let crab_tens: Tensor<DiffBack, 3> = Tensor::<_, 1>::from_floats(
             raw_buffer
                 .iter()
                 .map(|&b| b as f32 / 255.0)

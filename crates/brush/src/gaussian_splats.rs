@@ -55,7 +55,7 @@ impl<B: Backend> Splats<B> {
             Distribution::Uniform(-0.5, 0.5),
             device,
         );
-        let init_rotation = Tensor::from_floats([1.0, 0.0, 0.0, 0.0], device)
+        let init_rotation = Tensor::<_, 1>::from_floats([1.0, 0.0, 0.0, 0.0], device)
             .unsqueeze::<2>()
             .repeat(0, num_points);
 

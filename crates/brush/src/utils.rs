@@ -10,5 +10,5 @@ where
     Dim<[usize; D]>: Dimension,
 {
     let shape = Shape::new(arr.shape().try_into().unwrap());
-    Tensor::from_floats(arr.as_slice().unwrap(), device).reshape(shape)
+    Tensor::<_, 1>::from_floats(arr.as_slice().unwrap(), device).reshape(shape)
 }

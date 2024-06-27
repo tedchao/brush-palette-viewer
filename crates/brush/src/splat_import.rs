@@ -1,7 +1,7 @@
 use brush_render::{render::num_sh_coeffs, AutodiffBackend};
 use burn::{
     module::{Param, ParamId},
-    tensor::{Data, Shape, Tensor},
+    tensor::{Tensor, TensorData},
 };
 use ply_rs::{
     parser::Parser,
@@ -88,26 +88,12 @@ fn update_splats<B: AutodiffBackend>(
     let num_splats = means.len() / 3;
     let num_coeffs = sh_coeffs.len() / num_splats;
 
-    let new_means = Tensor::from_data(
-        Data::new(means, Shape::new([num_splats, 3])).convert(),
-        device,
-    );
-    let new_coeffs = Tensor::from_data(
-        Data::new(sh_coeffs, Shape::new([num_splats, num_coeffs])).convert(),
-        device,
-    );
-    let new_rots = Tensor::from_data(
-        Data::new(rotation, Shape::new([num_splats, 4])).convert(),
-        device,
-    );
-    let new_opac = Tensor::from_data(
-        Data::new(opacity, Shape::new([num_splats])).convert(),
-        device,
-    );
-    let new_scales = Tensor::from_data(
-        Data::new(scales, Shape::new([num_splats, 3])).convert(),
-        device,
-    );
+    let new_means = Tensor::from_data(TensorData::new(means, [num_splats, 3]), device);
+    let new_coeffs =
+        Tensor::from_data(TensorData::new(sh_coeffs, [num_splats, num_coeffs]), device);
+    let new_rots = Tensor::from_data(TensorData::new(rotation, [num_splats, 4]), device);
+    let new_opac = Tensor::from_data(TensorData::new(opacity, [num_splats]), device);
+    let new_scales = Tensor::from_data(TensorData::new(scales, [num_splats, 3]), device);
 
     if let Some(splats) = splats.as_mut() {
         splats.concat_splats(new_means, new_rots, new_coeffs, new_opac, new_scales);

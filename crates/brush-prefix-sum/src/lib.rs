@@ -104,9 +104,8 @@ mod tests {
         let keys = Tensor::<Backend, 1, Int>::from_data([1, 1, 1, 1], &device).into_primitive();
         let keys = JitTensor::new(keys.client.clone(), keys.device, keys.shape, keys.handle);
         let summed = prefix_sum(keys.clone());
-        let summed: Vec<i32> = Tensor::<Backend, 1, Int>::from_primitive(bitcast_tensor(summed))
-            .to_data()
-            .value;
+        let summed = Tensor::<Backend, 1, Int>::from_primitive(bitcast_tensor(summed)).to_data();
+        let summed = summed.as_slice::<i32>().unwrap();
         assert_eq!(summed.len(), 4);
         assert_eq!(summed, [1, 2, 3, 4])
     }
@@ -123,9 +122,7 @@ mod tests {
         let keys = Tensor::<Backend, 1, Int>::from_data(data.as_slice(), &device).into_primitive();
         let keys = JitTensor::new(keys.client.clone(), keys.device, keys.shape, keys.handle);
         let summed = prefix_sum(keys.clone());
-        let summed: Vec<i32> = Tensor::<Backend, 1, Int>::from_primitive(bitcast_tensor(summed))
-            .to_data()
-            .value;
+        let summed = Tensor::<Backend, 1, Int>::from_primitive(bitcast_tensor(summed)).to_data();
         let prefix_sum_ref: Vec<_> = data
             .into_iter()
             .scan(0, |x, y| {
@@ -133,8 +130,8 @@ mod tests {
                 Some(*x)
             })
             .collect();
-        for (summed, reff) in summed.into_iter().zip(prefix_sum_ref) {
-            assert_eq!(summed, reff)
+        for (summed, reff) in summed.as_slice::<i32>().unwrap().iter().zip(prefix_sum_ref) {
+            assert_eq!(*summed, reff)
         }
     }
 
@@ -155,9 +152,7 @@ mod tests {
         let keys = Tensor::<Backend, 1, Int>::from_data(data.as_slice(), &device).into_primitive();
         let keys = JitTensor::new(keys.client.clone(), keys.device, keys.shape, keys.handle);
         let summed = prefix_sum(keys.clone());
-        let summed: Vec<i32> = Tensor::<Backend, 1, Int>::from_primitive(bitcast_tensor(summed))
-            .to_data()
-            .value;
+        let summed = Tensor::<Backend, 1, Int>::from_primitive(bitcast_tensor(summed)).to_data();
 
         let prefix_sum_ref: Vec<_> = data
             .into_iter()
@@ -167,8 +162,8 @@ mod tests {
             })
             .collect();
 
-        for (summed, reff) in summed.into_iter().zip(prefix_sum_ref) {
-            assert_eq!(summed, reff)
+        for (summed, reff) in summed.as_slice::<i32>().unwrap().iter().zip(prefix_sum_ref) {
+            assert_eq!(*summed, reff)
         }
     }
 }
