@@ -1,4 +1,4 @@
-use brush_render::{render::num_sh_coeffs, AutodiffBackend};
+use brush_render::{render::num_sh_coeffs, Backend};
 use burn::{
     module::{Param, ParamId},
     tensor::{Tensor, TensorData},
@@ -76,7 +76,7 @@ impl PropertyAccess for GaussianData {
     }
 }
 
-fn update_splats<B: AutodiffBackend>(
+fn update_splats<B: Backend>(
     splats: &mut Option<Splats<B>>,
     means: Vec<f32>,
     sh_coeffs: Vec<f32>,
@@ -85,15 +85,14 @@ fn update_splats<B: AutodiffBackend>(
     scales: Vec<f32>,
     device: &B::Device,
 ) {
-    let num_splats = means.len() / 3;
-    let num_coeffs = sh_coeffs.len() / num_splats;
+    let n_splats = means.len() / 3;
+    let n_coeffs = sh_coeffs.len() / n_splats;
 
-    let new_means = Tensor::from_data(TensorData::new(means, [num_splats, 3]), device);
-    let new_coeffs =
-        Tensor::from_data(TensorData::new(sh_coeffs, [num_splats, num_coeffs]), device);
-    let new_rots = Tensor::from_data(TensorData::new(rotation, [num_splats, 4]), device);
-    let new_opac = Tensor::from_data(TensorData::new(opacity, [num_splats]), device);
-    let new_scales = Tensor::from_data(TensorData::new(scales, [num_splats, 3]), device);
+    let new_means = Tensor::from_data(TensorData::new(means, [n_splats, 3]), device);
+    let new_coeffs = Tensor::from_data(TensorData::new(sh_coeffs, [n_splats, n_coeffs]), device);
+    let new_rots = Tensor::from_data(TensorData::new(rotation, [n_splats, 4]), device);
+    let new_opac = Tensor::from_data(TensorData::new(opacity, [n_splats]), device);
+    let new_scales = Tensor::from_data(TensorData::new(scales, [n_splats, 3]), device);
 
     if let Some(splats) = splats.as_mut() {
         splats.concat_splats(new_means, new_rots, new_coeffs, new_opac, new_scales);
@@ -105,13 +104,13 @@ fn update_splats<B: AutodiffBackend>(
             rotation: Param::initialized(ParamId::new(), new_rots),
             raw_opacity: Param::initialized(ParamId::new(), new_opac),
             log_scales: Param::initialized(ParamId::new(), new_scales),
-            xys_dummy: Tensor::zeros([num_splats, 2], device),
+            xys_dummy: Tensor::zeros([n_splats, 2], device),
         });
     }
 }
 
 // TODO: This is better modelled by an async stream I think.
-pub fn load_splat_from_ply<B: AutodiffBackend>(
+pub fn load_splat_from_ply<B: Backend>(
     ply_data: &[u8],
     device: &B::Device,
     updater: &Updater<Option<Splats<B>>>,

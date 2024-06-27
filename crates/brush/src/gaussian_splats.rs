@@ -1,5 +1,5 @@
 use brush_render::camera::Camera;
-use brush_render::{render::num_sh_coeffs, AutodiffBackend, Backend};
+use brush_render::{render::num_sh_coeffs, Backend};
 use burn::tensor::Distribution;
 use burn::tensor::Tensor;
 use burn::{
@@ -37,6 +37,13 @@ pub struct Splats<B: Backend> {
 
     // Dummy input to track screenspace gradient.
     pub(crate) xys_dummy: Tensor<B, 2>,
+}
+
+fn map_param<B: Backend, const D: usize>(
+    tensor: &mut Param<Tensor<B, D>>,
+    f: impl Fn(Tensor<B, D>) -> Tensor<B, D>,
+) {
+    *tensor = tensor.clone().map(|x| f(x).detach().require_grad());
 }
 
 impl<B: Backend> Splats<B> {
@@ -137,43 +144,33 @@ impl<B: Backend> Splats<B> {
     pub(crate) fn num_splats(&self) -> usize {
         self.means.dims()[0]
     }
-}
 
-// TODO: This really shouldn't need autodiff. Burn is very confused if you try to
-// create new tensors from a param. The autodiff graph can get all messed up, doing this
-// weird from_inner/inner dance seems to fix it, but can only be done on an autodiff backend.
-impl<B: AutodiffBackend> Splats<B> {
     pub fn concat_splats(
         &mut self,
-        new_means: Tensor<B, 2>,
-        new_rots: Tensor<B, 2>,
+        means: Tensor<B, 2>,
+        rotations: Tensor<B, 2>,
         sh_coeffs: Tensor<B, 2>,
-        raw_opacity: Tensor<B, 1>,
+        raw_opacities: Tensor<B, 1>,
         log_scales: Tensor<B, 2>,
     ) {
-        // Concat new params.
-        self.means = self.means.clone().map(|x| {
-            Tensor::from_inner(Tensor::cat(vec![x, new_means.clone()], 0).inner()).require_grad()
+        map_param(&mut self.means, |x| Tensor::cat(vec![x, means.clone()], 0));
+        map_param(&mut self.rotation, |x| {
+            Tensor::cat(vec![x, rotations.clone()], 0)
         });
-        self.rotation = self.rotation.clone().map(|x| {
-            Tensor::from_inner(Tensor::cat(vec![x, new_rots.clone()], 0).inner()).require_grad()
+        map_param(&mut self.sh_coeffs, |x| {
+            Tensor::cat(vec![x, sh_coeffs.clone()], 0)
         });
-        self.sh_coeffs = self.sh_coeffs.clone().map(|x| {
-            Tensor::from_inner(Tensor::cat(vec![x, sh_coeffs.clone()], 0).inner()).require_grad()
+        map_param(&mut self.raw_opacity, |x| {
+            Tensor::cat(vec![x, raw_opacities.clone()], 0)
         });
-        self.raw_opacity = self.raw_opacity.clone().map(|x| {
-            Tensor::from_inner(Tensor::cat(vec![x, raw_opacity.clone()], 0).inner()).require_grad()
-        });
-        self.log_scales = self.log_scales.clone().map(|x| {
-            Tensor::from_inner(Tensor::cat(vec![x, log_scales.clone()], 0).inner()).require_grad()
+        map_param(&mut self.log_scales, |x| {
+            Tensor::cat(vec![x, log_scales.clone()], 0)
         });
     }
 
     pub fn norm_rotations(&mut self) {
-        self.rotation = self.rotation.clone().map(|x| {
-            let norms = Tensor::sum_dim(x.clone().powf_scalar(2.0), 1).sqrt();
-            let norm_rotation = x / Tensor::clamp_min(norms, 1e-6);
-            Tensor::from_inner(norm_rotation.inner()).require_grad()
+        map_param(&mut self.rotation, |x| {
+            x.clone() / Tensor::clamp_min(Tensor::sum_dim(x.powf_scalar(2.0), 1).sqrt(), 1e-6)
         });
     }
 }

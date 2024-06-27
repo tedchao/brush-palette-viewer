@@ -37,7 +37,7 @@ struct TrainUpdate {
 
 pub struct Viewer {
     camera: Camera,
-    receiver: Option<Receiver<Option<Splats<Autodiff<Backend>>>>>,
+    receiver: Option<Receiver<Option<Splats<Backend>>>>,
 
     last_train_iter: u32,
     last_update: Instant,
@@ -58,7 +58,7 @@ async fn yield_macro() {
 async fn open_file(
     config: TrainConfig,
     device: WgpuDevice,
-    updater: Updater<Option<Splats<Autodiff<Backend>>>>,
+    updater: Updater<Option<Splats<Backend>>>,
     egui_ctx: egui::Context,
 ) {
     #[cfg(feature = "rerun")]
@@ -76,8 +76,7 @@ async fn open_file(
     let file_data = file.read().await;
 
     if file.file_name().contains(".ply") {
-        let splats =
-            splat_import::load_splat_from_ply::<Autodiff<Backend>>(&file_data, &device, &updater);
+        let splats = splat_import::load_splat_from_ply::<Backend>(&file_data, &device, &updater);
         // TODO: Send over the channel? Or whats good here?
         // let (tx, rx) = single_value_channel::channel();
         // self.reference_cameras =
@@ -132,7 +131,7 @@ async fn open_file(
                 //     iter: trainer.iter,
                 // };
 
-                match updater.update(Some(splats.clone())) {
+                match updater.update(Some(splats.valid())) {
                     Ok(_) => egui_ctx.request_repaint(),
                     Err(_) => break, // channel closed, bail.
                 };
@@ -233,7 +232,7 @@ impl eframe::App for Viewer {
 
             if let Some(rx) = self.receiver.as_mut() {
                 if let Some(update) = rx.latest() {
-                    let splats = &update.valid();
+                    let splats = &update;
 
                     // if update.iter > 0 {
                     //     ui.label(format!("Training step {}", update.iter));
