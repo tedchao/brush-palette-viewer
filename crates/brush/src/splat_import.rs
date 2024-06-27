@@ -8,18 +8,21 @@ use ply_rs::{
     ply::{Property, PropertyAccess},
 };
 use single_value_channel::Updater;
-use std::io::{BufRead, BufReader};
+use std::io::BufRead;
+use tracing::info_span;
 
 use crate::gaussian_splats::Splats;
 use anyhow::{Context, Result};
 
-#[derive(Default)]
+const SH_COEFFS_PER_CHANNEL: usize = num_sh_coeffs(3);
+const SH_COEFFS_PER_SPLAT: usize = SH_COEFFS_PER_CHANNEL * 3;
+
 pub(crate) struct GaussianData {
     means: glam::Vec3,
     scale: glam::Vec3,
     opacity: f32,
     rotation: glam::Vec4,
-    sh_coeffs: Vec<f32>,
+    sh_coeffs: [f32; SH_COEFFS_PER_SPLAT],
 }
 
 fn inv_sigmoid(v: f32) -> f32 {
@@ -28,61 +31,47 @@ fn inv_sigmoid(v: f32) -> f32 {
 
 const SH_C0: f32 = 0.28209479;
 
+fn to_interleaved_idx(val: usize) -> usize {
+    let channel = val / SH_COEFFS_PER_CHANNEL;
+    let coeff = (val % (SH_COEFFS_PER_CHANNEL - 1)) + 1;
+    coeff * 3 + channel
+}
+
 impl PropertyAccess for GaussianData {
     fn new() -> Self {
-        GaussianData::default()
+        GaussianData {
+            means: glam::Vec3::ZERO,
+            scale: glam::Vec3::ONE,
+            opacity: 1.0,
+            rotation: glam::Vec4::ZERO,
+            sh_coeffs: [0.0; SH_COEFFS_PER_SPLAT],
+        }
     }
 
-    fn set_property(&mut self, key: String, property: Property) {
-        let sh_coeff_per_channel: usize = num_sh_coeffs(3);
-
-        match (key.as_ref(), property) {
-            ("x", Property::Float(v)) => self.means.x = v,
-            ("y", Property::Float(v)) => self.means.y = v,
-            ("z", Property::Float(v)) => self.means.z = v,
-
-            ("scale_0", Property::Float(v)) => self.scale.x = v,
-            ("scale_1", Property::Float(v)) => self.scale.y = v,
-            ("scale_2", Property::Float(v)) => self.scale.z = v,
-
-            ("opacity", Property::Float(v)) => self.opacity = v,
-
-            ("rot_0", Property::Float(v)) => self.rotation.x = v,
-            ("rot_1", Property::Float(v)) => self.rotation.y = v,
-            ("rot_2", Property::Float(v)) => self.rotation.z = v,
-            ("rot_3", Property::Float(v)) => self.rotation.w = v,
-
-            (_, Property::Float(v)) if key.starts_with("f_rest_") || key.starts_with("f_dc_") => {
-                let (coeff, channel) = if key.starts_with("f_dc_") {
-                    let coeff = 0;
-                    let channel = key.strip_prefix("f_dc_").unwrap().parse::<usize>().unwrap();
-                    (coeff, channel)
-                } else {
-                    let i = key
-                        .strip_prefix("f_rest_")
-                        .unwrap()
-                        .parse::<usize>()
-                        .unwrap();
-
-                    let channel = i / sh_coeff_per_channel;
-
-                    let coeff = if sh_coeff_per_channel == 1 {
-                        1
-                    } else {
-                        (i % (sh_coeff_per_channel - 1)) + 1
-                    };
-                    (coeff, channel)
-                };
-
-                // planar
-                let interleaved_idx = coeff * 3 + channel;
-
-                if self.sh_coeffs.len() < interleaved_idx + 1 {
-                    self.sh_coeffs.resize(interleaved_idx + 1, 0.0);
+    fn set_property(&mut self, key: &str, property: Property) {
+        if let Property::Float(v) = property {
+            match key {
+                "x" => self.means.x = v,
+                "y" => self.means.y = v,
+                "z" => self.means.z = v,
+                "scale_0" => self.scale.x = v,
+                "scale_1" => self.scale.y = v,
+                "scale_2" => self.scale.z = v,
+                "opacity" => self.opacity = v,
+                "rot_0" => self.rotation.x = v,
+                "rot_1" => self.rotation.y = v,
+                "rot_2" => self.rotation.z = v,
+                "rot_3" => self.rotation.w = v,
+                "f_dc_0" => self.sh_coeffs[0] = v,
+                "f_dc_1" => self.sh_coeffs[1] = v,
+                "f_dc_2" => self.sh_coeffs[2] = v,
+                _ if key.starts_with("f_rest_") => {
+                    if let Ok(idx) = key["f_rest_".len()..].parse::<u32>() {
+                        self.sh_coeffs[to_interleaved_idx(idx as usize)] = v;
+                    }
                 }
-                self.sh_coeffs[interleaved_idx] = v;
+                _ => (),
             }
-            (_, _) => {}
         }
     }
 }
@@ -148,13 +137,17 @@ pub fn load_splat_from_ply<B: AutodiffBackend>(
 
     let mut splats: Option<Splats<B>> = None;
 
-    let mut means = Vec::new();
-    let mut sh_coeffs = Vec::new();
-    let mut rotation = Vec::new();
-    let mut opacity = Vec::new();
-    let mut scales = Vec::new();
+    let update_every = 200000;
 
-    for (_ignore_key, element) in &header.elements {
+    let mut means = Vec::with_capacity(update_every);
+    let mut sh_coeffs = Vec::with_capacity(update_every);
+    let mut rotation = Vec::with_capacity(update_every);
+    let mut opacity = Vec::with_capacity(update_every);
+    let mut scales = Vec::with_capacity(update_every);
+
+    let _span = info_span!("Read splats").entered();
+
+    for element in &header.elements {
         if element.name == "vertex" {
             for i in 0..element.count {
                 let splat = match header.encoding {
@@ -178,7 +171,7 @@ pub fn load_splat_from_ply<B: AutodiffBackend>(
                 scales.extend(<[f32; 3]>::from(splat.scale));
 
                 // Occasionally send some updated splats.
-                if i % 100000 == 0 {
+                if i % update_every == 0 {
                     update_splats(
                         &mut splats,
                         means,
@@ -188,11 +181,11 @@ pub fn load_splat_from_ply<B: AutodiffBackend>(
                         scales,
                         device,
                     );
-                    means = Vec::new();
-                    sh_coeffs = Vec::new();
-                    rotation = Vec::new();
-                    opacity = Vec::new();
-                    scales = Vec::new();
+                    means = Vec::with_capacity(update_every);
+                    sh_coeffs = Vec::with_capacity(update_every);
+                    rotation = Vec::with_capacity(update_every);
+                    opacity = Vec::with_capacity(update_every);
+                    scales = Vec::with_capacity(update_every);
                     let _ = updater.update(splats.clone());
                 }
             }

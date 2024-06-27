@@ -35,7 +35,7 @@ type BurnBack = JitBackend<WgpuRuntime, f32, i32>;
 // Use an alias so we don't have to type out the backend every time.
 type SyncSpan<'a> = SyncSpanRaw<'a, BurnBack>;
 
-pub fn num_sh_coeffs(degree: usize) -> usize {
+pub const fn num_sh_coeffs(degree: usize) -> usize {
     (degree + 1).pow(2)
 }
 

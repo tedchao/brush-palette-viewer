@@ -159,7 +159,7 @@ impl Viewer {
             RuntimeOptions {
                 dealloc_strategy:
                     burn_compute::memory_management::simple::DeallocStrategy::PeriodTime {
-                        period: Duration::from_secs(5),
+                        period: Duration::from_secs(1),
                         state: Instant::now(),
                     },
                 tasks_max: 128,
