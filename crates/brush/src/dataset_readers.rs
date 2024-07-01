@@ -1,3 +1,5 @@
+use std::io::Cursor;
+use std::io::Read;
 use std::path::Path;
 use std::path::PathBuf;
 
@@ -5,7 +7,6 @@ use anyhow::Context;
 use anyhow::Result;
 use brush_render::camera;
 use brush_render::camera::Camera;
-use futures_lite::AsyncReadExt;
 use ndarray::Array3;
 
 #[derive(Debug, Default, Clone)]
@@ -23,42 +24,31 @@ fn normalized_path_string(path: &Path) -> String {
         .replace(std::path::MAIN_SEPARATOR, "/")
 }
 
-pub async fn read_synthetic_nerf_data(
+pub fn read_synthetic_nerf_data(
     zip_data: &[u8],
     max_frames: Option<usize>,
 ) -> Result<Vec<InputView>> {
     let mut cameras = vec![];
 
-    let archive = async_zip::base::read::mem::ZipFileReader::new(zip_data.to_owned()).await?;
+    let mut archive = zip::ZipArchive::new(Cursor::new(zip_data))?;
 
-    let entry = archive
-        .file()
-        .entries()
-        .iter()
-        .enumerate()
-        .find(|(_, x)| {
-            !x.dir().is_ok_and(|x| x)
-                && x.filename()
-                    .as_str()
-                    .unwrap()
-                    .contains("transforms_train.json")
-        })
-        .unwrap();
-
-    let transform_fname = &entry.1.filename().as_str().unwrap();
-    let base_path = std::path::Path::new(transform_fname)
-        .parent()
-        .unwrap_or(std::path::Path::new("./"));
-
-    let mut transform_buf = String::new();
-    archive
-        .reader_with_entry(entry.0)
-        .await
+    let transform_fname = archive
+        .file_names()
+        .find(|x| x.contains("transforms_train.json"))
         .unwrap()
-        .read_to_string(&mut transform_buf)
-        .await?;
+        .to_owned();
 
-    let contents: serde_json::Value = serde_json::from_str(&transform_buf)?;
+    let base_path = Path::new(&transform_fname)
+        .parent()
+        .unwrap_or(Path::new("./"));
+
+    let contents: serde_json::Value = {
+        let mut transforms_file = archive.by_name(&transform_fname)?;
+        let mut transform_buf = String::new();
+        transforms_file.read_to_string(&mut transform_buf)?;
+        serde_json::from_str(&transform_buf)?
+    };
+
     let fovx = contents
         .get("camera_angle_x")
         .context("Camera angle x")?
@@ -106,21 +96,10 @@ pub async fn read_synthetic_nerf_data(
         let image_path =
             normalized_path_string(&base_path.join(image_file_path.to_owned() + ".png"));
 
-        let img_index = archive
-            .file()
-            .entries()
-            .iter()
-            .position(|x| x.filename().as_str().unwrap() == image_path)
-            .unwrap();
         let mut img_buffer = Vec::new();
-        archive
-            .reader_with_entry(img_index)
-            .await?
-            .read_to_end(&mut img_buffer)
-            .await?;
+        archive.by_name(&image_path)?.read_to_end(&mut img_buffer)?;
         // Create a cursor from the buffer
-        let cursor = std::io::Cursor::new(img_buffer);
-        let image = image::io::Reader::new(cursor)
+        let image = image::io::Reader::new(Cursor::new(img_buffer))
             .with_guessed_format()?
             .decode()?;
 

@@ -43,6 +43,7 @@ ndarray = "0.15"
 image = { version = "0.25", default-features = false, features = [
     'png',
     'webp',
+    "jpeg",
 ] }
 
 serde = "1.0"
@@ -60,9 +61,7 @@ egui = { git = "https://github.com/emilk/egui.git" }
 eframe = { git = "https://github.com/emilk/egui.git", default-features = false, features = [
     "wgpu",
 ] }
-egui_extras = { git = "https://github.com/emilk/egui.git", default-features = false, features = [
-    "all_loaders",
-] }
+egui_extras = { git = "https://github.com/emilk/egui.git", default-features = false }
 assert_approx_eq = "1.1.0"
 safetensors = "0.4.3"
 

@@ -93,9 +93,7 @@ async fn open_file(
             let _ = updater.update(Some(splats));
         }
     } else {
-        let cameras = dataset_readers::read_synthetic_nerf_data(&file_data, None)
-            .await
-            .unwrap();
+        let cameras = dataset_readers::read_synthetic_nerf_data(&file_data, None).unwrap();
         let scene = scene::Scene::new(cameras);
 
         #[cfg(feature = "rerun")]
@@ -203,7 +201,7 @@ impl Viewer {
         std::thread::spawn(move || pollster::block_on(open_file(config, device, updater, ctx)));
 
         #[cfg(target_arch = "wasm32")]
-        spawn_local(open_file(config, device, tx, ctx));
+        spawn_local(open_file(config, device, updater, ctx));
     }
 }
 

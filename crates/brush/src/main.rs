@@ -57,8 +57,11 @@ fn main() -> anyhow::Result<()> {
 
     #[cfg(target_arch = "wasm32")]
     {
-        console_error_panic_hook::set_once();
-        tracing_wasm::set_as_global_default();
+        #[cfg(debug_assertions)]
+        {
+            console_error_panic_hook::set_once();
+            tracing_wasm::set_as_global_default();
+        }
 
         let web_options = eframe::WebOptions {
             wgpu_options,
