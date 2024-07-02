@@ -1,3 +1,5 @@
+use crate::gaussian_splats::Splats;
+use crate::scene::SceneBatch;
 use anyhow::Result;
 use brush_render::sync_span::SyncSpan;
 use brush_render::{AutodiffBackend, Backend, RenderAux};
@@ -14,9 +16,6 @@ use burn::{
 };
 use rand::{rngs::StdRng, SeedableRng};
 use tracing::info_span;
-
-use crate::gaussian_splats::Splats;
-use crate::scene::SceneBatch;
 
 #[derive(Config)]
 pub(crate) struct LrConfig {
@@ -99,7 +98,11 @@ where
     xy_grad_norm_accum: Tensor<B, 1>,
 }
 
-// Quaternion multiplication function
+async fn yield_macro() {
+    #[cfg(target_arch = "wasm32")]
+    gloo_timers::future::TimeoutFuture::new(0).await;
+}
+
 pub(crate) fn quat_multiply<B: Backend>(q: Tensor<B, 2>, r: Tensor<B, 2>) -> Tensor<B, 2> {
     let num = q.dims()[0];
 
@@ -208,8 +211,7 @@ where
     }
 
     // Densifies and prunes the Gaussians.
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn densify_and_prune(
+    pub async fn densify_and_prune(
         &mut self,
         splats: &mut Splats<B>,
         grad_threshold: f32,
@@ -226,7 +228,7 @@ where
                 .max_dim(1)
                 .squeeze(1)
                 .greater_elem(threshold);
-            self.prune_points(splats, prune_mask);
+            self.prune_points(splats, prune_mask).await;
         }
 
         // Compute average magnitude of the gradient for each Gaussian in
@@ -256,7 +258,7 @@ where
 
         // Need to be very careful not to do any operations with this tensor, as it might be
         // less than the minimum size wgpu can support :/
-        let clone_where = clone_mask.clone().argwhere();
+        let clone_where = clone_mask.clone().argwhere_async().await;
 
         if clone_where.dims()[0] >= 4 {
             let clone_inds = clone_where.squeeze(1);
@@ -269,7 +271,7 @@ where
             splats.concat_splats(new_means, new_rots, new_coeffs, new_opac, new_scales);
         }
 
-        let split_where = split_mask.clone().argwhere();
+        let split_where = split_mask.clone().argwhere_async().await;
         if split_where.dims()[0] >= 4 {
             let split_inds = split_where.squeeze(1);
             let samps = split_inds.dims()[0];
@@ -321,7 +323,7 @@ where
             let new_scales = (splats.log_scales.val().select(0, split_inds.clone()).exp() / 1.6)
                 .log()
                 .repeat(0, splits);
-            self.prune_points(splats, split_mask.clone());
+            self.prune_points(splats, split_mask.clone()).await;
 
             splats.concat_splats(new_means, new_rots, new_coeffs, new_opac, new_scales);
         }
@@ -338,10 +340,9 @@ where
     //
     // Args:
     //   mask: bool[n]. If True, prune this Gaussian.
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn prune_points(&mut self, splats: &mut Splats<B>, prune: Tensor<B, 1, Bool>) {
+    pub async fn prune_points(&mut self, splats: &mut Splats<B>, prune: Tensor<B, 1, Bool>) {
         // bool[n]. If True, delete these Gaussians.
-        let valid_inds = prune.bool_not().argwhere().squeeze(1);
+        let valid_inds = prune.bool_not().argwhere_async().await.squeeze(1);
 
         let start_splats = splats.num_splats();
         let new_points = valid_inds.dims()[0];
@@ -370,7 +371,7 @@ where
         }
     }
 
-    pub fn step(
+    pub async fn step(
         &mut self,
         batch: SceneBatch<B>,
         splats: Splats<B>,
@@ -402,6 +403,9 @@ where
                 background_color,
                 false,
             );
+
+            yield_macro().await;
+
             renders.push(pred_image);
             auxes.push(aux);
         }
@@ -437,9 +441,11 @@ where
                 + (-ssim_loss + 1.0) * self.config.ssim_weight;
         }
         drop(calc_losses);
+        yield_macro().await;
 
         let backward_pass = SyncSpan::<B>::new("Backward pass", device);
         let mut grads = loss.backward();
+        yield_macro().await;
         drop(backward_pass);
 
         let step_span = SyncSpan::<B>::new("Optimizer step", device);
@@ -487,6 +493,7 @@ where
         splats = self.optim.step(lr_rest, splats, grad_rest);
 
         drop(step_span);
+        yield_macro().await;
 
         {
             let _span = SyncSpan::<B>::new("Housekeeping", device);
@@ -508,13 +515,12 @@ where
             );
         }
 
-        #[cfg(not(target_arch = "wasm32"))]
         if self.iter % self.config.refine_every == 0 {
             // Remove barely visible gaussians.
             let prule_alpha_thresh = self.config.prune_alpha_thresh;
             let alpha_mask = burn::tensor::activation::sigmoid(splats.raw_opacity.val())
                 .lower_elem(prule_alpha_thresh);
-            self.prune_points(&mut splats, alpha_mask);
+            self.prune_points(&mut splats, alpha_mask).await;
 
             let prune_scale_thresh = self.config.prune_scale_thresh;
             let scale_mask = splats
@@ -524,7 +530,7 @@ where
                 .max_dim(1)
                 .squeeze(1)
                 .lower_elem(prune_scale_thresh);
-            self.prune_points(&mut splats, scale_mask);
+            self.prune_points(&mut splats, scale_mask).await;
 
             if self.iter > self.config.warmup_steps {
                 let max_img_size = img_w.max(img_h) as f32;
@@ -534,7 +540,8 @@ where
                     Some(self.config.cull_scale_thresh),
                     self.config.split_clone_size_threshold,
                     device,
-                );
+                )
+                .await;
 
                 if self.iter % (self.config.refine_every * self.config.reset_alpha_every) == 0 {
                     self.reset_opacity(&mut splats);
@@ -571,7 +578,7 @@ where
                     psnr,
                 };
 
-                self.visualize_train_stats(rec, stats)?;
+                self.visualize_train_stats(rec, stats).await?;
 
                 let main_gt_image = batch.gt_image.slice([0..1]);
 
@@ -580,7 +587,11 @@ where
                     &rerun::Image::try_from(
                         ndarray::Array::from_shape_vec(
                             main_gt_image.dims(),
-                            main_gt_image.to_data().convert::<f32>().value,
+                            main_gt_image
+                                .into_data_async()
+                                .await
+                                .to_vec::<f32>()
+                                .unwrap(),
                         )?
                         .map(|x| (*x * 255.0).clamp(0.0, 255.0) as u8),
                     )?,
@@ -588,17 +599,16 @@ where
             }
 
             if self.iter % self.config.visualize_splats_every == 0 {
-                splats.visualize(rec)?;
+                splats.visualize(rec).await?;
             }
         }
 
         self.iter += 1;
-
         Ok(splats)
     }
 
     #[cfg(feature = "rerun")]
-    fn visualize_train_stats(
+    async fn visualize_train_stats(
         &self,
         rec: &rerun::RecordingStream,
         stats: TrainStepStats<B>,
@@ -608,11 +618,11 @@ where
 
         rec.log(
             "losses/main",
-            &rerun::Scalar::new(stats.loss.into_scalar().elem::<f64>()),
+            &rerun::Scalar::new(stats.loss.into_scalar_async().await.elem::<f64>()),
         )?;
         rec.log(
             "stats/PSNR",
-            &rerun::Scalar::new(stats.psnr.into_scalar().elem::<f64>()),
+            &rerun::Scalar::new(stats.psnr.into_scalar_async().await.elem::<f64>()),
         )?;
 
         // Not sure what's best here, atm let's just log the first batch render only.
@@ -621,11 +631,23 @@ where
 
         rec.log(
             "splats/num_intersects",
-            &rerun::Scalar::new(aux.num_intersects.clone().into_scalar().elem::<f64>()),
+            &rerun::Scalar::new(
+                aux.num_intersects
+                    .clone()
+                    .into_scalar_async()
+                    .await
+                    .elem::<f64>(),
+            ),
         )?;
         rec.log(
             "splats/num_visible",
-            &rerun::Scalar::new(aux.num_visible.clone().into_scalar().elem::<f64>()),
+            &rerun::Scalar::new(
+                aux.num_visible
+                    .clone()
+                    .into_scalar_async()
+                    .await
+                    .elem::<f64>(),
+            ),
         )?;
 
         let tile_depth = aux.calc_tile_depth();
@@ -633,14 +655,18 @@ where
             "images/tile depth",
             &rerun::Tensor::try_from(Array::from_shape_vec(
                 tile_depth.dims(),
-                tile_depth.to_data().convert::<u32>().value,
+                tile_depth.into_data_async().await.to_vec::<f32>().unwrap(),
             )?)?,
         )?;
 
         let main_pred_image = stats.pred_images.slice([0..1]);
         let pred_image = Array::from_shape_vec(
             main_pred_image.dims(),
-            main_pred_image.to_data().convert::<f32>().value,
+            main_pred_image
+                .into_data_async()
+                .await
+                .to_vec::<f32>()
+                .unwrap(),
         )?
         .map(|x| (*x * 255.0).clamp(0.0, 255.0) as u8);
 

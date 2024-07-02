@@ -106,13 +106,19 @@ impl<B: Backend> Splats<B> {
     }
 
     #[cfg(feature = "rerun")]
-    pub(crate) fn visualize(&self, rec: &RecordingStream) -> Result<()> {
-        let means = self.means.val().into_data().convert().value;
+    pub(crate) async fn visualize(&self, rec: &RecordingStream) -> Result<()> {
+        let means = self
+            .means
+            .val()
+            .into_data_async()
+            .await
+            .to_vec::<f32>()
+            .unwrap();
         let means = means.chunks(3).map(|c| glam::vec3(c[0], c[1], c[2]));
 
         let sh_c0 = 0.2820947917738781;
         let base_rgb = self.sh_coeffs.val().slice([0..self.num_splats(), 0..3]) * sh_c0 + 0.5;
-        let colors = base_rgb.into_data().convert::<f32>().value;
+        let colors = base_rgb.into_data_async().await.to_vec::<f32>().unwrap();
         let colors = colors.chunks(3).map(|c| {
             Color::from_rgb(
                 (c[0] * 255.0) as u8,
@@ -125,9 +131,11 @@ impl<B: Backend> Splats<B> {
             .log_scales
             .val()
             .exp()
-            .into_data()
-            .convert::<f32>()
-            .value;
+            .into_data_async()
+            .await
+            .to_vec()
+            .unwrap();
+
         let radii = radii
             .chunks(3)
             .map(|c| 0.5 * glam::vec3(c[0], c[1], c[2]).length());

@@ -50,11 +50,6 @@ pub struct Viewer {
     start_transform: Mat4,
 }
 
-async fn yield_macro() {
-    #[cfg(target_arch = "wasm32")]
-    gloo_timers::future::TimeoutFuture::new(0).await;
-}
-
 async fn open_file(
     config: TrainConfig,
     device: WgpuDevice,
@@ -118,6 +113,7 @@ async fn open_file(
                     #[cfg(feature = "rerun")]
                     &rec,
                 )
+                .await
                 .unwrap();
 
             if trainer.iter % 10 == 0 {
@@ -134,8 +130,6 @@ async fn open_file(
                     Err(_) => break, // channel closed, bail.
                 };
             }
-
-            yield_macro().await;
         }
     }
 }
