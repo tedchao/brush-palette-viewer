@@ -416,7 +416,7 @@ where
 
         // There might be some marginal benefit to caching the "loss objects". I wish Burn had a more
         // functional style for this.
-        let huber = HuberLossConfig::new(0.05).init::<B>(device);
+        let huber = HuberLossConfig::new(0.05).init();
         let l1_loss = huber.forward(
             pred_images.clone(),
             batch.gt_image.clone(),

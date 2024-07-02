@@ -143,6 +143,7 @@ impl Viewer {
             state.adapter.clone(),
             state.device.clone(),
             state.queue.clone(),
+            Default::default(),
             // Burn atm has pretty suboptimal memory management leading to weird behaviour. This effectively disables
             // it, with a GC run every couple seconds. Seems good enough for now.
             // (nb: it doesn't mean burn will never re-use memory, just that it hangs on to
