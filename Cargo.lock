@@ -1504,17 +1504,19 @@ dependencies = [
 
 [[package]]
 name = "ecolor"
-version = "0.27.2"
-source = "git+https://github.com/emilk/egui.git#f0e2bd8b000ea72e6fdc5f09c3a57974efe0cdc5"
+version = "0.28.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d2cabe0a45c3736c274bc650ca02ab293eb2ad1a3870f6033590ca7a3ee9963c"
 dependencies = [
  "bytemuck",
- "emath 0.27.2 (git+https://github.com/emilk/egui.git)",
+ "emath 0.28.0",
 ]
 
 [[package]]
 name = "eframe"
-version = "0.27.2"
-source = "git+https://github.com/emilk/egui.git#f0e2bd8b000ea72e6fdc5f09c3a57974efe0cdc5"
+version = "0.28.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e20189790fd16dc370379cee34032a114a029707947fe1b0d6b6362d3847c296"
 dependencies = [
  "ahash",
  "bytemuck",
@@ -1544,11 +1546,12 @@ dependencies = [
 
 [[package]]
 name = "egui"
-version = "0.27.2"
-source = "git+https://github.com/emilk/egui.git#f0e2bd8b000ea72e6fdc5f09c3a57974efe0cdc5"
+version = "0.28.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9dce16991290ee6395f3780b9b0db15bf0368bce2f31f2e9ba276d26e4b09cda"
 dependencies = [
  "ahash",
- "emath 0.27.2 (git+https://github.com/emilk/egui.git)",
+ "emath 0.28.0",
  "epaint",
  "log",
  "nohash-hasher",
@@ -1556,8 +1559,9 @@ dependencies = [
 
 [[package]]
 name = "egui-wgpu"
-version = "0.27.2"
-source = "git+https://github.com/emilk/egui.git#f0e2bd8b000ea72e6fdc5f09c3a57974efe0cdc5"
+version = "0.28.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4f62b48d3c8eec54aa662da7d353628ae6b36f37c268f020cba198b83e642034"
 dependencies = [
  "ahash",
  "bytemuck",
@@ -1574,8 +1578,9 @@ dependencies = [
 
 [[package]]
 name = "egui-winit"
-version = "0.27.2"
-source = "git+https://github.com/emilk/egui.git#f0e2bd8b000ea72e6fdc5f09c3a57974efe0cdc5"
+version = "0.28.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ef6d149cc9db915f34df8a90eb81853c9376044fc938f67d848729b27c6b0128"
 dependencies = [
  "ahash",
  "arboard",
@@ -1590,8 +1595,9 @@ dependencies = [
 
 [[package]]
 name = "egui_extras"
-version = "0.27.2"
-source = "git+https://github.com/emilk/egui.git#f0e2bd8b000ea72e6fdc5f09c3a57974efe0cdc5"
+version = "0.28.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "de9caa162e2d75084e637fbb46637fb864b7411e8ce772425a0e7e4746f81368"
 dependencies = [
  "ahash",
  "egui",
@@ -1613,8 +1619,9 @@ checksum = "e4c3a552cfca14630702449d35f41c84a0d15963273771c6059175a803620f3f"
 
 [[package]]
 name = "emath"
-version = "0.27.2"
-source = "git+https://github.com/emilk/egui.git#f0e2bd8b000ea72e6fdc5f09c3a57974efe0cdc5"
+version = "0.28.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "275f98c04af8359eeef56af16dfafd2bc7a65d9c0e5f2f00918057ca90a9fba8"
 dependencies = [
  "bytemuck",
 ]
@@ -1699,14 +1706,15 @@ dependencies = [
 
 [[package]]
 name = "epaint"
-version = "0.27.2"
-source = "git+https://github.com/emilk/egui.git#f0e2bd8b000ea72e6fdc5f09c3a57974efe0cdc5"
+version = "0.28.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "205d6fcd02317e3e06cb32d28f821dd549b14ab12da6ff283dda57c4ebe4cb45"
 dependencies = [
  "ab_glyph",
  "ahash",
  "bytemuck",
  "ecolor",
- "emath 0.27.2 (git+https://github.com/emilk/egui.git)",
+ "emath 0.28.0",
  "log",
  "nohash-hasher",
  "parking_lot",
@@ -3779,7 +3787,7 @@ checksum = "57009612884f43cef2de6b0af0b864aee40d0392b775231223ec9bb0da7a4593"
 dependencies = [
  "ahash",
  "document-features",
- "emath 0.27.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "emath 0.27.2",
  "getrandom",
  "itertools",
  "nohash-hasher",
@@ -3916,7 +3924,7 @@ checksum = "1b3cf61c108248389b74ea0ee9934a6717c0fa228fd7cc1749f88343fb4cbc0b"
 dependencies = [
  "ahash",
  "backtrace",
- "emath 0.27.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "emath 0.27.2",
  "itertools",
  "memory-stats",
  "nohash-hasher",
@@ -4065,7 +4073,7 @@ dependencies = [
  "array-init",
  "bytemuck",
  "document-features",
- "emath 0.27.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "emath 0.27.2",
  "glam",
  "half",
  "infer",
