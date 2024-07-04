@@ -1,7 +1,7 @@
 #import helpers
 
-@group(0) @binding(0) var<storage> sorted_tiled_tile_ids: array<u32>;
-@group(0) @binding(1) var<storage> num_intersections: u32;
+@group(0) @binding(0) var<storage, read_write> sorted_tiled_tile_ids: array<u32>;
+@group(0) @binding(1) var<storage, read_write> num_intersections: u32;
 
 // This really is a vec2 per tile, but, we have to be able to write x/y from different threads.
 // Actually writing a vec2 can lead to torn writes.

@@ -4,9 +4,9 @@ struct Uniforms {
     shift: u32,
 }
 
-@group(0) @binding(0) var<storage> config: Uniforms;
-@group(0) @binding(1) var<storage> num_keys_arr: array<u32>;
-@group(0) @binding(2) var<storage> src: array<u32>;
+@group(0) @binding(0) var<storage, read_write> config: Uniforms;
+@group(0) @binding(1) var<storage, read_write> num_keys_arr: array<u32>;
+@group(0) @binding(2) var<storage, read_write> src: array<u32>;
 @group(0) @binding(3) var<storage, read_write> counts: array<u32>;
 
 var<workgroup> histogram: array<atomic<u32>, sorting::BIN_COUNT>;

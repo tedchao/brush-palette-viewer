@@ -4,11 +4,11 @@ struct Uniforms {
     shift: u32,
 }
 
-@group(0) @binding(0) var<storage> config: Uniforms;
-@group(0) @binding(1) var<storage> num_keys_arr: array<u32>;
-@group(0) @binding(2) var<storage> src: array<u32>;
-@group(0) @binding(3) var<storage> values: array<u32>;
-@group(0) @binding(4) var<storage> counts: array<u32>;
+@group(0) @binding(0) var<storage, read_write> config: Uniforms;
+@group(0) @binding(1) var<storage, read_write> num_keys_arr: array<u32>;
+@group(0) @binding(2) var<storage, read_write> src: array<u32>;
+@group(0) @binding(3) var<storage, read_write> values: array<u32>;
+@group(0) @binding(4) var<storage, read_write> counts: array<u32>;
 @group(0) @binding(5) var<storage, read_write> out: array<u32>;
 @group(0) @binding(6) var<storage, read_write> out_values: array<u32>;
 

@@ -1,8 +1,8 @@
 #import helpers;
 
-@group(0) @binding(0) var<storage> uniforms: helpers::RenderUniforms;
-@group(0) @binding(1) var<storage> projected_splats: array<helpers::ProjectedSplat>;
-@group(0) @binding(2) var<storage> cum_tiles_hit: array<u32>;
+@group(0) @binding(0) var<storage, read_write> uniforms: helpers::RenderUniforms;
+@group(0) @binding(1) var<storage, read_write> projected_splats: array<helpers::ProjectedSplat>;
+@group(0) @binding(2) var<storage, read_write> cum_tiles_hit: array<u32>;
 @group(0) @binding(3) var<storage, read_write> tile_id_from_isect: array<u32>;
 @group(0) @binding(4) var<storage, read_write> compact_gid_from_isect: array<u32>;
 

@@ -1,19 +1,19 @@
 #import helpers;
 
-@group(0) @binding(0) var<storage> uniforms: helpers::RenderUniforms;
+@group(0) @binding(0) var<storage, read_write> uniforms: helpers::RenderUniforms;
 
-@group(0) @binding(1) var<storage> compact_gid_from_isect: array<u32>;
-@group(0) @binding(2) var<storage> tile_bins: array<vec2u>;
+@group(0) @binding(1) var<storage, read_write> compact_gid_from_isect: array<u32>;
+@group(0) @binding(2) var<storage, read_write> tile_bins: array<vec2u>;
 
-@group(0) @binding(3) var<storage> projected_splats: array<helpers::ProjectedSplat>;
+@group(0) @binding(3) var<storage, read_write> projected_splats: array<helpers::ProjectedSplat>;
 
-@group(0) @binding(4) var<storage> final_index: array<u32>;
-@group(0) @binding(5) var<storage> output: array<vec4f>;
-@group(0) @binding(6) var<storage> v_output: array<vec4f>;
+@group(0) @binding(4) var<storage, read_write> final_index: array<u32>;
+@group(0) @binding(5) var<storage, read_write> output: array<vec4f>;
+@group(0) @binding(6) var<storage, read_write> v_output: array<vec4f>;
 
 @group(0) @binding(7) var<storage, read_write> scatter_grads: array<grads::ScatterGradient>;
 
-@group(0) @binding(8) var<storage> cum_tiles_hit: array<u32>;
+@group(0) @binding(8) var<storage, read_write> cum_tiles_hit: array<u32>;
 
 @group(0) @binding(9) var<storage, read_write> hit_ids: array<atomic<u32>>;
 

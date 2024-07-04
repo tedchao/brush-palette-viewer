@@ -1,9 +1,9 @@
 #import helpers
 
-@group(0) @binding(0) var<storage> uniforms: helpers::RenderUniforms;
-@group(0) @binding(1) var<storage> compact_gid_from_isect: array<u32>;
-@group(0) @binding(2) var<storage> tile_bins: array<vec2u>;
-@group(0) @binding(3) var<storage> projected_splats: array<helpers::ProjectedSplat>;
+@group(0) @binding(0) var<storage, read_write> uniforms: helpers::RenderUniforms;
+@group(0) @binding(1) var<storage, read_write> compact_gid_from_isect: array<u32>;
+@group(0) @binding(2) var<storage, read_write> tile_bins: array<vec2u>;
+@group(0) @binding(3) var<storage, read_write> projected_splats: array<helpers::ProjectedSplat>;
 
 #ifdef RASTER_U32
     @group(0) @binding(4) var<storage, read_write> out_img: array<u32>;
@@ -102,7 +102,6 @@ fn main(
 
     if inside {
         let final_color = vec4f(pix_out + T * background.xyz, 1.0 - T);
-
         #ifdef RASTER_U32
             let colors_u = vec4u(clamp(final_color * 255.0, vec4f(0.0), vec4f(255.0)));
             let packed: u32 = colors_u.x | (colors_u.y << 8u) | (colors_u.z << 16u) | (colors_u.w << 24u);
