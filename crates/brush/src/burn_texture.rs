@@ -25,7 +25,7 @@ fn copy_buffer_to_texture(
         wgpu::ImageCopyBuffer {
             buffer: img_res.buffer.as_ref(),
             layout: ImageDataLayout {
-                offset: 0,
+                offset: img_res.offset(),
                 bytes_per_row,
                 rows_per_image: None,
             },
