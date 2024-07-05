@@ -81,7 +81,7 @@ pub fn radix_argsort(
 
         client.execute(
             SortCount::task(),
-            CubeCount::Static(effective_wg_vert, 1, 1),
+            CubeCount::Static(effective_wg_vert, shaders::sorting::VERTICAL_GROUPS, 1),
             vec![
                 uniforms_buffer.clone().handle.binding(),
                 num_points.handle.clone().binding(),
@@ -121,7 +121,7 @@ pub fn radix_argsort(
 
         client.execute(
             SortScatter::task(),
-            CubeCount::Static(effective_wg_vert, 1, 1),
+            CubeCount::Static(effective_wg_vert, shaders::sorting::VERTICAL_GROUPS, 1),
             vec![
                 uniforms_buffer.handle.clone().binding(),
                 num_points.handle.clone().binding(),
