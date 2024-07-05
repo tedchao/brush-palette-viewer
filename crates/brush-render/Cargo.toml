@@ -38,4 +38,4 @@ miette.workspace = true
 sync_tracy = []
 rerun = ["dep:rerun"]
 
-default = ["rerun"]
+default = ["rerun", "sync_tracy"]

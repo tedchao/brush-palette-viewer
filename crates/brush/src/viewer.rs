@@ -190,6 +190,7 @@ impl Viewer {
 
 impl eframe::App for Viewer {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        ctx.request_repaint();
         egui_extras::install_image_loaders(ctx);
 
         if let Some(cameras) = self.reference_cameras.as_ref() {

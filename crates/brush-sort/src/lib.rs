@@ -1,5 +1,9 @@
+use brush_kernel::bitcast_tensor;
 use brush_kernel::create_tensor;
 use brush_kernel::create_uniform_buffer;
+use burn::tensor::Int;
+use burn::tensor::Tensor;
+use burn_jit::JitBackend;
 use burn_wgpu::CubeCount;
 use burn_wgpu::JitTensor;
 use burn_wgpu::WgpuRuntime;
@@ -29,7 +33,7 @@ kernel_source_gen!(SortScatter {}, sort_scatter);
 pub fn radix_argsort(
     input_keys: JitTensor<WgpuRuntime, u32, 1>,
     input_values: JitTensor<WgpuRuntime, u32, 1>,
-    num_points: JitTensor<WgpuRuntime, u32, 1>,
+    n_sort: JitTensor<WgpuRuntime, u32, 1>,
     sorting_bits: u32,
 ) -> (
     JitTensor<WgpuRuntime, u32, 1>,
@@ -43,12 +47,14 @@ pub fn radix_argsort(
     let client = &input_keys.client.clone();
     let max_n = input_keys.shape.dims[0] as u32;
 
+    let n_sort = Tensor::from_primitive(bitcast_tensor(n_sort));
+
     // compute buffer and dispatch sizes
-    let max_needed_wgs = max_n.div_ceil(BLOCK_SIZE);
-    let max_num_reduce_wgs = BIN_COUNT * max_needed_wgs.div_ceil(BLOCK_SIZE);
+    let num_wgs = (n_sort.clone() + BLOCK_SIZE - 1) / BLOCK_SIZE;
 
     let device = &input_keys.device.clone();
 
+    let max_needed_wgs = max_n.div_ceil(BLOCK_SIZE);
     let count_buf =
         create_tensor::<u32, 1, WgpuRuntime>([(max_needed_wgs as usize) * 16], device, client);
     let reduced_buf = create_tensor::<u32, 1, WgpuRuntime>([BLOCK_SIZE as usize], device, client);
@@ -64,14 +70,31 @@ pub fn radix_argsort(
 
     let (mut last_out, mut last_out_values) = (&output_keys, &output_values);
 
+    let effective_wg_vert = (num_wgs.clone() + shaders::sorting::VERTICAL_GROUPS - 1)
+        / shaders::sorting::VERTICAL_GROUPS;
+
+    let effective_wg_vert: Tensor<JitBackend<WgpuRuntime, f32, i32>, 1, Int> = Tensor::cat(
+        vec![
+            effective_wg_vert,
+            Tensor::from_ints([shaders::sorting::VERTICAL_GROUPS, 1], device),
+        ],
+        0,
+    );
+
+    let num_reduce_wgs = (num_wgs.clone() + BLOCK_SIZE - 1) * BIN_COUNT / BLOCK_SIZE;
+
+    let num_reduce_wgs = Tensor::cat(
+        vec![num_reduce_wgs.clone(), Tensor::from_ints([1, 1], device)],
+        0,
+    )
+    .into_primitive();
+
     for pass in 0..sorting_bits.div_ceil(4) {
         let (to, to_val) = if pass % 2 == 0 {
             (&output_keys_swap, &output_values_swap)
         } else {
             (&output_keys, &output_values)
         };
-
-        let effective_wg_vert = max_needed_wgs.div_ceil(shaders::sorting::VERTICAL_GROUPS);
 
         let uniforms_buffer: JitTensor<WgpuRuntime, u32, 1> = create_uniform_buffer(
             shaders::sort_count::Uniforms { shift: pass * 4 },
@@ -81,10 +104,10 @@ pub fn radix_argsort(
 
         client.execute(
             SortCount::task(),
-            CubeCount::Static(effective_wg_vert, shaders::sorting::VERTICAL_GROUPS, 1),
+            CubeCount::Dynamic(effective_wg_vert.clone().into_primitive().handle.binding()),
             vec![
                 uniforms_buffer.clone().handle.binding(),
-                num_points.handle.clone().binding(),
+                n_sort.clone().into_primitive().handle.binding(),
                 last_out.handle.clone().binding(),
                 count_buf.clone().handle.binding(),
             ],
@@ -92,9 +115,9 @@ pub fn radix_argsort(
 
         client.execute(
             SortReduce::task(),
-            CubeCount::Static(max_num_reduce_wgs, 1, 1),
+            CubeCount::Dynamic(num_reduce_wgs.clone().handle.binding()),
             vec![
-                num_points.handle.clone().binding(),
+                n_sort.clone().into_primitive().handle.binding(),
                 count_buf.clone().handle.binding(),
                 reduced_buf.clone().handle.binding(),
             ],
@@ -104,16 +127,16 @@ pub fn radix_argsort(
             SortScan::task(),
             CubeCount::Static(1, 1, 1),
             vec![
-                num_points.handle.clone().binding(),
+                n_sort.clone().into_primitive().handle.binding(),
                 reduced_buf.clone().handle.binding(),
             ],
         );
 
         client.execute(
             SortScanAdd::task(),
-            CubeCount::Static(max_num_reduce_wgs, 1, 1),
+            CubeCount::Dynamic(num_reduce_wgs.handle.clone().binding()),
             vec![
-                num_points.handle.clone().binding(),
+                n_sort.clone().into_primitive().handle.binding(),
                 reduced_buf.clone().handle.binding(),
                 count_buf.clone().handle.binding(),
             ],
@@ -121,10 +144,10 @@ pub fn radix_argsort(
 
         client.execute(
             SortScatter::task(),
-            CubeCount::Static(effective_wg_vert, shaders::sorting::VERTICAL_GROUPS, 1),
+            CubeCount::Dynamic(effective_wg_vert.clone().into_primitive().handle.binding()),
             vec![
                 uniforms_buffer.handle.clone().binding(),
-                num_points.handle.clone().binding(),
+                n_sort.clone().into_primitive().handle.binding(),
                 last_out.handle.clone().binding(),
                 last_out_values.handle.clone().binding(),
                 count_buf.handle.clone().binding(),

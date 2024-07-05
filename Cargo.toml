@@ -80,4 +80,3 @@ debug = true
 [profile.release]
 # debug = true # good for profilers
 panic = "abort" # This leads to better optimizations and smaller binaries (and is the default in Wasm anyways).
-lto = true

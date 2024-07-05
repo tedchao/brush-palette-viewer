@@ -16,9 +16,9 @@ use brush_sort::radix_argsort;
 use burn::backend::autodiff::NodeID;
 use burn::tensor::ops::IntTensorOps;
 use burn::tensor::ops::{FloatTensor, FloatTensorOps};
-use burn::tensor::Tensor;
+use burn::tensor::{Int, Tensor};
 
-use burn_wgpu::{JitBackend, WgpuRuntime};
+use burn_wgpu::{CubeCount, JitBackend, WgpuRuntime};
 use tracing::info_span;
 
 use super::{shaders, Backend, RenderAux};
@@ -173,12 +173,19 @@ fn render_forward(
     // Number of tiles hit per splat.
     let num_tiles_hit = BurnBack::int_zeros([num_points].into(), device);
 
+    let num_x = (Tensor::<BurnBack, 1, Int>::from_primitive(bitcast_tensor(num_visible.clone()))
+        + shaders::helpers::MAIN_WG
+        - 1)
+        / shaders::helpers::MAIN_WG;
+
+    let wg = Tensor::cat(vec![num_x, Tensor::from_ints([1, 1], device)], 0);
+
     {
         let _span = SyncSpan::new("ProjectVisible", device);
 
         client.execute(
             ProjectVisible::task(),
-            calc_cube_count([num_points as u32], ProjectVisible::WORKGROUP_SIZE),
+            CubeCount::Dynamic(wg.clone().into_primitive().handle.binding()),
             vec![
                 uniforms_buffer.clone().handle.binding(),
                 means.into_primitive().handle.binding(),
@@ -221,7 +228,7 @@ fn render_forward(
 
         client.execute(
             MapGaussiansToIntersect::task(),
-            calc_cube_count([num_points as u32], MapGaussiansToIntersect::WORKGROUP_SIZE),
+            CubeCount::Dynamic(wg.into_primitive().handle.binding()),
             vec![
                 uniforms_buffer.clone().handle.binding(),
                 projected_splats.handle.clone().binding(),

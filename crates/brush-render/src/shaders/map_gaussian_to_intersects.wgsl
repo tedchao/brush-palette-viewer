@@ -7,7 +7,7 @@
 @group(0) @binding(4) var<storage, read_write> compact_gid_from_isect: array<u32>;
 
 @compute
-@workgroup_size(256, 1, 1)
+@workgroup_size(helpers::MAIN_WG, 1, 1)
 fn main(@builtin(global_invocation_id) global_id: vec3u) {
     let compact_gid = global_id.x;
 

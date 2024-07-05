@@ -1,6 +1,8 @@
 const TILE_WIDTH: u32 = 20u;
 const TILE_SIZE: u32 = TILE_WIDTH * TILE_WIDTH;
 
+const MAIN_WG: u32 = 256u;
+
 struct RenderUniforms {
     // View matrix transform world to view position.
     // Offset 0.
