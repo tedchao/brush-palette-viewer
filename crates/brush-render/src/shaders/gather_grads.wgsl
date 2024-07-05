@@ -7,7 +7,7 @@
 @group(0) @binding(3) var<storage, read_write> raw_opacities: array<f32>;
 @group(0) @binding(4) var<storage, read_write> means: array<helpers::PackedVec3>;
 
-@group(0) @binding(5) var<storage> scatter_gradients: array<grads::ScatterGradient>;
+@group(0) @binding(5) var<storage, read_write> scatter_gradients: array<grads::ScatterGradient>;
 @group(0) @binding(6) var<storage, read_write> v_xys: array<vec2f>;
 @group(0) @binding(7) var<storage, read_write> v_conics: array<vec4f>;
 

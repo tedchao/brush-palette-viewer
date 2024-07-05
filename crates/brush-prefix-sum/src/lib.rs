@@ -1,5 +1,6 @@
 mod shaders;
 
+use brush_kernel::calc_cube_count;
 use brush_kernel::create_tensor;
 use brush_kernel::kernel_source_gen;
 use brush_kernel::SplatKernel;
@@ -23,10 +24,10 @@ pub fn prefix_sum(input: JitTensor<WgpuRuntime, u32, 1>) -> JitTensor<WgpuRuntim
     let client = &input.client;
     let outputs = create_tensor(input.shape.dims, &input.device, client);
 
-    PrefixSumScan::new().execute(
-        client,
-        &[input.handle.binding(), outputs.handle.clone().binding()],
-        [num as u32, 1, 1],
+    client.execute(
+        PrefixSumScan::task(),
+        calc_cube_count([num as u32], PrefixSumScan::WORKGROUP_SIZE),
+        vec![input.handle.binding(), outputs.handle.clone().binding()],
     );
 
     if num < threads_per_group {
@@ -46,45 +47,49 @@ pub fn prefix_sum(input: JitTensor<WgpuRuntime, u32, 1>) -> JitTensor<WgpuRuntim
         work_size.push(work_sz);
     }
 
-    PrefixSumScanSums::new().execute(
-        client,
-        &[
+    client.execute(
+        PrefixSumScanSums::task(),
+        calc_cube_count([work_size[0] as u32], PrefixSumScanSums::WORKGROUP_SIZE),
+        vec![
             outputs.handle.clone().binding(),
             group_buffer[0].handle.clone().binding(),
         ],
-        [work_size[0] as u32],
     );
 
     for l in 0..(group_buffer.len() - 1) {
-        PrefixSumScanSums::new().execute(
-            client,
-            &[
+        client.execute(
+            PrefixSumScanSums::task(),
+            calc_cube_count([work_size[l + 1] as u32], PrefixSumScanSums::WORKGROUP_SIZE),
+            vec![
                 group_buffer[l].handle.clone().binding(),
                 group_buffer[l + 1].handle.clone().binding(),
             ],
-            [work_size[l + 1] as u32],
         );
     }
 
     for l in (1..group_buffer.len()).rev() {
         let work_sz = work_size[l - 1];
-        PrefixSumAddScannedSums::new().execute(
-            client,
-            &[
+
+        client.execute(
+            PrefixSumAddScannedSums::task(),
+            calc_cube_count([work_sz as u32], PrefixSumAddScannedSums::WORKGROUP_SIZE),
+            vec![
                 group_buffer[l].handle.clone().binding(),
                 group_buffer[l - 1].handle.clone().binding(),
             ],
-            [work_sz as u32],
         );
     }
 
-    PrefixSumAddScannedSums::new().execute(
-        client,
-        &[
+    client.execute(
+        PrefixSumAddScannedSums::task(),
+        calc_cube_count(
+            [(work_size[0] * threads_per_group) as u32],
+            PrefixSumAddScannedSums::WORKGROUP_SIZE,
+        ),
+        vec![
             group_buffer[0].handle.clone().binding(),
             outputs.handle.clone().binding(),
         ],
-        [(work_size[0] * threads_per_group) as u32, 1, 1],
     );
 
     outputs

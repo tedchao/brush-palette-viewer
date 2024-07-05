@@ -19,10 +19,10 @@ use tracing::info_span;
 use wgpu::CommandEncoderDescriptor;
 
 #[cfg(not(target_arch = "wasm32"))]
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 #[cfg(target_arch = "wasm32")]
-use web_time::{Duration, Instant};
+use web_time::Instant;
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen_futures::spawn_local;
@@ -144,19 +144,7 @@ impl Viewer {
             state.device.clone(),
             state.queue.clone(),
             Default::default(),
-            // Burn atm has pretty suboptimal memory management leading to weird behaviour. This effectively disables
-            // it, with a GC run every couple seconds. Seems good enough for now.
-            // (nb: it doesn't mean burn will never re-use memory, just that it hangs on to
-            // GPU allocations for longer).
-            RuntimeOptions {
-                dealloc_strategy:
-                    burn_compute::memory_management::simple::DeallocStrategy::PeriodTime {
-                        period: Duration::from_secs(1),
-                        state: Instant::now(),
-                    },
-                tasks_max: 128,
-                ..Default::default()
-            },
+            RuntimeOptions { tasks_max: 128 },
         );
 
         Viewer {

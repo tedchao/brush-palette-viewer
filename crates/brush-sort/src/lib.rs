@@ -1,5 +1,6 @@
 use brush_kernel::create_tensor;
 use brush_kernel::create_uniform_buffer;
+use burn_wgpu::CubeCount;
 use burn_wgpu::JitTensor;
 use burn_wgpu::WgpuRuntime;
 use shaders::sort_count;
@@ -78,50 +79,51 @@ pub fn radix_argsort(
             client,
         );
 
-        SortCount::new().execute(
-            client,
-            &[
+        client.execute(
+            SortCount::task(),
+            CubeCount::Static(effective_wg_vert, 1, 1),
+            vec![
                 uniforms_buffer.clone().handle.binding(),
                 num_points.handle.clone().binding(),
                 last_out.handle.clone().binding(),
                 count_buf.clone().handle.binding(),
             ],
-            [effective_wg_vert * WG, shaders::sorting::VERTICAL_GROUPS],
         );
 
-        SortReduce::new().execute(
-            client,
-            &[
+        client.execute(
+            SortReduce::task(),
+            CubeCount::Static(max_num_reduce_wgs, 1, 1),
+            vec![
                 num_points.handle.clone().binding(),
                 count_buf.clone().handle.binding(),
                 reduced_buf.clone().handle.binding(),
             ],
-            [max_num_reduce_wgs * WG],
         );
 
-        SortScan::new().execute(
-            client,
-            &[
+        client.execute(
+            SortScan::task(),
+            CubeCount::Static(1, 1, 1),
+            vec![
                 num_points.handle.clone().binding(),
                 reduced_buf.clone().handle.binding(),
             ],
-            [1, 1, 1],
         );
 
-        SortScanAdd::new().execute(
-            client,
-            &[
+        client.execute(
+            SortScanAdd::task(),
+            CubeCount::Static(max_num_reduce_wgs, 1, 1),
+            vec![
                 num_points.handle.clone().binding(),
                 reduced_buf.clone().handle.binding(),
                 count_buf.clone().handle.binding(),
             ],
-            [max_num_reduce_wgs * WG],
         );
 
-        SortScatter::new().execute(
-            client,
-            &[
-                uniforms_buffer.handle.binding(),
+        client.execute(
+            SortScatter::task(),
+            CubeCount::Static(effective_wg_vert, 1, 1),
+            vec![
+                uniforms_buffer.handle.clone().binding(),
                 num_points.handle.clone().binding(),
                 last_out.handle.clone().binding(),
                 last_out_values.handle.clone().binding(),
@@ -129,7 +131,6 @@ pub fn radix_argsort(
                 to.handle.clone().binding(),
                 to_val.handle.clone().binding(),
             ],
-            [effective_wg_vert * WG, shaders::sorting::VERTICAL_GROUPS],
         );
 
         (last_out, last_out_values) = (&to, &to_val);

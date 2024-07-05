@@ -8,7 +8,9 @@ use crate::kernels::{
     ProjectVisible, Rasterize, RasterizeBackwards,
 };
 use crate::shaders::get_tile_bin_edges::VERTICAL_GROUPS;
-use brush_kernel::{bitcast_tensor, create_tensor, create_uniform_buffer, SplatKernel};
+use brush_kernel::{
+    bitcast_tensor, calc_cube_count, create_tensor, create_uniform_buffer, SplatKernel,
+};
 use brush_prefix_sum::prefix_sum;
 use brush_sort::radix_argsort;
 use burn::backend::autodiff::NodeID;
@@ -133,9 +135,10 @@ fn render_forward(
     {
         let _span = SyncSpan::new("ProjectSplats", device);
 
-        ProjectSplats::new().execute(
-            client,
-            &[
+        client.execute(
+            ProjectSplats::task(),
+            calc_cube_count([num_points as u32], ProjectSplats::WORKGROUP_SIZE),
+            vec![
                 uniforms_buffer.clone().handle.binding(),
                 means.clone().into_primitive().handle.binding(),
                 log_scales.clone().into_primitive().handle.binding(),
@@ -143,7 +146,6 @@ fn render_forward(
                 global_from_presort_gid.handle.clone().binding(),
                 depths.handle.clone().binding(),
             ],
-            [num_points as u32],
         );
     }
 
@@ -174,9 +176,10 @@ fn render_forward(
     {
         let _span = SyncSpan::new("ProjectVisible", device);
 
-        ProjectVisible::new().execute(
-            client,
-            &[
+        client.execute(
+            ProjectVisible::task(),
+            calc_cube_count([num_points as u32], ProjectVisible::WORKGROUP_SIZE),
+            vec![
                 uniforms_buffer.clone().handle.binding(),
                 means.into_primitive().handle.binding(),
                 log_scales.into_primitive().handle.binding(),
@@ -187,7 +190,6 @@ fn render_forward(
                 projected_splats.handle.clone().binding(),
                 num_tiles_hit.handle.clone().binding(),
             ],
-            [num_points as u32],
         );
     }
 
@@ -217,18 +219,16 @@ fn render_forward(
     {
         let _span = SyncSpan::new("MapGaussiansToIntersect", device);
 
-        // Dispatch one thread per point.
-        // TODO: Really want to do an indirect dispatch here for num_visible.
-        MapGaussiansToIntersect::new().execute(
-            client,
-            &[
+        client.execute(
+            MapGaussiansToIntersect::task(),
+            calc_cube_count([num_points as u32], MapGaussiansToIntersect::WORKGROUP_SIZE),
+            vec![
                 uniforms_buffer.clone().handle.binding(),
                 projected_splats.handle.clone().binding(),
                 cum_tiles_hit.handle.clone().binding(),
                 tile_id_from_isect.handle.clone().binding(),
                 compact_gid_from_isect.handle.clone().binding(),
             ],
-            [num_points as u32],
         );
     }
 
@@ -250,19 +250,23 @@ fn render_forward(
         [tile_bounds.y as usize, tile_bounds.x as usize, 2].into(),
         device,
     );
-    GetTileBinEdges::new().execute(
-        client,
-        &[
-            tile_id_from_isect.handle.binding(),
+
+    client.execute(
+        GetTileBinEdges::task(),
+        calc_cube_count(
+            [
+                (max_intersects as u32).div_ceil(shaders::get_tile_bin_edges::VERTICAL_GROUPS),
+                VERTICAL_GROUPS,
+            ],
+            GetTileBinEdges::WORKGROUP_SIZE,
+        ),
+        vec![
+            tile_id_from_isect.handle.clone().binding(),
             num_intersections.handle.clone().binding(),
             tile_bins.handle.clone().binding(),
         ],
-        [
-            (max_intersects as u32).div_ceil(shaders::get_tile_bin_edges::VERTICAL_GROUPS),
-            VERTICAL_GROUPS,
-            1,
-        ],
     );
+
     drop(tile_edge_span);
 
     let tile_edge_span = SyncSpan::new("Rasterize", device);
@@ -299,7 +303,12 @@ fn render_forward(
         handles.push(final_index.handle.clone().binding());
     }
 
-    Rasterize::new(raster_u32).execute(client, &handles, [img_size.x, img_size.y]);
+    client.execute(
+        Rasterize::task(raster_u32),
+        calc_cube_count([img_size.x, img_size.y], Rasterize::WORKGROUP_SIZE),
+        handles,
+    );
+
     drop(tile_edge_span);
 
     // TODO: Atm this all still crashes if we're rendering <4 splats due to wgpu
@@ -498,9 +507,10 @@ impl Backward<BurnBack, 3, 6> for RenderBackwards {
         {
             let _span = SyncSpan::new("RasterizeBackwards", device);
 
-            RasterizeBackwards::new().execute(
-                client,
-                &[
+            client.execute(
+                RasterizeBackwards::task(),
+                calc_cube_count([img_size.x, img_size.y], RasterizeBackwards::WORKGROUP_SIZE),
+                vec![
                     aux.uniforms_buffer
                         .clone()
                         .into_primitive()
@@ -521,7 +531,6 @@ impl Backward<BurnBack, 3, 6> for RenderBackwards {
                         .binding(),
                     hit_ids.handle.binding(),
                 ],
-                [img_size.x, img_size.y],
             );
         }
 
@@ -536,9 +545,10 @@ impl Backward<BurnBack, 3, 6> for RenderBackwards {
         {
             let _span = SyncSpan::new("ColorGrads", device);
 
-            GatherGrads::new().execute(
-                client,
-                &[
+            client.execute(
+                GatherGrads::task(),
+                calc_cube_count([num_points as u32], GatherGrads::WORKGROUP_SIZE),
+                vec![
                     aux.uniforms_buffer
                         .clone()
                         .into_primitive()
@@ -558,7 +568,6 @@ impl Backward<BurnBack, 3, 6> for RenderBackwards {
                     v_coeffs.handle.clone().binding(),
                     v_opacities.handle.clone().binding(),
                 ],
-                [num_points as u32],
             );
         }
 
@@ -573,9 +582,10 @@ impl Backward<BurnBack, 3, 6> for RenderBackwards {
         {
             let _span = SyncSpan::new("ProjectBackwards", device);
 
-            ProjectBackwards::new().execute(
-                client,
-                &[
+            client.execute(
+                ProjectBackwards::task(),
+                calc_cube_count([num_points as u32], ProjectBackwards::WORKGROUP_SIZE),
+                vec![
                     aux.uniforms_buffer.into_primitive().handle.binding(),
                     means.handle.binding(),
                     log_scales.handle.binding(),
@@ -590,7 +600,6 @@ impl Backward<BurnBack, 3, 6> for RenderBackwards {
                     v_scales.handle.clone().binding(),
                     v_quats.handle.clone().binding(),
                 ],
-                [num_points as u32],
             );
         }
 
@@ -821,16 +830,22 @@ mod tests {
                 rec.log(
                     "img/image",
                     &rerun::Image::try_from(
-                        Array::from_shape_vec(out_rgb.dims(), out_rgb.to_data().value)?
-                            .map(|x| (*x * 255.0).clamp(0.0, 255.0) as u8),
+                        Array::from_shape_vec(
+                            out_rgb.dims(),
+                            out_rgb.to_data().to_vec::<f32>().unwrap(),
+                        )?
+                        .map(|x| (*x * 255.0).clamp(0.0, 255.0) as u8),
                     )?,
                 )?;
 
                 rec.log(
                     "img/ref",
                     &rerun::Image::try_from(
-                        Array::from_shape_vec(img_ref.dims(), img_ref.to_data().value)?
-                            .map(|x| (*x * 255.0).clamp(0.0, 255.0) as u8),
+                        Array::from_shape_vec(
+                            img_ref.dims(),
+                            img_ref.to_data().to_vec::<f32>().unwrap(),
+                        )?
+                        .map(|x| (*x * 255.0).clamp(0.0, 255.0) as u8),
                     )?,
                 )?;
 
@@ -838,7 +853,10 @@ mod tests {
                     "img/dif",
                     &rerun::Tensor::try_from(Array::from_shape_vec(
                         img_ref.dims(),
-                        (img_ref.clone() - out_rgb.clone()).to_data().value,
+                        (img_ref.clone() - out_rgb.clone())
+                            .into_data()
+                            .to_vec::<f32>()
+                            .unwrap(),
                     )?)?,
                 )?;
 
@@ -847,7 +865,7 @@ mod tests {
                     "images/tile depth",
                     &rerun::Tensor::try_from(Array::from_shape_vec(
                         tile_depth.dims(),
-                        tile_depth.to_data().convert::<i32>().value,
+                        tile_depth.into_data().to_vec::<i32>().unwrap(),
                     )?)?,
                 )?;
             }
