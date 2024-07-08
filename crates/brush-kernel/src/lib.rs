@@ -113,7 +113,13 @@ macro_rules! kernel_source_gen {
 pub fn bitcast_tensor<const D: usize, R: JitRuntime, EIn: JitElement, EOut: JitElement>(
     tensor: JitTensor<R, EIn, D>,
 ) -> JitTensor<R, EOut, D> {
-    JitTensor::new(tensor.client, tensor.device, tensor.shape, tensor.handle)
+    JitTensor::new(
+        tensor.client,
+        tensor.handle,
+        tensor.shape,
+        tensor.device,
+        tensor.strides,
+    )
 }
 
 // Reserve a buffer from the client for the given shape.
@@ -132,13 +138,12 @@ pub fn create_tensor<E: JitElement, const D: usize, R: JitRuntime>(
         use burn_jit::JitBackend;
         // for tests - make doubly sure we're not accidentally relying on values
         // being initialized to zero by adding in some random noise.
-        let f = JitTensor::<R, f32, D>::new(client.clone(), device.clone(), shape, buffer);
-
+        let f = JitTensor::<R, f32, D>::new(client.clone(), buffer, shape, device.clone(), [1; D]);
         bitcast_tensor(JitBackend::<R, f32, i32>::float_add_scalar(f, -12345.0))
     }
 
     #[cfg(not(test))]
-    JitTensor::new(client.clone(), device.clone(), shape, buffer)
+    JitTensor::new(client.clone(), buffer, shape, device.clone(), [1; D])
 }
 
 pub fn create_uniform_buffer<R: JitRuntime, T: Pod>(
@@ -151,8 +156,9 @@ pub fn create_uniform_buffer<R: JitRuntime, T: Pod>(
 
     JitTensor::new(
         client.clone(),
-        device.clone(),
-        Shape::new([shape]),
         client.create(bytes),
+        Shape::new([shape]),
+        device.clone(),
+        [1; 1],
     )
 }

@@ -99,14 +99,14 @@ mod tests {
     use crate::prefix_sum;
     use brush_kernel::bitcast_tensor;
     use burn::tensor::{Int, Tensor};
-    use burn_wgpu::{JitBackend, JitTensor, WgpuRuntime};
+    use burn_wgpu::{JitBackend, WgpuRuntime};
 
     #[test]
     fn test_sum_tiny() {
         type Backend = JitBackend<WgpuRuntime, f32, i32>;
         let device = Default::default();
         let keys = Tensor::<Backend, 1, Int>::from_data([1, 1, 1, 1], &device).into_primitive();
-        let keys = JitTensor::new(keys.client.clone(), keys.device, keys.shape, keys.handle);
+        let keys = bitcast_tensor(keys);
         let summed = prefix_sum(keys.clone());
         let summed = Tensor::<Backend, 1, Int>::from_primitive(bitcast_tensor(summed)).to_data();
         let summed = summed.as_slice::<i32>().unwrap();
@@ -124,7 +124,7 @@ mod tests {
         type Backend = JitBackend<WgpuRuntime, f32, i32>;
         let device = Default::default();
         let keys = Tensor::<Backend, 1, Int>::from_data(data.as_slice(), &device).into_primitive();
-        let keys = JitTensor::new(keys.client.clone(), keys.device, keys.shape, keys.handle);
+        let keys = bitcast_tensor(keys);
         let summed = prefix_sum(keys.clone());
         let summed = Tensor::<Backend, 1, Int>::from_primitive(bitcast_tensor(summed)).to_data();
         let prefix_sum_ref: Vec<_> = data
@@ -154,7 +154,7 @@ mod tests {
         type Backend = JitBackend<WgpuRuntime, f32, i32>;
         let device = Default::default();
         let keys = Tensor::<Backend, 1, Int>::from_data(data.as_slice(), &device).into_primitive();
-        let keys = JitTensor::new(keys.client.clone(), keys.device, keys.shape, keys.handle);
+        let keys = bitcast_tensor(keys);
         let summed = prefix_sum(keys.clone());
         let summed = Tensor::<Backend, 1, Int>::from_primitive(bitcast_tensor(summed)).to_data();
 

@@ -143,7 +143,6 @@ impl Viewer {
             state.adapter.clone(),
             state.device.clone(),
             state.queue.clone(),
-            Default::default(),
             RuntimeOptions { tasks_max: 128 },
         );
 

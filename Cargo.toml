@@ -17,25 +17,25 @@ license = "MIT OR Apache-2.0"
 [workspace.dependencies]
 glam = "0.22"
 
-burn = { path = "../burn/crates/burn", features = [
+burn = { git = "https://github.com/tracel-ai/burn", features = [
     'wgpu',
     'autodiff',
     'template',
     "std",
 ], default-features = false }
 
-burn-compute = { path = "../burn/crates/burn-compute", features = [
+burn-compute = { git = "https://github.com/tracel-ai/burn", features = [
     "channel-mutex",
     "channel-mpsc",
     "channel-cell",
     "storage-bytes",
 ], default-features = false }
 
-burn-jit = { path = "../burn/crates/burn-jit", features = [
+burn-jit = { git = "https://github.com/tracel-ai/burn", features = [
     "autotune",
 ], default-features = false }
-burn-wgpu = { path = "../burn/crates/burn-wgpu", default-features = false }
-burn-cube = { path = "../burn/crates/burn-cube", default-features = false }
+burn-wgpu = { git = "https://github.com/tracel-ai/burn", default-features = false }
+burn-cube = { git = "https://github.com/tracel-ai/burn", default-features = false }
 
 bytemuck = "1.15"
 ndarray = "0.15"
