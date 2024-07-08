@@ -90,7 +90,7 @@ impl<B: Backend> Splats<B> {
         img_size: glam::UVec2,
         bg_color: glam::Vec3,
         render_u32_buffer: bool,
-    ) -> (Tensor<B, 3>, brush_render::RenderAux<B>) {
+    ) -> (Tensor<B, 3>, brush_render::RenderAux) {
         brush_render::render::render(
             camera,
             img_size,

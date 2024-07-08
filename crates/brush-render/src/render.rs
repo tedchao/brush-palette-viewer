@@ -15,9 +15,9 @@ use brush_sort::radix_argsort;
 use burn::backend::autodiff::NodeID;
 use burn::tensor::ops::IntTensorOps;
 use burn::tensor::ops::{FloatTensor, FloatTensorOps};
-use burn::tensor::Tensor;
+use burn::tensor::{Tensor, TensorPrimitive};
 
-use burn_wgpu::{CubeCount, JitBackend, WgpuRuntime};
+use burn_wgpu::{CubeCount, JitBackend, JitTensor, WgpuRuntime};
 use tracing::info_span;
 
 use super::{shaders, Backend, RenderAux};
@@ -54,17 +54,17 @@ pub fn sh_degree_from_coeffs(coeffs_per_channel: usize) -> usize {
 fn render_forward(
     camera: &Camera,
     img_size: glam::UVec2,
-    means: Tensor<BurnBack, 2>,
-    _xy_dummy: Tensor<BurnBack, 2>,
-    log_scales: Tensor<BurnBack, 2>,
-    quats: Tensor<BurnBack, 2>,
-    sh_coeffs: Tensor<BurnBack, 2>,
-    raw_opacities: Tensor<BurnBack, 1>,
+    means: JitTensor<WgpuRuntime, f32, 2>,
+    log_scales: JitTensor<WgpuRuntime, f32, 2>,
+    quats: JitTensor<WgpuRuntime, f32, 2>,
+    sh_coeffs: JitTensor<WgpuRuntime, f32, 2>,
+    raw_opacities: JitTensor<WgpuRuntime, f32, 1>,
     background: glam::Vec3,
     raster_u32: bool,
-) -> (Tensor<BurnBack, 3>, RenderAux<BurnBack>) {
+) -> (JitTensor<WgpuRuntime, f32, 3>, RenderAux) {
     let _render_span = info_span!("render_gaussians").entered();
-    let device = &means.device().clone();
+    let device = &means.device.clone();
+    let client = means.client.clone();
 
     // Check whether any work needs to be flushed.
     let _span = SyncSpan::new("pre setup", device);
@@ -86,12 +86,10 @@ fn render_forward(
         img_size.y.div_ceil(shaders::helpers::TILE_WIDTH),
     );
 
-    let num_points = means.dims()[0];
+    let num_points = means.shape.dims[0];
 
     // Projected gaussian values.
-    let client = &means.clone().into_primitive().client;
-
-    let depths = create_tensor::<f32, 1, _>([num_points], device, client);
+    let depths = create_tensor::<f32, 1, _>([num_points], device, &client);
 
     // A note on some confusing naming that'll be used throughout this function:
     // Gaussians are stored in various states of buffers, eg. at the start they're all in one big bufffer,
@@ -108,10 +106,10 @@ fn render_forward(
     // Tile rendering setup.
 
     // Compaction buffer permutation.
-    let global_from_presort_gid = create_tensor::<u32, 1, _>([num_points], device, client);
+    let global_from_presort_gid = create_tensor::<u32, 1, _>([num_points], device, &client);
 
-    let sh_degree = sh_degree_from_coeffs(sh_coeffs.dims()[1] / 3);
-    let total_splats = means.dims()[0] as u32;
+    let sh_degree = sh_degree_from_coeffs(sh_coeffs.shape.dims[1] / 3);
+    let total_splats = means.shape.dims[0] as u32;
     let uniforms_buffer = create_uniform_buffer(
         shaders::helpers::RenderUniforms {
             viewmat: camera.world_to_local().to_cols_array_2d(),
@@ -126,7 +124,7 @@ fn render_forward(
             padding: 0,
         },
         device,
-        client,
+        &client,
     );
 
     drop(setup_span);
@@ -139,11 +137,11 @@ fn render_forward(
             calc_cube_count([num_points as u32], ProjectSplats::WORKGROUP_SIZE),
             vec![
                 uniforms_buffer.clone().handle.binding(),
-                means.clone().into_primitive().handle.binding(),
-                log_scales.clone().into_primitive().handle.binding(),
-                quats.clone().into_primitive().handle.binding(),
-                global_from_presort_gid.handle.clone().binding(),
-                depths.handle.clone().binding(),
+                means.clone().handle.binding(),
+                log_scales.clone().handle.binding(),
+                quats.clone().handle.binding(),
+                global_from_presort_gid.clone().handle.binding(),
+                depths.clone().handle.binding(),
             ],
         );
     }
@@ -167,7 +165,8 @@ fn render_forward(
     drop(depth_sort_span);
 
     let projected_size = size_of::<shaders::helpers::ProjectedSplat>() / size_of::<f32>();
-    let projected_splats = create_tensor::<f32, 2, _>([num_points, projected_size], device, client);
+    let projected_splats =
+        create_tensor::<f32, 2, _>([num_points, projected_size], device, &client);
 
     // Number of tiles hit per splat. Has to be zerod as we later sum over this.
     let num_tiles_hit = BurnBack::int_zeros([num_points].into(), device);
@@ -181,11 +180,11 @@ fn render_forward(
             CubeCount::Dynamic(num_vis_wg.clone().handle.binding()),
             vec![
                 uniforms_buffer.clone().handle.binding(),
-                means.into_primitive().handle.binding(),
-                log_scales.into_primitive().handle.binding(),
-                quats.into_primitive().handle.binding(),
-                sh_coeffs.into_primitive().handle.binding(),
-                raw_opacities.into_primitive().handle.binding(),
+                means.handle.binding(),
+                log_scales.handle.binding(),
+                quats.handle.binding(),
+                sh_coeffs.handle.binding(),
+                raw_opacities.handle.binding(),
                 global_from_compact_gid.handle.clone().binding(),
                 projected_splats.handle.clone().binding(),
                 num_tiles_hit.handle.clone().binding(),
@@ -213,8 +212,8 @@ fn render_forward(
     let max_intersects = (num_points * (num_tiles as usize)).min(128 * 65535);
 
     // Each intersection maps to a gaussian.
-    let tile_id_from_isect = create_tensor::<u32, 1, _>([max_intersects], device, client);
-    let compact_gid_from_isect = create_tensor::<u32, 1, _>([max_intersects], device, client);
+    let tile_id_from_isect = create_tensor::<u32, 1, _>([max_intersects], device, &client);
+    let compact_gid_from_isect = create_tensor::<u32, 1, _>([max_intersects], device, &client);
 
     {
         let _span = SyncSpan::new("MapGaussiansToIntersect", device);
@@ -246,10 +245,10 @@ fn render_forward(
     drop(tile_sort_span);
 
     let tile_edge_span = SyncSpan::new("GetTileBinEdges", device);
-    let tile_bins = BurnBack::int_zeros(
+    let tile_bins = bitcast_tensor(BurnBack::int_zeros(
         [tile_bounds.y as usize, tile_bounds.x as usize, 2].into(),
         device,
-    );
+    ));
 
     client.execute(
         GetTileBinEdges::task(),
@@ -279,7 +278,7 @@ fn render_forward(
     let out_img = create_tensor(
         [img_size.y as usize, img_size.x as usize, out_dim],
         device,
-        client,
+        &client,
     );
 
     // Only record the final visible splat per tile if we're not rendering a u32 buffer.
@@ -295,7 +294,7 @@ fn render_forward(
 
     // Record the final visible splat per tile.
     let final_index =
-        create_tensor::<u32, 2, _>([img_size.x as usize, img_size.y as usize], device, client);
+        create_tensor::<u32, 2, _>([img_size.x as usize, img_size.y as usize], device, &client);
 
     if !raster_u32 {
         handles.push(final_index.handle.clone().binding());
@@ -312,19 +311,17 @@ fn render_forward(
     // TODO: Atm this all still crashes if we're rendering <4 splats due to wgpu
     // limitations on buffer sizes.
     (
-        Tensor::from_primitive(out_img),
+        out_img,
         RenderAux {
-            uniforms_buffer: Tensor::from_primitive(bitcast_tensor(uniforms_buffer)),
-            num_visible: Tensor::from_primitive(bitcast_tensor(num_visible)),
-            num_intersects: Tensor::from_primitive(bitcast_tensor(num_intersections)),
-            tile_bins: Tensor::from_primitive(bitcast_tensor(tile_bins)),
-            cum_tiles_hit: Tensor::from_primitive(bitcast_tensor(cum_tiles_hit)),
-            projected_splats: Tensor::from_primitive(bitcast_tensor(projected_splats)),
-            final_index: Tensor::from_primitive(bitcast_tensor(final_index)),
-            compact_gid_from_isect: Tensor::from_primitive(bitcast_tensor(compact_gid_from_isect)),
-            global_from_compact_gid: Tensor::from_primitive(bitcast_tensor(
-                global_from_compact_gid,
-            )),
+            uniforms_buffer,
+            num_visible,
+            num_intersections,
+            tile_bins,
+            cum_tiles_hit,
+            projected_splats,
+            final_index,
+            compact_gid_from_isect,
+            global_from_compact_gid,
         },
     )
 }
@@ -334,26 +331,27 @@ impl Backend for BurnBack {
         camera: &Camera,
         img_size: glam::UVec2,
         means: Tensor<Self, 2>,
-        xy_dummy: Tensor<Self, 2>,
+        _xy_dummy: Tensor<Self, 2>,
         log_scales: Tensor<Self, 2>,
         quats: Tensor<Self, 2>,
         sh_coeffs: Tensor<Self, 2>,
         raw_opacity: Tensor<Self, 1>,
         background: glam::Vec3,
         render_u32_buffer: bool,
-    ) -> (Tensor<Self, 3>, RenderAux<BurnBack>) {
-        render_forward(
+    ) -> (Tensor<Self, 3>, RenderAux) {
+        let (out_img, aux) = render_forward(
             camera,
             img_size,
-            means,
-            xy_dummy,
-            log_scales,
-            quats,
-            sh_coeffs,
-            raw_opacity,
+            means.into_primitive().tensor(),
+            log_scales.into_primitive().tensor(),
+            quats.into_primitive().tensor(),
+            sh_coeffs.into_primitive().tensor(),
+            raw_opacity.into_primitive().tensor(),
             background,
             render_u32_buffer,
-        )
+        );
+
+        (Tensor::from_primitive(TensorPrimitive::Float(out_img)), aux)
     }
 }
 
@@ -365,8 +363,8 @@ struct GaussianBackwardState {
     quats: NodeID,
     raw_opac: NodeID,
     sh_degree: usize,
-    out_img: Tensor<BurnBack, 3>,
-    aux: RenderAux<BurnBack>,
+    out_img: JitTensor<WgpuRuntime, f32, 3>,
+    aux: RenderAux,
 }
 
 #[derive(Debug)]
@@ -384,78 +382,66 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
         raw_opacity: Tensor<Self, 1>,
         background: glam::Vec3,
         render_u32_buffer: bool,
-    ) -> (Tensor<Self, 3>, RenderAux<Self>) {
-        // Prepare backward pass, and check if we even need to do it.
-        let prep_nodes = RenderBackwards
-            .prepare::<C>([
-                means.clone().into_primitive().node,
-                xy_dummy.clone().into_primitive().node,
-                log_scales.clone().into_primitive().node,
-                quats.clone().into_primitive().node,
-                sh_coeffs.clone().into_primitive().node,
-                raw_opacity.clone().into_primitive().node,
-            ])
-            .compute_bound()
-            .stateful();
-
-        let sh_degree = sh_degree_from_coeffs(sh_coeffs.dims()[1] / 3);
+    ) -> (Tensor<Self, 3>, RenderAux) {
+        let means = means.into_primitive().tensor();
+        let xy_dummy = xy_dummy.into_primitive().tensor();
+        let log_scales = log_scales.into_primitive().tensor();
+        let quats = quats.into_primitive().tensor();
+        let sh_coeffs = sh_coeffs.into_primitive().tensor();
+        let raw_opacity = raw_opacity.into_primitive().tensor();
 
         // Render complete forward pass.
         let (out_img, aux) = render_forward(
             camera,
             img_size,
-            means.clone().inner(),
-            xy_dummy.clone().inner(),
-            log_scales.clone().inner(),
-            quats.clone().inner(),
-            sh_coeffs.clone().inner(),
-            raw_opacity.clone().inner(),
+            means.clone().into_primitive(),
+            log_scales.clone().into_primitive(),
+            quats.clone().into_primitive(),
+            sh_coeffs.clone().into_primitive(),
+            raw_opacity.clone().into_primitive(),
             background,
             render_u32_buffer,
         );
 
-        // Save unwrapped aux for later.
-        let orig_aux = aux.clone();
+        // Prepare backward pass, and check if we even need to do it.
+        let prep_nodes = RenderBackwards
+            .prepare::<C>([
+                means.clone().node,
+                xy_dummy.clone().node,
+                log_scales.clone().node,
+                quats.clone().node,
+                sh_coeffs.clone().node,
+                raw_opacity.clone().node,
+            ])
+            .compute_bound()
+            .stateful();
 
-        // Return aux with tensors lifted to the current backend
-        // (from the original non autodiff backend).
-        let wrap_aux = RenderAux::<Self> {
-            uniforms_buffer: Tensor::from_inner(aux.uniforms_buffer),
-            num_visible: Tensor::from_inner(aux.num_visible),
-
-            num_intersects: Tensor::from_inner(aux.num_intersects),
-            tile_bins: Tensor::from_inner(aux.tile_bins),
-            compact_gid_from_isect: Tensor::from_inner(aux.compact_gid_from_isect),
-            projected_splats: Tensor::from_inner(aux.projected_splats),
-            cum_tiles_hit: Tensor::from_inner(aux.cum_tiles_hit),
-            final_index: Tensor::from_inner(aux.final_index),
-            global_from_compact_gid: Tensor::from_inner(aux.global_from_compact_gid),
-        };
+        let sh_degree = sh_degree_from_coeffs(sh_coeffs.primitive.shape.dims[1] / 3);
 
         match prep_nodes {
             OpsKind::Tracked(mut prep) => {
                 // Save state needed for backward pass.
                 let state = GaussianBackwardState {
-                    means: prep.checkpoint(&means.into_primitive()),
-                    log_scales: prep.checkpoint(&log_scales.into_primitive()),
-                    quats: prep.checkpoint(&quats.into_primitive()),
-                    raw_opac: prep.checkpoint(&raw_opacity.into_primitive()),
+                    means: prep.checkpoint(&means),
+                    log_scales: prep.checkpoint(&log_scales),
+                    quats: prep.checkpoint(&quats),
+                    raw_opac: prep.checkpoint(&raw_opacity),
                     sh_degree,
-                    aux: orig_aux,
+                    aux: aux.clone(),
                     out_img: out_img.clone(),
                 };
 
                 (
-                    Tensor::from_primitive(prep.finish(state, out_img.into_primitive())),
-                    wrap_aux,
+                    Tensor::from_primitive(TensorPrimitive::Float(prep.finish(state, out_img))),
+                    aux,
                 )
             }
             OpsKind::UnTracked(prep) => {
                 // When no node is tracked, we can just use the original operation without
                 // keeping any state.
                 (
-                    Tensor::from_primitive(prep.finish(out_img.into_primitive())),
-                    wrap_aux,
+                    Tensor::from_primitive(TensorPrimitive::Float(prep.finish(out_img))),
+                    aux,
                 )
             }
         }
@@ -476,7 +462,7 @@ impl Backward<BurnBack, 3, 6> for RenderBackwards {
         let state = ops.state;
         let aux = state.aux;
 
-        let img_dimgs = state.out_img.dims();
+        let img_dimgs = state.out_img.shape.dims;
         let img_size = glam::uvec2(img_dimgs[1] as u32, img_dimgs[0] as u32);
 
         let v_output = grads.consume::<BurnBack, 3>(&ops.node);
@@ -491,7 +477,7 @@ impl Backward<BurnBack, 3, 6> for RenderBackwards {
             checkpointer.retrieve_node_output::<FloatTensor<BurnBack, 1>>(state.raw_opac);
 
         let num_points = means.shape.dims[0];
-        let max_intersects = aux.compact_gid_from_isect.shape().dims[0];
+        let max_intersects = aux.compact_gid_from_isect.shape.dims[0];
 
         // All the gradients _per tile_. These are later summed up in the final
         // backward projection pass.
@@ -509,24 +495,15 @@ impl Backward<BurnBack, 3, 6> for RenderBackwards {
                 RasterizeBackwards::task(),
                 calc_cube_count([img_size.x, img_size.y], RasterizeBackwards::WORKGROUP_SIZE),
                 vec![
-                    aux.uniforms_buffer
-                        .clone()
-                        .into_primitive()
-                        .handle
-                        .binding(),
-                    aux.compact_gid_from_isect.into_primitive().handle.binding(),
-                    aux.tile_bins.into_primitive().handle.binding(),
-                    aux.projected_splats.into_primitive().handle.binding(),
-                    aux.final_index.into_primitive().handle.binding(),
-                    state.out_img.into_primitive().handle.binding(),
+                    aux.uniforms_buffer.clone().handle.binding(),
+                    aux.compact_gid_from_isect.handle.binding(),
+                    aux.tile_bins.handle.binding(),
+                    aux.projected_splats.handle.binding(),
+                    aux.final_index.handle.binding(),
+                    state.out_img.handle.binding(),
                     v_output.handle.binding(),
                     scatter_grads.handle.clone().binding(),
-                    aux.cum_tiles_hit
-                        .clone()
-                        .into_primitive()
-                        .handle
-                        .clone()
-                        .binding(),
+                    aux.cum_tiles_hit.clone().handle.clone().binding(),
                     hit_ids.handle.binding(),
                 ],
             );
@@ -544,7 +521,7 @@ impl Backward<BurnBack, 3, 6> for RenderBackwards {
             let _span = SyncSpan::new("GatherGrads", device);
 
             let num_vis_wg = create_dispatch_buffer(
-                bitcast_tensor(aux.num_visible.clone().into_primitive()),
+                bitcast_tensor(aux.num_visible.clone()),
                 GatherGrads::WORKGROUP_SIZE,
             );
 
@@ -552,17 +529,9 @@ impl Backward<BurnBack, 3, 6> for RenderBackwards {
                 GatherGrads::task(),
                 CubeCount::Dynamic(num_vis_wg.handle.binding()),
                 vec![
-                    aux.uniforms_buffer
-                        .clone()
-                        .into_primitive()
-                        .handle
-                        .binding(),
-                    aux.global_from_compact_gid
-                        .clone()
-                        .into_primitive()
-                        .handle
-                        .binding(),
-                    aux.cum_tiles_hit.clone().into_primitive().handle.binding(),
+                    aux.uniforms_buffer.clone().handle.binding(),
+                    aux.global_from_compact_gid.clone().handle.binding(),
+                    aux.cum_tiles_hit.clone().handle.binding(),
                     raw_opac.clone().handle.binding(),
                     means.clone().handle.binding(),
                     scatter_grads.clone().handle.binding(),
@@ -589,14 +558,11 @@ impl Backward<BurnBack, 3, 6> for RenderBackwards {
                 ProjectBackwards::task(),
                 calc_cube_count([num_points as u32], ProjectBackwards::WORKGROUP_SIZE),
                 vec![
-                    aux.uniforms_buffer.into_primitive().handle.binding(),
+                    aux.uniforms_buffer.handle.binding(),
                     means.handle.binding(),
                     log_scales.handle.binding(),
                     quats.handle.binding(),
-                    aux.global_from_compact_gid
-                        .into_primitive()
-                        .handle
-                        .binding(),
+                    aux.global_from_compact_gid.handle.binding(),
                     v_xys.handle.clone().binding(),
                     v_conics.handle.binding(),
                     v_means.handle.clone().binding(),
@@ -649,7 +615,7 @@ pub fn render<B: Backend>(
     raw_opacity: Tensor<B, 1>,
     background: glam::Vec3,
     render_u32_buffer: bool,
-) -> (Tensor<B, 3>, RenderAux<B>) {
+) -> (Tensor<B, 3>, RenderAux) {
     let (img, aux) = B::render_gaussians(
         camera,
         img_size,
@@ -674,7 +640,7 @@ mod tests {
 
     use super::*;
     use assert_approx_eq::assert_approx_eq;
-    use burn::tensor::{ElementConversion, Float, TensorData};
+    use burn::tensor::{Float, Int, TensorData};
     use burn_wgpu::WgpuDevice;
 
     type DiffBack = Autodiff<BurnBack>;
@@ -863,7 +829,7 @@ mod tests {
                     )?)?,
                 )?;
 
-                let tile_depth = aux.calc_tile_depth();
+                let tile_depth = aux.read_tile_depth();
                 rec.log(
                     "images/tile depth",
                     &rerun::Tensor::try_from(Array::from_shape_vec(
@@ -873,12 +839,19 @@ mod tests {
                 )?;
             }
 
-            let num_visible = aux.num_visible.into_scalar().elem::<u32>() as usize;
-            let perm = aux.global_from_compact_gid.clone();
+            let num_visible = aux.read_num_visible() as usize;
 
-            let projected_splats = aux.projected_splats.slice([0..num_visible]);
-            let xys = projected_splats.clone().slice([0..num_visible, 0..2]);
-            let conics = projected_splats.clone().slice([0..num_visible, 2..5]);
+            let projected: Tensor<JitBackend<WgpuRuntime, f32, i32>, 2, Float> =
+                Tensor::from_primitive(TensorPrimitive::Float(aux.projected_splats.clone()));
+
+            let xys: Tensor<DiffBack, 2, Float> =
+                Tensor::from_inner(projected.clone().slice([0..num_visible, 0..2]));
+            let conics: Tensor<DiffBack, 2, Float> =
+                Tensor::from_inner(projected.clone().slice([0..num_visible, 2..5]));
+
+            let perm = Tensor::<DiffBack, 1, Int>::from_primitive(bitcast_tensor(
+                aux.global_from_compact_gid.clone(),
+            ));
 
             let xys_ref = xys_ref.select(0, perm.clone()).slice([0..num_visible]);
             let conics_ref = conics_ref.select(0, perm.clone()).slice([0..num_visible]);

@@ -1,4 +1,5 @@
-use burn::tensor::{backend::Backend, Tensor};
+use burn_jit::{JitElement, JitRuntime};
+use burn_wgpu::JitTensor;
 use std::collections::HashMap;
 
 #[derive(Clone, Copy)]
@@ -8,12 +9,12 @@ pub(crate) enum DimBound {
     Matching(&'static str),
 }
 
-pub(crate) struct DimCheck<'a, B: Backend> {
+pub(crate) struct DimCheck<'a, R: JitRuntime> {
     bound: HashMap<&'a str, usize>,
-    device: Option<B::Device>,
+    device: Option<R::Device>,
 }
 
-impl<'a, B: Backend> DimCheck<'a, B> {
+impl<'a, R: JitRuntime> DimCheck<'a, R> {
     pub fn new() -> Self {
         DimCheck {
             bound: HashMap::new(),
@@ -21,16 +22,16 @@ impl<'a, B: Backend> DimCheck<'a, B> {
         }
     }
 
-    pub fn check_dims<const D: usize>(
+    pub fn check_dims<E: JitElement, const D: usize>(
         mut self,
-        tensor: &Tensor<B, D>,
+        tensor: &JitTensor<R, E, D>,
         bounds: [DimBound; D],
     ) -> Self {
-        let dims = tensor.dims();
+        let dims = tensor.shape.dims;
 
         match self.device.as_ref() {
-            None => self.device = Some(tensor.device().clone()),
-            Some(d) => assert_eq!(d, &tensor.device()),
+            None => self.device = Some(tensor.device.clone()),
+            Some(d) => assert_eq!(d, &tensor.device),
         }
 
         for (cur_dim, bound) in dims.into_iter().zip(bounds) {

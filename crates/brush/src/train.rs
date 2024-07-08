@@ -72,7 +72,7 @@ pub(crate) struct TrainConfig {
 
 struct TrainStepStats<B: AutodiffBackend> {
     pred_images: Tensor<B, 4>,
-    auxes: Vec<RenderAux<B>>,
+    auxes: Vec<RenderAux>,
     loss: Tensor<B, 1>,
     psnr: Tensor<B, 1>,
 }
@@ -637,26 +637,14 @@ where
 
         rec.log(
             "splats/num_intersects",
-            &rerun::Scalar::new(
-                aux.num_intersects
-                    .clone()
-                    .into_scalar_async()
-                    .await
-                    .elem::<f64>(),
-            ),
+            &rerun::Scalar::new(aux.read_num_intersections() as f64),
         )?;
         rec.log(
             "splats/num_visible",
-            &rerun::Scalar::new(
-                aux.num_visible
-                    .clone()
-                    .into_scalar_async()
-                    .await
-                    .elem::<f64>(),
-            ),
+            &rerun::Scalar::new(aux.read_num_visible() as f64),
         )?;
 
-        let tile_depth = aux.calc_tile_depth();
+        let tile_depth = aux.read_tile_depth();
         rec.log(
             "images/tile depth",
             &rerun::Tensor::try_from(Array::from_shape_vec(

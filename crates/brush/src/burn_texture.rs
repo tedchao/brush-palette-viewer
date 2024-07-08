@@ -105,6 +105,6 @@ impl BurnTexture {
             )
         }
 
-        copy_buffer_to_texture(tensor.into_primitive(), &self.texture, encoder);
+        copy_buffer_to_texture(tensor.into_primitive().tensor(), &self.texture, encoder);
     }
 }
