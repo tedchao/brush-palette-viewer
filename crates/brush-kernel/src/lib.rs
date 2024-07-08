@@ -139,12 +139,13 @@ pub fn create_tensor<E: JitElement, const D: usize, R: JitRuntime>(
         use burn_jit::JitBackend;
         // for tests - make doubly sure we're not accidentally relying on values
         // being initialized to zero by adding in some random noise.
-        let f = JitTensor::<R, f32, D>::new(client.clone(), buffer, shape, device.clone(), [1; D]);
+        let f =
+            JitTensor::<R, f32, D>::new_contiguous(client.clone(), device.clone(), shape, buffer);
         bitcast_tensor(JitBackend::<R, f32, i32>::float_add_scalar(f, -12345.0))
     }
 
     #[cfg(not(test))]
-    JitTensor::new(client.clone(), buffer, shape, device.clone(), [1; D])
+    JitTensor::new_contiguous(client.clone(), device.clone(), shape, buffer)
 }
 
 pub fn create_uniform_buffer<R: JitRuntime, T: Pod>(
@@ -155,12 +156,11 @@ pub fn create_uniform_buffer<R: JitRuntime, T: Pod>(
     let bytes = bytemuck::bytes_of(&val);
     let shape = bytes.len() / 4;
 
-    JitTensor::new(
+    JitTensor::new_contiguous(
         client.clone(),
-        client.create(bytes),
-        Shape::new([shape]),
         device.clone(),
-        [1; 1],
+        Shape::new([shape]),
+        client.create(bytes),
     )
 }
 

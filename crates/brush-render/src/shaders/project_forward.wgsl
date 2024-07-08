@@ -44,7 +44,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
     }
 
     // Calculate ellipse conic.
-    let conic = vec3f(cov2d.z, -cov2d.y, cov2d.x) / det;
+    let conic = helpers::cov_to_conic(cov2d);
 
     // compute the projected mean
     let xy = helpers::project_pix(uniforms.focal, p_view, uniforms.pixel_center);
