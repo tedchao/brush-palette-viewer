@@ -16,3 +16,7 @@ glam.workspace = true
 tracing.workspace = true
 naga_oil.workspace = true
 naga.workspace = true
+
+[build-dependencies]
+brush-wgsl.path = "../brush-wgsl"
+miette.workspace = true

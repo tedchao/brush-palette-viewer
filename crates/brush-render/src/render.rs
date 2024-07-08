@@ -7,7 +7,6 @@ use crate::kernels::{
     GatherGrads, GetTileBinEdges, MapGaussiansToIntersect, ProjectBackwards, ProjectSplats,
     ProjectVisible, Rasterize, RasterizeBackwards,
 };
-use crate::shaders::get_tile_bin_edges::VERTICAL_GROUPS;
 use brush_kernel::{bitcast_tensor, calc_cube_count, create_tensor, create_uniform_buffer};
 use brush_prefix_sum::prefix_sum;
 use brush_sort::radix_argsort;
@@ -258,13 +257,7 @@ fn render_forward(
 
     client.execute(
         GetTileBinEdges::task(),
-        calc_cube_count(
-            [
-                (max_intersects as u32).div_ceil(shaders::get_tile_bin_edges::VERTICAL_GROUPS),
-                VERTICAL_GROUPS,
-            ],
-            GetTileBinEdges::WORKGROUP_SIZE,
-        ),
+        calc_cube_count([max_intersects as u32], GetTileBinEdges::WORKGROUP_SIZE),
         vec![
             tile_id_from_isect.handle.clone().binding(),
             num_intersections.handle.clone().binding(),

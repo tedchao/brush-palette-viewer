@@ -31,7 +31,6 @@ rerun = { version = "0.16", default-features = false, features = [
 
 [build-dependencies]
 brush-wgsl.path = "../brush-wgsl"
-anyhow.workspace = true
 miette.workspace = true
 
 [features]

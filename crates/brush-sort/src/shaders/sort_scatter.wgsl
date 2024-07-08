@@ -26,7 +26,7 @@ fn main(
     let num_keys = num_keys_arr[0];
     let num_wgs = sorting::div_ceil(num_keys, sorting::BLOCK_SIZE);
 
-    let group_id = sorting::group_id_from_gid(gid);
+    let group_id = gid.x;
 
     if group_id >= num_wgs {
         return;

@@ -26,13 +26,3 @@ const BLOCK_SIZE = WG * ELEMENTS_PER_THREAD;
 fn div_ceil(a: u32, b: u32) -> u32 {
     return (a + b - 1u) / b;
 }
-
-// To get around the 65k dispatch limit, we dispatch a number of groups
-// in the y direction. This means we get N times more capacity, at the cost of
-// some of these groups being launched needlessly. Given that we only really need
-// a factor ~2 or so more capacity, this is not a massive deal.
-const VERTICAL_GROUPS = 8u;
-
-fn group_id_from_gid(gid: vec3u) -> u32 {
-    return gid.x * VERTICAL_GROUPS + gid.y;
-}

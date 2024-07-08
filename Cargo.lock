@@ -618,12 +618,14 @@ name = "brush-kernel"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "brush-wgsl",
  "burn",
  "burn-compute",
  "burn-cube",
  "burn-jit",
  "bytemuck",
  "glam",
+ "miette",
  "naga",
  "naga_oil",
  "tracing",

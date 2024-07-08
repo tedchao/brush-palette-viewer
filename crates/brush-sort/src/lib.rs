@@ -1,4 +1,5 @@
 use brush_kernel::bitcast_tensor;
+use brush_kernel::create_dispatch_buffer;
 use brush_kernel::create_tensor;
 use brush_kernel::create_uniform_buffer;
 use burn::tensor::Int;
@@ -46,11 +47,9 @@ pub fn radix_argsort(
     let client = &input_keys.client.clone();
     let max_n = input_keys.shape.dims[0] as u32;
 
-    let n_sort = Tensor::from_primitive(bitcast_tensor(n_sort));
+    let num_wgs = create_dispatch_buffer(n_sort.clone(), [BLOCK_SIZE, 1, 1]);
 
     // compute buffer and dispatch sizes
-    let num_wgs = (n_sort.clone() + BLOCK_SIZE - 1) / BLOCK_SIZE;
-
     let device = &input_keys.device.clone();
 
     let max_needed_wgs = max_n.div_ceil(BLOCK_SIZE);
@@ -63,30 +62,15 @@ pub fn radix_argsort(
     let output_keys_swap = create_tensor::<u32, 1, _>([max_n as usize], device, client);
     let output_values_swap = create_tensor::<u32, 1, _>([max_n as usize], device, client);
 
-    // NB: We fill in num_keys from the GPU!
-    // This at least prevents sorting values we don't need, but really
-    // we should use indirect dispatch for this.
-
     let (mut last_out, mut last_out_values) = (&output_keys, &output_values);
 
-    let effective_wg_vert = (num_wgs.clone() + shaders::sorting::VERTICAL_GROUPS - 1)
-        / shaders::sorting::VERTICAL_GROUPS;
-
-    let effective_wg_vert: Tensor<JitBackend<WgpuRuntime, f32, i32>, 1, Int> = Tensor::cat(
-        vec![
-            effective_wg_vert,
-            Tensor::from_ints([shaders::sorting::VERTICAL_GROUPS, 1], device),
-        ],
-        0,
-    );
-
-    let num_reduce_wgs = (num_wgs.clone() + BLOCK_SIZE - 1) * BIN_COUNT / BLOCK_SIZE;
-
-    let num_reduce_wgs = Tensor::cat(
-        vec![num_reduce_wgs.clone(), Tensor::from_ints([1, 1], device)],
-        0,
-    )
-    .into_primitive();
+    let num_reduce_wgs: Tensor<JitBackend<WgpuRuntime, f32, i32>, 1, Int> =
+        Tensor::from_primitive(bitcast_tensor(create_dispatch_buffer(
+            num_wgs.clone(),
+            [BLOCK_SIZE, 1, 1],
+        ))) * Tensor::from_ints([BIN_COUNT, 1, 1], device);
+    let num_reduce_wgs: JitTensor<WgpuRuntime, u32, 1> =
+        bitcast_tensor(num_reduce_wgs.into_primitive());
 
     for pass in 0..sorting_bits.div_ceil(4) {
         let (to, to_val) = if pass % 2 == 0 {
@@ -103,10 +87,10 @@ pub fn radix_argsort(
 
         client.execute(
             SortCount::task(),
-            CubeCount::Dynamic(effective_wg_vert.clone().into_primitive().handle.binding()),
+            CubeCount::Dynamic(num_wgs.clone().handle.binding()),
             vec![
                 uniforms_buffer.clone().handle.binding(),
-                n_sort.clone().into_primitive().handle.binding(),
+                n_sort.clone().handle.binding(),
                 last_out.handle.clone().binding(),
                 count_buf.clone().handle.binding(),
             ],
@@ -116,7 +100,7 @@ pub fn radix_argsort(
             SortReduce::task(),
             CubeCount::Dynamic(num_reduce_wgs.clone().handle.binding()),
             vec![
-                n_sort.clone().into_primitive().handle.binding(),
+                n_sort.clone().handle.binding(),
                 count_buf.clone().handle.binding(),
                 reduced_buf.clone().handle.binding(),
             ],
@@ -126,7 +110,7 @@ pub fn radix_argsort(
             SortScan::task(),
             CubeCount::Static(1, 1, 1),
             vec![
-                n_sort.clone().into_primitive().handle.binding(),
+                n_sort.clone().handle.binding(),
                 reduced_buf.clone().handle.binding(),
             ],
         );
@@ -135,7 +119,7 @@ pub fn radix_argsort(
             SortScanAdd::task(),
             CubeCount::Dynamic(num_reduce_wgs.handle.clone().binding()),
             vec![
-                n_sort.clone().into_primitive().handle.binding(),
+                n_sort.clone().handle.binding(),
                 reduced_buf.clone().handle.binding(),
                 count_buf.clone().handle.binding(),
             ],
@@ -143,10 +127,10 @@ pub fn radix_argsort(
 
         client.execute(
             SortScatter::task(),
-            CubeCount::Dynamic(effective_wg_vert.clone().into_primitive().handle.binding()),
+            CubeCount::Dynamic(num_wgs.clone().handle.binding()),
             vec![
                 uniforms_buffer.handle.clone().binding(),
-                n_sort.clone().into_primitive().handle.binding(),
+                n_sort.clone().handle.binding(),
                 last_out.handle.clone().binding(),
                 last_out_values.handle.clone().binding(),
                 count_buf.handle.clone().binding(),

@@ -7,7 +7,6 @@
 // Actually writing a vec2 can lead to torn writes.
 @group(0) @binding(2) var<storage, read_write> tile_bins: array<u32>;
 
-const VERTICAL_GROUPS: u32 = 8;
 const THREAD_COUNT: u32 = 256;
 
 // kernel to map sorted intersection IDs to tile bins
@@ -16,7 +15,7 @@ const THREAD_COUNT: u32 = 256;
 @compute
 @workgroup_size(256, 1, 1)
 fn main(@builtin(global_invocation_id) global_id: vec3u) {
-    let isect_id = global_id.x * VERTICAL_GROUPS + global_id.y;
+    let isect_id = global_id.x;
 
     if isect_id >= num_intersections {
         return;
