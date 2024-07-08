@@ -131,7 +131,6 @@ pub fn load_splat_from_ply<B: Backend>(
     device: B::Device,
 ) -> impl Stream<Item = Result<Splats<B>>> + '_ {
     // set up a reader, in this case a file.
-
     let mut reader = std::io::Cursor::new(ply_data);
 
     let mut splats: Option<Splats<B>> = None;
@@ -146,9 +145,9 @@ pub fn load_splat_from_ply<B: Backend>(
 
     let _span = info_span!("Read splats").entered();
 
-    println!("Reading splats...");
+    let gaussian_parser = Parser::<GaussianData>::new();
+
     try_stream! {
-        let gaussian_parser = Parser::<GaussianData>::new();
         let header = gaussian_parser.read_header(&mut reader)?;
 
         for element in &header.elements {
@@ -197,8 +196,6 @@ pub fn load_splat_from_ply<B: Backend>(
                         opacity.clear();
                         scales.clear();
 
-                        println!("Updating");
-
                         yield splats.clone().context("Failed to update splats")?;
                     }
                 }
@@ -220,8 +217,6 @@ pub fn load_splat_from_ply<B: Backend>(
                 Err(anyhow::anyhow!("No splats found"))?;
             }
         }
-
-        println!("Sending final splats.");
 
         yield splats.clone().context("Invalid ply file.")?;
     }
