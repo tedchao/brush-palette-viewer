@@ -7,6 +7,7 @@ use crate::{
     splat_import,
     train::{LrConfig, SplatTrainer, TrainConfig},
 };
+use async_channel::{Receiver, Sender, TryRecvError};
 use brush_render::camera::Camera;
 use burn::{backend::Autodiff, module::AutodiffModule};
 use burn_wgpu::{JitBackend, RuntimeOptions, WgpuDevice, WgpuRuntime};
@@ -15,7 +16,6 @@ use futures_lite::StreamExt;
 use glam::{Mat4, Quat, Vec2, Vec3};
 
 use rfd::AsyncFileDialog;
-use single_value_channel::{Receiver, Updater};
 use tracing::info_span;
 use wgpu::CommandEncoderDescriptor;
 
@@ -45,9 +45,9 @@ enum ViewerMessage {
 
 pub struct Viewer {
     receiver: Option<Receiver<ViewerMessage>>,
+    last_message: Option<ViewerMessage>,
 
     last_train_iter: u32,
-    last_update: Instant,
     ctx: egui::Context,
 
     device: WgpuDevice,
@@ -66,7 +66,7 @@ struct SplatView {
 async fn train_loop(
     config: TrainConfig,
     device: WgpuDevice,
-    updater: Updater<ViewerMessage>,
+    updater: Sender<ViewerMessage>,
     egui_ctx: egui::Context,
 ) {
     #[cfg(feature = "rerun")]
@@ -90,7 +90,9 @@ async fn train_loop(
         let total_count = splat_import::ply_count(&file_data);
 
         let Ok(total_count) = total_count else {
-            let _ = updater.update(ViewerMessage::Error(anyhow::anyhow!("Invalid ply file")));
+            let _ = updater
+                .send(ViewerMessage::Error(anyhow::anyhow!("Invalid ply file")))
+                .await;
             return;
         };
 
@@ -111,13 +113,17 @@ async fn train_loop(
 
             match splats {
                 Ok(splats) => {
-                    let _ = updater.update(ViewerMessage::SplatLoad {
+                    let msg = ViewerMessage::SplatLoad {
                         splats,
                         total_count,
-                    });
+                    };
+
+                    if updater.send(msg).await.is_err() {
+                        return;
+                    }
                 }
                 Err(e) => {
-                    let _ = updater.update(ViewerMessage::Error(e));
+                    let _ = updater.send(ViewerMessage::Error(e)).await.is_err();
                     return;
                 }
             }
@@ -153,13 +159,15 @@ async fn train_loop(
                 .unwrap();
 
             if trainer.iter % 10 == 0 {
-                match updater.update(ViewerMessage::TrainStep {
+                egui_ctx.request_repaint();
+                let msg = ViewerMessage::TrainStep {
                     splats: splats.valid(),
                     iter: trainer.iter,
-                }) {
-                    Ok(_) => egui_ctx.request_repaint(),
-                    Err(_) => break, // channel closed, bail.
                 };
+
+                if updater.send(msg).await.is_err() {
+                    break; // channel closed, bail.
+                }
             }
         }
     }
@@ -280,8 +288,8 @@ impl Viewer {
 
         Viewer {
             receiver: None,
+            last_message: None,
             last_train_iter: 0,
-            last_update: Instant::now(),
             ctx: cc.egui_ctx.clone(),
             splat_view: SplatView {
                 camera: Camera::new(Vec3::ZERO, Quat::IDENTITY, 0.5, 0.5),
@@ -307,14 +315,13 @@ impl Viewer {
         );
 
         // create a channel for the train loop.
-        let (receiver, updater) =
-            single_value_channel::channel_starting_with(ViewerMessage::Initial);
+        let (sender, receiver) = async_channel::unbounded();
         let device = self.device.clone();
         self.receiver = Some(receiver);
         let ctx = self.ctx.clone();
 
         #[cfg(not(target_arch = "wasm32"))]
-        std::thread::spawn(move || pollster::block_on(train_loop(config, device, updater, ctx)));
+        std::thread::spawn(move || pollster::block_on(train_loop(config, device, sender, ctx)));
 
         #[cfg(target_arch = "wasm32")]
         spawn_local(train_loop(config, device, updater, ctx));
@@ -331,9 +338,16 @@ impl eframe::App for Viewer {
             if ui.button("Load file").clicked() {
                 self.start_training();
             }
-
             if let Some(rx) = self.receiver.as_mut() {
-                match rx.latest() {
+                match rx.try_recv() {
+                    Ok(message) => self.last_message = Some(message),
+                    Err(TryRecvError::Empty) => (), // nothing to do.
+                    Err(TryRecvError::Closed) => self.receiver = None, // channel closed.
+                }
+            }
+
+            if let Some(message) = self.last_message.as_ref() {
+                match message {
                     ViewerMessage::Initial => (),
                     ViewerMessage::Error(e) => {
                         ui.label("Error: ".to_owned() + &e.to_string());
@@ -348,12 +362,10 @@ impl eframe::App for Viewer {
                                 splats.num_splats()
                             ));
                         }
-
                         self.splat_view.draw_splats(splats, ui, ctx, frame);
                     }
                     ViewerMessage::TrainStep { splats, iter } => {
                         ui.label(format!("Train step {iter}"));
-
                         self.splat_view.draw_splats(splats, ui, ctx, frame);
                     }
                 }

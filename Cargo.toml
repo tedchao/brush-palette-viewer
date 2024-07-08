@@ -58,8 +58,8 @@ ply-rs.git = "https://github.com/ArthurBrussee/ply-rs.git"
 tracing = "0.1.40"
 tracing-subscriber = "0.3.18"
 egui = { version = "0.28.0" }
-eframe = { version = "0.28.0", default-features = false, features = ["wgpu"] }
-egui_extras = { version = "0.28.0", default-features = false }
+eframe = { version = "0.28.1", default-features = false, features = ["wgpu"] }
+egui_extras = { version = "0.28.1", default-features = false }
 
 assert_approx_eq = "1.1.0"
 safetensors = "0.4.3"
