@@ -7,13 +7,15 @@ use crate::kernels::{
     GatherGrads, GetTileBinEdges, MapGaussiansToIntersect, ProjectBackwards, ProjectSplats,
     ProjectVisible, Rasterize, RasterizeBackwards,
 };
-use brush_kernel::{bitcast_tensor, calc_cube_count, create_tensor, create_uniform_buffer};
+use brush_kernel::{
+    bitcast_tensor, calc_cube_count, create_dispatch_buffer, create_tensor, create_uniform_buffer,
+};
 use brush_prefix_sum::prefix_sum;
 use brush_sort::radix_argsort;
 use burn::backend::autodiff::NodeID;
 use burn::tensor::ops::IntTensorOps;
 use burn::tensor::ops::{FloatTensor, FloatTensorOps};
-use burn::tensor::{Int, Tensor};
+use burn::tensor::Tensor;
 
 use burn_wgpu::{CubeCount, JitBackend, WgpuRuntime};
 use tracing::info_span;
@@ -167,22 +169,16 @@ fn render_forward(
     let projected_size = size_of::<shaders::helpers::ProjectedSplat>() / size_of::<f32>();
     let projected_splats = create_tensor::<f32, 2, _>([num_points, projected_size], device, client);
 
-    // Number of tiles hit per splat.
+    // Number of tiles hit per splat. Has to be zerod as we later sum over this.
     let num_tiles_hit = BurnBack::int_zeros([num_points].into(), device);
-
-    let num_x = (Tensor::<BurnBack, 1, Int>::from_primitive(bitcast_tensor(num_visible.clone()))
-        + shaders::helpers::MAIN_WG
-        - 1)
-        / shaders::helpers::MAIN_WG;
-
-    let wg = Tensor::cat(vec![num_x, Tensor::from_ints([1, 1], device)], 0);
+    let num_vis_wg = create_dispatch_buffer(num_visible.clone(), [shaders::helpers::MAIN_WG, 1, 1]);
 
     {
         let _span = SyncSpan::new("ProjectVisible", device);
 
         client.execute(
             ProjectVisible::task(),
-            CubeCount::Dynamic(wg.clone().into_primitive().handle.binding()),
+            CubeCount::Dynamic(num_vis_wg.clone().handle.binding()),
             vec![
                 uniforms_buffer.clone().handle.binding(),
                 means.into_primitive().handle.binding(),
@@ -225,7 +221,7 @@ fn render_forward(
 
         client.execute(
             MapGaussiansToIntersect::task(),
-            CubeCount::Dynamic(wg.into_primitive().handle.binding()),
+            CubeCount::Dynamic(num_vis_wg.handle.binding()),
             vec![
                 uniforms_buffer.clone().handle.binding(),
                 projected_splats.handle.clone().binding(),
@@ -257,7 +253,11 @@ fn render_forward(
 
     client.execute(
         GetTileBinEdges::task(),
-        calc_cube_count([max_intersects as u32], GetTileBinEdges::WORKGROUP_SIZE),
+        CubeCount::Dynamic(
+            create_dispatch_buffer(num_intersections.clone(), GetTileBinEdges::WORKGROUP_SIZE)
+                .handle
+                .binding(),
+        ),
         vec![
             tile_id_from_isect.handle.clone().binding(),
             num_intersections.handle.clone().binding(),
@@ -541,11 +541,16 @@ impl Backward<BurnBack, 3, 6> for RenderBackwards {
         let v_opacities = BurnBack::float_zeros([num_points].into(), device);
 
         {
-            let _span = SyncSpan::new("ColorGrads", device);
+            let _span = SyncSpan::new("GatherGrads", device);
+
+            let num_vis_wg = create_dispatch_buffer(
+                bitcast_tensor(aux.num_visible.clone().into_primitive()),
+                GatherGrads::WORKGROUP_SIZE,
+            );
 
             client.execute(
                 GatherGrads::task(),
-                calc_cube_count([num_points as u32], GatherGrads::WORKGROUP_SIZE),
+                CubeCount::Dynamic(num_vis_wg.handle.binding()),
                 vec![
                     aux.uniforms_buffer
                         .clone()
