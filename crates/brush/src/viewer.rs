@@ -11,6 +11,7 @@ use brush_render::camera::Camera;
 use burn::{backend::Autodiff, module::AutodiffModule};
 use burn_wgpu::{JitBackend, RuntimeOptions, WgpuDevice, WgpuRuntime};
 use egui::{pos2, CollapsingHeader, Color32, Rect};
+use futures_lite::StreamExt;
 use glam::{Mat4, Quat, Vec2, Vec3};
 
 use rfd::AsyncFileDialog;
@@ -29,31 +30,43 @@ use wasm_bindgen_futures::spawn_local;
 
 type Backend = JitBackend<WgpuRuntime, f32, i32>;
 
-#[derive(Debug)]
-struct TrainUpdate {
-    pub splats: Splats<Backend>,
-    pub iter: u32,
+enum ViewerMessage {
+    Initial,
+    Error(anyhow::Error),
+    SplatLoad {
+        splats: Splats<Backend>,
+        total_count: usize,
+    },
+    TrainStep {
+        splats: Splats<Backend>,
+        iter: u32,
+    },
 }
 
 pub struct Viewer {
-    camera: Camera,
-    receiver: Option<Receiver<Option<Splats<Backend>>>>,
+    receiver: Option<Receiver<ViewerMessage>>,
 
     last_train_iter: u32,
     last_update: Instant,
     ctx: egui::Context,
 
-    reference_cameras: Option<Vec<Camera>>,
-    backbuffer: Option<BurnTexture>,
-    controls: OrbitControls,
     device: WgpuDevice,
+
+    splat_view: SplatView,
+}
+
+struct SplatView {
+    camera: Camera,
     start_transform: Mat4,
+
+    controls: OrbitControls,
+    backbuffer: Option<BurnTexture>,
 }
 
 async fn train_loop(
     config: TrainConfig,
     device: WgpuDevice,
-    updater: Updater<Option<Splats<Backend>>>,
+    updater: Updater<ViewerMessage>,
     egui_ctx: egui::Context,
 ) {
     #[cfg(feature = "rerun")]
@@ -74,7 +87,16 @@ async fn train_loop(
     let file_data = file.read().await;
 
     if file.file_name().contains(".ply") {
-        let splats = splat_import::load_splat_from_ply::<Backend>(&file_data, &device, &updater);
+        let total_count = splat_import::ply_count(&file_data);
+
+        let Ok(total_count) = total_count else {
+            let _ = updater.update(ViewerMessage::Error(anyhow::anyhow!("Invalid ply file")));
+            return;
+        };
+
+        let splat_stream = splat_import::load_splat_from_ply::<Backend>(&file_data, device.clone());
+
+        // let splats =
         // TODO: Send over the channel? Or whats good here?
         // let (tx, rx) = single_value_channel::channel();
         // self.reference_cameras =
@@ -83,8 +105,22 @@ async fn train_loop(
         //     self.camera = refs[0].clone();
         // }
 
-        if let Ok(splats) = splats {
-            let _ = updater.update(Some(splats));
+        let mut splat_stream = std::pin::pin!(splat_stream);
+        while let Some(splats) = splat_stream.next().await {
+            egui_ctx.request_repaint();
+
+            match splats {
+                Ok(splats) => {
+                    let _ = updater.update(ViewerMessage::SplatLoad {
+                        splats,
+                        total_count,
+                    });
+                }
+                Err(e) => {
+                    let _ = updater.update(ViewerMessage::Error(e));
+                    return;
+                }
+            }
         }
     } else {
         let cameras = dataset_readers::read_synthetic_nerf_data(&file_data, None).unwrap();
@@ -117,12 +153,115 @@ async fn train_loop(
                 .unwrap();
 
             if trainer.iter % 10 == 0 {
-                match updater.update(Some(splats.valid())) {
+                match updater.update(ViewerMessage::TrainStep {
+                    splats: splats.valid(),
+                    iter: trainer.iter,
+                }) {
                     Ok(_) => egui_ctx.request_repaint(),
                     Err(_) => break, // channel closed, bail.
                 };
             }
         }
+    }
+}
+
+impl SplatView {
+    fn draw_splats(
+        &mut self,
+        splats: &Splats<Backend>,
+        ui: &mut egui::Ui,
+        ctx: &egui::Context,
+        frame: &mut eframe::Frame,
+    ) {
+        CollapsingHeader::new("View Splats")
+            .default_open(true)
+            .show(ui, |ui| {
+                let size = ui.available_size();
+
+                // Round to 64 pixels for buffer alignment.
+                let size = glam::uvec2(
+                    ((size.x as u32).div_ceil(64) * 64).max(32),
+                    (size.y as u32).max(32),
+                );
+
+                let (rect, response) = ui.allocate_exact_size(
+                    egui::Vec2::new(size.x as f32, size.y as f32),
+                    egui::Sense::drag(),
+                );
+
+                let mouse_delta = glam::vec2(response.drag_delta().x, response.drag_delta().y);
+
+                let (pan, rotate) = if response.dragged_by(egui::PointerButton::Primary) {
+                    (Vec2::ZERO, mouse_delta)
+                } else if response.dragged_by(egui::PointerButton::Secondary) {
+                    (mouse_delta, Vec2::ZERO)
+                } else {
+                    (Vec2::ZERO, Vec2::ZERO)
+                };
+
+                let scrolled = ui.input(|r| r.smooth_scroll_delta).y;
+
+                // TODO: Controls can be pretty borked.
+                self.controls.pan_orbit_camera(
+                    pan * 0.5,
+                    rotate * 0.5,
+                    scrolled * 0.02,
+                    glam::vec2(rect.size().x, rect.size().y),
+                );
+
+                let controls_transform = glam::Mat4::from_rotation_translation(
+                    self.controls.rotation,
+                    self.controls.position,
+                );
+
+                let total_transform = self.start_transform * controls_transform;
+                let (_, rot, pos) = total_transform.to_scale_rotation_translation();
+                self.camera.position = pos;
+                self.camera.rotation = rot;
+
+                // TODO: For reference cameras just need to match fov?
+                self.camera.fovx = 0.5;
+                self.camera.fovy = 0.5 * (size.y as f32) / (size.x as f32);
+
+                // If there's actual rendering to do, not just an imgui update.
+                if ctx.has_requested_repaint() {
+                    let span = info_span!("Render splats").entered();
+                    let (img, _) =
+                        splats.render(&self.camera, size, glam::vec3(0.0, 0.0, 0.0), true);
+                    drop(span);
+
+                    let back = self
+                        .backbuffer
+                        .get_or_insert_with(|| BurnTexture::new(img.clone(), frame));
+
+                    {
+                        let state = frame.wgpu_render_state();
+                        let state = state.as_ref().unwrap();
+                        let mut encoder =
+                            state
+                                .device
+                                .create_command_encoder(&CommandEncoderDescriptor {
+                                    label: Some("viewer encoder"),
+                                });
+                        back.update_texture(img, frame, &mut encoder);
+                        let cmd = encoder.finish();
+                        state.queue.submit([cmd]);
+                    }
+                }
+
+                if let Some(back) = self.backbuffer.as_ref() {
+                    ui.painter().rect_filled(rect, 0.0, Color32::BLACK);
+                    ui.painter().image(
+                        back.id,
+                        rect,
+                        Rect {
+                            min: pos2(0.0, 0.0),
+                            max: pos2(1.0, 1.0),
+                        },
+                        Color32::WHITE,
+                    );
+                }
+            });
     }
 }
 
@@ -144,12 +283,13 @@ impl Viewer {
             last_train_iter: 0,
             last_update: Instant::now(),
             ctx: cc.egui_ctx.clone(),
-            camera: Camera::new(Vec3::ZERO, Quat::IDENTITY, 0.5, 0.5),
-            reference_cameras: None,
-            backbuffer: None,
-            controls: OrbitControls::new(15.0),
+            splat_view: SplatView {
+                camera: Camera::new(Vec3::ZERO, Quat::IDENTITY, 0.5, 0.5),
+                backbuffer: None,
+                controls: OrbitControls::new(15.0),
+                start_transform: glam::Mat4::IDENTITY,
+            },
             device,
-            start_transform: glam::Mat4::IDENTITY,
         }
     }
 
@@ -167,7 +307,8 @@ impl Viewer {
         );
 
         // create a channel for the train loop.
-        let (receiver, updater) = single_value_channel::channel();
+        let (receiver, updater) =
+            single_value_channel::channel_starting_with(ViewerMessage::Initial);
         let device = self.device.clone();
         self.receiver = Some(receiver);
         let ctx = self.ctx.clone();
@@ -184,18 +325,6 @@ impl eframe::App for Viewer {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         egui_extras::install_image_loaders(ctx);
 
-        if let Some(cameras) = self.reference_cameras.as_ref() {
-            egui::SidePanel::new(egui::panel::Side::Left, "cam panel").show(ctx, |ui| {
-                for (i, camera) in cameras.iter().enumerate() {
-                    if ui.button(format!("Camera {i}")).clicked() {
-                        self.camera = camera.clone();
-                        self.controls.position = self.camera.position;
-                        self.controls.rotation = self.camera.rotation;
-                    }
-                }
-            });
-        }
-
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.heading("Brush splat viewer");
 
@@ -204,105 +333,29 @@ impl eframe::App for Viewer {
             }
 
             if let Some(rx) = self.receiver.as_mut() {
-                if let Some(update) = rx.latest() {
-                    let splats = &update;
+                match rx.latest() {
+                    ViewerMessage::Initial => (),
+                    ViewerMessage::Error(e) => {
+                        ui.label("Error: ".to_owned() + &e.to_string());
+                    }
+                    ViewerMessage::SplatLoad {
+                        splats,
+                        total_count,
+                    } => {
+                        if splats.num_splats() < *total_count {
+                            ui.label(format!(
+                                "Loading... ({}/{total_count} splats)",
+                                splats.num_splats()
+                            ));
+                        }
 
-                    CollapsingHeader::new("View Splats")
-                        .default_open(true)
-                        .show(ui, |ui| {
-                            let size = ui.available_size();
+                        self.splat_view.draw_splats(splats, ui, ctx, frame);
+                    }
+                    ViewerMessage::TrainStep { splats, iter } => {
+                        ui.label(format!("Train step {iter}"));
 
-                            // Round to 64 pixels for buffer alignment.
-                            let size = glam::uvec2(
-                                ((size.x as u32).div_ceil(64) * 64).max(32),
-                                (size.y as u32).max(32),
-                            );
-
-                            let (rect, response) = ui.allocate_exact_size(
-                                egui::Vec2::new(size.x as f32, size.y as f32),
-                                egui::Sense::drag(),
-                            );
-
-                            let mouse_delta =
-                                glam::vec2(response.drag_delta().x, response.drag_delta().y);
-
-                            let (pan, rotate) = if response.dragged_by(egui::PointerButton::Primary)
-                            {
-                                (Vec2::ZERO, mouse_delta)
-                            } else if response.dragged_by(egui::PointerButton::Secondary) {
-                                (mouse_delta, Vec2::ZERO)
-                            } else {
-                                (Vec2::ZERO, Vec2::ZERO)
-                            };
-
-                            let scrolled = ui.input(|r| r.smooth_scroll_delta).y;
-
-                            // TODO: Controls can be pretty borked.
-                            self.controls.pan_orbit_camera(
-                                pan * 0.5,
-                                rotate * 0.5,
-                                scrolled * 0.02,
-                                glam::vec2(rect.size().x, rect.size().y),
-                            );
-
-                            let controls_transform = glam::Mat4::from_rotation_translation(
-                                self.controls.rotation,
-                                self.controls.position,
-                            );
-
-                            let total_transform = self.start_transform * controls_transform;
-                            let (_, rot, pos) = total_transform.to_scale_rotation_translation();
-                            self.camera.position = pos;
-                            self.camera.rotation = rot;
-
-                            // TODO: For reference cameras just need to match fov?
-                            self.camera.fovx = 0.5;
-                            self.camera.fovy = 0.5 * (size.y as f32) / (size.x as f32);
-
-                            // If there's actual rendering to do, not just an imgui update.
-                            if ctx.has_requested_repaint() {
-                                let span = info_span!("Render splats").entered();
-                                let (img, _) = splats.render(
-                                    &self.camera,
-                                    size,
-                                    glam::vec3(0.0, 0.0, 0.0),
-                                    true,
-                                );
-                                drop(span);
-
-                                let back = self
-                                    .backbuffer
-                                    .get_or_insert_with(|| BurnTexture::new(img.clone(), frame));
-
-                                {
-                                    let state = frame.wgpu_render_state();
-                                    let state = state.as_ref().unwrap();
-                                    let mut encoder = state.device.create_command_encoder(
-                                        &CommandEncoderDescriptor {
-                                            label: Some("viewer encoder"),
-                                        },
-                                    );
-                                    back.update_texture(img, frame, &mut encoder);
-                                    let cmd = encoder.finish();
-                                    state.queue.submit([cmd]);
-                                }
-                            }
-
-                            if let Some(back) = self.backbuffer.as_ref() {
-                                ui.painter().rect_filled(rect, 0.0, Color32::BLACK);
-                                ui.painter().image(
-                                    back.id,
-                                    rect,
-                                    Rect {
-                                        min: pos2(0.0, 0.0),
-                                        max: pos2(1.0, 1.0),
-                                    },
-                                    Color32::WHITE,
-                                );
-                            }
-                        });
-                } else {
-                    ui.label("Loading data...");
+                        self.splat_view.draw_splats(splats, ui, ctx, frame);
+                    }
                 }
             }
         });

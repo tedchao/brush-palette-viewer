@@ -55,6 +55,7 @@ single_value_channel = "1.2.2"
 zip = { version = "2.1.3", default-features = false, features = ["deflate"] }
 console_error_panic_hook = "0.1.7"
 tracing-wasm = "0.2.1"
+async-stream = "0.3.5"
 
 [features]
 tracy = ["dep:tracing-tracy"]

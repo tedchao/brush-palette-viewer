@@ -1,13 +1,14 @@
+use async_stream::try_stream;
 use brush_render::{render::num_sh_coeffs, Backend};
 use burn::{
     module::{Param, ParamId},
     tensor::{Tensor, TensorData},
 };
+use futures_lite::Stream;
 use ply_rs::{
     parser::Parser,
     ply::{Property, PropertyAccess},
 };
-use single_value_channel::Updater;
 use std::io::BufRead;
 use tracing::info_span;
 
@@ -112,20 +113,30 @@ fn update_splats<B: Backend>(
     }
 }
 
-// TODO: This is better modelled by an async stream I think.
-pub fn load_splat_from_ply<B: Backend>(
-    ply_data: &[u8],
-    device: &B::Device,
-    updater: &Updater<Option<Splats<B>>>,
-) -> Result<Splats<B>> {
-    // set up a reader, in this case a file.
+pub fn ply_count(ply_data: &[u8]) -> Result<usize> {
     let mut reader = std::io::Cursor::new(ply_data);
     let gaussian_parser = Parser::<GaussianData>::new();
     let header = gaussian_parser.read_header(&mut reader)?;
+    header
+        .elements
+        .iter()
+        .find(|e| e.name == "vertex")
+        .map(|e| e.count)
+        .context("Invalid ply file")
+}
+
+// TODO: This is better modelled by an async stream I think.
+pub fn load_splat_from_ply<B: Backend>(
+    ply_data: &[u8],
+    device: B::Device,
+) -> impl Stream<Item = Result<Splats<B>>> + '_ {
+    // set up a reader, in this case a file.
+
+    let mut reader = std::io::Cursor::new(ply_data);
 
     let mut splats: Option<Splats<B>> = None;
 
-    let update_every = 100000;
+    let update_every = 50000;
 
     let mut means = Vec::with_capacity(update_every * 3);
     let mut sh_coeffs = Vec::with_capacity(update_every * SH_COEFFS_PER_SPLAT);
@@ -135,60 +146,83 @@ pub fn load_splat_from_ply<B: Backend>(
 
     let _span = info_span!("Read splats").entered();
 
-    for element in &header.elements {
-        if element.name == "vertex" {
-            for i in 0..element.count {
-                let splat = match header.encoding {
-                    ply_rs::ply::Encoding::Ascii => {
-                        let mut line = String::new();
-                        reader.read_line(&mut line)?;
-                        gaussian_parser.read_ascii_element(&line, element)?
-                    }
-                    ply_rs::ply::Encoding::BinaryBigEndian => {
-                        gaussian_parser.read_big_endian_element(&mut reader, element)?
-                    }
-                    ply_rs::ply::Encoding::BinaryLittleEndian => {
-                        gaussian_parser.read_little_endian_element(&mut reader, element)?
-                    }
-                };
+    println!("Reading splats...");
+    try_stream! {
+        let gaussian_parser = Parser::<GaussianData>::new();
+        let header = gaussian_parser.read_header(&mut reader)?;
 
-                means.extend(splat.means);
-                sh_coeffs.extend(splat.sh_coeffs);
-                rotation.extend(splat.rotation);
-                opacity.push(splat.opacity);
-                scales.extend(splat.scale);
+        for element in &header.elements {
+            if element.name == "vertex" {
+                let min_props = ["x", "y", "z", "scale_0", "scale_1", "scale_2", "opacity", "rot_0", "rot_1", "rot_2", "rot_3"];
 
-                // Occasionally send some updated splats.
-                if i % update_every == 0 {
-                    update_splats(
-                        &mut splats,
-                        means.clone(),
-                        sh_coeffs.clone(),
-                        rotation.clone(),
-                        opacity.clone(),
-                        scales.clone(),
-                        device,
-                    );
-                    means.clear();
-                    sh_coeffs.clear();
-                    rotation.clear();
-                    opacity.clear();
-                    scales.clear();
-                    let _ = updater.update(splats.clone());
+                if !min_props.iter().all(|p| element.properties.iter().any(|x| &x.name == p)) {
+                    Err(anyhow::anyhow!("Invalid splat ply. Missing properties!"))?
+                }
+
+                for i in 0..element.count {
+                    let splat = match header.encoding {
+                        ply_rs::ply::Encoding::Ascii => {
+                            let mut line = String::new();
+                            reader.read_line(&mut line)?;
+                            gaussian_parser.read_ascii_element(&line, element)?
+                        }
+                        ply_rs::ply::Encoding::BinaryBigEndian => {
+                            gaussian_parser.read_big_endian_element(&mut reader, element)?
+                        }
+                        ply_rs::ply::Encoding::BinaryLittleEndian => {
+                            gaussian_parser.read_little_endian_element(&mut reader, element)?
+                        }
+                    };
+
+                    means.extend(splat.means);
+                    sh_coeffs.extend(splat.sh_coeffs);
+                    rotation.extend(splat.rotation);
+                    opacity.push(splat.opacity);
+                    scales.extend(splat.scale);
+
+                    // Occasionally send some updated splats.
+                    if i % update_every == update_every - 1 {
+                        update_splats(
+                            &mut splats,
+                            means.clone(),
+                            sh_coeffs.clone(),
+                            rotation.clone(),
+                            opacity.clone(),
+                            scales.clone(),
+                            &device,
+                        );
+                        means.clear();
+                        sh_coeffs.clear();
+                        rotation.clear();
+                        opacity.clear();
+                        scales.clear();
+
+                        println!("Updating");
+
+                        yield splats.clone().context("Failed to update splats")?;
+                    }
                 }
             }
         }
-    }
 
-    update_splats(
-        &mut splats,
-        means,
-        sh_coeffs,
-        rotation,
-        opacity,
-        scales,
-        device,
-    );
-    let _ = updater.update(splats.clone());
-    splats.context("Empty ply file.")
+        update_splats(
+            &mut splats,
+            means,
+            sh_coeffs,
+            rotation,
+            opacity,
+            scales,
+            &device,
+        );
+
+        if let Some(splats) = splats.as_ref() {
+            if splats.num_splats() == 0 {
+                Err(anyhow::anyhow!("No splats found"))?;
+            }
+        }
+
+        println!("Sending final splats.");
+
+        yield splats.clone().context("Invalid ply file.")?;
+    }
 }
