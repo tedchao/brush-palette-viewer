@@ -47,8 +47,6 @@ pub fn radix_argsort(
     let client = &input_keys.client.clone();
     let max_n = input_keys.shape.dims[0] as u32;
 
-    let num_wgs = create_dispatch_buffer(n_sort.clone(), [BLOCK_SIZE, 1, 1]);
-
     // compute buffer and dispatch sizes
     let device = &input_keys.device.clone();
 
@@ -64,6 +62,9 @@ pub fn radix_argsort(
 
     let (mut last_out, mut last_out_values) = (&output_keys, &output_values);
 
+    let dispatch_span = info_span!("Create dispatch buffers").entered();
+
+    let num_wgs = create_dispatch_buffer(n_sort.clone(), [BLOCK_SIZE, 1, 1]);
     let num_reduce_wgs: Tensor<JitBackend<WgpuRuntime, f32, i32>, 1, Int> =
         Tensor::from_primitive(bitcast_tensor(create_dispatch_buffer(
             num_wgs.clone(),
@@ -71,6 +72,7 @@ pub fn radix_argsort(
         ))) * Tensor::from_ints([BIN_COUNT, 1, 1], device);
     let num_reduce_wgs: JitTensor<WgpuRuntime, u32, 1> =
         bitcast_tensor(num_reduce_wgs.into_primitive());
+    drop(dispatch_span);
 
     for pass in 0..sorting_bits.div_ceil(4) {
         let (to, to_val) = if pass % 2 == 0 {

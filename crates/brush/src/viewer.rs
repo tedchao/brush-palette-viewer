@@ -50,7 +50,7 @@ pub struct Viewer {
     start_transform: Mat4,
 }
 
-async fn open_file(
+async fn train_loop(
     config: TrainConfig,
     device: WgpuDevice,
     updater: Updater<Option<Splats<Backend>>>,
@@ -65,8 +65,11 @@ async fn open_file(
         .add_filter("scene", &["ply", "zip"])
         .set_directory("/")
         .pick_file()
-        .await
-        .unwrap();
+        .await;
+
+    let Some(file) = file else {
+        return;
+    };
 
     let file_data = file.read().await;
 
@@ -81,10 +84,6 @@ async fn open_file(
         // }
 
         if let Ok(splats) = splats {
-            // let update = TrainUpdate {
-            //     splats: splats.valid(),
-            //     iter: 0,
-            // };
             let _ = updater.update(Some(splats));
         }
     } else {
@@ -102,9 +101,10 @@ async fn open_file(
         let mut trainer = SplatTrainer::new(splats.num_splats(), &config, &splats);
 
         loop {
-            let get_span = info_span!("Get batch").entered();
-            let batch = dataloader.next();
-            drop(get_span);
+            let batch = {
+                let _span = info_span!("Get batch").entered();
+                dataloader.next()
+            };
 
             splats = trainer
                 .step(
@@ -117,14 +117,6 @@ async fn open_file(
                 .unwrap();
 
             if trainer.iter % 10 == 0 {
-                // Ideally this would drop the old value and set the new value to be consume - that somehow doesn't
-                // seem to be available for channels. I guess modelling shared ownership like that is more like a
-                // mutex than a channel - but the channel interface is nicer.
-                // let update = TrainUpdate {
-                //     splats: splats.valid(),
-                //     iter: trainer.iter,
-                // };
-
                 match updater.update(Some(splats.valid())) {
                     Ok(_) => egui_ctx.request_repaint(),
                     Err(_) => break, // channel closed, bail.
@@ -143,7 +135,8 @@ impl Viewer {
             state.adapter.clone(),
             state.device.clone(),
             state.queue.clone(),
-            RuntimeOptions { tasks_max: 128 },
+            // Splatting workload is much more granular, so don't want to flush nearly as often.
+            RuntimeOptions { tasks_max: 1024 },
         );
 
         Viewer {
@@ -180,16 +173,15 @@ impl Viewer {
         let ctx = self.ctx.clone();
 
         #[cfg(not(target_arch = "wasm32"))]
-        std::thread::spawn(move || pollster::block_on(open_file(config, device, updater, ctx)));
+        std::thread::spawn(move || pollster::block_on(train_loop(config, device, updater, ctx)));
 
         #[cfg(target_arch = "wasm32")]
-        spawn_local(open_file(config, device, updater, ctx));
+        spawn_local(train_loop(config, device, updater, ctx));
     }
 }
 
 impl eframe::App for Viewer {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
-        ctx.request_repaint();
         egui_extras::install_image_loaders(ctx);
 
         if let Some(cameras) = self.reference_cameras.as_ref() {
@@ -214,10 +206,6 @@ impl eframe::App for Viewer {
             if let Some(rx) = self.receiver.as_mut() {
                 if let Some(update) = rx.latest() {
                     let splats = &update;
-
-                    // if update.iter > 0 {
-                    //     ui.label(format!("Training step {}", update.iter));
-                    // }
 
                     CollapsingHeader::new("View Splats")
                         .default_open(true)

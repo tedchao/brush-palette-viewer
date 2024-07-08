@@ -60,8 +60,6 @@ tracing-wasm = "0.2.1"
 tracy = ["dep:tracing-tracy"]
 rerun = ["dep:rerun"]
 
-default = ["tracy"]
-
 [package.metadata.wasm-pack.profile.release.wasm-bindgen]
 debug-js-glue = false
 demangle-name-section = false

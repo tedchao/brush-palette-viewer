@@ -21,6 +21,9 @@ impl<'a, B: Backend> SyncSpan<'a, B> {
 impl<'a, B: Backend> Drop for SyncSpan<'a, B> {
     fn drop(&mut self) {
         #[cfg(feature = "sync_tracy")]
-        B::sync(self.device, burn::tensor::backend::SyncType::Wait);
+        {
+            let _span = info_span!("Wait for GPU").entered();
+            B::sync(self.device, burn::tensor::backend::SyncType::Wait);
+        }
     }
 }

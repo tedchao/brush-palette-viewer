@@ -448,8 +448,6 @@ where
         yield_macro().await;
         drop(backward_pass);
 
-        let step_span = SyncSpan::<B>::new("Optimizer step", device);
-
         // Burn doesn't have a great way to use multiple different learning rates
         // or different optimizers. The current best way seems to be to "distribute" the gradients
         // to different GradientParams. Basically each optimizer step call only sees a
@@ -488,11 +486,19 @@ where
 
         // Now step each optimizer
         let mut splats = splats;
-        splats = self.optim.step(lr_mean, splats, grad_means);
-        splats = self.optim.step(lr_opac, splats, grad_opac);
-        splats = self.optim.step(lr_rest, splats, grad_rest);
 
+        let step_span = SyncSpan::<B>::new("Optimizer step", device);
+        splats = self.optim.step(lr_mean, splats, grad_means);
         drop(step_span);
+
+        let step_span = SyncSpan::<B>::new("Optimizer step", device);
+        splats = self.optim.step(lr_opac, splats, grad_opac);
+        drop(step_span);
+
+        let step_span = SyncSpan::<B>::new("Optimizer step", device);
+        splats = self.optim.step(lr_rest, splats, grad_rest);
+        drop(step_span);
+
         yield_macro().await;
 
         {
