@@ -15,7 +15,6 @@ use shaders::sort_scatter;
 use tracing::info_span;
 
 use brush_kernel::kernel_source_gen;
-use brush_kernel::SplatKernel;
 
 mod shaders;
 

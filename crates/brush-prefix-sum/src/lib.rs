@@ -3,7 +3,6 @@ mod shaders;
 use brush_kernel::calc_cube_count;
 use brush_kernel::create_tensor;
 use brush_kernel::kernel_source_gen;
-use brush_kernel::SplatKernel;
 use burn_wgpu::WgpuRuntime;
 use shaders::prefix_sum_add_scanned_sums;
 use shaders::prefix_sum_scan;

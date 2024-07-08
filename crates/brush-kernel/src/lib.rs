@@ -4,10 +4,12 @@
 use burn_compute::{client::ComputeClient, server::ComputeServer};
 
 use burn::{backend::wgpu::CubeDim, tensor::Shape};
-use burn_cube::compute::{CompiledKernel, CubeCount, CubeTask};
+use burn_cube::compute::CubeCount;
 
 use burn_jit::{tensor::JitTensor, JitElement, JitRuntime};
 use bytemuck::Pod;
+
+pub use burn_cube::compute::{CompiledKernel, CubeTask};
 
 pub fn calc_cube_count<const D: usize, S: ComputeServer>(
     sizes: [u32; D],
@@ -21,48 +23,23 @@ pub fn calc_cube_count<const D: usize, S: ComputeServer>(
     CubeCount::Static(execs[0], execs[1], execs[2])
 }
 
-pub trait SplatKernel
-where
-    Self: Sized + Clone + Send + Sync + 'static,
-{
-    const WORKGROUP_SIZE: [u32; 3];
+pub fn module_to_compiled(module: naga::Module, workgroup_size: [u32; 3]) -> CompiledKernel {
+    let info = naga::valid::Validator::new(
+        naga::valid::ValidationFlags::empty(),
+        naga::valid::Capabilities::all(),
+    )
+    .validate(&module)
+    .unwrap();
 
-    fn id(&self) -> String;
-    fn source(&self) -> naga::Module;
-}
+    let shader_string =
+        naga::back::wgsl::write_string(&module, &info, naga::back::wgsl::WriterFlags::empty())
+            .expect("failed to convert naga module to source");
 
-pub struct SplatTask<T> {
-    pub kernel: T,
-}
-
-impl<T: SplatKernel> CubeTask for SplatTask<T> {
-    fn id(&self) -> String {
-        self.kernel.id()
-    }
-
-    fn compile(&self) -> CompiledKernel {
-        let module = self.kernel.source();
-        let info = naga::valid::Validator::new(
-            naga::valid::ValidationFlags::empty(),
-            naga::valid::Capabilities::all(),
-        )
-        .validate(&module)
-        .unwrap();
-
-        let shader_string =
-            naga::back::wgsl::write_string(&module, &info, naga::back::wgsl::WriterFlags::empty())
-                .expect("failed to convert naga module to source");
-
-        CompiledKernel {
-            source: shader_string,
-            cube_dim: CubeDim::new(
-                T::WORKGROUP_SIZE[0],
-                T::WORKGROUP_SIZE[1],
-                T::WORKGROUP_SIZE[2],
-            ),
-            // This is just a compiler hint for burn, but doesn't have to be set.
-            shared_mem_bytes: 0,
-        }
+    CompiledKernel {
+        source: shader_string,
+        cube_dim: CubeDim::new(workgroup_size[0], workgroup_size[1], workgroup_size[2]),
+        // This is just a compiler hint for burn, but doesn't have to be set.
+        shared_mem_bytes: 0,
     }
 }
 
@@ -77,16 +54,14 @@ macro_rules! kernel_source_gen {
         }
 
         impl $struct_name {
-            pub fn task($($field_name: bool),*) -> Box<brush_kernel::SplatTask<Self>> {
+            pub fn task($($field_name: bool),*) -> Box<$struct_name> {
                 let kernel = Self {
                     $(
                         $field_name,
                     )*
                 };
 
-                Box::new(brush_kernel::SplatTask {
-                    kernel,
-                })
+                Box::new(kernel)
             }
 
             fn create_shader_hashmap(&self) -> std::collections::HashMap<String, naga_oil::compose::ShaderDefValue> {
@@ -100,16 +75,16 @@ macro_rules! kernel_source_gen {
                 )*
                 map
             }
-        }
 
-        impl SplatKernel for $struct_name {
-            const WORKGROUP_SIZE: [u32; 3] = $module::WORKGROUP_SIZE;
+            pub const WORKGROUP_SIZE: [u32; 3] = $module::WORKGROUP_SIZE;
 
             fn source(&self) -> naga::Module {
                 let shader_defs = self.create_shader_hashmap();
                 $module::create_shader_source(shader_defs)
             }
+        }
 
+        impl brush_kernel::CubeTask for $struct_name {
             fn id(&self) -> String {
                 let ids = stringify!($struct_name).to_owned();
                 $(
@@ -123,6 +98,11 @@ macro_rules! kernel_source_gen {
                     );
                 )*
                 ids
+            }
+
+            fn compile(&self) -> brush_kernel::CompiledKernel {
+                let module = self.source();
+                brush_kernel::module_to_compiled(module, Self::WORKGROUP_SIZE)
             }
         }
     };

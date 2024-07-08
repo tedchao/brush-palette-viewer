@@ -4,7 +4,6 @@ use super::shaders::{
 };
 use crate::shaders::gather_grads;
 use brush_kernel::kernel_source_gen;
-use brush_kernel::SplatKernel;
 
 kernel_source_gen!(ProjectSplats {}, project_forward);
 kernel_source_gen!(ProjectVisible {}, project_visible);

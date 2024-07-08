@@ -8,9 +8,7 @@ use crate::kernels::{
     ProjectVisible, Rasterize, RasterizeBackwards,
 };
 use crate::shaders::get_tile_bin_edges::VERTICAL_GROUPS;
-use brush_kernel::{
-    bitcast_tensor, calc_cube_count, create_tensor, create_uniform_buffer, SplatKernel,
-};
+use brush_kernel::{bitcast_tensor, calc_cube_count, create_tensor, create_uniform_buffer};
 use brush_prefix_sum::prefix_sum;
 use brush_sort::radix_argsort;
 use burn::backend::autodiff::NodeID;
