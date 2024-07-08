@@ -18,10 +18,10 @@ const SH_COEFFS_PER_CHANNEL: usize = num_sh_coeffs(3);
 const SH_COEFFS_PER_SPLAT: usize = SH_COEFFS_PER_CHANNEL * 3;
 
 pub(crate) struct GaussianData {
-    means: glam::Vec3,
-    scale: glam::Vec3,
+    means: [f32; 3],
+    scale: [f32; 3],
     opacity: f32,
-    rotation: glam::Vec4,
+    rotation: [f32; 4],
     sh_coeffs: [f32; SH_COEFFS_PER_SPLAT],
 }
 
@@ -40,10 +40,10 @@ fn to_interleaved_idx(val: usize) -> usize {
 impl PropertyAccess for GaussianData {
     fn new() -> Self {
         GaussianData {
-            means: glam::Vec3::ZERO,
-            scale: glam::Vec3::ONE,
-            opacity: 1.0,
-            rotation: glam::Vec4::ZERO,
+            means: [0.0; 3],
+            scale: [0.0; 3],
+            opacity: 0.0,
+            rotation: [0.0; 4],
             sh_coeffs: [0.0; SH_COEFFS_PER_SPLAT],
         }
     }
@@ -51,17 +51,17 @@ impl PropertyAccess for GaussianData {
     fn set_property(&mut self, key: &str, property: Property) {
         if let Property::Float(v) = property {
             match key {
-                "x" => self.means.x = v,
-                "y" => self.means.y = v,
-                "z" => self.means.z = v,
-                "scale_0" => self.scale.x = v,
-                "scale_1" => self.scale.y = v,
-                "scale_2" => self.scale.z = v,
+                "x" => self.means[0] = v,
+                "y" => self.means[1] = v,
+                "z" => self.means[2] = v,
+                "scale_0" => self.scale[0] = v,
+                "scale_1" => self.scale[1] = v,
+                "scale_2" => self.scale[2] = v,
                 "opacity" => self.opacity = v,
-                "rot_0" => self.rotation.x = v,
-                "rot_1" => self.rotation.y = v,
-                "rot_2" => self.rotation.z = v,
-                "rot_3" => self.rotation.w = v,
+                "rot_0" => self.rotation[0] = v,
+                "rot_1" => self.rotation[1] = v,
+                "rot_2" => self.rotation[2] = v,
+                "rot_3" => self.rotation[3] = v,
                 "f_dc_0" => self.sh_coeffs[0] = v,
                 "f_dc_1" => self.sh_coeffs[1] = v,
                 "f_dc_2" => self.sh_coeffs[2] = v,
@@ -96,16 +96,19 @@ fn update_splats<B: Backend>(
 
     if let Some(splats) = splats.as_mut() {
         splats.concat_splats(new_means, new_rots, new_coeffs, new_opac, new_scales);
+        splats.norm_rotations();
     } else {
-        // Create a new splat instance if it hasn't been initialzized yet.
-        *splats = Some(Splats {
+        let mut init = Splats {
             means: Param::initialized(ParamId::new(), new_means),
             sh_coeffs: Param::initialized(ParamId::new(), new_coeffs),
             rotation: Param::initialized(ParamId::new(), new_rots),
             raw_opacity: Param::initialized(ParamId::new(), new_opac),
             log_scales: Param::initialized(ParamId::new(), new_scales),
             xys_dummy: Tensor::zeros([n_splats, 2], device),
-        });
+        };
+        init.norm_rotations();
+        // Create a new splat instance if it hasn't been initialzized yet.
+        *splats = Some(init);
     }
 }
 
@@ -122,13 +125,13 @@ pub fn load_splat_from_ply<B: Backend>(
 
     let mut splats: Option<Splats<B>> = None;
 
-    let update_every = 200000;
+    let update_every = 100000;
 
-    let mut means = Vec::with_capacity(update_every);
-    let mut sh_coeffs = Vec::with_capacity(update_every);
-    let mut rotation = Vec::with_capacity(update_every);
+    let mut means = Vec::with_capacity(update_every * 3);
+    let mut sh_coeffs = Vec::with_capacity(update_every * SH_COEFFS_PER_SPLAT);
+    let mut rotation = Vec::with_capacity(update_every * 4);
     let mut opacity = Vec::with_capacity(update_every);
-    let mut scales = Vec::with_capacity(update_every);
+    let mut scales = Vec::with_capacity(update_every * 3);
 
     let _span = info_span!("Read splats").entered();
 
@@ -149,28 +152,28 @@ pub fn load_splat_from_ply<B: Backend>(
                     }
                 };
 
-                means.extend(<[f32; 3]>::from(splat.means));
+                means.extend(splat.means);
                 sh_coeffs.extend(splat.sh_coeffs);
-                rotation.extend(<[f32; 4]>::from(splat.rotation.normalize()));
+                rotation.extend(splat.rotation);
                 opacity.push(splat.opacity);
-                scales.extend(<[f32; 3]>::from(splat.scale));
+                scales.extend(splat.scale);
 
                 // Occasionally send some updated splats.
                 if i % update_every == 0 {
                     update_splats(
                         &mut splats,
-                        means,
-                        sh_coeffs,
-                        rotation,
-                        opacity,
-                        scales,
+                        means.clone(),
+                        sh_coeffs.clone(),
+                        rotation.clone(),
+                        opacity.clone(),
+                        scales.clone(),
                         device,
                     );
-                    means = Vec::with_capacity(update_every);
-                    sh_coeffs = Vec::with_capacity(update_every);
-                    rotation = Vec::with_capacity(update_every);
-                    opacity = Vec::with_capacity(update_every);
-                    scales = Vec::with_capacity(update_every);
+                    means.clear();
+                    sh_coeffs.clear();
+                    rotation.clear();
+                    opacity.clear();
+                    scales.clear();
                     let _ = updater.update(splats.clone());
                 }
             }
