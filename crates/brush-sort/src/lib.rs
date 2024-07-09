@@ -51,18 +51,6 @@ pub fn radix_argsort(
     let device = &input_keys.device.clone();
 
     let max_needed_wgs = max_n.div_ceil(BLOCK_SIZE);
-    let count_buf =
-        create_tensor::<u32, 1, WgpuRuntime>([(max_needed_wgs as usize) * 16], device, client);
-    let reduced_buf = create_tensor::<u32, 1, WgpuRuntime>([BLOCK_SIZE as usize], device, client);
-
-    let output_keys = input_keys;
-    let output_values = input_values;
-    let output_keys_swap = create_tensor::<u32, 1, _>([max_n as usize], device, client);
-    let output_values_swap = create_tensor::<u32, 1, _>([max_n as usize], device, client);
-
-    let (mut last_out, mut last_out_values) = (&output_keys, &output_values);
-
-    let dispatch_span = info_span!("Create dispatch buffers").entered();
 
     let num_wgs = create_dispatch_buffer(n_sort.clone(), [BLOCK_SIZE, 1, 1]);
     let num_reduce_wgs: Tensor<JitBackend<WgpuRuntime, f32, i32>, 1, Int> =
@@ -72,20 +60,19 @@ pub fn radix_argsort(
         ))) * Tensor::from_ints([BIN_COUNT, 1, 1], device);
     let num_reduce_wgs: JitTensor<WgpuRuntime, u32, 1> =
         bitcast_tensor(num_reduce_wgs.into_primitive());
-    drop(dispatch_span);
+
+    let mut cur_keys = input_keys;
+    let mut cur_vals = input_values;
 
     for pass in 0..sorting_bits.div_ceil(4) {
-        let (to, to_val) = if pass % 2 == 0 {
-            (&output_keys_swap, &output_values_swap)
-        } else {
-            (&output_keys, &output_values)
-        };
-
         let uniforms_buffer: JitTensor<WgpuRuntime, u32, 1> = create_uniform_buffer(
             shaders::sort_count::Uniforms { shift: pass * 4 },
             device,
             client,
         );
+
+        let count_buf =
+            create_tensor::<u32, 1, WgpuRuntime>([(max_needed_wgs as usize) * 16], device, client);
 
         client.execute(
             SortCount::task(),
@@ -93,39 +80,47 @@ pub fn radix_argsort(
             vec![
                 uniforms_buffer.clone().handle.binding(),
                 n_sort.clone().handle.binding(),
-                last_out.handle.clone().binding(),
+                cur_keys.handle.clone().binding(),
                 count_buf.clone().handle.binding(),
             ],
         );
 
-        client.execute(
-            SortReduce::task(),
-            CubeCount::Dynamic(num_reduce_wgs.clone().handle.binding()),
-            vec![
-                n_sort.clone().handle.binding(),
-                count_buf.clone().handle.binding(),
-                reduced_buf.clone().handle.binding(),
-            ],
-        );
+        {
+            let reduced_buf =
+                create_tensor::<u32, 1, WgpuRuntime>([BLOCK_SIZE as usize], device, client);
 
-        client.execute(
-            SortScan::task(),
-            CubeCount::Static(1, 1, 1),
-            vec![
-                n_sort.clone().handle.binding(),
-                reduced_buf.clone().handle.binding(),
-            ],
-        );
+            client.execute(
+                SortReduce::task(),
+                CubeCount::Dynamic(num_reduce_wgs.clone().handle.binding()),
+                vec![
+                    n_sort.clone().handle.binding(),
+                    count_buf.clone().handle.binding(),
+                    reduced_buf.clone().handle.binding(),
+                ],
+            );
 
-        client.execute(
-            SortScanAdd::task(),
-            CubeCount::Dynamic(num_reduce_wgs.handle.clone().binding()),
-            vec![
-                n_sort.clone().handle.binding(),
-                reduced_buf.clone().handle.binding(),
-                count_buf.clone().handle.binding(),
-            ],
-        );
+            client.execute(
+                SortScan::task(),
+                CubeCount::Static(1, 1, 1),
+                vec![
+                    n_sort.clone().handle.binding(),
+                    reduced_buf.clone().handle.binding(),
+                ],
+            );
+
+            client.execute(
+                SortScanAdd::task(),
+                CubeCount::Dynamic(num_reduce_wgs.handle.clone().binding()),
+                vec![
+                    n_sort.clone().handle.binding(),
+                    reduced_buf.clone().handle.binding(),
+                    count_buf.clone().handle.binding(),
+                ],
+            );
+        }
+
+        let output_keys = create_tensor::<u32, 1, _>([max_n as usize], device, client);
+        let output_values = create_tensor::<u32, 1, _>([max_n as usize], device, client);
 
         client.execute(
             SortScatter::task(),
@@ -133,17 +128,18 @@ pub fn radix_argsort(
             vec![
                 uniforms_buffer.handle.clone().binding(),
                 n_sort.clone().handle.binding(),
-                last_out.handle.clone().binding(),
-                last_out_values.handle.clone().binding(),
+                cur_keys.handle.clone().binding(),
+                cur_vals.handle.clone().binding(),
                 count_buf.handle.clone().binding(),
-                to.handle.clone().binding(),
-                to_val.handle.clone().binding(),
+                output_keys.handle.clone().binding(),
+                output_values.handle.clone().binding(),
             ],
         );
 
-        (last_out, last_out_values) = (&to, &to_val);
+        cur_keys = output_keys;
+        cur_vals = output_values;
     }
-    (last_out.clone(), last_out_values.clone())
+    (cur_keys, cur_vals)
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
