@@ -204,7 +204,7 @@ fn render_forward(
     // dispatch to avoid this.
     // Estimating the max number of intersects can be a bad hack though... The worst case sceneario is so massive
     // that it's easy to run out of memory... How do we actually properly deal with this :/
-    let max_intersects = (num_points * (num_tiles as usize)).min(128 * 65535);
+    let max_intersects = (num_points * (num_tiles as usize)).min(64 * 65535);
 
     // Each intersection maps to a gaussian.
     let (tile_bins, compact_gid_from_isect) = {

@@ -32,7 +32,7 @@ fn main() -> anyhow::Result<()> {
             required_features: wgpu::Features::default(),
             required_limits: adapter.limits(),
         }),
-        supported_backends: wgpu::Backends::PRIMARY,
+        supported_backends: wgpu::Backends::DX12,
         ..Default::default()
     };
 

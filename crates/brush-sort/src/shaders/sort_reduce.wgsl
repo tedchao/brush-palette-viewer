@@ -5,6 +5,7 @@
 @group(0) @binding(2) var<storage, read_write> reduced: array<u32>;
 
 var<workgroup> sums: array<u32, sorting::WG>;
+var<workgroup> num_keys_wg: u32;
 
 @compute
 @workgroup_size(sorting::WG, 1, 1)
@@ -12,7 +13,11 @@ fn main(
     @builtin(local_invocation_id) local_id: vec3<u32>,
     @builtin(workgroup_id) gid: vec3<u32>,
 ) {
-    let num_keys = num_keys_arr[0];
+    if local_id.x == 0u {
+        num_keys_wg = num_keys_arr[0];
+    }
+    let num_keys = workgroupUniformLoad(&num_keys_wg);
+    // let num_keys = num_keys_arr[0];
     let num_wgs = sorting::div_ceil(num_keys, sorting::BLOCK_SIZE);
     let num_reduce_wgs = sorting::BIN_COUNT * sorting::div_ceil(num_wgs, sorting::BLOCK_SIZE);
 

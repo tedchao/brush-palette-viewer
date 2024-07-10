@@ -23,6 +23,8 @@ var<workgroup> v_conic_local: array<vec3f, helpers::TILE_SIZE>;
 var<workgroup> v_xy_local: array<vec2f, helpers::TILE_SIZE>;
 var<workgroup> v_colors_local: array<vec4f, helpers::TILE_SIZE>;
 
+var<workgroup> tile_bins_wg: vec2u;
+
 // kernel function for rasterizing each tile
 // each thread treats a single pixel
 // each thread group uses the same gaussian data in a tile
@@ -54,7 +56,11 @@ fn main(
     // have all threads in tile process the same gaussians in batches
     // first collect gaussians between bin_start and bin_final in batches
     // which gaussians to look through in this tile
-    var range = tile_bins[tile_id];
+    if local_idx == 0u {
+        tile_bins_wg = tile_bins[tile_id];
+    }
+    var range = workgroupUniformLoad(&tile_bins_wg);
+    // var range = tile_bins[tile_id];
     let num_batches = helpers::ceil_div(range.y - range.x, helpers::TILE_SIZE);
     // current visibility left to render
     var T = T_final;
