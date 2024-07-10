@@ -19,12 +19,6 @@ use rfd::AsyncFileDialog;
 use tracing::info_span;
 use wgpu::CommandEncoderDescriptor;
 
-#[cfg(not(target_arch = "wasm32"))]
-use std::time::Instant;
-
-#[cfg(target_arch = "wasm32")]
-use web_time::Instant;
-
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen_futures::spawn_local;
 
@@ -158,7 +152,9 @@ async fn train_loop(
                 .await
                 .unwrap();
 
-            if trainer.iter % 10 == 0 {
+            if trainer.iter % 5 == 0 {
+                let _span = info_span!("Send batch").entered();
+
                 egui_ctx.request_repaint();
                 let msg = ViewerMessage::TrainStep {
                     splats: splats.valid(),
@@ -315,7 +311,7 @@ impl Viewer {
         );
 
         // create a channel for the train loop.
-        let (sender, receiver) = async_channel::unbounded();
+        let (sender, receiver) = async_channel::bounded(3);
         let device = self.device.clone();
         self.receiver = Some(receiver);
         let ctx = self.ctx.clone();
@@ -324,12 +320,14 @@ impl Viewer {
         std::thread::spawn(move || pollster::block_on(train_loop(config, device, sender, ctx)));
 
         #[cfg(target_arch = "wasm32")]
-        spawn_local(train_loop(config, device, updater, ctx));
+        spawn_local(train_loop(config, device, sender, ctx));
     }
 }
 
 impl eframe::App for Viewer {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        let _span = info_span!("Draw UI").entered();
+
         egui_extras::install_image_loaders(ctx);
 
         egui::CentralPanel::default().show(ctx, |ui| {
