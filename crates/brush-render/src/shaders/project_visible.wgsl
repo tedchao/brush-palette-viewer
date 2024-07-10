@@ -5,7 +5,7 @@
 @group(0) @binding(1) var<storage, read_write> means: array<helpers::PackedVec3>;
 @group(0) @binding(2) var<storage, read_write> log_scales: array<helpers::PackedVec3>;
 @group(0) @binding(3) var<storage, read_write> quats: array<vec4f>;
-@group(0) @binding(4) var<storage, read_write> coeffs: array<f32>;
+@group(0) @binding(4) var<storage, read_write> coeffs: array<helpers::PackedVec3>;
 @group(0) @binding(5) var<storage, read_write> raw_opacities: array<f32>;
 
 @group(0) @binding(6) var<storage, read_write> global_from_compact_gid: array<u32>;
@@ -155,8 +155,8 @@ fn num_sh_coeffs(degree: u32) -> u32 {
 }
 
 fn read_coeffs(base_id: ptr<function, u32>) -> vec3f {
-    let ret = vec3f(coeffs[*base_id + 0], coeffs[*base_id + 1], coeffs[*base_id + 2]);
-    *base_id += 3u;
+    let ret = helpers::as_vec(coeffs[*base_id]);
+    *base_id += 1u;
     return ret;
 }
 
@@ -188,7 +188,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
 
     let sh_degree = uniforms.sh_degree;
     let num_coeffs = num_sh_coeffs(sh_degree);
-    var base_id = global_gid * num_coeffs * 3;
+    var base_id = global_gid * num_coeffs;
 
     var sh = ShCoeffs();
     sh.b0_c0 = read_coeffs(&base_id);
