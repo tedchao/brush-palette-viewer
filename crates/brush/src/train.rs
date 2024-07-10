@@ -98,7 +98,11 @@ where
     xy_grad_norm_accum: Tensor<B, 1>,
 }
 
-async fn yield_macro() {
+async fn yield_macro<B: Backend>(device: &B::Device) {
+    // Whenever yielding, flush GPU work so wwhile CPU is idle
+    // GPU can do work.
+    B::sync(device, burn::tensor::backend::SyncType::Flush);
+
     #[cfg(target_arch = "wasm32")]
     gloo_timers::future::TimeoutFuture::new(0).await;
 }
@@ -404,7 +408,7 @@ where
                 false,
             );
 
-            yield_macro().await;
+            yield_macro::<B>(device).await;
 
             renders.push(pred_image);
             auxes.push(aux);
@@ -441,12 +445,12 @@ where
                 + (-ssim_loss + 1.0) * self.config.ssim_weight;
         }
         drop(calc_losses);
-        yield_macro().await;
+        yield_macro::<B>(device).await;
 
         let backward_pass = SyncSpan::<B>::new("Backward pass", device);
         let mut grads = loss.backward();
-        yield_macro().await;
         drop(backward_pass);
+        yield_macro::<B>(device).await;
 
         let step_span = SyncSpan::<B>::new("Optimizer step", device);
         // Burn doesn't have a great way to use multiple different learning rates
@@ -492,8 +496,6 @@ where
         splats = self.optim.step(lr_opac, splats, grad_opac);
         splats = self.optim.step(lr_rest, splats, grad_rest);
         drop(step_span);
-
-        yield_macro().await;
 
         {
             let _span = SyncSpan::<B>::new("Housekeeping", device);
