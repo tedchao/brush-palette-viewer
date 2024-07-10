@@ -171,25 +171,32 @@ fn render_forward(
     let num_tiles_hit = bitcast_tensor(BurnBack::int_zeros([num_points].into(), device));
     let num_vis_wg = create_dispatch_buffer(num_visible.clone(), [shaders::helpers::MAIN_WG, 1, 1]);
 
-    client.execute(
-        ProjectVisible::task(),
-        CubeCount::Dynamic(num_vis_wg.clone().handle.binding()),
-        vec![
-            uniforms_buffer.clone().handle.binding(),
-            means.handle.binding(),
-            log_scales.handle.binding(),
-            quats.handle.binding(),
-            sh_coeffs.handle.binding(),
-            raw_opacities.handle.binding(),
-            global_from_compact_gid.handle.clone().binding(),
-            projected_splats.handle.clone().binding(),
-            num_tiles_hit.handle.clone().binding(),
-        ],
-    );
+    {
+        let _span = SyncSpan::new("ProjectVisibile", device);
 
-    // Calculate cumulative sums as offsets for the intersections buffer.
-    // TODO: Only need to do this up to num_visible gaussians really.
-    let cum_tiles_hit = prefix_sum(num_tiles_hit);
+        client.execute(
+            ProjectVisible::task(),
+            CubeCount::Dynamic(num_vis_wg.clone().handle.binding()),
+            vec![
+                uniforms_buffer.clone().handle.binding(),
+                means.handle.binding(),
+                log_scales.handle.binding(),
+                quats.handle.binding(),
+                sh_coeffs.handle.binding(),
+                raw_opacities.handle.binding(),
+                global_from_compact_gid.handle.clone().binding(),
+                projected_splats.handle.clone().binding(),
+                num_tiles_hit.handle.clone().binding(),
+            ],
+        );
+    }
+
+    let cum_tiles_hit = {
+        let _span = SyncSpan::new("PrefixSum", device);
+
+        // TODO: Only need to do this up to num_visible gaussians really.
+        prefix_sum(num_tiles_hit)
+    };
 
     let num_intersections = bitcast_tensor(BurnBack::int_slice(
         bitcast_tensor(cum_tiles_hit.clone()),
@@ -840,13 +847,13 @@ mod tests {
 
             let num_visible = aux.read_num_visible() as usize;
 
-            let projected: Tensor<JitBackend<WgpuRuntime, f32, i32>, 2, Float> =
+            let projected_splats =
                 Tensor::from_primitive(TensorPrimitive::Float(aux.projected_splats.clone()));
 
             let xys: Tensor<DiffBack, 2, Float> =
-                Tensor::from_inner(projected.clone().slice([0..num_visible, 0..2]));
+                Tensor::from_inner(projected_splats.clone().slice([0..num_visible, 0..2]));
             let conics: Tensor<DiffBack, 2, Float> =
-                Tensor::from_inner(projected.clone().slice([0..num_visible, 2..5]));
+                Tensor::from_inner(projected_splats.clone().slice([0..num_visible, 2..5]));
 
             let perm = Tensor::<DiffBack, 1, Int>::from_primitive(bitcast_tensor(
                 aux.global_from_compact_gid.clone(),
