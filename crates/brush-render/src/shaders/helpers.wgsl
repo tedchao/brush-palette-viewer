@@ -182,13 +182,6 @@ fn inverse(m: mat2x2f) -> mat2x2f {
     );
 }
 
-fn simple_sign(x: f32) -> f32 {
-    if x >= 0.0 {
-        return 1.0;
-    }
-    return -1.0;
-}
-
 fn radius_from_conic(conic: vec3f, opac: f32) -> u32 {
     // Calculate tbe pixel radius.
     // Original implementation:
@@ -218,43 +211,76 @@ fn radius_from_conic(conic: vec3f, opac: f32) -> u32 {
     // return sqrt(eps_const / l_min);
 }
 
-// Adopted method from: https://www.geometrictools.com/Documentation/IntersectionRectangleEllipse.pdf
-// The pseudocode is a bit broken in their paper, but was adapted to this
-// implementation which seems to work.
-// TODO: This still has some false positives!
-fn ellipse_rect_intersect(Rc: vec2f, Re: vec2f, Ec: vec2f, Em: mat2x2f) -> bool {
-    // Compute the increase in extents for R’.
-    let L = sqrt(vec2f(Em[1][1], Em[0][0]) / determinant(Em));
+fn ellipse_overlaps_edge(p0: vec2f, p1: vec2f, q0: f32, mp0: vec2f, ellipse_conic: mat2x2f) -> bool {
+    let d = p1 - p0;
+    let q1 = dot(d, mp0);
+    let q2 = dot(d, ellipse_conic * d);
+    let discr = q1 * q1 - q2 * q0;
 
-    // Transform the ellipse center to rectangle coordinate system.
-    let KmC = Ec - Rc;
-
-    // Figure out extends of ellipse + rectangle.
-    let extended = Re + L;
-
-    // outside total bounding box.
-    if abs(KmC.x) > extended.x || abs(KmC.y) > extended.y {
+    if (discr < 0.0) {
         return false;
     }
 
-    // Check if point is outside any of the four corners.
-    let s = vec2f(simple_sign(KmC.x), simple_sign(KmC.y));
-    let delta0 = KmC - s * Re;
-    let EmDelta0 = Em * delta0;
-    return s.x * EmDelta0.x <= 0.0 || s.y * EmDelta0.y <= 0.0 || dot(delta0, EmDelta0) <= 1.0;
+    let root_discr = sqrt(discr);
+    let t0 = (-q1 - root_discr) / q2;
+    let t1 = (-q1 + root_discr) / q2;
+    return (t0 >= 0.0 && t0 <= 1.0) || (t1 >= 0.0 && t1 <= 1.0);
+}
+
+fn ellipse_intersects_aabb(box_pos: vec2f, box_extent: vec2f, ellipse_center: vec2f, ellipse_conic: mat2x2f) -> bool {
+    // Translate the ellipse center to the origin
+    let c = ellipse_center - box_pos;
+
+    // Check if the center of the ellipse is inside the AABB
+    if (abs(c.x) <= box_extent.x && abs(c.y) <= box_extent.y) {
+        return true;
+    }
+
+    // Calculate the four corners of the AABB in local space
+    let p0 = c - vec2f(box_extent.x, box_extent.y);
+    let p1 = c + vec2f(box_extent.x, -box_extent.y);
+    let p2 = c + vec2f(box_extent.x, box_extent.y);
+    let p3 = c + vec2f(-box_extent.x, box_extent.y);
+
+    let mp0 = ellipse_conic * p0;
+    let mp1 = ellipse_conic * p1;
+    let mp2 = ellipse_conic * p2;
+    let mp3 = ellipse_conic * p3;
+
+    let q0_0 = dot(p0, mp0) - 1.0;
+    let q0_1 = dot(p1, mp1) - 1.0;
+    let q0_2 = dot(p2, mp2) - 1.0;
+    let q0_3 = dot(p3, mp3) - 1.0;
+
+    // Check if any vertex of the AABB is inside the ellipse
+    if (q0_0 <= 0.0 || q0_1 <= 0.0 || q0_2 <= 0.0 || q0_3 <= 0.0) {
+        return true;
+    }
+
+    // Check if any edge of the AABB intersects the ellipse
+    if (ellipse_overlaps_edge(p0, p1, q0_0, mp0, ellipse_conic) ||
+        ellipse_overlaps_edge(p1, p2, q0_1, mp1, ellipse_conic) ||
+        ellipse_overlaps_edge(p2, p3, q0_2, mp2, ellipse_conic) ||
+        ellipse_overlaps_edge(p3, p0, q0_3, mp3, ellipse_conic)) {
+        return true;
+    }
+
+    return false;
 }
 
 fn can_be_visible(tile: vec2u, xy: vec2f, conic: vec3f, opac: f32) -> bool {
-    let tile_extent = vec2f(f32(TILE_WIDTH));
+    // opac * exp(-sigma) == 1.0 / 255.0
+    // exp(-sigma) == 1.0 / (opac * 255.0)
+    // -sigma == log(1.0 / (opac * 255.0))
+    // sigma == log(opac * 255.0);
+    let sigma = log(opac * 255.0);
+    if sigma <= 0.0 {
+        return false;
+    }
+    let conic_scaled = conic / (2.0 * sigma);
+    let tile_extent = vec2f(f32(TILE_WIDTH)) / 2.0;
     let tile_center = vec2f(tile * TILE_WIDTH) + tile_extent;
-    
-    // opac * exp(-sigma) < 1.0 / 255.0
-    // exp(-sigma) < 1.0 / (opac * 255.0)
-    // -sigma < log(1.0 / (opac * 255.0))
-    // sigma < log(opac * 255.0);
-    let rads = log(opac * 255.0);
-    let conic_scaled = conic / (2.0 * rads);
-    return ellipse_rect_intersect(tile_center, tile_extent, xy, mat2x2f(conic_scaled.x, conic_scaled.y, conic_scaled.y, conic_scaled.z));
+    return ellipse_intersects_aabb(tile_center, tile_extent, xy, mat2x2f(conic_scaled.x, conic_scaled.y, conic_scaled.y, conic_scaled.z));
 }
 
 fn ceil_div(a: u32, b: u32) -> u32 {

@@ -8,7 +8,7 @@ use crate::{
     train::{LrConfig, SplatTrainer, TrainConfig},
 };
 use async_channel::{Receiver, Sender, TryRecvError};
-use brush_render::camera::Camera;
+use brush_render::{camera::Camera, sync_span::SyncSpan};
 use burn::{backend::Autodiff, module::AutodiffModule};
 use burn_wgpu::{JitBackend, RuntimeOptions, WgpuDevice, WgpuRuntime};
 use egui::{pos2, CollapsingHeader, Color32, Rect};
@@ -229,10 +229,16 @@ impl SplatView {
 
                 // If there's actual rendering to do, not just an imgui update.
                 if ctx.has_requested_repaint() {
-                    let span = info_span!("Render splats").entered();
-                    let (img, _) =
-                        splats.render(&self.camera, size, glam::vec3(0.0, 0.0, 0.0), true);
-                    drop(span);
+                    // Check whether any work needs to be flushed.
+                    {
+                        let device = &splats.means.device();
+                        let _span = SyncSpan::<Backend>::new("pre setup", device);
+                    }
+
+                    let (img, _) = {
+                        let _span = info_span!("Render splats").entered();
+                        splats.render(&self.camera, size, glam::vec3(0.0, 0.0, 0.0), true)
+                    };
 
                     let back = self
                         .backbuffer

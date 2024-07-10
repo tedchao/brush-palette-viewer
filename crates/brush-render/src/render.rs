@@ -62,13 +62,10 @@ fn render_forward(
     background: glam::Vec3,
     raster_u32: bool,
 ) -> (JitTensor<WgpuRuntime, f32, 3>, RenderAux) {
-    let _render_span = info_span!("render_gaussians").entered();
     let device = &means.device.clone();
     let client = means.client.clone();
 
-    // Check whether any work needs to be flushed.
-    let _span = SyncSpan::new("pre setup", device);
-    drop(_span);
+    let _span = SyncSpan::new("render_forward", device);
 
     // Check whether dimesions are valid.
     DimCheck::new()
@@ -119,7 +116,6 @@ fn render_forward(
     );
 
     let device = &means.device.clone();
-    let _span = SyncSpan::new("ProjectSplats", device);
 
     let num_points = means.shape.dims[0];
     let client = &means.client.clone();
@@ -742,7 +738,7 @@ mod tests {
         )
         .reshape([crab_img.height() as usize, crab_img.width() as usize, 3]);
 
-        for path in ["basic_case", "mix_case"] {
+        for path in ["tiny_case", "basic_case", "mix_case"] {
             let mut buffer = Vec::new();
             let _ =
                 File::open(format!("./test_cases/{path}.safetensors"))?.read_to_end(&mut buffer)?;
