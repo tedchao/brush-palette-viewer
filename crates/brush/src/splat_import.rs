@@ -23,7 +23,7 @@ pub(crate) struct GaussianData {
     scale: [f32; 3],
     opacity: f32,
     rotation: [f32; 4],
-    sh_coeffs: [f32; SH_COEFFS_PER_SPLAT],
+    sh_coeffs: Vec<f32>,
 }
 
 fn inv_sigmoid(v: f32) -> f32 {
@@ -45,7 +45,7 @@ impl PropertyAccess for GaussianData {
             scale: [0.0; 3],
             opacity: 0.0,
             rotation: [0.0; 4],
-            sh_coeffs: [0.0; SH_COEFFS_PER_SPLAT],
+            sh_coeffs: vec![0.0, 0.0, 0.0],
         }
     }
 
@@ -68,6 +68,10 @@ impl PropertyAccess for GaussianData {
                 "f_dc_2" => self.sh_coeffs[2] = v,
                 _ if key.starts_with("f_rest_") => {
                     if let Ok(idx) = key["f_rest_".len()..].parse::<u32>() {
+                        let interleaved = to_interleaved_idx(idx as usize);
+                        if interleaved >= self.sh_coeffs.len() {
+                            self.sh_coeffs.resize(interleaved + 1, 0.0);
+                        }
                         self.sh_coeffs[to_interleaved_idx(idx as usize)] = v;
                     }
                 }
