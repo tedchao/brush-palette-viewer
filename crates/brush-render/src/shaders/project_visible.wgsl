@@ -34,15 +34,15 @@ struct ShCoeffs {
     b3_c5: vec3f,
     b3_c6: vec3f,
 
-    b4_c0: vec3f,
-    b4_c1: vec3f,
-    b4_c2: vec3f,
-    b4_c3: vec3f,
-    b4_c4: vec3f,
-    b4_c5: vec3f,
-    b4_c6: vec3f,
-    b4_c7: vec3f,
-    b4_c8: vec3f,
+    // b4_c0: vec3f,
+    // b4_c1: vec3f,
+    // b4_c2: vec3f,
+    // b4_c3: vec3f,
+    // b4_c4: vec3f,
+    // b4_c5: vec3f,
+    // b4_c6: vec3f,
+    // b4_c7: vec3f,
+    // b4_c8: vec3f,
 }
 
 // Evaluate spherical harmonics bases at unit direction for high orders using approach described by
@@ -114,36 +114,37 @@ fn sh_coeffs_to_color(
                 pSH13 * sh.b3_c4 +
                 pSH14 * sh.b3_c5 +
                 pSH15 * sh.b3_c6;
-    
-    if (degree < 4) {
-        return colors;
-    }
 
-    let fTmp0D = z * (-4.683325804901025f * z2 + 2.007139630671868f);
-    let fTmp1C = 3.31161143515146f * z2 - 0.47308734787878f;
-    let fTmp2B = -1.770130769779931f * z;
-    let fTmp3A = 0.6258357354491763f;
-    let fC3 = x * fC2 - y * fS2;
-    let fS3 = x * fS2 + y * fC2;
-    let pSH20 = (1.984313483298443f * z * pSH12 - 1.006230589874905f * pSH6);
-    let pSH21 = fTmp0D * x;
-    let pSH19 = fTmp0D * y;
-    let pSH22 = fTmp1C * fC1;
-    let pSH18 = fTmp1C * fS1;
-    let pSH23 = fTmp2B * fC2;
-    let pSH17 = fTmp2B * fS2;
-    let pSH24 = fTmp3A * fC3;
-    let pSH16 = fTmp3A * fS3;
-    colors += pSH16 * sh.b4_c0 +
-                pSH17 * sh.b4_c1 +
-                pSH18 * sh.b4_c2 +
-                pSH19 * sh.b4_c3 +
-                pSH20 * sh.b4_c4 +
-                pSH21 * sh.b4_c5 +
-                pSH22 * sh.b4_c6 +
-                pSH23 * sh.b4_c7 +
-                pSH24 * sh.b4_c8;
-    return colors;
+    return colors;    
+    // if (degree < 4) {
+    //     return colors;
+    // }
+
+    // let fTmp0D = z * (-4.683325804901025f * z2 + 2.007139630671868f);
+    // let fTmp1C = 3.31161143515146f * z2 - 0.47308734787878f;
+    // let fTmp2B = -1.770130769779931f * z;
+    // let fTmp3A = 0.6258357354491763f;
+    // let fC3 = x * fC2 - y * fS2;
+    // let fS3 = x * fS2 + y * fC2;
+    // let pSH20 = (1.984313483298443f * z * pSH12 - 1.006230589874905f * pSH6);
+    // let pSH21 = fTmp0D * x;
+    // let pSH19 = fTmp0D * y;
+    // let pSH22 = fTmp1C * fC1;
+    // let pSH18 = fTmp1C * fS1;
+    // let pSH23 = fTmp2B * fC2;
+    // let pSH17 = fTmp2B * fS2;
+    // let pSH24 = fTmp3A * fC3;
+    // let pSH16 = fTmp3A * fS3;
+    // colors += pSH16 * sh.b4_c0 +
+    //             pSH17 * sh.b4_c1 +
+    //             pSH18 * sh.b4_c2 +
+    //             pSH19 * sh.b4_c3 +
+    //             pSH20 * sh.b4_c4 +
+    //             pSH21 * sh.b4_c5 +
+    //             pSH22 * sh.b4_c6 +
+    //             pSH23 * sh.b4_c7 +
+    //             pSH24 * sh.b4_c8;
+    // return colors;
 }
 
 fn sigmoid(x: f32) -> f32 {
@@ -214,17 +215,17 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
                 sh.b3_c5 = read_coeffs(&base_id);
                 sh.b3_c6 = read_coeffs(&base_id);
 
-                if sh_degree > 3 {
-                    sh.b4_c0 = read_coeffs(&base_id);
-                    sh.b4_c1 = read_coeffs(&base_id);
-                    sh.b4_c2 = read_coeffs(&base_id);
-                    sh.b4_c3 = read_coeffs(&base_id);
-                    sh.b4_c4 = read_coeffs(&base_id);
-                    sh.b4_c5 = read_coeffs(&base_id);
-                    sh.b4_c6 = read_coeffs(&base_id);
-                    sh.b4_c7 = read_coeffs(&base_id);
-                    sh.b4_c8 = read_coeffs(&base_id);
-                }
+                // if sh_degree > 3 {
+                //     sh.b4_c0 = read_coeffs(&base_id);
+                //     sh.b4_c1 = read_coeffs(&base_id);
+                //     sh.b4_c2 = read_coeffs(&base_id);
+                //     sh.b4_c3 = read_coeffs(&base_id);
+                //     sh.b4_c4 = read_coeffs(&base_id);
+                //     sh.b4_c5 = read_coeffs(&base_id);
+                //     sh.b4_c6 = read_coeffs(&base_id);
+                //     sh.b4_c7 = read_coeffs(&base_id);
+                //     sh.b4_c8 = read_coeffs(&base_id);
+                // }
             }
         }
     }

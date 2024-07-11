@@ -11,12 +11,13 @@ use async_channel::{Receiver, Sender, TryRecvError};
 use brush_render::{camera::Camera, sync_span::SyncSpan};
 use burn::{backend::Autodiff, module::AutodiffModule};
 use burn_wgpu::{JitBackend, RuntimeOptions, WgpuDevice, WgpuRuntime};
-use egui::{pos2, CollapsingHeader, Color32, Rect};
+use egui::{pos2, CollapsingHeader, Color32, Hyperlink, Rect};
 use futures_lite::StreamExt;
-use glam::{Mat4, Quat, Vec2, Vec3};
+use glam::{Quat, Vec2, Vec3};
 
 use rfd::AsyncFileDialog;
 use tracing::info_span;
+use web_time::Instant;
 use wgpu::CommandEncoderDescriptor;
 
 #[cfg(target_arch = "wasm32")]
@@ -51,18 +52,12 @@ pub struct Viewer {
 
 struct SplatView {
     camera: Camera,
-    start_transform: Mat4,
-
     controls: OrbitControls,
     backbuffer: Option<BurnTexture>,
+    last_draw: Instant,
 }
 
-async fn train_loop(
-    config: TrainConfig,
-    device: WgpuDevice,
-    updater: Sender<ViewerMessage>,
-    egui_ctx: egui::Context,
-) {
+async fn train_loop(device: WgpuDevice, updater: Sender<ViewerMessage>, egui_ctx: egui::Context) {
     #[cfg(feature = "rerun")]
     let rec = rerun::RecordingStreamBuilder::new("visualize training")
         .spawn()
@@ -92,15 +87,6 @@ async fn train_loop(
 
         let splat_stream = splat_import::load_splat_from_ply::<Backend>(&file_data, device.clone());
 
-        // let splats =
-        // TODO: Send over the channel? Or whats good here?
-        // let (tx, rx) = single_value_channel::channel();
-        // self.reference_cameras =
-        //     reference_view.and_then(|s| dataset_readers::read_viewpoint_data(s).ok());
-        // if let Some(refs) = self.reference_cameras.as_ref() {
-        //     self.camera = refs[0].clone();
-        // }
-
         let mut splat_stream = std::pin::pin!(splat_stream);
         while let Some(splats) = splat_stream.next().await {
             egui_ctx.request_repaint();
@@ -123,6 +109,12 @@ async fn train_loop(
             }
         }
     } else {
+        let config = TrainConfig::new(
+            LrConfig::new().with_max_lr(2e-5).with_min_lr(1e-5),
+            LrConfig::new().with_max_lr(4e-2).with_min_lr(1e-2),
+            LrConfig::new().with_max_lr(1e-2).with_min_lr(5e-3),
+        );
+
         let cameras = dataset_readers::read_synthetic_nerf_data(&file_data, None).unwrap();
         let scene = scene::Scene::new(cameras);
 
@@ -183,10 +175,8 @@ impl SplatView {
                 let size = ui.available_size();
 
                 // Round to 64 pixels for buffer alignment.
-                let size = glam::uvec2(
-                    ((size.x as u32).div_ceil(64) * 64).max(32),
-                    (size.y as u32).max(32),
-                );
+                let size =
+                    glam::uvec2(((size.x as u32 / 64) * 64).max(32), (size.y as u32).max(32));
 
                 let (rect, response) = ui.allocate_exact_size(
                     egui::Vec2::new(size.x as f32, size.y as f32),
@@ -197,7 +187,9 @@ impl SplatView {
 
                 let (pan, rotate) = if response.dragged_by(egui::PointerButton::Primary) {
                     (Vec2::ZERO, mouse_delta)
-                } else if response.dragged_by(egui::PointerButton::Secondary) {
+                } else if response.dragged_by(egui::PointerButton::Secondary)
+                    || response.dragged_by(egui::PointerButton::Middle)
+                {
                     (mouse_delta, Vec2::ZERO)
                 } else {
                     (Vec2::ZERO, Vec2::ZERO)
@@ -205,27 +197,23 @@ impl SplatView {
 
                 let scrolled = ui.input(|r| r.smooth_scroll_delta).y;
 
+                let cur_time = Instant::now();
+                let delta_time = cur_time - self.last_draw;
+                self.last_draw = cur_time;
+
                 // TODO: Controls can be pretty borked.
                 self.controls.pan_orbit_camera(
-                    pan * 0.5,
-                    rotate * 0.5,
-                    scrolled * 0.02,
+                    &mut self.camera,
+                    pan * 5.0,
+                    rotate * 5.0,
+                    scrolled * 0.01,
                     glam::vec2(rect.size().x, rect.size().y),
+                    delta_time.as_secs_f32(),
                 );
-
-                let controls_transform = glam::Mat4::from_rotation_translation(
-                    self.controls.rotation,
-                    self.controls.position,
-                );
-
-                let total_transform = self.start_transform * controls_transform;
-                let (_, rot, pos) = total_transform.to_scale_rotation_translation();
-                self.camera.position = pos;
-                self.camera.rotation = rot;
 
                 // TODO: For reference cameras just need to match fov?
-                self.camera.fovx = 0.5;
-                self.camera.fovy = 0.5 * (size.y as f32) / (size.x as f32);
+                self.camera.fovx = 0.75;
+                self.camera.fovy = self.camera.fovx * (size.y as f32) / (size.x as f32);
 
                 // If there's actual rendering to do, not just an imgui update.
                 if ctx.has_requested_repaint() {
@@ -296,8 +284,8 @@ impl Viewer {
             splat_view: SplatView {
                 camera: Camera::new(Vec3::ZERO, Quat::IDENTITY, 0.5, 0.5),
                 backbuffer: None,
-                controls: OrbitControls::new(15.0),
-                start_transform: glam::Mat4::IDENTITY,
+                controls: OrbitControls::new(2.0),
+                last_draw: Instant::now(),
             },
             device,
         }
@@ -307,14 +295,8 @@ impl Viewer {
         self.receiver = None; // This drops the receiver, which closes the channel.
     }
 
-    pub fn start_training(&mut self) {
+    pub fn start_data_load(&mut self) {
         <Backend as burn::prelude::Backend>::seed(42);
-
-        let config = TrainConfig::new(
-            LrConfig::new().with_max_lr(2e-5).with_min_lr(5e-6),
-            LrConfig::new().with_max_lr(4e-2).with_min_lr(2e-2),
-            LrConfig::new().with_max_lr(1e-2).with_min_lr(6e-3),
-        );
 
         // create a channel for the train loop.
         let (sender, receiver) = async_channel::bounded(3);
@@ -322,11 +304,21 @@ impl Viewer {
         self.receiver = Some(receiver);
         let ctx = self.ctx.clone();
 
+        // Reset camera & controls.
+        self.splat_view.camera = Camera::new(
+            Vec3::ZERO,
+            Quat::from_rotation_y(std::f32::consts::PI / 2.0)
+                * Quat::from_rotation_x(-std::f32::consts::PI / 8.0),
+            0.5,
+            0.5,
+        );
+        self.splat_view.controls = OrbitControls::new(2.0);
+
         #[cfg(not(target_arch = "wasm32"))]
-        std::thread::spawn(move || pollster::block_on(train_loop(config, device, sender, ctx)));
+        std::thread::spawn(move || pollster::block_on(train_loop(device, sender, ctx)));
 
         #[cfg(target_arch = "wasm32")]
-        spawn_local(train_loop(config, device, sender, ctx));
+        spawn_local(train_loop(device, sender, ctx));
     }
 }
 
@@ -336,12 +328,73 @@ impl eframe::App for Viewer {
 
         egui_extras::install_image_loaders(ctx);
 
-        egui::CentralPanel::default().show(ctx, |ui| {
-            ui.heading("Brush splat viewer");
+        egui::SidePanel::left("Data").show(ctx, |ui| {
+            ui.vertical_centered(|ui| {
+                ui.add_space(15.0);
 
-            if ui.button("Load file").clicked() {
-                self.start_training();
-            }
+                if ui.button("Load file").clicked() {
+                    self.start_data_load();
+                }
+
+                ui.add_space(15.0);
+            });
+
+            ui.label("Select a .ply to visualize, or a .zip with a transforms_train.json and training images. (limited formats are supported currently)");
+
+            ui.add_space(15.0);
+
+            ui.heading("Native app");
+            ui.label("The native app is currently still a good amount faster than the web app. It also includes some more visualizations.");
+            ui.collapsing("Download", |ui| {
+                ui.add(Hyperlink::from_label_and_url("MacOS", "https://google.com").open_in_new_tab(true));
+                ui.add(Hyperlink::from_label_and_url("Windows", "https://google.com").open_in_new_tab(true));
+            });
+
+            ui.heading("Pretrained splats");
+
+            ui.collapsing("Polycam examples", |ui| {
+                ui.label("Examples from poylcam showcase. Nb: Licenses apply, demo only!");
+
+                ui.add(Hyperlink::from_label_and_url("city_sector (250MB)", "https://drive.google.com/file/d/12yoAvwsUh1TNRt4I1rfTxyRp-_6p0x0b/view?usp=sharing").open_in_new_tab(true));
+                ui.add(Hyperlink::from_label_and_url("flowers (120MB)", "https://drive.google.com/file/d/1KD_IP-Qt782guD1PvNATQrJGM0kxIhGa/view?usp=sharing").open_in_new_tab(true));
+                ui.add(Hyperlink::from_label_and_url("fountain (340MB)", "https://drive.google.com/file/d/13mQfEoSNy-hOh5Ir9NuHLgtj6JA6aL4d/view?usp=sharing").open_in_new_tab(true));
+                ui.add(Hyperlink::from_label_and_url("hollywood sign (320MB)", "https://drive.google.com/file/d/1bZfsNe5DVVgq2FM49e7StRKcnKVrvAma/view?usp=sharing").open_in_new_tab(true));                 
+                ui.add(Hyperlink::from_label_and_url("inveraray castle (300MB)", "https://drive.google.com/file/d/1EOir_xBPE9Ns5CToEw_eAINGNHg5mA1F/view?usp=sharing").open_in_new_tab(true));
+                ui.add(Hyperlink::from_label_and_url("lighthouse (70MB)", "https://drive.google.com/file/d/1f_ZCp04wax_aD6M699zg8wlWmiMU2EFQ/view?usp=sharing").open_in_new_tab(true));
+                ui.add(Hyperlink::from_label_and_url("room arch vis (160MB)", "https://drive.google.com/file/d/1wi6B-6fPn2cQuGiucg_AMvVW623-reEF/view?usp=sharing").open_in_new_tab(true));
+                ui.add(Hyperlink::from_label_and_url("small bonsai (135MB)", "https://drive.google.com/file/d/1wXiW9vn32DXG7NP0MsBQP4E8RF4M8nV-/view?usp=sharing").open_in_new_tab(true));
+                ui.add(Hyperlink::from_label_and_url("varenna (200MB)", "https://drive.google.com/file/d/1lvljIKlMjVSRjy4KfPhbRSjN8t6KJYM9/view?usp=sharing").open_in_new_tab(true));
+            });
+
+            ui.collapsing("Mipnerf scenes (warning: big)", |ui| {
+                ui.label("Reference mipnerf ply files.");
+
+                ui.add(Hyperlink::from_label_and_url("bicycle (1.4GB)", "https://drive.google.com/file/d/1kHkNqGFLLutRt3R7k2tGkjGwfXnPLnCi/view?usp=sharing").open_in_new_tab(true));
+                ui.add(Hyperlink::from_label_and_url("bonsai (300MB)", "https://drive.google.com/file/d/1jf4bjaeTGeru1PQS_Ue716uc_edRbAPd/view?usp=sharing").open_in_new_tab(true));
+                ui.add(Hyperlink::from_label_and_url("counter (290MB)", "https://drive.google.com/file/d/1O89SIHcWdmrWi75Cf6tDrv2Dl6yGndcz/view?usp=sharing").open_in_new_tab(true));
+                ui.add(Hyperlink::from_label_and_url("drjohnson (800MB)", "https://drive.google.com/file/d/13FEQ7UZHYwymBTwxzpPeJob4cr8VxUTV/view?usp=sharing").open_in_new_tab(true));
+                ui.add(Hyperlink::from_label_and_url("garden (1.3GB)", "https://drive.google.com/file/d/13FEQ7UZHYwymBTwxzpPeJob4cr8VxUTV/view?usp=sharing").open_in_new_tab(true));
+                ui.add(Hyperlink::from_label_and_url("kitchen (440MB)", "https://drive.google.com/file/d/13FEQ7UZHYwymBTwxzpPeJob4cr8VxUTV/view?usp=sharing").open_in_new_tab(true));
+                ui.add(Hyperlink::from_label_and_url("playroom (600MB)", "https://drive.google.com/file/d/13FEQ7UZHYwymBTwxzpPeJob4cr8VxUTV/view?usp=sharing").open_in_new_tab(true));
+                ui.add(Hyperlink::from_label_and_url("room (375MB)", "https://drive.google.com/file/d/13FEQ7UZHYwymBTwxzpPeJob4cr8VxUTV/view?usp=sharing").open_in_new_tab(true));
+                ui.add(Hyperlink::from_label_and_url("stump (1.15GB)", "https://drive.google.com/file/d/13FEQ7UZHYwymBTwxzpPeJob4cr8VxUTV/view?usp=sharing").open_in_new_tab(true));
+            });
+
+            ui.heading("Training Data");
+
+            ui.collapsing("Train blender scenes", |ui| {
+                ui.add(Hyperlink::from_label_and_url("Chair", "https://drive.google.com/file/d/13Q6s0agTW1_a7cFGcSmll1-Aikq_OPKe/view?usp=sharing").open_in_new_tab(true));
+                ui.add(Hyperlink::from_label_and_url("Drums", "https://drive.google.com/file/d/1j8TuMiGb84YtlrZ0gnkMNOzUaIJqz0SY/view?usp=sharing").open_in_new_tab(true));
+                ui.add(Hyperlink::from_label_and_url("Ficus", "https://drive.google.com/file/d/1VzT5SDiBefn9fvRw7LeYjUfDBZHCyzQ4/view?usp=sharing").open_in_new_tab(true));
+                ui.add(Hyperlink::from_label_and_url("Hotdog", "https://drive.google.com/file/d/1hOjnCV8XdXClV2eC6c9H6PIQTUYv8zys/view?usp=sharing").open_in_new_tab(true));
+                ui.add(Hyperlink::from_label_and_url("Lego", "https://drive.google.com/file/d/1VxsNFTHhgxK9iCOgkuKxakBXJfgHUOQk/view?usp=sharing").open_in_new_tab(true));
+                ui.add(Hyperlink::from_label_and_url("Materials", "https://drive.google.com/file/d/1L7J5PNBcLcXde6CqzzkaNxHt7JtG2GIW/view?usp=sharing").open_in_new_tab(true));
+                ui.add(Hyperlink::from_label_and_url("Mic", "https://drive.google.com/file/d/1SA0NNi0HsUHE6FgAP8XpD23N1xftsrr-/view?usp=sharing").open_in_new_tab(true));
+                ui.add(Hyperlink::from_label_and_url("Ship", "https://drive.google.com/file/d/1rzL0KrWuLFebT1hLLm4uYnrNXNTkfjxM/view?usp=sharing").open_in_new_tab(true));
+            });
+        });
+
+        egui::CentralPanel::default().show(ctx, |ui| {
             if let Some(rx) = self.receiver.as_mut() {
                 match rx.try_recv() {
                     Ok(message) => self.last_message = Some(message),
@@ -360,21 +413,33 @@ impl eframe::App for Viewer {
                         splats,
                         total_count,
                     } => {
-                        if splats.num_splats() < *total_count {
-                            ui.label(format!(
-                                "Loading... ({}/{total_count} splats)",
-                                splats.num_splats()
-                            ));
-                        }
+                        ui.horizontal(|ui| {
+                            ui.label(format!("{} splats", splats.num_splats()));
+
+                            if splats.num_splats() < *total_count {
+                                ui.label(format!(
+                                    "Loading... ({}%)",
+                                    splats.num_splats() as f32 / *total_count as f32 * 100.0
+                                ));
+                            }
+                        });
                         self.splat_view.draw_splats(splats, ui, ctx, frame);
                     }
                     ViewerMessage::TrainStep { splats, iter } => {
-                        ui.label(format!("Train step {iter}"));
+                        ui.horizontal(|ui| {
+                            ui.label(format!("{} splats", splats.num_splats()));
+                            ui.label(format!("Train step {iter}"));
+                        });
+
                         self.splat_view.draw_splats(splats, ui, ctx, frame);
                     }
                 }
             }
         });
+
+        if self.splat_view.controls.is_animating() {
+            ctx.request_repaint();
+        }
     }
 
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
