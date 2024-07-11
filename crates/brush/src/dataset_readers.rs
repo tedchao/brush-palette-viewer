@@ -85,6 +85,8 @@ pub fn read_synthetic_nerf_data(
         transform.y_axis *= -1.0;
         transform.z_axis *= -1.0;
 
+        transform = glam::Mat4::from_rotation_x(std::f32::consts::PI / 2.0) * transform;
+
         let (_, rotation, translation) = transform.to_scale_rotation_translation();
 
         let image_file_path = frame
