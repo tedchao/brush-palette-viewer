@@ -31,7 +31,7 @@ pub(crate) struct TrainConfig {
     pub lr_opac: LrConfig,
     pub lr_rest: LrConfig,
 
-    #[config(default = 10000)]
+    #[config(default = 5000)]
     pub(crate) schedule_steps: u32,
 
     #[config(default = 42)]
@@ -66,7 +66,7 @@ pub(crate) struct TrainConfig {
     #[config(default = 250)]
     pub visualize_splats_every: u32,
 
-    #[config(default = 5000)]
+    #[config(default = 4000)]
     pub init_splat_count: usize,
 }
 

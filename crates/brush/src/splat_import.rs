@@ -15,14 +15,12 @@ use tracing::info_span;
 use crate::gaussian_splats::Splats;
 use anyhow::{Context, Result};
 
-const SH_COEFFS_PER_CHANNEL: usize = num_sh_coeffs(3);
-const SH_COEFFS_PER_SPLAT: usize = SH_COEFFS_PER_CHANNEL * 3;
-
 pub(crate) struct GaussianData {
     means: [f32; 3],
     scale: [f32; 3],
     opacity: f32,
     rotation: [f32; 4],
+    sh_dc: [f32; 3],
     sh_coeffs: Vec<f32>,
 }
 
@@ -32,12 +30,6 @@ fn inv_sigmoid(v: f32) -> f32 {
 
 const SH_C0: f32 = 0.28209479;
 
-fn to_interleaved_idx(val: usize) -> usize {
-    let channel = val / SH_COEFFS_PER_CHANNEL;
-    let coeff = (val % (SH_COEFFS_PER_CHANNEL - 1)) + 1;
-    coeff * 3 + channel
-}
-
 impl PropertyAccess for GaussianData {
     fn new() -> Self {
         GaussianData {
@@ -45,6 +37,7 @@ impl PropertyAccess for GaussianData {
             scale: [0.0; 3],
             opacity: 0.0,
             rotation: [0.0; 4],
+            sh_dc: [0.0, 0.0, 0.0],
             sh_coeffs: vec![0.0, 0.0, 0.0],
         }
     }
@@ -63,16 +56,15 @@ impl PropertyAccess for GaussianData {
                 "rot_1" => self.rotation[1] = v,
                 "rot_2" => self.rotation[2] = v,
                 "rot_3" => self.rotation[3] = v,
-                "f_dc_0" => self.sh_coeffs[0] = v,
-                "f_dc_1" => self.sh_coeffs[1] = v,
-                "f_dc_2" => self.sh_coeffs[2] = v,
+                "f_dc_0" => self.sh_dc[0] = v,
+                "f_dc_1" => self.sh_dc[1] = v,
+                "f_dc_2" => self.sh_dc[2] = v,
                 _ if key.starts_with("f_rest_") => {
                     if let Ok(idx) = key["f_rest_".len()..].parse::<u32>() {
-                        let interleaved = to_interleaved_idx(idx as usize);
-                        if interleaved >= self.sh_coeffs.len() {
-                            self.sh_coeffs.resize(interleaved + 1, 0.0);
+                        if idx >= self.sh_coeffs.len() as u32 {
+                            self.sh_coeffs.resize(idx as usize + 1, 0.0);
                         }
-                        self.sh_coeffs[to_interleaved_idx(idx as usize)] = v;
+                        self.sh_coeffs[idx as usize] = v;
                     }
                 }
                 _ => (),
@@ -129,6 +121,23 @@ pub fn ply_count(ply_data: &[u8]) -> Result<usize> {
         .context("Invalid ply file")
 }
 
+fn interleave_coeffs(sh_dc: [f32; 3], sh_rest: &[f32]) -> Vec<f32> {
+    let channels = 3;
+    let coeffs_per_channel = sh_rest.len() / channels;
+    let mut result = Vec::with_capacity(sh_rest.len() + 3);
+    result.extend(sh_dc);
+
+    for i in 0..coeffs_per_channel {
+        for j in 0..channels {
+            let index = j * coeffs_per_channel + i;
+            if index < sh_rest.len() {
+                result.push(sh_rest[index]);
+            }
+        }
+    }
+    result
+}
+
 // TODO: This is better modelled by an async stream I think.
 pub fn load_splat_from_ply<B: Backend>(
     ply_data: &[u8],
@@ -141,12 +150,6 @@ pub fn load_splat_from_ply<B: Backend>(
 
     let update_every = 50000;
 
-    let mut means = Vec::with_capacity(update_every * 3);
-    let mut sh_coeffs = Vec::with_capacity(update_every * SH_COEFFS_PER_SPLAT);
-    let mut rotation = Vec::with_capacity(update_every * 4);
-    let mut opacity = Vec::with_capacity(update_every);
-    let mut scales = Vec::with_capacity(update_every * 3);
-
     let _span = info_span!("Read splats").entered();
 
     let gaussian_parser = Parser::<GaussianData>::new();
@@ -156,11 +159,35 @@ pub fn load_splat_from_ply<B: Backend>(
 
         for element in &header.elements {
             if element.name == "vertex" {
-                let min_props = ["x", "y", "z", "scale_0", "scale_1", "scale_2", "opacity", "rot_0", "rot_1", "rot_2", "rot_3"];
+                let min_props = [
+                    "x", "y", "z", "scale_0", "scale_1", "scale_2", "opacity", "rot_0", "rot_1",
+                    "rot_2", "rot_3", "f_dc_0", "f_dc_1", "f_dc_2",
+                ];
 
-                if !min_props.iter().all(|p| element.properties.iter().any(|x| &x.name == p)) {
+                if !min_props
+                    .iter()
+                    .all(|p| element.properties.iter().any(|x| &x.name == p))
+                {
                     Err(anyhow::anyhow!("Invalid splat ply. Missing properties!"))?
                 }
+
+                let sh_coeffs_per_channel = (1 + element
+                    .properties
+                    .iter()
+                    .filter_map(|x| {
+                        x.name
+                            .strip_prefix("f_rest_")
+                            .and_then(|x| x.parse::<u32>().ok())
+                    })
+                    .max()
+                    .unwrap_or(0)
+                    / 3) as usize;
+
+                let mut means = Vec::with_capacity(update_every * 3);
+                let mut sh_coeffs = Vec::with_capacity(update_every * sh_coeffs_per_channel * 3);
+                let mut rotation = Vec::with_capacity(update_every * 4);
+                let mut opacity = Vec::with_capacity(update_every);
+                let mut scales = Vec::with_capacity(update_every * 3);
 
                 for i in 0..element.count {
                     let splat = match header.encoding {
@@ -177,8 +204,12 @@ pub fn load_splat_from_ply<B: Backend>(
                         }
                     };
 
+                    let sh_coeffs_interleaved = interleave_coeffs(splat.sh_dc, &splat.sh_coeffs);
+                    // Limit to 1 SH channels for now.
+                    let sh_coeffs_interleaved = &sh_coeffs_interleaved[0..num_sh_coeffs(2) * 3];
+
                     means.extend(splat.means);
-                    sh_coeffs.extend(splat.sh_coeffs);
+                    sh_coeffs.extend(sh_coeffs_interleaved);
                     rotation.extend(splat.rotation);
                     opacity.push(splat.opacity);
                     scales.extend(splat.scale);
@@ -203,25 +234,25 @@ pub fn load_splat_from_ply<B: Backend>(
                         yield splats.clone().context("Failed to update splats")?;
                     }
                 }
+
+                update_splats(
+                    &mut splats,
+                    means,
+                    sh_coeffs,
+                    rotation,
+                    opacity,
+                    scales,
+                    &device,
+                );
+
+                if let Some(splats) = splats.as_ref() {
+                    if splats.num_splats() == 0 {
+                        Err(anyhow::anyhow!("No splats found"))?;
+                    }
+                }
+
+                yield splats.clone().context("Invalid ply file.")?;
             }
         }
-
-        update_splats(
-            &mut splats,
-            means,
-            sh_coeffs,
-            rotation,
-            opacity,
-            scales,
-            &device,
-        );
-
-        if let Some(splats) = splats.as_ref() {
-            if splats.num_splats() == 0 {
-                Err(anyhow::anyhow!("No splats found"))?;
-            }
-        }
-
-        yield splats.clone().context("Invalid ply file.")?;
     }
 }
