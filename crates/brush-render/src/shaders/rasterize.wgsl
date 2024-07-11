@@ -38,12 +38,6 @@ fn main(
     // keep not rasterizing threads around for reading data
     let inside = global_id.x < img_size.x && global_id.y < img_size.y;
 
-    var done = false;
-    if !inside {
-        // this pixel is done
-        done = true;
-    }
-
     // have all threads in tile process the same gaussians in batches
     // first collect gaussians between range.x and range.y in batches
     if local_idx == 0u {
@@ -59,6 +53,8 @@ fn main(
     var pix_out = vec3f(0.0);
     var final_idx = range.x;
 
+    var done = !inside;
+
     // collect and process batches of gaussians
     // each thread loads one gaussian at a time before rasterizing its
     // designated pixel
@@ -71,8 +67,7 @@ fn main(
         let isect_id = batch_start + local_idx;
 
         if isect_id <= range.y {
-            let compact_gid = compact_gid_from_isect[isect_id];
-            local_batch[local_idx] = projected_splats[compact_gid];
+            local_batch[local_idx] = projected_splats[compact_gid_from_isect[isect_id]];
         }
         workgroupBarrier();
 
