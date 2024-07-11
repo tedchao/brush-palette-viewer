@@ -201,6 +201,10 @@ impl SplatView {
                 let delta_time = cur_time - self.last_draw;
                 self.last_draw = cur_time;
 
+                let cur_time = Instant::now();
+                let delta_time = cur_time - self.last_draw;
+                self.last_draw = cur_time;
+
                 // TODO: Controls can be pretty borked.
                 self.controls.pan_orbit_camera(
                     &mut self.camera,
