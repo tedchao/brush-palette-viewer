@@ -98,9 +98,9 @@ where
     xy_grad_norm_accum: Tensor<B, 1>,
 }
 
-async fn yield_macro<B: Backend>(device: &B::Device) {
-    // Whenever yielding, flush GPU work so wwhile CPU is idle
-    // GPU can do work.
+pub(crate) async fn yield_macro<B: Backend>(device: &B::Device) {
+    // Whenever yielding, flush GPU work so while CPU is idle
+    // the GPU can do some work.
     B::sync(device, burn::tensor::backend::SyncType::Flush);
 
     #[cfg(target_arch = "wasm32")]
@@ -380,10 +380,9 @@ where
         batch: SceneBatch<B>,
         splats: Splats<B>,
         #[cfg(feature = "rerun")] rec: &rerun::RecordingStream,
-    ) -> Result<Splats<B>, anyhow::Error> {
-        let _span = info_span!("Train step").entered();
-
+    ) -> Result<(Splats<B>, Tensor<B, 1>), anyhow::Error> {
         let device = &splats.means.device();
+        let _span = info_span!("Train step").entered();
 
         let background_color = if self.config.random_bck_color {
             glam::vec3(rand::random(), rand::random(), rand::random())
@@ -391,61 +390,59 @@ where
             glam::Vec3::ZERO
         };
 
-        let mut loss = Tensor::zeros([1], device);
-
         let [batch_size, img_h, img_w, _] = batch.gt_image.dims();
 
-        let mut renders = vec![];
-        let mut auxes = vec![];
+        let loss = {
+            let mut renders = vec![];
+            let mut auxes = vec![];
 
-        for i in 0..batch.cameras.len() {
-            let camera = &batch.cameras[i];
+            for i in 0..batch.cameras.len() {
+                let camera = &batch.cameras[i];
 
-            let (pred_image, aux) = splats.render(
-                camera,
-                glam::uvec2(img_w as u32, img_h as u32),
-                background_color,
-                false,
+                let (pred_image, aux) = splats.render(
+                    camera,
+                    glam::uvec2(img_w as u32, img_h as u32),
+                    background_color,
+                    false,
+                );
+
+                yield_macro::<B>(device).await;
+
+                renders.push(pred_image);
+                auxes.push(aux);
+            }
+
+            let pred_images = Tensor::stack(renders, 0);
+
+            let _span = SyncSpan::<B>::new("Calculate losses", device);
+            // There might be some marginal benefit to caching the "loss objects". I wish Burn had a more
+            // functional style for this.
+            let huber = HuberLossConfig::new(0.05).init();
+            let mut loss = huber.forward(
+                pred_images.clone(),
+                batch.gt_image.clone(),
+                burn::nn::loss::Reduction::Mean,
             );
 
-            yield_macro::<B>(device).await;
-
-            renders.push(pred_image);
-            auxes.push(aux);
-        }
-
-        let pred_images = Tensor::stack(renders, 0);
-
-        let calc_losses = SyncSpan::<B>::new("Calculate losses", device);
-
-        // There might be some marginal benefit to caching the "loss objects". I wish Burn had a more
-        // functional style for this.
-        let huber = HuberLossConfig::new(0.05).init();
-        let l1_loss = huber.forward(
-            pred_images.clone(),
-            batch.gt_image.clone(),
-            burn::nn::loss::Reduction::Mean,
-        );
-        loss = loss + l1_loss;
-
-        if self.config.ssim_weight > 0.0 {
-            let pred_rgb = pred_images
-                .clone()
-                .slice([0..batch_size, 0..img_h, 0..img_w, 0..3]);
-            let gt_rgb = batch
-                .gt_image
-                .clone()
-                .slice([0..batch_size, 0..img_h, 0..img_w, 0..3]);
-            let ssim_loss = crate::ssim::ssim(
-                pred_rgb.clone().permute([0, 3, 1, 2]),
-                gt_rgb.clone().permute([0, 3, 1, 2]),
-                11,
-            );
-            loss = loss * (1.0 - self.config.ssim_weight)
-                + (-ssim_loss + 1.0) * self.config.ssim_weight;
-        }
-        drop(calc_losses);
-        yield_macro::<B>(device).await;
+            if self.config.ssim_weight > 0.0 {
+                let pred_rgb = pred_images
+                    .clone()
+                    .slice([0..batch_size, 0..img_h, 0..img_w, 0..3]);
+                let gt_rgb =
+                    batch
+                        .gt_image
+                        .clone()
+                        .slice([0..batch_size, 0..img_h, 0..img_w, 0..3]);
+                let ssim_loss = crate::ssim::ssim(
+                    pred_rgb.clone().permute([0, 3, 1, 2]),
+                    gt_rgb.clone().permute([0, 3, 1, 2]),
+                    11,
+                );
+                loss = loss * (1.0 - self.config.ssim_weight)
+                    + (-ssim_loss + 1.0) * self.config.ssim_weight;
+            }
+            loss
+        };
 
         let backward_pass = SyncSpan::<B>::new("Backward pass", device);
         let mut grads = loss.backward();
@@ -606,7 +603,8 @@ where
         }
 
         self.iter += 1;
-        Ok(splats)
+
+        Ok((splats, loss))
     }
 
     #[cfg(feature = "rerun")]

@@ -9,7 +9,7 @@ use crate::{
 };
 use async_channel::{Receiver, Sender, TryRecvError};
 use brush_render::{camera::Camera, sync_span::SyncSpan};
-use burn::{backend::Autodiff, module::AutodiffModule};
+use burn::{backend::Autodiff, module::AutodiffModule, tensor::ElementConversion};
 use burn_wgpu::{JitBackend, RuntimeOptions, WgpuDevice, WgpuRuntime};
 use egui::{pos2, CollapsingHeader, Color32, Hyperlink, Rect};
 use futures_lite::StreamExt;
@@ -34,6 +34,7 @@ enum ViewerMessage {
     },
     TrainStep {
         splats: Splats<Backend>,
+        loss: f32,
         iter: u32,
     },
 }
@@ -48,6 +49,10 @@ pub struct Viewer {
     device: WgpuDevice,
 
     splat_view: SplatView,
+
+    train_iter_per_s: f32,
+    last_train_step: (Instant, u32),
+    train_pause: bool,
 }
 
 struct SplatView {
@@ -134,7 +139,7 @@ async fn train_loop(device: WgpuDevice, updater: Sender<ViewerMessage>, egui_ctx
                 dataloader.next()
             };
 
-            splats = trainer
+            let (new_splats, loss) = trainer
                 .step(
                     batch,
                     splats,
@@ -143,13 +148,16 @@ async fn train_loop(device: WgpuDevice, updater: Sender<ViewerMessage>, egui_ctx
                 )
                 .await
                 .unwrap();
+            splats = new_splats;
 
-            if trainer.iter % 5 == 0 {
+            if trainer.iter % 2 == 0 {
                 let _span = info_span!("Send batch").entered();
 
                 egui_ctx.request_repaint();
+
                 let msg = ViewerMessage::TrainStep {
                     splats: splats.valid(),
+                    loss: loss.into_scalar_async().await.elem::<f32>(),
                     iter: trainer.iter,
                 };
 
@@ -196,11 +204,6 @@ impl SplatView {
                 };
 
                 let scrolled = ui.input(|r| r.smooth_scroll_delta).y;
-
-                let cur_time = Instant::now();
-                let delta_time = cur_time - self.last_draw;
-                self.last_draw = cur_time;
-
                 let cur_time = Instant::now();
                 let delta_time = cur_time - self.last_draw;
                 self.last_draw = cur_time;
@@ -288,9 +291,12 @@ impl Viewer {
             splat_view: SplatView {
                 camera: Camera::new(Vec3::ZERO, Quat::IDENTITY, 0.5, 0.5),
                 backbuffer: None,
-                controls: OrbitControls::new(2.0),
+                controls: OrbitControls::new(3.0),
                 last_draw: Instant::now(),
             },
+            train_pause: false,
+            train_iter_per_s: 0.0,
+            last_train_step: (Instant::now(), 0),
             device,
         }
     }
@@ -317,6 +323,7 @@ impl Viewer {
             0.5,
         );
         self.splat_view.controls = OrbitControls::new(2.0);
+        self.train_pause = false;
 
         #[cfg(not(target_arch = "wasm32"))]
         std::thread::spawn(move || pollster::block_on(train_loop(device, sender, ctx)));
@@ -400,10 +407,20 @@ impl eframe::App for Viewer {
 
         egui::CentralPanel::default().show(ctx, |ui| {
             if let Some(rx) = self.receiver.as_mut() {
-                match rx.try_recv() {
-                    Ok(message) => self.last_message = Some(message),
-                    Err(TryRecvError::Empty) => (), // nothing to do.
-                    Err(TryRecvError::Closed) => self.receiver = None, // channel closed.
+                if !self.train_pause {
+                    match rx.try_recv() {
+                        Ok(message) => {
+                            if let ViewerMessage::TrainStep { iter, .. } = &message {
+                                self.train_iter_per_s = (iter - self.last_train_step.1) as f32
+                                    / (Instant::now() - self.last_train_step.0).as_secs_f32();
+                                self.last_train_step = (Instant::now(), *iter);
+                            };
+
+                            self.last_message = Some(message)
+                        }
+                        Err(TryRecvError::Empty) => (), // nothing to do.
+                        Err(TryRecvError::Closed) => self.receiver = None, // channel closed.
+                    }
                 }
             }
 
@@ -429,15 +446,25 @@ impl eframe::App for Viewer {
                         });
                         self.splat_view.draw_splats(splats, ui, ctx, frame);
                     }
-                    ViewerMessage::TrainStep { splats, iter } => {
+                    ViewerMessage::TrainStep { splats, loss, iter } => {
                         ui.horizontal(|ui| {
                             ui.label(format!("{} splats", splats.num_splats()));
-                            ui.label(format!("Train step {iter}"));
+                            ui.label(format!(
+                                "Train step {iter}, {:.1} steps/s",
+                                self.train_iter_per_s
+                            ));
+
+                            ui.label(format!("loss: {loss:.3e}"));
+
+                            let paused = self.train_pause;
+                            ui.toggle_value(&mut self.train_pause, if paused { "⏵" } else { "⏸" });
                         });
 
                         self.splat_view.draw_splats(splats, ui, ctx, frame);
                     }
                 }
+            } else if self.receiver.is_some() {
+                ui.label("Loading...");
             }
         });
 
