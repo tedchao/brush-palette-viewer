@@ -12,9 +12,8 @@
     @group(0) @binding(5) var<storage, read_write> final_index : array<u32>;
 #endif
 
-var<workgroup> local_batch: array<helpers::ProjectedSplat, helpers::TILE_SIZE>;
-
-var<workgroup> tile_bins_wg: vec2u;
+// var<workgroup> local_batch: array<helpers::ProjectedSplat, helpers::TILE_SIZE>;
+// var<workgroup> tile_bins_wg: vec2u;
 
 // kernel function for rasterizing each tile
 // each thread treats a single pixel
@@ -40,10 +39,11 @@ fn main(
 
     // have all threads in tile process the same gaussians in batches
     // first collect gaussians between range.x and range.y in batches
-    if local_idx == 0u {
-        tile_bins_wg = tile_bins[tile_id];
-    }
-    let range = workgroupUniformLoad(&tile_bins_wg);
+    // if local_idx == 0u {
+    //     tile_bins_wg = tile_bins[tile_id];
+    // }
+    let range = tile_bins[tile_id];
+    // let range = workgroupUniformLoad(&tile_bins_wg);
     // let range = tile_bins[tile_id];
 
     let num_batches = helpers::ceil_div(range.y - range.x, helpers::TILE_SIZE);
@@ -59,23 +59,24 @@ fn main(
     // each thread loads one gaussian at a time before rasterizing its
     // designated pixel
     for (var b = 0u; b < num_batches; b++) {
-        workgroupBarrier();
-
         // each thread fetch 1 gaussian from front to back
         // index of gaussian to load
         let batch_start = range.x + b * helpers::TILE_SIZE;
-        let isect_id = batch_start + local_idx;
+        // let isect_id = batch_start + local_idx;
 
-        if isect_id <= range.y {
-            local_batch[local_idx] = projected_splats[compact_gid_from_isect[isect_id]];
-        }
-        workgroupBarrier();
+        // workgroupBarrier();
+        // if isect_id <= range.y {
+        //     local_batch[local_idx] = projected_splats[compact_gid_from_isect[isect_id]];
+        // }
+        // workgroupBarrier();
 
         // process gaussians in the current batch for this pixel
         let remaining = min(helpers::TILE_SIZE, range.y - batch_start);
     
         for (var t = 0u; t < remaining && !done; t++) {
-            let projected = local_batch[t];
+            let isect_id = batch_start + t;
+            let projected =  projected_splats[compact_gid_from_isect[isect_id]];
+            
             let xy = vec2f(projected.x, projected.y);
             let conic = vec3f(projected.conic_x, projected.conic_y, projected.conic_z);
             let color = vec4f(projected.r, projected.g, projected.b, projected.a);

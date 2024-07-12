@@ -17,7 +17,7 @@
 
 @group(0) @binding(9) var<storage, read_write> hit_ids: array<atomic<u32>>;
 
-var<workgroup> local_batch: array<helpers::ProjectedSplat, helpers::TILE_SIZE>;
+// var<workgroup> local_batch: array<helpers::ProjectedSplat, helpers::TILE_SIZE>;
 
 var<workgroup> v_conic_local: array<vec3f, helpers::TILE_SIZE>;
 var<workgroup> v_xy_local: array<vec2f, helpers::TILE_SIZE>;
@@ -79,22 +79,21 @@ fn main(
     // each thread loads one gaussian at a time before rasterizing its
     // designated pixel
     for (var b = 0u; b < num_batches; b++) {
-        // resync all threads before beginning next batch
-        workgroupBarrier();
-        
         // each thread fetch 1 gaussian from back to front
         // 0 index will be furthest back in batch
         // index of gaussian to load
         let batch_end  = range.y - 1u - b * helpers::TILE_SIZE;
-        let isect_id = batch_end - local_idx;
+        // let isect_id = batch_end - local_idx;
+        // // resync all threads before beginning next batch
+        // workgroupBarrier();
 
-        if isect_id >= range.x {
-            let compact_gid = compact_gid_from_isect[isect_id];
-            local_batch[local_idx] = projected_splats[compact_gid];
-        }
+        // if isect_id >= range.x {
+        //     let compact_gid = ;
+        //     local_batch[local_idx] = projected_splats[compact_gid_from_isect[isect_id]];
+        // }
 
-        // wait for other threads to collect the gaussians in batch
-        workgroupBarrier();
+        // // wait for other threads to collect the gaussians in batch
+        // workgroupBarrier();
 
         // process gaussians in the current batch for this pixel
         let remaining = min(helpers::TILE_SIZE, batch_end + 1u - range.x);
@@ -109,7 +108,8 @@ fn main(
             let isect_id = batch_end - t;
 
             if inside && isect_id >= range.x && isect_id <= bin_final {
-                let projected = local_batch[t];
+                let isect_id = batch_end - t;
+                let projected = projected_splats[compact_gid_from_isect[isect_id]];
                 let xy = vec2f(projected.x, projected.y);
                 let conic = vec3f(projected.conic_x, projected.conic_y, projected.conic_z);
                 let color = vec4f(projected.r, projected.g, projected.b, projected.a);
