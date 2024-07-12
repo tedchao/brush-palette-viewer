@@ -3,5 +3,3 @@
 target = "index.html"
 # The output dir for all final assets.
 dist = "trunk_dist"
-# Allow disabling sub-resource integrity (SRI)
-no_sri = true
