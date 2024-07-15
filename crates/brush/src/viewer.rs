@@ -149,6 +149,7 @@ async fn train_loop(device: WgpuDevice, updater: Sender<ViewerMessage>, egui_ctx
                 .await
                 .unwrap();
             splats = new_splats;
+            let _ = train::yield_macro::<Backend>(&device).await;
 
             if trainer.iter % 4 == 0 {
                 let _span = info_span!("Send batch").entered();
