@@ -7,7 +7,7 @@ use crate::{
     splat_import,
     train::{self, LrConfig, SplatTrainer, TrainConfig},
 };
-use async_channel::{Receiver, Sender, TryRecvError};
+use async_channel::{Receiver, Sender, TryRecvError, TrySendError};
 use brush_render::{camera::Camera, sync_span::SyncSpan};
 use burn::{backend::Autodiff, module::AutodiffModule, tensor::ElementConversion};
 use burn_wgpu::{JitBackend, RuntimeOptions, WgpuDevice, WgpuRuntime};
@@ -155,16 +155,18 @@ async fn train_loop(device: WgpuDevice, updater: Sender<ViewerMessage>, egui_ctx
 
                 let _ = train::yield_macro::<Backend>(&device).await;
 
-                egui_ctx.request_repaint();
-
                 let msg = ViewerMessage::TrainStep {
                     splats: splats.valid(),
                     loss: loss.into_scalar_async().await.elem::<f32>(),
                     iter: trainer.iter,
                 };
 
-                if updater.send(msg).await.is_err() {
-                    break; // channel closed, bail.
+                match updater.try_send(msg) {
+                    Ok(_) => (),
+                    Err(TrySendError::Full(_)) => (),
+                    Err(TrySendError::Closed(_)) => {
+                        break; // channel closed, bail.
+                    }
                 }
             }
         }
@@ -409,6 +411,9 @@ impl eframe::App for Viewer {
 
         egui::CentralPanel::default().show(ctx, |ui| {
             if let Some(rx) = self.receiver.as_mut() {
+                // Always animate at at least 20FPS while receiving messages.
+                ctx.request_repaint_after_secs(0.05);
+
                 if !self.train_pause {
                     match rx.try_recv() {
                         Ok(message) => {

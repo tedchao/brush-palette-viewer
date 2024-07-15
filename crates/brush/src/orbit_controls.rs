@@ -71,6 +71,6 @@ impl OrbitControls {
     }
 
     pub fn is_animating(&self) -> bool {
-        self.pan_momentum.length_squared() > 0.0 || self.rotate_momentum.length_squared() > 0.0
+        self.pan_momentum.length_squared() > 1e-1 || self.rotate_momentum.length_squared() > 1e-1
     }
 }
