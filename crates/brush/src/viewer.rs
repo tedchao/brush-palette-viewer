@@ -361,8 +361,8 @@ impl eframe::App for Viewer {
             ui.heading("Native app");
             ui.label("The native app is currently still a good amount faster than the web app. It also includes some more visualizations.");
             ui.collapsing("Download", |ui| {
-                ui.add(Hyperlink::from_label_and_url("MacOS", "https://google.com").open_in_new_tab(true));
-                ui.add(Hyperlink::from_label_and_url("Windows", "https://google.com").open_in_new_tab(true));
+                ui.add(Hyperlink::from_label_and_url("MacOS", "https://drive.google.com/file/d/112ZW-lGmVjh-quTMC0a9dahOQTweWopl/view?usp=sharing").open_in_new_tab(true));
+                ui.add(Hyperlink::from_label_and_url("Windows", "https://drive.google.com/file/d/1hgHxM5Hprny-bhV1-329SdKYqkAY9dUX/view?usp=sharing").open_in_new_tab(true));
             });
 
             ui.heading("Pretrained splats");
