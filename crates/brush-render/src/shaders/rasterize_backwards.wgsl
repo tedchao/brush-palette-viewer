@@ -17,9 +17,12 @@
 
 @group(0) @binding(9) var<storage, read_write> hit_ids: array<atomic<u32>>;
 
-var<workgroup> v_conic_local: array<vec3f, helpers::TILE_SIZE>;
-var<workgroup> v_xy_local: array<vec2f, helpers::TILE_SIZE>;
-var<workgroup> v_colors_local: array<vec4f, helpers::TILE_SIZE>;
+
+const GRAD_MEM_COUNT = helpers::TILE_SIZE / 2;
+
+var<workgroup> v_conic_local: array<vec3f, GRAD_MEM_COUNT>;
+var<workgroup> v_xy_local: array<vec2f, GRAD_MEM_COUNT>;
+var<workgroup> v_colors_local: array<vec4f, GRAD_MEM_COUNT>;
 
 var<workgroup> tile_bins_wg: vec2u;
 
@@ -75,13 +78,11 @@ fn main(
 
 
     for (var t = 0u; t < range.y - range.x; t++) {
-        workgroupBarrier();
-
-        v_xy_local[local_idx] = vec2f(0.0);
-        v_conic_local[local_idx] = vec3f(0.0);
-        v_colors_local[local_idx] = vec4f(0.0);
-
         let isect_id = range.y - 1u - t;
+
+        var v_xy = vec2f(0.0);
+        var v_conic = vec3f(0.0);
+        var v_colors = vec4f(0.0);
 
         if inside && isect_id <= bin_final {
             let projected = projected_splats[compact_gid_from_isect[isect_id]];
@@ -114,43 +115,65 @@ fn main(
                 buffer += color.xyz * fac;
 
                 let v_sigma = -color.w * vis * v_alpha;
-
-                v_conic_local[local_idx] = vec3f(0.5f * v_sigma * delta.x * delta.x, 
-                                                v_sigma * delta.x * delta.y,
-                                                0.5f * v_sigma * delta.y * delta.y);
                 
-                v_xy_local[local_idx] = v_sigma * vec2f(
+                v_xy = v_sigma * vec2f(
                     conic.x * delta.x + conic.y * delta.y, 
                     conic.y * delta.x + conic.z * delta.y
                 );
-                v_colors_local[local_idx] = vec4f(fac * v_out.xyz, vis * v_alpha);
+
+                v_conic = vec3f(0.5f * v_sigma * delta.x * delta.x, 
+                                                v_sigma * delta.x * delta.y,
+                                                0.5f * v_sigma * delta.y * delta.y);
+
+                v_colors = vec4f(fac * v_out.xyz, vis * v_alpha);
             }
         }
 
-        // Make sure all threads have calculated their gradients.
-        workgroupBarrier();
-
         // Parallel reduction
         var stride = helpers::TILE_SIZE / 2u;
-        while stride > 0u {
+
+        // Wait for all results to be written.
+        workgroupBarrier();
+        // Write the second half of the sum reduction to shared memory.
+        if local_idx >= stride {
+            v_xy_local[local_idx - stride] = v_xy;
+            v_conic_local[local_idx - stride] = v_conic;
+            v_colors_local[local_idx - stride] = v_colors;
+        }
+        // Wait for all results to be written.
+        workgroupBarrier();
+
+        // Now add in the first half of the sum reduction.
+        if (local_idx < stride) {
+            v_xy_local[local_idx] += v_xy;
+            v_conic_local[local_idx] += v_conic;
+            v_colors_local[local_idx] += v_colors;
+        }
+        workgroupBarrier();
+        stride /= 2u;
+
+        // Sum reduce to a final sum.
+        while stride >= 16u {
             if (local_idx < stride) {
                 v_colors_local[local_idx] += v_colors_local[local_idx + stride];
                 v_conic_local[local_idx] += v_conic_local[local_idx + stride];
                 v_xy_local[local_idx] += v_xy_local[local_idx + stride];
             }
 
-            // Assume some minumum SIMD size. If this is wrong this becomes racy.
-            if stride > 4u {
-                workgroupBarrier();
-            }
+            workgroupBarrier();
             stride = stride / 2u;
         }
 
         if local_idx == 0 {
-            // Gather workgroup sums.
-            var sum_colors = v_colors_local[0];
-            var sum_conic = v_conic_local[0];
             var sum_xy = v_xy_local[0];
+            var sum_conic = v_conic_local[0];
+            var sum_colors = v_colors_local[0];
+
+            for(var i = 1u; i < stride * 2u; i++) {
+                sum_xy += v_xy_local[i];
+                sum_conic += v_conic_local[i];
+                sum_colors += v_colors_local[i];
+            }
 
             let compact_gid = compact_gid_from_isect[isect_id];
 
