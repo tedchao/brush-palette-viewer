@@ -76,7 +76,6 @@ fn main(
     // df/d_out for this pixel
     let v_out = v_output[pix_id];
 
-
     for (var t = 0u; t < range.y - range.x; t++) {
         let isect_id = range.y - 1u - t;
 
@@ -103,10 +102,9 @@ fn main(
                 T *= ra;
                 // update v_colors for this gaussian
                 let fac = alpha * T;
-                var v_alpha = 0.0;
 
                 // contribution from this pixel
-                v_alpha += dot(color.xyz * T - buffer * ra, v_out.xyz);
+                var v_alpha = dot(color.xyz * T - buffer * ra, v_out.xyz);
                 v_alpha += T_final * ra * v_out.w;
                 // contribution from background pixel
                 v_alpha -= dot(T_final * ra * background, v_out.xyz);
