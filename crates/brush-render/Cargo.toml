@@ -39,4 +39,4 @@ sync_tracy = []
 rerun = ["dep:rerun"]
 
 # Enable this to profile GPU timings with tracy.
-default = ["sync_tracy"]
+# default = ["sync_tracy"]

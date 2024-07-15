@@ -489,9 +489,9 @@ where
         // Now step each optimizer
         let mut splats = splats;
 
-        // splats = self.optim.step(lr_mean, splats, grad_means);
-        // splats = self.optim.step(lr_opac, splats, grad_opac);
-        // splats = self.optim.step(lr_rest, splats, grad_rest);
+        splats = self.optim.step(lr_mean, splats, grad_means);
+        splats = self.optim.step(lr_opac, splats, grad_opac);
+        splats = self.optim.step(lr_rest, splats, grad_rest);
         drop(step_span);
 
         {
@@ -514,93 +514,93 @@ where
             );
         }
 
-        // if self.iter % self.config.refine_every == 0 {
-        //     // Remove barely visible gaussians.
-        //     let prule_alpha_thresh = self.config.prune_alpha_thresh;
-        //     let alpha_mask = burn::tensor::activation::sigmoid(splats.raw_opacity.val())
-        //         .lower_elem(prule_alpha_thresh);
-        //     self.prune_points(&mut splats, alpha_mask).await;
+        if self.iter % self.config.refine_every == 0 {
+            // Remove barely visible gaussians.
+            let prule_alpha_thresh = self.config.prune_alpha_thresh;
+            let alpha_mask = burn::tensor::activation::sigmoid(splats.raw_opacity.val())
+                .lower_elem(prule_alpha_thresh);
+            self.prune_points(&mut splats, alpha_mask).await;
 
-        //     let prune_scale_thresh = self.config.prune_scale_thresh;
-        //     let scale_mask = splats
-        //         .log_scales
-        //         .val()
-        //         .exp()
-        //         .max_dim(1)
-        //         .squeeze(1)
-        //         .lower_elem(prune_scale_thresh);
-        //     self.prune_points(&mut splats, scale_mask).await;
+            let prune_scale_thresh = self.config.prune_scale_thresh;
+            let scale_mask = splats
+                .log_scales
+                .val()
+                .exp()
+                .max_dim(1)
+                .squeeze(1)
+                .lower_elem(prune_scale_thresh);
+            self.prune_points(&mut splats, scale_mask).await;
 
-        //     if self.iter > self.config.warmup_steps {
-        //         let max_img_size = img_w.max(img_h) as f32;
-        //         self.densify_and_prune(
-        //             &mut splats,
-        //             self.config.clone_split_grad_threshold / max_img_size,
-        //             Some(self.config.cull_scale_thresh),
-        //             self.config.split_clone_size_threshold,
-        //             device,
-        //         )
-        //         .await;
+            if self.iter > self.config.warmup_steps {
+                let max_img_size = img_w.max(img_h) as f32;
+                self.densify_and_prune(
+                    &mut splats,
+                    self.config.clone_split_grad_threshold / max_img_size,
+                    Some(self.config.cull_scale_thresh),
+                    self.config.split_clone_size_threshold,
+                    device,
+                )
+                .await;
 
-        //         if self.iter % (self.config.refine_every * self.config.reset_alpha_every) == 0 {
-        //             self.reset_opacity(&mut splats);
-        //         }
-        //     }
+                if self.iter % (self.config.refine_every * self.config.reset_alpha_every) == 0 {
+                    self.reset_opacity(&mut splats);
+                }
+            }
 
-        //     self.reset_stats(splats.num_splats(), device);
-        //     self.optim = self.opt_config.init::<B, Splats<B>>();
-        // }
+            self.reset_stats(splats.num_splats(), device);
+            self.optim = self.opt_config.init::<B, Splats<B>>();
+        }
 
-        // #[cfg(feature = "rerun")]
-        // {
-        //     rec.set_time_sequence("iterations", self.iter);
+        #[cfg(feature = "rerun")]
+        {
+            rec.set_time_sequence("iterations", self.iter);
 
-        //     rec.log("lr/mean", &rerun::Scalar::new(lr_mean))?;
-        //     rec.log("lr/opac", &rerun::Scalar::new(lr_opac))?;
-        //     rec.log("lr/rest", &rerun::Scalar::new(lr_rest))?;
+            rec.log("lr/mean", &rerun::Scalar::new(lr_mean))?;
+            rec.log("lr/opac", &rerun::Scalar::new(lr_opac))?;
+            rec.log("lr/rest", &rerun::Scalar::new(lr_rest))?;
 
-        //     rec.log(
-        //         "splats/num",
-        //         &rerun::Scalar::new(splats.num_splats() as f64).clone(),
-        //     )?;
+            rec.log(
+                "splats/num",
+                &rerun::Scalar::new(splats.num_splats() as f64).clone(),
+            )?;
 
-        //     if self.iter % self.config.visualize_every == 0 {
-        //         let mse = (pred_images.clone() - batch.gt_image.clone())
-        //             .powf_scalar(2.0)
-        //             .mean();
-        //         let psnr = mse.clone().recip().log() * 10.0 / std::f32::consts::LN_10;
+            if self.iter % self.config.visualize_every == 0 {
+                let mse = (pred_images.clone() - batch.gt_image.clone())
+                    .powf_scalar(2.0)
+                    .mean();
+                let psnr = mse.clone().recip().log() * 10.0 / std::f32::consts::LN_10;
 
-        //         let stats = TrainStepStats {
-        //             pred_images,
-        //             auxes,
-        //             loss,
-        //             psnr,
-        //         };
+                let stats = TrainStepStats {
+                    pred_images,
+                    auxes,
+                    loss,
+                    psnr,
+                };
 
-        //         self.visualize_train_stats(rec, stats).await?;
+                self.visualize_train_stats(rec, stats).await?;
 
-        //         let main_gt_image = batch.gt_image.slice([0..1]);
+                let main_gt_image = batch.gt_image.slice([0..1]);
 
-        //         rec.log(
-        //             "images/ground truth",
-        //             &rerun::Image::try_from(
-        //                 ndarray::Array::from_shape_vec(
-        //                     main_gt_image.dims(),
-        //                     main_gt_image
-        //                         .into_data_async()
-        //                         .await
-        //                         .to_vec::<f32>()
-        //                         .unwrap(),
-        //                 )?
-        //                 .map(|x| (*x * 255.0).clamp(0.0, 255.0) as u8),
-        //             )?,
-        //         )?;
-        //     }
+                rec.log(
+                    "images/ground truth",
+                    &rerun::Image::try_from(
+                        ndarray::Array::from_shape_vec(
+                            main_gt_image.dims(),
+                            main_gt_image
+                                .into_data_async()
+                                .await
+                                .to_vec::<f32>()
+                                .unwrap(),
+                        )?
+                        .map(|x| (*x * 255.0).clamp(0.0, 255.0) as u8),
+                    )?,
+                )?;
+            }
 
-        //     if self.iter % self.config.visualize_splats_every == 0 {
-        //         splats.visualize(rec).await?;
-        //     }
-        // }
+            if self.iter % self.config.visualize_splats_every == 0 {
+                splats.visualize(rec).await?;
+            }
+        }
 
         self.iter += 1;
 
