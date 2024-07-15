@@ -12,16 +12,13 @@
     @group(0) @binding(5) var<storage, read_write> final_index : array<u32>;
 #endif
 
-const PREFETCH: u32 = helpers::TILE_SIZE / 4;
-
 var<workgroup> tile_bins_wg: vec2u;
-var<workgroup> local_batch: array<helpers::ProjectedSplat, PREFETCH>;
 
 // kernel function for rasterizing each tile
 // each thread treats a single pixel
 // each thread group uses the same gaussian data in a tile
 @compute
-@workgroup_size(helpers::TILE_WIDTH / 2, helpers::TILE_WIDTH / 2, 1)
+@workgroup_size(helpers::TILE_WIDTH, helpers::TILE_WIDTH, 1)
 fn main(
     @builtin(global_invocation_id) global_id: vec3u,
     @builtin(local_invocation_index) local_idx: u32,
@@ -43,10 +40,6 @@ fn main(
 
     // have all threads in tile process the same gaussians in batches
     // first collect gaussians between range.x and range.y in batches
-    // if local_idx == 0u {
-    //     tile_bins_wg = tile_bins[tile_id];
-    // }
-    // let range = workgroupUniformLoad(&tile_bins_wg);
     let range = tile_bins[tile_id];
 
     let num_batches = helpers::ceil_div(range.y - range.x, helpers::TILE_SIZE);
@@ -55,33 +48,16 @@ fn main(
 
     var pix_out = vec3f(0.0);
 
-    let isect_id = range.x + local_idx;
-    if isect_id <= range.y && local_idx < PREFETCH {
-        local_batch[local_idx] = projected_splats[compact_gid_from_isect[isect_id]];
-    }
-    workgroupBarrier();
-
     // collect and process batches of gaussians
     // each thread loads one gaussian at a time before rasterizing its
     // designated pixel
     var t = 0u;
-    for (; t < range.y - range.x && inside; t++) {
-        // let projected =  projected_splats[compact_gid_from_isect[isect_id]];
-        var projected: helpers::ProjectedSplat;
-        if t < PREFETCH {
-            projected = local_batch[t];
-        } else {
-            let isect_id = range.x + t;
-            projected = projected_splats[compact_gid_from_isect[isect_id]];
-        }
+    var final_idx = 0u;
+    for (var t = 0u; t < range.y - range.x && inside; t++) {
+        let isect_id = range.x + t;
+        let projected = projected_splats[compact_gid_from_isect[isect_id]];
 
         let xy = vec2f(projected.x, projected.y);
-
-        // if abs(xy.x - pixel_coord.x) > projected.radius || 
-        //     abs(xy.y - pixel_coord.y) > projected.radius {
-        //     continue;
-        // }
-
         let conic = vec3f(projected.conic_x, projected.conic_y, projected.conic_z);
 
         let delta = xy - pixel_coord;
@@ -99,6 +75,7 @@ fn main(
             let fac = alpha * T;
             pix_out += vec3f(projected.r, projected.g, projected.b) * fac;
             T = next_T;
+            final_idx = range.x + t;
         }
     }
 
@@ -110,7 +87,7 @@ fn main(
             out_img[pix_id] = packed;
         #else 
             out_img[pix_id] = final_color;
-            final_index[pix_id] = range.x + t; 
+            final_index[pix_id] = final_idx;
         #endif
     }
 }

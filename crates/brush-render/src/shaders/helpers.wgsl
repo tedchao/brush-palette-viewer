@@ -1,4 +1,4 @@
-const TILE_WIDTH: u32 = 24u;
+const TILE_WIDTH: u32 = 16u;
 const TILE_SIZE: u32 = TILE_WIDTH * TILE_WIDTH;
 
 const MAIN_WG: u32 = 256u;
@@ -211,64 +211,53 @@ fn radius_from_conic(conic: vec3f, opac: f32) -> u32 {
     // return sqrt(eps_const / l_min);
 }
 
-fn ellipse_overlaps_edge(p0: vec2f, p1: vec2f, q0: f32, mp0: vec2f, ellipse_conic: mat2x2f) -> bool {
-    let d = p1 - p0;
-    let q1 = dot(d, mp0);
-    let q2 = dot(d, ellipse_conic * d);
-    let discr = q1 * q1 - q2 * q0;
-
-    if (discr < 0.0) {
+fn check_edge(p1: vec2f, p2: vec2f, ellipse_center: vec2f, ellipse_conic: mat2x2f) -> bool {
+    let edge = p2 - p1;
+    let f = p1 - ellipse_center;
+    let a = dot(edge * ellipse_conic, edge);
+    let b = 2.0 * dot(f * ellipse_conic, edge);
+    let c = dot(f * ellipse_conic, f) - 1.0;
+    let discriminant = b * b - 4.0 * a * c;
+    
+    if discriminant < 0.0 {
         return false;
     }
-
-    let root_discr = sqrt(discr);
-    let t0 = (-q1 - root_discr) / q2;
-    let t1 = (-q1 + root_discr) / q2;
-    return (t0 >= 0.0 && t0 <= 1.0) || (t1 >= 0.0 && t1 <= 1.0);
+    
+    let sqrt_discriminant = sqrt(discriminant);
+    let t1 = (-b - sqrt_discriminant) / (2.0 * a);
+    let t2 = (-b + sqrt_discriminant) / (2.0 * a);
+    return (t1 >= 0.0 && t1 <= 1.0) || (t2 >= 0.0 && t2 <= 1.0);
 }
 
 fn ellipse_intersects_aabb(box_pos: vec2f, box_extent: vec2f, ellipse_center: vec2f, ellipse_conic: mat2x2f) -> bool {
-    // Translate the ellipse center to the origin
-    let c = ellipse_center - box_pos;
+    let d = ellipse_center - box_pos;
 
-    // Check if the center of the ellipse is inside the AABB
-    if (abs(c.x) <= box_extent.x && abs(c.y) <= box_extent.y) {
+    // Check if ellipse center is inside AABB.
+    if all(abs(d) <= box_extent) {
         return true;
     }
 
-    // Calculate the four corners of the AABB in local space
-    let p0 = c - vec2f(box_extent.x, box_extent.y);
-    let p1 = c + vec2f(box_extent.x, -box_extent.y);
-    let p2 = c + vec2f(box_extent.x, box_extent.y);
-    let p3 = c + vec2f(-box_extent.x, box_extent.y);
+    // Determine the nearest corner
+    let corner_sign = sign(d);
+    let nearest_corner = box_pos + corner_sign * box_extent;
 
-    let mp0 = ellipse_conic * p0;
-    let mp1 = ellipse_conic * p1;
-    let mp2 = ellipse_conic * p2;
-    let mp3 = ellipse_conic * p3;
-
-    let q0_0 = dot(p0, mp0) - 1.0;
-    let q0_1 = dot(p1, mp1) - 1.0;
-    let q0_2 = dot(p2, mp2) - 1.0;
-    let q0_3 = dot(p3, mp3) - 1.0;
-
-    // Check if any vertex of the AABB is inside the ellipse
-    if (q0_0 <= 0.0 || q0_1 <= 0.0 || q0_2 <= 0.0 || q0_3 <= 0.0) {
+    // Check if the nearest corner is inside the ellipse
+    let cp = nearest_corner - ellipse_center;
+    if dot(cp * ellipse_conic, cp) <= 1.0 {
         return true;
     }
 
-    // Check if any edge of the AABB intersects the ellipse
-    if (ellipse_overlaps_edge(p0, p1, q0_0, mp0, ellipse_conic) ||
-        ellipse_overlaps_edge(p1, p2, q0_1, mp1, ellipse_conic) ||
-        ellipse_overlaps_edge(p2, p3, q0_2, mp2, ellipse_conic) ||
-        ellipse_overlaps_edge(p3, p0, q0_3, mp3, ellipse_conic)) {
-        return true;
-    }
+    // Check the two edges adjacent to the nearest corner
+    let edge1_end = nearest_corner - vec2f(corner_sign.x * 2.0 * box_extent.x, 0.0);
+    let edge2_end = nearest_corner - vec2f(0.0, corner_sign.y * 2.0 * box_extent.y);
 
-    return false;
+    return check_edge(nearest_corner, edge1_end, ellipse_center, ellipse_conic) || 
+           check_edge(nearest_corner, edge2_end, ellipse_center, ellipse_conic);
 }
 
 fn can_be_visible(tile: vec2u, xy: vec2f, conic: vec3f, opac: f32) -> bool {
+    // return true;
+
     // opac * exp(-sigma) == 1.0 / 255.0
     // exp(-sigma) == 1.0 / (opac * 255.0)
     // -sigma == log(1.0 / (opac * 255.0))

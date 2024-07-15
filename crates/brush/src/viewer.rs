@@ -5,7 +5,7 @@ use crate::{
     orbit_controls::OrbitControls,
     scene::{self, SceneBatcher, SceneLoader},
     splat_import,
-    train::{LrConfig, SplatTrainer, TrainConfig},
+    train::{self, LrConfig, SplatTrainer, TrainConfig},
 };
 use async_channel::{Receiver, Sender, TryRecvError};
 use brush_render::{camera::Camera, sync_span::SyncSpan};
@@ -150,8 +150,10 @@ async fn train_loop(device: WgpuDevice, updater: Sender<ViewerMessage>, egui_ctx
                 .unwrap();
             splats = new_splats;
 
-            if trainer.iter % 2 == 0 {
+            if trainer.iter % 5 == 0 {
                 let _span = info_span!("Send batch").entered();
+
+                let _ = train::yield_macro::<Backend>(&device).await;
 
                 egui_ctx.request_repaint();
 
@@ -309,7 +311,7 @@ impl Viewer {
         <Backend as burn::prelude::Backend>::seed(42);
 
         // create a channel for the train loop.
-        let (sender, receiver) = async_channel::bounded(3);
+        let (sender, receiver) = async_channel::bounded(2);
         let device = self.device.clone();
         self.receiver = Some(receiver);
         let ctx = self.ctx.clone();

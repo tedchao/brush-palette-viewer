@@ -17,8 +17,6 @@
 
 @group(0) @binding(9) var<storage, read_write> hit_ids: array<atomic<u32>>;
 
-// var<workgroup> local_batch: array<helpers::ProjectedSplat, helpers::TILE_SIZE>;
-
 var<workgroup> v_conic_local: array<vec3f, helpers::TILE_SIZE>;
 var<workgroup> v_xy_local: array<vec2f, helpers::TILE_SIZE>;
 var<workgroup> v_colors_local: array<vec4f, helpers::TILE_SIZE>;
@@ -75,135 +73,105 @@ fn main(
     // df/d_out for this pixel
     let v_out = v_output[pix_id];
 
-    // collect and process batches of gaussians
-    // each thread loads one gaussian at a time before rasterizing its
-    // designated pixel
-    for (var b = 0u; b < num_batches; b++) {
-        // each thread fetch 1 gaussian from back to front
-        // 0 index will be furthest back in batch
-        // index of gaussian to load
-        let batch_end  = range.y - 1u - b * helpers::TILE_SIZE;
-        // let isect_id = batch_end - local_idx;
-        // // resync all threads before beginning next batch
-        // workgroupBarrier();
 
-        // if isect_id >= range.x {
-        //     let compact_gid = ;
-        //     local_batch[local_idx] = projected_splats[compact_gid_from_isect[isect_id]];
-        // }
+    for (var t = 0u; t < range.y - range.x; t++) {
+        workgroupBarrier();
 
-        // // wait for other threads to collect the gaussians in batch
-        // workgroupBarrier();
+        v_xy_local[local_idx] = vec2f(0.0);
+        v_conic_local[local_idx] = vec3f(0.0);
+        v_colors_local[local_idx] = vec4f(0.0);
 
-        // process gaussians in the current batch for this pixel
-        let remaining = min(helpers::TILE_SIZE, batch_end + 1u - range.x);
+        let isect_id = range.y - 1u - t;
 
-        for (var t = 0u; t < remaining; t++) {
-            workgroupBarrier();
+        if inside && isect_id <= bin_final {
+            let projected = projected_splats[compact_gid_from_isect[isect_id]];
+            let xy = vec2f(projected.x, projected.y);
+            let conic = vec3f(projected.conic_x, projected.conic_y, projected.conic_z);
+            let color = vec4f(projected.r, projected.g, projected.b, projected.a);
 
-            v_xy_local[local_idx] = vec2f(0.0);
-            v_conic_local[local_idx] = vec3f(0.0);
-            v_colors_local[local_idx] = vec4f(0.0);
+            let delta = xy - pixel_coord;
+            let sigma = 0.5f * (conic.x * delta.x * delta.x + conic.z * delta.y * delta.y) + conic.y * delta.x * delta.y;
+            let vis = exp(-sigma);
+            let alpha = min(0.99f, color.w * vis);
 
-            let isect_id = batch_end - t;
+            // Nb: Don't continue; here - local_idx == 0 always
+            // needs to write out gradients.
+            // compute the current T for this gaussian
+            if (sigma >= 0.0 && alpha >= 1.0 / 255.0) {
+                let ra = 1.0 / (1.0 - alpha);
+                T *= ra;
+                // update v_colors for this gaussian
+                let fac = alpha * T;
+                var v_alpha = 0.0;
 
-            if inside && isect_id >= range.x && isect_id <= bin_final {
-                let isect_id = batch_end - t;
-                let projected = projected_splats[compact_gid_from_isect[isect_id]];
-                let xy = vec2f(projected.x, projected.y);
-                let conic = vec3f(projected.conic_x, projected.conic_y, projected.conic_z);
-                let color = vec4f(projected.r, projected.g, projected.b, projected.a);
+                // contribution from this pixel
+                v_alpha += dot(color.xyz * T - buffer * ra, v_out.xyz);
+                v_alpha += T_final * ra * v_out.w;
+                // contribution from background pixel
+                v_alpha -= dot(T_final * ra * background, v_out.xyz);
 
-                let delta = xy - pixel_coord;
-                let sigma = 0.5f * (conic.x * delta.x * delta.x + conic.z * delta.y * delta.y) + conic.y * delta.x * delta.y;
-                let vis = exp(-sigma);
-                let alpha = min(0.99f, color.w * vis);
+                // update the running sum
+                buffer += color.xyz * fac;
 
-                // Nb: Don't continue; here - local_idx == 0 always
-                // needs to write out gradients.
-                // compute the current T for this gaussian
-                if (sigma >= 0.0 && alpha >= 1.0 / 255.0) {
-                    let ra = 1.0 / (1.0 - alpha);
-                    T *= ra;
-                    // update v_colors for this gaussian
-                    let fac = alpha * T;
-                    var v_alpha = 0.0;
+                let v_sigma = -color.w * vis * v_alpha;
 
-                    // contribution from this pixel
-                    v_alpha += dot(color.xyz * T - buffer * ra, v_out.xyz);
-                    v_alpha += T_final * ra * v_out.w;
-                    // contribution from background pixel
-                    v_alpha -= dot(T_final * ra * background, v_out.xyz);
-
-                    // update the running sum
-                    buffer += color.xyz * fac;
-
-                    let v_sigma = -color.w * vis * v_alpha;
-
-                    v_conic_local[local_idx] = vec3f(0.5f * v_sigma * delta.x * delta.x, 
-                                                    v_sigma * delta.x * delta.y,
-                                                    0.5f * v_sigma * delta.y * delta.y);
-                    
-                    v_xy_local[local_idx] = v_sigma * vec2f(
-                        conic.x * delta.x + conic.y * delta.y, 
-                        conic.y * delta.x + conic.z * delta.y
-                    );
-                    v_colors_local[local_idx] = vec4f(fac * v_out.xyz, vis * v_alpha);
-                }
-            }
-
-            // Make sure all threads have calculated their gradients.
-            workgroupBarrier();
-
-            // Do a reduction on the tile x-axis. This should of course be a subgroup operation :)
-            if local_id.x == 0 {
-                var v_colors_sum = vec4f(0.0);
-                var v_conic_sum = vec3f(0.0);
-                var v_xy_sum = vec2f(0.0);
-                for(var i = 0u; i < helpers::TILE_WIDTH; i++) {
-                    v_colors_sum += v_colors_local[local_idx + i];
-                    v_conic_sum += v_conic_local[local_idx + i];
-                    v_xy_sum += v_xy_local[local_idx + i];
-                }
-                v_colors_local[local_idx] = v_colors_sum;
-                v_conic_local[local_idx] = v_conic_sum;
-                v_xy_local[local_idx] = v_xy_sum;
-            }
-            workgroupBarrier();
-
-            if local_idx == 0 {
-                let compact_gid = compact_gid_from_isect[isect_id];
-
-                // Gather workgroup sums.
-                var v_colors_sum = vec4f(0.0);
-                var v_conic_sum = vec3f(0.0);
-                var v_xy_sum = vec2f(0.0);
+                v_conic_local[local_idx] = vec3f(0.5f * v_sigma * delta.x * delta.x, 
+                                                v_sigma * delta.x * delta.y,
+                                                0.5f * v_sigma * delta.y * delta.y);
                 
-                for(var i = 0u; i < helpers::TILE_SIZE; i += helpers::TILE_WIDTH) {
-                    v_colors_sum += v_colors_local[i];
-                    v_conic_sum += v_conic_local[i];
-                    v_xy_sum += v_xy_local[i];
-                }
-
-                var offset = 0u;
-                if compact_gid > 0 {
-                    offset = cum_tiles_hit[compact_gid - 1];
-                }
-                let hit_id = atomicAdd(&hit_ids[compact_gid], 1u);
-                let write_id = offset + hit_id;
-
-                scatter_grads[write_id] = grads::ScatterGradient(
-                    v_xy_sum.x,
-                    v_xy_sum.y,
-                    v_conic_sum.x,
-                    v_conic_sum.y,
-                    v_conic_sum.z,
-                    v_colors_sum.x,
-                    v_colors_sum.y,
-                    v_colors_sum.z,
-                    v_colors_sum.w,
+                v_xy_local[local_idx] = v_sigma * vec2f(
+                    conic.x * delta.x + conic.y * delta.y, 
+                    conic.y * delta.x + conic.z * delta.y
                 );
+                v_colors_local[local_idx] = vec4f(fac * v_out.xyz, vis * v_alpha);
             }
+        }
+
+        // Make sure all threads have calculated their gradients.
+        workgroupBarrier();
+
+        // Parallel reduction
+        var stride = helpers::TILE_SIZE / 2u;
+        while stride > 0u {
+            if (local_idx < stride) {
+                v_colors_local[local_idx] += v_colors_local[local_idx + stride];
+                v_conic_local[local_idx] += v_conic_local[local_idx + stride];
+                v_xy_local[local_idx] += v_xy_local[local_idx + stride];
+            }
+
+            // Assume some minumum SIMD size. If this is wrong this becomes racy.
+            if stride > 4u {
+                workgroupBarrier();
+            }
+            stride = stride / 2u;
+        }
+
+        if local_idx == 0 {
+            // Gather workgroup sums.
+            var sum_colors = v_colors_local[0];
+            var sum_conic = v_conic_local[0];
+            var sum_xy = v_xy_local[0];
+
+            let compact_gid = compact_gid_from_isect[isect_id];
+
+            var offset = 0u;
+            if compact_gid > 0 {
+                offset = cum_tiles_hit[compact_gid - 1];
+            }
+            let hit_id = atomicAdd(&hit_ids[compact_gid], 1u);
+            let write_id = offset + hit_id;
+
+            scatter_grads[write_id] = grads::ScatterGradient(
+                sum_xy.x,
+                sum_xy.y,
+                sum_conic.x,
+                sum_conic.y,
+                sum_conic.z,
+                sum_colors.x,
+                sum_colors.y,
+                sum_colors.z,
+                sum_colors.w,
+            );
         }
     }
 }
