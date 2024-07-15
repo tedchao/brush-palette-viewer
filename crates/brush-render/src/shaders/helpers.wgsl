@@ -1,4 +1,4 @@
-const TILE_WIDTH: u32 = 20u;
+const TILE_WIDTH: u32 = 24u;
 const TILE_SIZE: u32 = TILE_WIDTH * TILE_WIDTH;
 
 const MAIN_WG: u32 = 256u;
