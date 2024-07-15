@@ -7,7 +7,7 @@ use crate::{
     splat_import,
     train::{self, LrConfig, SplatTrainer, TrainConfig},
 };
-use async_channel::{Receiver, Sender, TryRecvError, TrySendError};
+use async_channel::{Receiver, Sender, TryRecvError};
 use brush_render::{camera::Camera, sync_span::SyncSpan};
 use burn::{backend::Autodiff, module::AutodiffModule, tensor::ElementConversion};
 use burn_wgpu::{JitBackend, RuntimeOptions, WgpuDevice, WgpuRuntime};
@@ -162,10 +162,9 @@ async fn train_loop(device: WgpuDevice, updater: Sender<ViewerMessage>, egui_ctx
                     iter: trainer.iter,
                 };
 
-                match updater.try_send(msg) {
+                match updater.send(msg).await {
                     Ok(_) => (),
-                    Err(TrySendError::Full(_)) => (),
-                    Err(TrySendError::Closed(_)) => {
+                    Err(_) => {
                         break; // channel closed, bail.
                     }
                 }
