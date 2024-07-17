@@ -7,7 +7,7 @@ use crate::{
     splat_import,
     train::{self, LrConfig, SplatTrainer, TrainConfig},
 };
-use async_channel::{Receiver, Sender, TryRecvError};
+use async_channel::{Receiver, Sender, TryRecvError, TrySendError};
 use brush_render::{camera::Camera, sync_span::SyncSpan};
 use burn::{backend::Autodiff, module::AutodiffModule, tensor::ElementConversion};
 use burn_wgpu::{JitBackend, RuntimeOptions, WgpuDevice, WgpuRuntime};
@@ -36,6 +36,7 @@ enum ViewerMessage {
         splats: Splats<Backend>,
         loss: f32,
         iter: u32,
+        timestamp: Instant,
     },
 }
 
@@ -160,10 +161,12 @@ async fn train_loop(device: WgpuDevice, updater: Sender<ViewerMessage>, egui_ctx
                     splats: splats.valid(),
                     loss: loss.into_scalar_async().await.elem::<f32>(),
                     iter: trainer.iter,
+                    timestamp: Instant::now(),
                 };
 
                 match updater.send(msg).await {
                     Ok(_) => (),
+                    // Err(TrySendError::Full(_)) => (),
                     Err(_) => {
                         break; // channel closed, bail.
                     }
@@ -417,10 +420,13 @@ impl eframe::App for Viewer {
                 if !self.train_pause {
                     match rx.try_recv() {
                         Ok(message) => {
-                            if let ViewerMessage::TrainStep { iter, .. } = &message {
+                            if let ViewerMessage::TrainStep {
+                                iter, timestamp, ..
+                            } = &message
+                            {
                                 self.train_iter_per_s = (iter - self.last_train_step.1) as f32
-                                    / (Instant::now() - self.last_train_step.0).as_secs_f32();
-                                self.last_train_step = (Instant::now(), *iter);
+                                    / (*timestamp - self.last_train_step.0).as_secs_f32();
+                                self.last_train_step = (*timestamp, *iter);
                             };
 
                             self.last_message = Some(message)
@@ -453,7 +459,12 @@ impl eframe::App for Viewer {
                         });
                         self.splat_view.draw_splats(splats, ui, ctx, frame);
                     }
-                    ViewerMessage::TrainStep { splats, loss, iter } => {
+                    ViewerMessage::TrainStep {
+                        splats,
+                        loss,
+                        iter,
+                        timestamp: _,
+                    } => {
                         ui.horizontal(|ui| {
                             ui.label(format!("{} splats", splats.num_splats()));
                             ui.label(format!(
