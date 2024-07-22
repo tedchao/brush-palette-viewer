@@ -8,8 +8,7 @@ license.workspace = true
 [dependencies]
 anyhow.workspace = true
 burn.workspace = true
-burn-compute.workspace = true
-burn-cube.workspace = true
+cubecl.workspace = true
 burn-jit.workspace = true
 bytemuck.workspace = true
 glam.workspace = true

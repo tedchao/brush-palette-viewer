@@ -23,19 +23,11 @@ burn = { git = "https://github.com/tracel-ai/burn", features = [
     'template',
     "std",
 ], default-features = false }
-
-burn-compute = { git = "https://github.com/tracel-ai/burn", features = [
-    "channel-mutex",
-    "channel-mpsc",
-    "channel-cell",
-    "storage-bytes",
-], default-features = false }
-
+cubecl = { version = "0.1.1", git = "https://github.com/tracel-ai/cubecl" }
 burn-jit = { git = "https://github.com/tracel-ai/burn", features = [
     "autotune",
 ], default-features = false }
 burn-wgpu = { git = "https://github.com/tracel-ai/burn", default-features = false }
-burn-cube = { git = "https://github.com/tracel-ai/burn", default-features = false }
 
 bytemuck = "1.15"
 ndarray = "0.15"
