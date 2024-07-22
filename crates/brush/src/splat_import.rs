@@ -38,7 +38,7 @@ impl PropertyAccess for GaussianData {
             opacity: 0.0,
             rotation: [0.0; 4],
             sh_dc: [0.0, 0.0, 0.0],
-            sh_coeffs: vec![0.0, 0.0, 0.0],
+            sh_coeffs: Vec::new(),
         }
     }
 
@@ -130,9 +130,7 @@ fn interleave_coeffs(sh_dc: [f32; 3], sh_rest: &[f32]) -> Vec<f32> {
     for i in 0..coeffs_per_channel {
         for j in 0..channels {
             let index = j * coeffs_per_channel + i;
-            if index < sh_rest.len() {
-                result.push(sh_rest[index]);
-            }
+            result.push(sh_rest[index]);
         }
     }
     result
@@ -204,9 +202,13 @@ pub fn load_splat_from_ply<B: Backend>(
                         }
                     };
 
-                    let sh_coeffs_interleaved = interleave_coeffs(splat.sh_dc, &splat.sh_coeffs);
-                    // Limit to 1 SH channels for now.
-                    let sh_coeffs_interleaved = &sh_coeffs_interleaved[0..num_sh_coeffs(2) * 3];
+                    let mut sh_coeffs_interleaved = interleave_coeffs(splat.sh_dc, &splat.sh_coeffs);
+
+                    // Limit the numer of SH channels for now.
+                    let max_sh_len = num_sh_coeffs(2) * 3;
+                    if sh_coeffs_interleaved.len() > max_sh_len {
+                        sh_coeffs_interleaved.truncate(max_sh_len);
+                    }
 
                     means.extend(splat.means);
                     sh_coeffs.extend(sh_coeffs_interleaved);

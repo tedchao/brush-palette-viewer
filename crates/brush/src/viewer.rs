@@ -7,7 +7,7 @@ use crate::{
     splat_import,
     train::{self, LrConfig, SplatTrainer, TrainConfig},
 };
-use async_channel::{Receiver, Sender, TryRecvError, TrySendError};
+use async_channel::{Receiver, Sender, TryRecvError};
 use brush_render::{camera::Camera, sync_span::SyncSpan};
 use burn::{backend::Autodiff, module::AutodiffModule, tensor::ElementConversion};
 use burn_wgpu::{JitBackend, RuntimeOptions, WgpuDevice, WgpuRuntime};
@@ -162,10 +162,9 @@ async fn train_loop(device: WgpuDevice, updater: Sender<ViewerMessage>, egui_ctx
                     iter: trainer.iter,
                 };
 
-                match updater.try_send(msg) {
+                match updater.send(msg).await {
                     Ok(_) => (),
-                    Err(TrySendError::Full(_)) => (),
-                    Err(TrySendError::Closed(_)) => {
+                    Err(_) => {
                         break; // channel closed, bail.
                     }
                 }
@@ -362,8 +361,8 @@ impl eframe::App for Viewer {
             ui.heading("Native app");
             ui.label("The native app is currently still a good amount faster than the web app. It also includes some more visualizations.");
             ui.collapsing("Download", |ui| {
-                ui.add(Hyperlink::from_label_and_url("MacOS", "https://google.com").open_in_new_tab(true));
-                ui.add(Hyperlink::from_label_and_url("Windows", "https://google.com").open_in_new_tab(true));
+                ui.add(Hyperlink::from_label_and_url("MacOS", "https://drive.google.com/file/d/1-wBAr94WlSVdrbLi9ImMK14j6DFXSGaJ/view?usp=sharing").open_in_new_tab(true));
+                ui.add(Hyperlink::from_label_and_url("Windows", "https://drive.google.com/file/d/1hgHxM5Hprny-bhV1-329SdKYqkAY9dUX/view?usp=sharing").open_in_new_tab(true));
             });
 
             ui.heading("Pretrained splats");
