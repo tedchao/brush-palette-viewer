@@ -8,9 +8,9 @@ license.workspace = true
 [dependencies]
 anyhow.workspace = true
 burn.workspace = true
-cubecl.workspace = true
 burn-jit.workspace = true
 bytemuck.workspace = true
+cubecl.workspace = true
 glam.workspace = true
 tracing.workspace = true
 naga_oil.workspace = true

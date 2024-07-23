@@ -101,7 +101,7 @@ pub fn read_synthetic_nerf_data(
         let mut img_buffer = Vec::new();
         archive.by_name(&image_path)?.read_to_end(&mut img_buffer)?;
         // Create a cursor from the buffer
-        let image = image::io::Reader::new(Cursor::new(img_buffer))
+        let image = image::ImageReader::new(Cursor::new(img_buffer))
             .with_guessed_format()?
             .decode()?;
 

@@ -16,6 +16,7 @@ burn.workspace = true
 burn-wgpu.workspace = true
 burn-jit.workspace = true
 bytemuck.workspace = true
+cubecl.workspace = true
 glam.workspace = true
 image.workspace = true
 naga_oil.workspace = true
@@ -24,7 +25,6 @@ tracing.workspace = true
 wgpu.workspace = true
 naga.workspace = true
 ndarray.workspace = true
-cubecl.workspace = true
 
 rerun = { version = "0.16", default-features = false, features = [
     'sdk',

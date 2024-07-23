@@ -26,6 +26,8 @@ fn main() -> anyhow::Result<()> {
             label: Some("egui+burn wgpu device"),
             required_features: wgpu::Features::default(),
             required_limits: adapter.limits(),
+            // cube already batches allocations.
+            memory_hints: wgpu::MemoryHints::MemoryUsage,
         }),
         supported_backends: wgpu::Backends::PRIMARY,
         ..Default::default()

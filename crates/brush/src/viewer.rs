@@ -7,9 +7,9 @@ use crate::{
     splat_import,
     train::{self, LrConfig, SplatTrainer, TrainConfig},
 };
-use async_channel::{Receiver, Sender, TryRecvError, TrySendError};
+use async_channel::{Receiver, Sender, TryRecvError};
 use brush_render::{camera::Camera, sync_span::SyncSpan};
-use burn::{backend::Autodiff, data, module::AutodiffModule, tensor::ElementConversion};
+use burn::{backend::Autodiff, module::AutodiffModule, tensor::ElementConversion};
 use burn_wgpu::{JitBackend, RuntimeOptions, WgpuDevice, WgpuRuntime};
 use egui::{pos2, CollapsingHeader, Color32, Hyperlink, Rect};
 use futures_lite::StreamExt;

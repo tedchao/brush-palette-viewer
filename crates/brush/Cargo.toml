@@ -18,13 +18,12 @@ brush-kernel.path = "../brush-kernel"
 # Workspace deps.
 glam.workspace = true
 burn.workspace = true
-cubecl.workspace = true
 burn-wgpu.workspace = true
 
 image.workspace = true
 
 android_logger = "0.14.1"
-winit = "0.29"
+winit = "*"               # Just match the winit version in egui.
 
 # Optional dependencies (can't live in the workspace root).
 rerun = { version = "0.16", default-features = false, features = [
