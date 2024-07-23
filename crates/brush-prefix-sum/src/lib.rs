@@ -29,7 +29,7 @@ pub fn prefix_sum(input: JitTensor<WgpuRuntime, u32, 1>) -> JitTensor<WgpuRuntim
         vec![input.handle.binding(), outputs.handle.clone().binding()],
     );
 
-    if num < threads_per_group {
+    if num <= threads_per_group {
         return outputs;
     }
 
