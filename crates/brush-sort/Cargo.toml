@@ -16,6 +16,7 @@ wgpu.workspace = true
 glam.workspace = true
 bytemuck.workspace = true
 naga.workspace = true
+cubecl.workspace = true
 
 [build-dependencies]
 brush-wgsl.path = "../brush-wgsl"

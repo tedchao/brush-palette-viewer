@@ -24,6 +24,7 @@ tracing.workspace = true
 wgpu.workspace = true
 naga.workspace = true
 ndarray.workspace = true
+cubecl.workspace = true
 
 rerun = { version = "0.16", default-features = false, features = [
     'sdk',

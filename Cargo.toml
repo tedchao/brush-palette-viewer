@@ -23,19 +23,12 @@ burn = { path = "../burn/crates/burn", features = [
     'template',
     "std",
 ], default-features = false }
-
-burn-compute = { path = "../burn/crates/burn-compute", features = [
-    "channel-mutex",
-    "channel-mpsc",
-    "channel-cell",
-    "storage-bytes",
-], default-features = false }
-
-burn-jit = { path = "../burn/crates/burn-jit", features = [
+burn-jit = { git = "https://github.com/tracel-ai/burn", features = [
     "autotune",
 ], default-features = false }
-burn-wgpu = { path = "../burn/crates/burn-wgpu", default-features = false }
-burn-cube = { path = "../burn/crates/burn-cube", default-features = false }
+burn-wgpu = { git = "https://github.com/tracel-ai/burn", default-features = false }
+
+cubecl = { version = "0.1.1", git = "https://github.com/tracel-ai/cubecl" }
 
 bytemuck = "1.15"
 ndarray = "0.15"

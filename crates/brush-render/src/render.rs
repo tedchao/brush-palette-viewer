@@ -16,8 +16,8 @@ use burn::backend::autodiff::NodeID;
 use burn::tensor::ops::IntTensorOps;
 use burn::tensor::ops::{FloatTensor, FloatTensorOps};
 use burn::tensor::{Tensor, TensorPrimitive};
-
-use burn_wgpu::{CubeCount, JitBackend, JitTensor, WgpuRuntime};
+use burn_wgpu::{JitBackend, JitTensor, WgpuRuntime};
+use cubecl::CubeCount;
 use tracing::info_span;
 
 use super::{shaders, Backend, RenderAux};
