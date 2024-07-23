@@ -131,7 +131,7 @@ pub fn read_synthetic_nerf_data(
     Ok(cameras)
 }
 
-pub(crate) fn read_viewpoint_data(file: &str) -> Result<Vec<Camera>> {
+pub fn read_viewpoint_data(file: &str) -> Result<Vec<Camera>> {
     let mut cameras = vec![];
 
     let file = std::fs::read_to_string(file).expect("Couldn't find viewpoints file.");

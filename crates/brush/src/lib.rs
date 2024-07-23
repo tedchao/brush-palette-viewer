@@ -10,22 +10,13 @@ mod ssim;
 mod train;
 mod utils;
 mod viewer;
+mod wgpu_config;
 
 #[no_mangle]
 fn android_main(app: winit::platform::android::activity::AndroidApp) {
-    use eframe::{egui, egui_wgpu::WgpuConfiguration};
-    use std::sync::Arc;
     use winit::platform::android::EventLoopBuilderExtAndroid;
 
-    let wgpu_options = WgpuConfiguration {
-        device_descriptor: Arc::new(|adapter| wgpu::DeviceDescriptor {
-            label: Some("egui+burn wgpu device"),
-            required_features: wgpu::Features::default(),
-            required_limits: adapter.limits(),
-        }),
-        supported_backends: wgpu::Backends::PRIMARY,
-        ..Default::default()
-    };
+    let wgpu_options = wgpu_config::get_config();
 
     eframe::run_native(
         "Brush 🖌️",

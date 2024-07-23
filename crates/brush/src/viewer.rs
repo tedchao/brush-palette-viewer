@@ -321,10 +321,6 @@ impl Viewer {
         }
     }
 
-    fn stop_training(&mut self) {
-        self.receiver = None; // This drops the receiver, which closes the channel.
-    }
-
     pub fn start_data_load(&mut self, data_url: String) {
         <Backend as burn::prelude::Backend>::seed(42);
 

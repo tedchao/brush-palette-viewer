@@ -12,26 +12,15 @@ mod ssim;
 mod train;
 mod utils;
 mod viewer;
+mod wgpu_config;
 
-use eframe::egui_wgpu::WgpuConfiguration;
-use std::sync::Arc;
 use viewer::Viewer;
 
 #[cfg(feature = "tracy")]
 use tracing_subscriber::layer::SubscriberExt;
 
 fn main() -> anyhow::Result<()> {
-    let wgpu_options = WgpuConfiguration {
-        device_descriptor: Arc::new(|adapter| wgpu::DeviceDescriptor {
-            label: Some("egui+burn wgpu device"),
-            required_features: wgpu::Features::default(),
-            required_limits: adapter.limits(),
-            // cube already batches allocations.
-            memory_hints: wgpu::MemoryHints::MemoryUsage,
-        }),
-        supported_backends: wgpu::Backends::PRIMARY,
-        ..Default::default()
-    };
+    let wgpu_options = wgpu_config::get_config();
 
     #[cfg(not(target_arch = "wasm32"))]
     {

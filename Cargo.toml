@@ -68,11 +68,8 @@ cubecl = { version = "0.1.1", git = "https://github.com/ArthurBrussee/cubecl", b
 [patch.crates-io]
 cubecl = { git = "https://github.com/ArthurBrussee/cubecl", branch = "wgpu-upgrade" }
 egui = { git = "https://github.com/ArthurBrussee/egui.git", branch = "winit-update" }
-eframe = { git = "https://github.com/ArthurBrussee/egui.git", branch = "winit-update", default-features = false, features = [
-    "wgpu",
-    "android-native-activity",
-] }
-egui_extras = { git = "https://github.com/ArthurBrussee/egui.git", branch = "winit-update", default-features = false }
+eframe = { git = "https://github.com/ArthurBrussee/egui.git", branch = "winit-update" }
+egui_extras = { git = "https://github.com/ArthurBrussee/egui.git", branch = "winit-update" }
 
 [patch."https://github.com/tracel-ai/cubecl"]
 cubecl = { git = "https://github.com/ArthurBrussee/cubecl", branch = "wgpu-upgrade" }

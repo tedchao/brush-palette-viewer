@@ -3,29 +3,12 @@ use brush_render::{render::num_sh_coeffs, Backend};
 use burn::tensor::Distribution;
 use burn::tensor::Tensor;
 use burn::{
-    config::Config,
     module::{Module, Param, ParamId},
     tensor::Device,
 };
 
-use anyhow::Result;
-
 #[cfg(feature = "rerun")]
 use rerun::{Color, RecordingStream};
-
-#[derive(Config)]
-pub(crate) struct SplatsConfig {
-    num_points: usize,
-    aabb_scale: f32,
-    max_sh_degree: u32,
-    position_lr_scale: f32,
-}
-
-impl SplatsConfig {
-    pub(crate) fn build<B: Backend>(&self, device: &Device<B>) -> Splats<B> {
-        Splats::init_random(self.num_points, self.aabb_scale, device)
-    }
-}
 
 #[derive(Module, Debug)]
 pub struct Splats<B: Backend> {
