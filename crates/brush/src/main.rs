@@ -21,11 +21,6 @@ use viewer::Viewer;
 use tracing_subscriber::layer::SubscriberExt;
 
 fn main() -> anyhow::Result<()> {
-    #[cfg(feature = "tracy")]
-    tracing::subscriber::set_global_default(
-        tracing_subscriber::registry().with(tracing_tracy::TracyLayer::default()),
-    )?;
-
     let wgpu_options = WgpuConfiguration {
         device_descriptor: Arc::new(|adapter| wgpu::DeviceDescriptor {
             label: Some("egui+burn wgpu device"),
@@ -38,6 +33,11 @@ fn main() -> anyhow::Result<()> {
 
     #[cfg(not(target_arch = "wasm32"))]
     {
+        #[cfg(feature = "tracy")]
+        tracing::subscriber::set_global_default(
+            tracing_subscriber::registry().with(tracing_tracy::TracyLayer::default()),
+        )?;
+
         // Build app display.
         let native_options = eframe::NativeOptions {
             viewport: egui::ViewportBuilder::default()
@@ -57,6 +57,8 @@ fn main() -> anyhow::Result<()> {
 
     #[cfg(target_arch = "wasm32")]
     {
+        tracing_wasm::set_as_global_default();
+
         #[cfg(debug_assertions)]
         {
             console_error_panic_hook::set_once();

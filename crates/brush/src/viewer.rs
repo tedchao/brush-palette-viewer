@@ -9,13 +9,13 @@ use crate::{
 };
 use async_channel::{Receiver, Sender, TryRecvError, TrySendError};
 use brush_render::{camera::Camera, sync_span::SyncSpan};
-use burn::{backend::Autodiff, module::AutodiffModule, tensor::ElementConversion};
+use burn::{backend::Autodiff, data, module::AutodiffModule, tensor::ElementConversion};
 use burn_wgpu::{JitBackend, RuntimeOptions, WgpuDevice, WgpuRuntime};
 use egui::{pos2, CollapsingHeader, Color32, Hyperlink, Rect};
 use futures_lite::StreamExt;
 use glam::{Quat, Vec2, Vec3};
 
-use rfd::AsyncFileDialog;
+// use rfd::AsyncFileDialog;
 use tracing::info_span;
 use web_time::Instant;
 use wgpu::CommandEncoderDescriptor;
@@ -63,25 +63,38 @@ struct SplatView {
     last_draw: Instant,
 }
 
-async fn train_loop(device: WgpuDevice, updater: Sender<ViewerMessage>, egui_ctx: egui::Context) {
+async fn train_loop(
+    device: WgpuDevice,
+    updater: Sender<ViewerMessage>,
+    egui_ctx: egui::Context,
+    data_url: String,
+) {
     #[cfg(feature = "rerun")]
     let rec = rerun::RecordingStreamBuilder::new("visualize training")
         .spawn()
         .expect("Failed to start rerun");
 
-    let file = AsyncFileDialog::new()
-        .add_filter("scene", &["ply", "zip"])
-        .set_directory("/")
-        .pick_file()
-        .await;
+    let mut file_data = vec![];
+    let _ = ureq::get(&data_url)
+        .call()
+        .unwrap()
+        .into_reader()
+        .read_to_end(&mut file_data)
+        .unwrap();
 
-    let Some(file) = file else {
-        return;
-    };
+    // let file = AsyncFileDialog::new()
+    //     .add_filter("scene", &["ply", "zip"])
+    //     .set_directory("/")
+    //     .pick_file()
+    //     .await;
 
-    let file_data = file.read().await;
+    // let Some(file) = file else {
+    //     return;
+    // };
 
-    if file.file_name().contains(".ply") {
+    // let file_data = file.read().await;
+
+    if data_url.contains(".ply") {
         let total_count = splat_import::ply_count(&file_data);
 
         let Ok(total_count) = total_count else {
@@ -298,7 +311,7 @@ impl Viewer {
             splat_view: SplatView {
                 camera: Camera::new(Vec3::ZERO, Quat::IDENTITY, 0.5, 0.5),
                 backbuffer: None,
-                controls: OrbitControls::new(3.0),
+                controls: OrbitControls::new(7.0),
                 last_draw: Instant::now(),
             },
             train_pause: false,
@@ -312,7 +325,7 @@ impl Viewer {
         self.receiver = None; // This drops the receiver, which closes the channel.
     }
 
-    pub fn start_data_load(&mut self) {
+    pub fn start_data_load(&mut self, data_url: String) {
         <Backend as burn::prelude::Backend>::seed(42);
 
         // create a channel for the train loop.
@@ -329,14 +342,20 @@ impl Viewer {
             0.5,
             0.5,
         );
-        self.splat_view.controls = OrbitControls::new(2.0);
+        self.splat_view.controls = OrbitControls::new(7.0);
         self.train_pause = false;
 
         #[cfg(not(target_arch = "wasm32"))]
-        std::thread::spawn(move || pollster::block_on(train_loop(device, sender, ctx)));
+        std::thread::spawn(move || pollster::block_on(train_loop(device, sender, ctx, data_url)));
 
         #[cfg(target_arch = "wasm32")]
-        spawn_local(train_loop(device, sender, ctx));
+        spawn_local(train_loop(device, sender, ctx, data_url));
+    }
+
+    fn url_button(&mut self, label: &str, url: &str, ui: &mut egui::Ui) {
+        if ui.button(label).clicked() {
+            self.start_data_load(url.to_owned());
+        }
     }
 }
 
@@ -347,15 +366,15 @@ impl eframe::App for Viewer {
         egui_extras::install_image_loaders(ctx);
 
         egui::SidePanel::left("Data").show(ctx, |ui| {
-            ui.vertical_centered(|ui| {
-                ui.add_space(15.0);
+            ui.add_space(55.0);
 
-                if ui.button("Load file").clicked() {
-                    self.start_data_load();
-                }
+            // ui.vertical_centered(|ui| {
+            //     if ui.button("Load file").clicked() {
+            //         self.start_data_load();
+            //     }
 
-                ui.add_space(15.0);
-            });
+            //     ui.add_space(15.0);
+            // });
 
             ui.label("Select a .ply to visualize, or a .zip with a transforms_train.json and training images. (limited formats are supported currently)");
 
@@ -372,43 +391,42 @@ impl eframe::App for Viewer {
 
             ui.collapsing("Polycam examples", |ui| {
                 ui.label("Examples from poylcam showcase. Nb: Licenses apply, demo only!");
-
-                ui.add(Hyperlink::from_label_and_url("city_sector (250MB)", "https://drive.google.com/file/d/12yoAvwsUh1TNRt4I1rfTxyRp-_6p0x0b/view?usp=sharing").open_in_new_tab(true));
-                ui.add(Hyperlink::from_label_and_url("flowers (120MB)", "https://drive.google.com/file/d/1KD_IP-Qt782guD1PvNATQrJGM0kxIhGa/view?usp=sharing").open_in_new_tab(true));
-                ui.add(Hyperlink::from_label_and_url("fountain (340MB)", "https://drive.google.com/file/d/13mQfEoSNy-hOh5Ir9NuHLgtj6JA6aL4d/view?usp=sharing").open_in_new_tab(true));
-                ui.add(Hyperlink::from_label_and_url("hollywood sign (320MB)", "https://drive.google.com/file/d/1bZfsNe5DVVgq2FM49e7StRKcnKVrvAma/view?usp=sharing").open_in_new_tab(true));                 
-                ui.add(Hyperlink::from_label_and_url("inveraray castle (300MB)", "https://drive.google.com/file/d/1EOir_xBPE9Ns5CToEw_eAINGNHg5mA1F/view?usp=sharing").open_in_new_tab(true));
-                ui.add(Hyperlink::from_label_and_url("lighthouse (70MB)", "https://drive.google.com/file/d/1f_ZCp04wax_aD6M699zg8wlWmiMU2EFQ/view?usp=sharing").open_in_new_tab(true));
-                ui.add(Hyperlink::from_label_and_url("room arch vis (160MB)", "https://drive.google.com/file/d/1wi6B-6fPn2cQuGiucg_AMvVW623-reEF/view?usp=sharing").open_in_new_tab(true));
-                ui.add(Hyperlink::from_label_and_url("small bonsai (135MB)", "https://drive.google.com/file/d/1wXiW9vn32DXG7NP0MsBQP4E8RF4M8nV-/view?usp=sharing").open_in_new_tab(true));
-                ui.add(Hyperlink::from_label_and_url("varenna (200MB)", "https://drive.google.com/file/d/1lvljIKlMjVSRjy4KfPhbRSjN8t6KJYM9/view?usp=sharing").open_in_new_tab(true));
+                self.url_button("city_sector (250MB)", "https://drive.google.com/file/d/12yoAvwsUh1TNRt4I1rfTxyRp-_6p0x0b/view?usp=sharing", ui);
+                self.url_button("flowers (120MB)", "https://drive.google.com/file/d/1KD_IP-Qt782guD1PvNATQrJGM0kxIhGa/view?usp=sharing", ui);
+                self.url_button("fountain (340MB)", "https://drive.google.com/file/d/13mQfEoSNy-hOh5Ir9NuHLgtj6JA6aL4d/view?usp=sharing", ui);
+                self.url_button("hollywood sign (320MB)", "https://drive.google.com/file/d/1bZfsNe5DVVgq2FM49e7StRKcnKVrvAma/view?usp=sharing", ui);
+                self.url_button("inveraray castle (300MB)", "https://drive.google.com/file/d/1EOir_xBPE9Ns5CToEw_eAINGNHg5mA1F/view?usp=sharing", ui);
+                self.url_button("lighthouse (70MB)", "https://drive.google.com/file/d/1f_ZCp04wax_aD6M699zg8wlWmiMU2EFQ/view?usp=sharing", ui);
+                self.url_button("room arch vis (160MB)", "https://drive.google.com/file/d/1wi6B-6fPn2cQuGiucg_AMvVW623-reEF/view?usp=sharing", ui);
+                self.url_button("small bonsai (135MB)", "https://drive.google.com/file/d/1wXiW9vn32DXG7NP0MsBQP4E8RF4M8nV-/view?usp=sharing", ui);
+                self.url_button("varenna (200MB)", "https://drive.google.com/file/d/1lvljIKlMjVSRjy4KfPhbRSjN8t6KJYM9/view?usp=sharing", ui);
             });
 
             ui.collapsing("Mipnerf scenes (warning: big)", |ui| {
                 ui.label("Reference mipnerf ply files.");
 
-                ui.add(Hyperlink::from_label_and_url("bicycle (1.4GB)", "https://drive.google.com/file/d/1kHkNqGFLLutRt3R7k2tGkjGwfXnPLnCi/view?usp=sharing").open_in_new_tab(true));
-                ui.add(Hyperlink::from_label_and_url("bonsai (300MB)", "https://drive.google.com/file/d/1jf4bjaeTGeru1PQS_Ue716uc_edRbAPd/view?usp=sharing").open_in_new_tab(true));
-                ui.add(Hyperlink::from_label_and_url("counter (290MB)", "https://drive.google.com/file/d/1O89SIHcWdmrWi75Cf6tDrv2Dl6yGndcz/view?usp=sharing").open_in_new_tab(true));
-                ui.add(Hyperlink::from_label_and_url("drjohnson (800MB)", "https://drive.google.com/file/d/13FEQ7UZHYwymBTwxzpPeJob4cr8VxUTV/view?usp=sharing").open_in_new_tab(true));
-                ui.add(Hyperlink::from_label_and_url("garden (1.3GB)", "https://drive.google.com/file/d/13FEQ7UZHYwymBTwxzpPeJob4cr8VxUTV/view?usp=sharing").open_in_new_tab(true));
-                ui.add(Hyperlink::from_label_and_url("kitchen (440MB)", "https://drive.google.com/file/d/13FEQ7UZHYwymBTwxzpPeJob4cr8VxUTV/view?usp=sharing").open_in_new_tab(true));
-                ui.add(Hyperlink::from_label_and_url("playroom (600MB)", "https://drive.google.com/file/d/13FEQ7UZHYwymBTwxzpPeJob4cr8VxUTV/view?usp=sharing").open_in_new_tab(true));
-                ui.add(Hyperlink::from_label_and_url("room (375MB)", "https://drive.google.com/file/d/13FEQ7UZHYwymBTwxzpPeJob4cr8VxUTV/view?usp=sharing").open_in_new_tab(true));
-                ui.add(Hyperlink::from_label_and_url("stump (1.15GB)", "https://drive.google.com/file/d/13FEQ7UZHYwymBTwxzpPeJob4cr8VxUTV/view?usp=sharing").open_in_new_tab(true));
+                self.url_button("bicycle (1.4GB)", "https://drive.google.com/file/d/1kHkNqGFLLutRt3R7k2tGkjGwfXnPLnCi/view?usp=sharing", ui);
+                self.url_button("bonsai (300MB)", "https://drive.google.com/file/d/1jf4bjaeTGeru1PQS_Ue716uc_edRbAPd/view?usp=sharing", ui);
+                self.url_button("counter (290MB)", "https://drive.google.com/file/d/1O89SIHcWdmrWi75Cf6tDrv2Dl6yGndcz/view?usp=sharing", ui);
+                self.url_button("drjohnson (800MB)", "https://drive.google.com/file/d/13FEQ7UZHYwymBTwxzpPeJob4cr8VxUTV/view?usp=sharing", ui);
+                self.url_button("garden (1.3GB)", "https://drive.google.com/file/d/13FEQ7UZHYwymBTwxzpPeJob4cr8VxUTV/view?usp=sharing", ui);
+                self.url_button("kitchen (440MB)", "https://drive.google.com/file/d/13FEQ7UZHYwymBTwxzpPeJob4cr8VxUTV/view?usp=sharing", ui);
+                self.url_button("playroom (600MB)", "https://drive.google.com/file/d/13FEQ7UZHYwymBTwxzpPeJob4cr8VxUTV/view?usp=sharing", ui);
+                self.url_button("room (375MB)", "https://drive.google.com/file/d/13FEQ7UZHYwymBTwxzpPeJob4cr8VxUTV/view?usp=sharing", ui);
+                self.url_button("stump (1.15GB)", "https://drive.google.com/file/d/13FEQ7UZHYwymBTwxzpPeJob4cr8VxUTV/view?usp=sharing", ui);
             });
 
             ui.heading("Training Data");
 
             ui.collapsing("Train blender scenes", |ui| {
-                ui.add(Hyperlink::from_label_and_url("Chair", "https://drive.google.com/file/d/13Q6s0agTW1_a7cFGcSmll1-Aikq_OPKe/view?usp=sharing").open_in_new_tab(true));
-                ui.add(Hyperlink::from_label_and_url("Drums", "https://drive.google.com/file/d/1j8TuMiGb84YtlrZ0gnkMNOzUaIJqz0SY/view?usp=sharing").open_in_new_tab(true));
-                ui.add(Hyperlink::from_label_and_url("Ficus", "https://drive.google.com/file/d/1VzT5SDiBefn9fvRw7LeYjUfDBZHCyzQ4/view?usp=sharing").open_in_new_tab(true));
-                ui.add(Hyperlink::from_label_and_url("Hotdog", "https://drive.google.com/file/d/1hOjnCV8XdXClV2eC6c9H6PIQTUYv8zys/view?usp=sharing").open_in_new_tab(true));
-                ui.add(Hyperlink::from_label_and_url("Lego", "https://drive.google.com/file/d/1VxsNFTHhgxK9iCOgkuKxakBXJfgHUOQk/view?usp=sharing").open_in_new_tab(true));
-                ui.add(Hyperlink::from_label_and_url("Materials", "https://drive.google.com/file/d/1L7J5PNBcLcXde6CqzzkaNxHt7JtG2GIW/view?usp=sharing").open_in_new_tab(true));
-                ui.add(Hyperlink::from_label_and_url("Mic", "https://drive.google.com/file/d/1SA0NNi0HsUHE6FgAP8XpD23N1xftsrr-/view?usp=sharing").open_in_new_tab(true));
-                ui.add(Hyperlink::from_label_and_url("Ship", "https://drive.google.com/file/d/1rzL0KrWuLFebT1hLLm4uYnrNXNTkfjxM/view?usp=sharing").open_in_new_tab(true));
+                self.url_button("Chair", "https://drive.google.com/file/d/13Q6s0agTW1_a7cFGcSmll1-Aikq_OPKe/view?usp=sharing", ui);
+                self.url_button("Drums", "https://drive.google.com/file/d/1j8TuMiGb84YtlrZ0gnkMNOzUaIJqz0SY/view?usp=sharing", ui);
+                self.url_button("Ficus", "https://drive.google.com/file/d/1VzT5SDiBefn9fvRw7LeYjUfDBZHCyzQ4/view?usp=sharing", ui);
+                self.url_button("Hotdog", "https://drive.google.com/file/d/1hOjnCV8XdXClV2eC6c9H6PIQTUYv8zys/view?usp=sharing", ui);
+                self.url_button("Lego", "https://storage.googleapis.com/example_brush_data/lego.zip", ui);
+                self.url_button("Materials", "https://drive.google.com/file/d/1L7J5PNBcLcXde6CqzzkaNxHt7JtG2GIW/view?usp=sharing", ui);
+                self.url_button("Mic", "https://drive.google.com/file/d/1SA0NNi0HsUHE6FgAP8XpD23N1xftsrr-/view?usp=sharing", ui);
+                self.url_button("Ship", "https://drive.google.com/file/d/1rzL0KrWuLFebT1hLLm4uYnrNXNTkfjxM/view?usp=sharing", ui);
             });
         });
 

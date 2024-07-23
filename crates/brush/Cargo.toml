@@ -5,10 +5,10 @@ version.workspace = true
 readme.workspace = true
 license.workspace = true
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[lib]
+crate-type = ["staticlib", "cdylib", "rlib"]
 
 [dependencies]
-
 # Brush deps.
 brush-sort.path = "../brush-sort"
 brush-prefix-sum.path = "../brush-prefix-sum"
@@ -22,6 +22,9 @@ burn-compute.workspace = true
 burn-wgpu.workspace = true
 
 image.workspace = true
+
+android_logger = "0.14.1"
+winit = "0.29"
 
 # Optional dependencies (can't live in the workspace root).
 rerun = { version = "0.16", default-features = false, features = [
@@ -50,12 +53,13 @@ async-executor = "1.12.0"
 pollster = "0.3.0"
 gloo-timers = { version = "0.3.0", features = ["futures"] }
 wasm-bindgen = "0.2.92"
-rfd = "0.14.1"
+# rfd = "0.14.1"
 zip = { version = "2.1.3", default-features = false, features = ["deflate"] }
 console_error_panic_hook = "0.1.7"
 tracing-wasm = "0.2.1"
 async-stream = "0.3.5"
 async-channel = "2.3.1"
+ureq = "2.10.0"
 
 [features]
 tracy = ["dep:tracing-tracy"]

@@ -444,9 +444,11 @@ where
             loss
         };
 
-        let backward_pass = SyncSpan::<B>::new("Backward pass", device);
-        let mut grads = loss.backward();
-        drop(backward_pass);
+        let mut grads = {
+            let _span = SyncSpan::<B>::new("Backward pass", device);
+            loss.backward()
+        };
+
         yield_macro::<B>(device).await;
 
         let step_span = SyncSpan::<B>::new("Optimizer step", device);
