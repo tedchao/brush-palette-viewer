@@ -18,7 +18,6 @@ use egui::{pos2, CollapsingHeader, Color32, Hyperlink, Rect};
 use futures_lite::StreamExt;
 use glam::{Quat, Vec2, Vec3};
 
-use rfd::AsyncFileDialog;
 use tracing::info_span;
 use web_time::Instant;
 use wgpu::CommandEncoderDescriptor;
@@ -71,7 +70,6 @@ struct SplatView {
 pub enum FileSelect {
     Pick,
     Open(String),
-    Stream(String),
 }
 
 async fn train_loop(
@@ -87,15 +85,21 @@ async fn train_loop(
 
     let (file_data, fname) = match file_select {
         FileSelect::Pick => {
-            let file = AsyncFileDialog::new()
-                .add_filter("scene", &["ply", "zip"])
-                .set_directory("/")
-                .pick_file()
-                .await
-                .context("Failed to pick file")?;
+            cfg_if::cfg_if! {
+                if #[cfg(target_os = "android")] {
+                    panic!("Not supported on Android");
+                } else {
+                    let file = rfd::AsyncFileDialog::new()
+                    .add_filter("scene", &["ply", "zip"])
+                    .set_directory("/")
+                    .pick_file()
+                    .await
+                    .context("Failed to pick file")?;
 
-            let file_data = file.read().await;
-            (file_data, file.file_name())
+                    let file_data = file.read().await;
+                    (file_data, file.file_name())
+                }
+            }
         }
 
         FileSelect::Open(file_path) => {
@@ -106,25 +110,6 @@ async fn train_loop(
 
             let file_data = std::fs::read(&file_path)?;
             (file_data, file_name.to_string())
-        }
-
-        FileSelect::Stream(url) => {
-            let response = ureq::get(&url).call()?;
-
-            let mut file_name = "".to_string();
-            // Try to get the filename from the Content-Disposition header
-            if let Some(content_disposition) = response.header("Content-Disposition") {
-                if let Some(filename) = content_disposition
-                    .split(';')
-                    .find_map(|item| item.trim().strip_prefix("filename="))
-                {
-                    file_name = filename.trim_matches('"').to_string();
-                }
-            }
-
-            let mut file_data = vec![];
-            response.into_reader().read_to_end(&mut file_data)?;
-            (file_data, file_name)
         }
     };
 
@@ -152,9 +137,9 @@ async fn train_loop(
         Ok(())
     } else {
         let config = TrainConfig::new(
-            LrConfig::new().with_max_lr(2e-5).with_min_lr(1e-5),
-            LrConfig::new().with_max_lr(4e-2).with_min_lr(1e-2),
-            LrConfig::new().with_max_lr(1e-2).with_min_lr(5e-3),
+            LrConfig::new().with_max_lr(4e-5).with_min_lr(2e-5),
+            LrConfig::new().with_max_lr(8e-2).with_min_lr(2e-2),
+            LrConfig::new().with_max_lr(2e-2).with_min_lr(1e-2),
         );
 
         let cameras = dataset_readers::read_synthetic_nerf_data(&file_data, None).unwrap();
@@ -407,31 +392,23 @@ impl eframe::App for Viewer {
             ui.add_space(55.0);
 
             ui.vertical_centered(|ui| {
-                if ui.button("Pick file").clicked() {
-                    self.start_data_load(FileSelect::Pick);
+                if ui.button("Pick a file").clicked() {
+                    // log::warn!("{:?}", crate::android_picker::open_file_picker(&self.vm));
+                    // self.start_data_load(FileSelect::Pick);
                 }
                 
                 ui.add_space(15.0);
 
-                ui.text_edit_singleline(&mut self.file_path);
-                if ui.button("Load from path").clicked() {
-                    self.start_data_load(FileSelect::Open(self.file_path.clone()));
+                if ui.button("/storage/emulated/0/Documents/Splats/data.zip").clicked() {
+                    self.start_data_load(FileSelect::Open("/storage/emulated/0/Documents/Splats/data.zip".to_string()));
                 }
                 
-
                 ui.add_space(15.0);
             });
 
             ui.label("Select a .ply to visualize, or a .zip with a transforms_train.json and training images. (limited formats are supported currently)");
 
             ui.add_space(15.0);
-
-            ui.heading("Native app");
-            ui.label("The native app is currently still a good amount faster than the web app. It also includes some more visualizations.");
-            ui.collapsing("Download", |ui| {
-                ui.add(Hyperlink::from_label_and_url("MacOS", "https://drive.google.com/file/d/1-wBAr94WlSVdrbLi9ImMK14j6DFXSGaJ/view?usp=sharing").open_in_new_tab(true));
-                ui.add(Hyperlink::from_label_and_url("Windows", "https://drive.google.com/file/d/1hgHxM5Hprny-bhV1-329SdKYqkAY9dUX/view?usp=sharing").open_in_new_tab(true));
-            });
 
             ui.heading("Pretrained splats");
 

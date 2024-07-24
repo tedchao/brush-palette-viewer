@@ -1,26 +1,5 @@
-#![allow(dead_code)]
-#![allow(clippy::too_many_arguments)]
-#![allow(clippy::single_range_in_vec_init)]
-
-mod burn_texture;
-mod dataset_readers;
-mod gaussian_splats;
-mod orbit_controls;
-mod scene;
-mod splat_import;
-mod ssim;
-mod train;
-mod utils;
-mod viewer;
-mod wgpu_config;
-
-use viewer::Viewer;
-
-#[cfg(feature = "tracy")]
-use tracing_subscriber::layer::SubscriberExt;
-
 fn main() -> anyhow::Result<()> {
-    let wgpu_options = wgpu_config::get_config();
+    let wgpu_options = brush_viewer::wgpu_config::get_config();
 
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -41,7 +20,7 @@ fn main() -> anyhow::Result<()> {
         eframe::run_native(
             "Brush 🖌️",
             native_options,
-            Box::new(move |cc| Ok(Box::new(Viewer::new(cc)))),
+            Box::new(move |cc| Ok(Box::new(brush_viewer::viewer::Viewer::new(cc)))),
         )
         .unwrap();
     }

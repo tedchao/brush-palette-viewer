@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use eframe::egui_wgpu::WgpuConfiguration;
 
-pub(crate) fn get_config() -> WgpuConfiguration {
+pub fn get_config() -> WgpuConfiguration {
     WgpuConfiguration {
         device_descriptor: Arc::new(|adapter| wgpu::DeviceDescriptor {
             label: Some("egui+burn wgpu device"),

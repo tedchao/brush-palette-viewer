@@ -1,8 +1,0 @@
-android:
-    manifest:
-        uses_permission:
-            - name: android.permission.INTERNET
-            - name: android.permission.ACCESS_NETWORK_STATE
-            - name: android.permission.READ_EXTERNAL_STORAGE
-
-        package: com.brush.android

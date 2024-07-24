@@ -1,0 +1,15 @@
+[package]
+name = "brush-desktop"
+edition.workspace = true
+version.workspace = true
+readme.workspace = true
+license.workspace = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+pollster = "0.2"
+egui.workspace = true
+eframe.workspace = true
+brush-viewer.path = "../brush-viewer"
+anyhow.workspace = true
