@@ -36,9 +36,9 @@ pub(crate) struct TrainConfig {
 
     #[config(default = 42)]
     pub(crate) seed: u64,
-    #[config(default = 400)]
+    #[config(default = 200)]
     pub(crate) warmup_steps: u32,
-    #[config(default = 150)]
+    #[config(default = 100)]
     pub(crate) refine_every: u32,
 
     #[config(default = 0.0)]
@@ -49,7 +49,7 @@ pub(crate) struct TrainConfig {
     #[config(default = 0.005)]
     pub(crate) prune_scale_thresh: f32,
 
-    #[config(default = 0.00005)]
+    #[config(default = 0.0001)]
     pub(crate) clone_split_grad_threshold: f32,
     #[config(default = 0.01)]
     pub(crate) split_clone_size_threshold: f32,
