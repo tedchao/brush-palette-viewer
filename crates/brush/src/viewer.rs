@@ -1,3 +1,5 @@
+use std::{ffi::OsStr, path::Path};
+
 use crate::{
     burn_texture::BurnTexture,
     dataset_readers,
@@ -7,7 +9,8 @@ use crate::{
     splat_import,
     train::{self, LrConfig, SplatTrainer, TrainConfig},
 };
-use async_channel::{Receiver, Sender, TryRecvError};
+use anyhow::Context;
+use async_channel::{Receiver, Sender, TryRecvError, TrySendError};
 use brush_render::{camera::Camera, sync_span::SyncSpan};
 use burn::{backend::Autodiff, module::AutodiffModule, tensor::ElementConversion};
 use burn_wgpu::{JitBackend, RuntimeOptions, WgpuDevice, WgpuRuntime};
@@ -15,7 +18,7 @@ use egui::{pos2, CollapsingHeader, Color32, Hyperlink, Rect};
 use futures_lite::StreamExt;
 use glam::{Quat, Vec2, Vec3};
 
-// use rfd::AsyncFileDialog;
+use rfd::AsyncFileDialog;
 use tracing::info_span;
 use web_time::Instant;
 use wgpu::CommandEncoderDescriptor;
@@ -54,6 +57,8 @@ pub struct Viewer {
     train_iter_per_s: f32,
     last_train_step: (Instant, u32),
     train_pause: bool,
+
+    file_path: String,
 }
 
 struct SplatView {
@@ -63,46 +68,68 @@ struct SplatView {
     last_draw: Instant,
 }
 
+pub enum FileSelect {
+    Pick,
+    Open(String),
+    Stream(String),
+}
+
 async fn train_loop(
     device: WgpuDevice,
-    updater: Sender<ViewerMessage>,
+    sender: Sender<ViewerMessage>,
     egui_ctx: egui::Context,
-    data_url: String,
-) {
+    file_select: FileSelect,
+) -> anyhow::Result<()> {
     #[cfg(feature = "rerun")]
     let rec = rerun::RecordingStreamBuilder::new("visualize training")
         .spawn()
         .expect("Failed to start rerun");
 
-    let mut file_data = vec![];
-    let _ = ureq::get(&data_url)
-        .call()
-        .unwrap()
-        .into_reader()
-        .read_to_end(&mut file_data)
-        .unwrap();
+    let (file_data, fname) = match file_select {
+        FileSelect::Pick => {
+            let file = AsyncFileDialog::new()
+                .add_filter("scene", &["ply", "zip"])
+                .set_directory("/")
+                .pick_file()
+                .await
+                .context("Failed to pick file")?;
 
-    // let file = AsyncFileDialog::new()
-    //     .add_filter("scene", &["ply", "zip"])
-    //     .set_directory("/")
-    //     .pick_file()
-    //     .await;
+            let file_data = file.read().await;
+            (file_data, file.file_name())
+        }
 
-    // let Some(file) = file else {
-    //     return;
-    // };
+        FileSelect::Open(file_path) => {
+            let file_name = Path::new(&file_path)
+                .extension()
+                .and_then(OsStr::to_str)
+                .context("Failed to get file extension")?;
 
-    // let file_data = file.read().await;
+            let file_data = std::fs::read(&file_path)?;
+            (file_data, file_name.to_string())
+        }
 
-    if data_url.contains(".ply") {
-        let total_count = splat_import::ply_count(&file_data);
+        FileSelect::Stream(url) => {
+            let response = ureq::get(&url).call()?;
 
-        let Ok(total_count) = total_count else {
-            let _ = updater
-                .send(ViewerMessage::Error(anyhow::anyhow!("Invalid ply file")))
-                .await;
-            return;
-        };
+            let mut file_name = "".to_string();
+            // Try to get the filename from the Content-Disposition header
+            if let Some(content_disposition) = response.header("Content-Disposition") {
+                if let Some(filename) = content_disposition
+                    .split(';')
+                    .find_map(|item| item.trim().strip_prefix("filename="))
+                {
+                    file_name = filename.trim_matches('"').to_string();
+                }
+            }
+
+            let mut file_data = vec![];
+            response.into_reader().read_to_end(&mut file_data)?;
+            (file_data, file_name)
+        }
+    };
+
+    if fname.contains(".ply") {
+        let total_count = splat_import::ply_count(&file_data).context("Invalid ply file")?;
 
         let splat_stream = splat_import::load_splat_from_ply::<Backend>(&file_data, device.clone());
 
@@ -110,23 +137,19 @@ async fn train_loop(
         while let Some(splats) = splat_stream.next().await {
             egui_ctx.request_repaint();
 
-            match splats {
-                Ok(splats) => {
-                    let msg = ViewerMessage::SplatLoad {
-                        splats,
-                        total_count,
-                    };
+            let splats = splats?;
+            let msg = ViewerMessage::SplatLoad {
+                splats,
+                total_count,
+            };
 
-                    if updater.send(msg).await.is_err() {
-                        return;
-                    }
-                }
-                Err(e) => {
-                    let _ = updater.send(ViewerMessage::Error(e)).await.is_err();
-                    return;
-                }
-            }
+            sender
+                .send(msg)
+                .await
+                .map_err(|e| anyhow::anyhow!("Failed to send message: {}", e))?;
         }
+
+        Ok(())
     } else {
         let config = TrainConfig::new(
             LrConfig::new().with_max_lr(2e-5).with_min_lr(1e-5),
@@ -177,15 +200,19 @@ async fn train_loop(
                     timestamp: Instant::now(),
                 };
 
-                match updater.send(msg).await {
+                match sender.try_send(msg) {
                     Ok(_) => (),
-                    // Err(TrySendError::Full(_)) => (),
+                    Err(TrySendError::Full(_)) => (),
                     Err(_) => {
                         break; // channel closed, bail.
                     }
                 }
+
+                egui_ctx.request_repaint();
             }
         }
+
+        Ok(())
     }
 }
 
@@ -318,10 +345,11 @@ impl Viewer {
             train_iter_per_s: 0.0,
             last_train_step: (Instant::now(), 0),
             device,
+            file_path: "/path/to/file".to_string(),
         }
     }
 
-    pub fn start_data_load(&mut self, data_url: String) {
+    pub fn start_data_load(&mut self, file_select: FileSelect) {
         <Backend as burn::prelude::Backend>::seed(42);
 
         // create a channel for the train loop.
@@ -341,17 +369,33 @@ impl Viewer {
         self.splat_view.controls = OrbitControls::new(7.0);
         self.train_pause = false;
 
+        // TODO: Show errors again.
+
+        async fn inner_train_loop(
+            device: WgpuDevice,
+            sender: Sender<ViewerMessage>,
+            egui_ctx: egui::Context,
+            file_select: FileSelect,
+        ) {
+            match train_loop(device, sender.clone(), egui_ctx, file_select).await {
+                Ok(_) => (),
+                Err(e) => {
+                    let _ = sender.send(ViewerMessage::Error(e)).await;
+                }
+            }
+        }
+
         #[cfg(not(target_arch = "wasm32"))]
-        std::thread::spawn(move || pollster::block_on(train_loop(device, sender, ctx, data_url)));
+        std::thread::spawn(move || {
+            pollster::block_on(inner_train_loop(device, sender, ctx, file_select))
+        });
 
         #[cfg(target_arch = "wasm32")]
-        spawn_local(train_loop(device, sender, ctx, data_url));
+        spawn_local(inner_train_loop(device, sender, ctx, file_select));
     }
 
     fn url_button(&mut self, label: &str, url: &str, ui: &mut egui::Ui) {
-        if ui.button(label).clicked() {
-            self.start_data_load(url.to_owned());
-        }
+        ui.add(Hyperlink::from_label_and_url(label, url).open_in_new_tab(true));
     }
 }
 
@@ -359,18 +403,24 @@ impl eframe::App for Viewer {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         let _span = info_span!("Draw UI").entered();
 
-        egui_extras::install_image_loaders(ctx);
-
         egui::SidePanel::left("Data").show(ctx, |ui| {
             ui.add_space(55.0);
 
-            // ui.vertical_centered(|ui| {
-            //     if ui.button("Load file").clicked() {
-            //         self.start_data_load();
-            //     }
+            ui.vertical_centered(|ui| {
+                if ui.button("Pick file").clicked() {
+                    self.start_data_load(FileSelect::Pick);
+                }
+                
+                ui.add_space(15.0);
 
-            //     ui.add_space(15.0);
-            // });
+                ui.text_edit_singleline(&mut self.file_path);
+                if ui.button("Load from path").clicked() {
+                    self.start_data_load(FileSelect::Open(self.file_path.clone()));
+                }
+                
+
+                ui.add_space(15.0);
+            });
 
             ui.label("Select a .ply to visualize, or a .zip with a transforms_train.json and training images. (limited formats are supported currently)");
 
@@ -419,7 +469,7 @@ impl eframe::App for Viewer {
                 self.url_button("Drums", "https://drive.google.com/file/d/1j8TuMiGb84YtlrZ0gnkMNOzUaIJqz0SY/view?usp=sharing", ui);
                 self.url_button("Ficus", "https://drive.google.com/file/d/1VzT5SDiBefn9fvRw7LeYjUfDBZHCyzQ4/view?usp=sharing", ui);
                 self.url_button("Hotdog", "https://drive.google.com/file/d/1hOjnCV8XdXClV2eC6c9H6PIQTUYv8zys/view?usp=sharing", ui);
-                self.url_button("Lego", "https://storage.googleapis.com/example_brush_data/lego.zip", ui);
+                self.url_button("Lego", "https://drive.google.com/file/d/1VxsNFTHhgxK9iCOgkuKxakBXJfgHUOQk/view?usp=sharing", ui);
                 self.url_button("Materials", "https://drive.google.com/file/d/1L7J5PNBcLcXde6CqzzkaNxHt7JtG2GIW/view?usp=sharing", ui);
                 self.url_button("Mic", "https://drive.google.com/file/d/1SA0NNi0HsUHE6FgAP8XpD23N1xftsrr-/view?usp=sharing", ui);
                 self.url_button("Ship", "https://drive.google.com/file/d/1rzL0KrWuLFebT1hLLm4uYnrNXNTkfjxM/view?usp=sharing", ui);
@@ -428,9 +478,6 @@ impl eframe::App for Viewer {
 
         egui::CentralPanel::default().show(ctx, |ui| {
             if let Some(rx) = self.receiver.as_mut() {
-                // Always animate at at least 20FPS while receiving messages.
-                ctx.request_repaint_after_secs(0.05);
-
                 if !self.train_pause {
                     match rx.try_recv() {
                         Ok(message) => {

@@ -66,7 +66,7 @@ pub(crate) struct TrainConfig {
     #[config(default = 250)]
     pub visualize_splats_every: u32,
 
-    #[config(default = 4000)]
+    #[config(default = 1000)]
     pub init_splat_count: usize,
 }
 

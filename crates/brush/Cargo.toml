@@ -36,7 +36,6 @@ ndarray.workspace = true
 serde_json.workspace = true
 eframe.workspace = true
 egui.workspace = true
-egui_extras.workspace = true
 tracing.workspace = true
 wgpu.workspace = true
 ply-rs.workspace = true
@@ -52,13 +51,14 @@ async-executor = "1.12.0"
 pollster = "0.3.0"
 gloo-timers = { version = "0.3.0", features = ["futures"] }
 wasm-bindgen = "0.2.92"
-# rfd = "0.14.1"
+rfd = "0.14.1"
 zip = { version = "2.1.3", default-features = false, features = ["deflate"] }
 console_error_panic_hook = "0.1.7"
 tracing-wasm = "0.2.1"
 async-stream = "0.3.5"
 async-channel = "2.3.1"
 ureq = "2.10.0"
+log = "0.4.22"
 
 [features]
 tracy = ["dep:tracing-tracy"]

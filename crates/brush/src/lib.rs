@@ -18,6 +18,10 @@ fn android_main(app: winit::platform::android::activity::AndroidApp) {
 
     let wgpu_options = wgpu_config::get_config();
 
+    android_logger::init_once(
+        android_logger::Config::default().with_max_level(log::LevelFilter::Info),
+    );
+
     eframe::run_native(
         "Brush 🖌️",
         eframe::NativeOptions {
