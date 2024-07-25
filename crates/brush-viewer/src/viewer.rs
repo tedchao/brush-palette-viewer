@@ -58,6 +58,8 @@ pub struct Viewer {
     train_pause: bool,
 
     file_path: String,
+
+    open: bool
 }
 
 struct SplatView {
@@ -67,56 +69,22 @@ struct SplatView {
     last_draw: Instant,
 }
 
-pub enum FileSelect {
-    Pick,
-    Open(String),
-}
-
 async fn train_loop(
     device: WgpuDevice,
     sender: Sender<ViewerMessage>,
     egui_ctx: egui::Context,
-    file_select: FileSelect,
 ) -> anyhow::Result<()> {
     #[cfg(feature = "rerun")]
     let rec = rerun::RecordingStreamBuilder::new("visualize training")
         .spawn()
         .expect("Failed to start rerun");
 
-    let (file_data, fname) = match file_select {
-        FileSelect::Pick => {
-            cfg_if::cfg_if! {
-                if #[cfg(target_os = "android")] {
-                    panic!("Not supported on Android");
-                } else {
-                    let file = rfd::AsyncFileDialog::new()
-                    .add_filter("scene", &["ply", "zip"])
-                    .set_directory("/")
-                    .pick_file()
-                    .await
-                    .context("Failed to pick file")?;
+    let picked = rrfd::pick_file().await?;
 
-                    let file_data = file.read().await;
-                    (file_data, file.file_name())
-                }
-            }
-        }
+    if picked.file_name.contains(".ply") {
+        let total_count = splat_import::ply_count(&picked.data).context("Invalid ply file")?;
 
-        FileSelect::Open(file_path) => {
-            let file_name = Path::new(&file_path)
-                .extension()
-                .and_then(OsStr::to_str)
-                .context("Failed to get file extension")?;
-
-            let file_data = std::fs::read(&file_path)?;
-            (file_data, file_name.to_string())
-        }
-    };
-
-    if fname.contains(".ply") {
-        let total_count = splat_import::ply_count(&file_data).context("Invalid ply file")?;
-
-        let splat_stream = splat_import::load_splat_from_ply::<Backend>(&file_data, device.clone());
+        let splat_stream = splat_import::load_splat_from_ply::<Backend>(&picked.data, device.clone());
 
         let mut splat_stream = std::pin::pin!(splat_stream);
         while let Some(splats) = splat_stream.next().await {
@@ -142,7 +110,7 @@ async fn train_loop(
             LrConfig::new().with_max_lr(2e-2).with_min_lr(1e-2),
         );
 
-        let cameras = dataset_readers::read_synthetic_nerf_data(&file_data, None).unwrap();
+        let cameras = dataset_readers::read_synthetic_nerf_data(&picked.data, None).unwrap();
         let scene = scene::Scene::new(cameras);
 
         #[cfg(feature = "rerun")]
@@ -331,10 +299,11 @@ impl Viewer {
             last_train_step: (Instant::now(), 0),
             device,
             file_path: "/path/to/file".to_string(),
+            open: false
         }
     }
 
-    pub fn start_data_load(&mut self, file_select: FileSelect) {
+    pub fn start_data_load(&mut self) {
         <Backend as burn::prelude::Backend>::seed(42);
 
         // create a channel for the train loop.
@@ -360,9 +329,8 @@ impl Viewer {
             device: WgpuDevice,
             sender: Sender<ViewerMessage>,
             egui_ctx: egui::Context,
-            file_select: FileSelect,
         ) {
-            match train_loop(device, sender.clone(), egui_ctx, file_select).await {
+            match train_loop(device, sender.clone(), egui_ctx).await {
                 Ok(_) => (),
                 Err(e) => {
                     let _ = sender.send(ViewerMessage::Error(e)).await;
@@ -372,11 +340,11 @@ impl Viewer {
 
         #[cfg(not(target_arch = "wasm32"))]
         std::thread::spawn(move || {
-            pollster::block_on(inner_train_loop(device, sender, ctx, file_select))
+            pollster::block_on(inner_train_loop(device, sender, ctx))
         });
 
         #[cfg(target_arch = "wasm32")]
-        spawn_local(inner_train_loop(device, sender, ctx, file_select));
+        spawn_local(inner_train_loop(device, sender, ctx));
     }
 
     fn url_button(&mut self, label: &str, url: &str, ui: &mut egui::Ui) {
@@ -392,17 +360,9 @@ impl eframe::App for Viewer {
             ui.add_space(55.0);
 
             ui.vertical_centered(|ui| {
-                if ui.button("Pick a file").clicked() {
-                    // log::warn!("{:?}", crate::android_picker::open_file_picker(&self.vm));
-                    // self.start_data_load(FileSelect::Pick);
+                if ui.button("Pick aa file").clicked() {
+                    self.start_data_load();
                 }
-                
-                ui.add_space(15.0);
-
-                if ui.button("/storage/emulated/0/Documents/Splats/data.zip").clicked() {
-                    self.start_data_load(FileSelect::Open("/storage/emulated/0/Documents/Splats/data.zip".to_string()));
-                }
-                
                 ui.add_space(15.0);
             });
 
