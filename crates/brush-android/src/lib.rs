@@ -1,4 +1,16 @@
-#[cfg(target_os = "android")]
+mod android_file_picker;
+
+use jni::sys::{jint, JNI_VERSION_1_6};
+use std::os::raw::c_void;
+
+#[allow(non_snake_case)]
+#[no_mangle]
+pub extern "system" fn JNI_OnLoad(vm: jni::JavaVM, _: *mut c_void) -> jint {
+    let mut env = vm.get_env().expect("Cannot get reference to the JNIEnv");
+    android_file_picker::cache_methods(&mut env);
+    JNI_VERSION_1_6
+}
+
 #[no_mangle]
 fn android_main(app: winit::platform::android::activity::AndroidApp) {
     use winit::platform::android::EventLoopBuilderExtAndroid;

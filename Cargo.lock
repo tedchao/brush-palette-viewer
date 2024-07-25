@@ -625,11 +625,15 @@ name = "brush-android"
 version = "0.1.0"
 dependencies = [
  "android_logger",
+ "anyhow",
+ "async-channel",
  "brush-viewer",
  "eframe",
  "egui",
  "jni",
+ "lazy_static",
  "log",
+ "pollster 0.3.0",
  "winit",
 ]
 
