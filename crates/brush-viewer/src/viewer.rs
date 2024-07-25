@@ -14,7 +14,7 @@ use async_channel::{Receiver, Sender, TryRecvError, TrySendError};
 use brush_render::{camera::Camera, sync_span::SyncSpan};
 use burn::{backend::Autodiff, module::AutodiffModule, tensor::ElementConversion};
 use burn_wgpu::{JitBackend, RuntimeOptions, WgpuDevice, WgpuRuntime};
-use egui::{pos2, CollapsingHeader, Color32, Hyperlink, Rect};
+use egui::{pos2, CollapsingHeader, Color32, Hyperlink, Rect, Slider};
 use futures_lite::StreamExt;
 use glam::{Quat, Vec2, Vec3};
 
@@ -59,7 +59,8 @@ pub struct Viewer {
 
     file_path: String,
 
-    open: bool
+    target_train_resolution: u32,
+    max_frames: usize,
 }
 
 struct SplatView {
@@ -69,10 +70,16 @@ struct SplatView {
     last_draw: Instant,
 }
 
+struct TrainArgs {
+    frame_count: usize,
+    target_resolution: u32,
+}
+
 async fn train_loop(
     device: WgpuDevice,
     sender: Sender<ViewerMessage>,
     egui_ctx: egui::Context,
+    train_args: TrainArgs,
 ) -> anyhow::Result<()> {
     #[cfg(feature = "rerun")]
     let rec = rerun::RecordingStreamBuilder::new("visualize training")
@@ -84,7 +91,8 @@ async fn train_loop(
     if picked.file_name.contains(".ply") {
         let total_count = splat_import::ply_count(&picked.data).context("Invalid ply file")?;
 
-        let splat_stream = splat_import::load_splat_from_ply::<Backend>(&picked.data, device.clone());
+        let splat_stream =
+            splat_import::load_splat_from_ply::<Backend>(&picked.data, device.clone());
 
         let mut splat_stream = std::pin::pin!(splat_stream);
         while let Some(splats) = splat_stream.next().await {
@@ -110,7 +118,12 @@ async fn train_loop(
             LrConfig::new().with_max_lr(2e-2).with_min_lr(1e-2),
         );
 
-        let cameras = dataset_readers::read_synthetic_nerf_data(&picked.data, None).unwrap();
+        let cameras = dataset_readers::read_synthetic_nerf_data(
+            &picked.data,
+            Some(train_args.frame_count),
+            Some(train_args.target_resolution),
+        )
+        .unwrap();
         let scene = scene::Scene::new(cameras);
 
         #[cfg(feature = "rerun")]
@@ -299,7 +312,8 @@ impl Viewer {
             last_train_step: (Instant::now(), 0),
             device,
             file_path: "/path/to/file".to_string(),
-            open: false
+            target_train_resolution: 512,
+            max_frames: 32,
         }
     }
 
@@ -329,8 +343,9 @@ impl Viewer {
             device: WgpuDevice,
             sender: Sender<ViewerMessage>,
             egui_ctx: egui::Context,
+            train_args: TrainArgs,
         ) {
-            match train_loop(device, sender.clone(), egui_ctx).await {
+            match train_loop(device, sender.clone(), egui_ctx, train_args).await {
                 Ok(_) => (),
                 Err(e) => {
                     let _ = sender.send(ViewerMessage::Error(e)).await;
@@ -338,13 +353,18 @@ impl Viewer {
             }
         }
 
+        let train_args = TrainArgs {
+            frame_count: self.max_frames,
+            target_resolution: self.target_train_resolution,
+        };
+
         #[cfg(not(target_arch = "wasm32"))]
         std::thread::spawn(move || {
-            pollster::block_on(inner_train_loop(device, sender, ctx))
+            pollster::block_on(inner_train_loop(device, sender, ctx, train_args))
         });
 
         #[cfg(target_arch = "wasm32")]
-        spawn_local(inner_train_loop(device, sender, ctx));
+        spawn_local(inner_train_loop(device, sender, ctx, train_args));
     }
 
     fn url_button(&mut self, label: &str, url: &str, ui: &mut egui::Ui) {
@@ -360,13 +380,18 @@ impl eframe::App for Viewer {
             ui.add_space(55.0);
 
             ui.vertical_centered(|ui| {
-                if ui.button("Pick aa file").clicked() {
+                if ui.button("Pick a file").clicked() {
                     self.start_data_load();
                 }
                 ui.add_space(15.0);
             });
-
             ui.label("Select a .ply to visualize, or a .zip with a transforms_train.json and training images. (limited formats are supported currently)");
+
+            ui.add_space(10.0);
+
+            ui.heading("Train settings");
+            ui.add(Slider::new(&mut self.target_train_resolution, 32..=2048).text("Target train resolution"));
+            ui.add(Slider::new(&mut self.max_frames, 1..=256).text("Max frames"));
 
             ui.add_space(15.0);
 

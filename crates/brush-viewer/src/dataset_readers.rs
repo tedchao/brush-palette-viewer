@@ -7,6 +7,7 @@ use anyhow::Context;
 use anyhow::Result;
 use brush_render::camera;
 use brush_render::camera::Camera;
+use image::DynamicImage;
 use ndarray::Array3;
 
 #[derive(Debug, Default, Clone)]
@@ -24,9 +25,20 @@ fn normalized_path_string(path: &Path) -> String {
         .replace(std::path::MAIN_SEPARATOR, "/")
 }
 
+fn resize_image_to_max(image: DynamicImage, max_size: u32) -> DynamicImage {
+    let aspect_ratio = image.width() as f32 / image.height() as f32;
+    let (new_width, new_height) = if image.width() > image.height() {
+        (max_size, (max_size as f32 / aspect_ratio) as u32)
+    } else {
+        ((max_size as f32 * aspect_ratio) as u32, max_size)
+    };
+    image.resize(new_width, new_height, image::imageops::FilterType::Lanczos3)
+}
+
 pub fn read_synthetic_nerf_data(
     zip_data: &[u8],
     max_frames: Option<usize>,
+    max_resolution: Option<u32>,
 ) -> Result<Vec<InputView>> {
     let mut cameras = vec![];
 
@@ -101,11 +113,14 @@ pub fn read_synthetic_nerf_data(
         let mut img_buffer = Vec::new();
         archive.by_name(&image_path)?.read_to_end(&mut img_buffer)?;
         // Create a cursor from the buffer
-        let image = image::ImageReader::new(Cursor::new(img_buffer))
+        let mut image = image::ImageReader::new(Cursor::new(img_buffer))
             .with_guessed_format()?
             .decode()?;
 
-        // let image = image::io::Reader::open(image_path)?.decode()?;
+        if let Some(max_resolution) = max_resolution {
+            image = resize_image_to_max(image, max_resolution);
+        }
+
         let image = image.resize(400, 400, image::imageops::FilterType::Lanczos3);
 
         let im_data = image.to_rgba8().into_vec();
