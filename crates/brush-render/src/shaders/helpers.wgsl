@@ -118,12 +118,16 @@ fn project_pix(fxfy: vec2f, p_view: vec3f, pp: vec2f) -> vec2f {
     return p_proj * fxfy + pp;
 }
 
-fn calc_cov2d(focal: vec2f, img_size: vec2u, viewmat: mat4x4f, p_view: vec3f, scale: vec3f, quat: vec4f) -> vec3f {
+fn calc_cov2d(focal: vec2f, img_size: vec2u, pixel_center: vec2f, viewmat: mat4x4f, p_view: vec3f, scale: vec3f, quat: vec4f) -> vec3f {
     let tan_fov = 0.5 * vec2f(img_size.xy) / focal;
+    
+    let lims_neg = pixel_center / focal + 0.3f * tan_fov;
+    let lims_pos = (vec2f(img_size.xy) - pixel_center) / focal + 0.3f * tan_fov; 
+
     let lims = 1.3 * tan_fov;
 
     // Get ndc coords +- clipped to the frustum.
-    let t = p_view.z * clamp(p_view.xy / p_view.z, -lims, lims);
+    let t = p_view.z * clamp(p_view.xy / p_view.z, -lims_neg, lims_pos);
     
     var M = quat_to_rotmat(quat);
     M[0] *= scale.x;

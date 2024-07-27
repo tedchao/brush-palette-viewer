@@ -181,7 +181,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     let viewmat = uniforms.viewmat;
     let W = mat3x3f(viewmat[0].xyz, viewmat[1].xyz, viewmat[2].xyz);
     let p_view = W * mean + viewmat[3].xyz;
-    let cov2d = helpers::calc_cov2d(uniforms.focal, uniforms.img_size, viewmat, p_view, scale, quat);
+    let cov2d = helpers::calc_cov2d(uniforms.focal, uniforms.img_size, uniforms.pixel_center, viewmat, p_view, scale, quat);
     let conic = helpers::cov_to_conic(cov2d);
 
     // compute the projected mean

@@ -110,7 +110,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     // compute vjp from df/d_conic to df/c_cov2d
     // conic = inverse cov2d
     // df/d_cov2d = -conic * df/d_conic * conic
-    let cov2d = helpers::calc_cov2d(uniforms.focal, uniforms.img_size, viewmat, p_view, scale, quat);
+    let cov2d = helpers::calc_cov2d(uniforms.focal, uniforms.img_size, uniforms.pixel_center, viewmat, p_view, scale, quat);
     let conic = helpers::cov_to_conic(cov2d);
     var v_cov2d = cov2d_to_conic_vjp(conic, v_conic);
 
