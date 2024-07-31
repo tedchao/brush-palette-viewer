@@ -36,7 +36,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
     let scale = exp(helpers::as_vec(log_scales[global_gid]));
     let quat = quats[global_gid];
 
-    let cov2d = helpers::calc_cov2d(uniforms.focal, uniforms.img_size, viewmat, p_view, scale, quat);
+    let cov2d = helpers::calc_cov2d(uniforms.focal, uniforms.img_size, uniforms.pixel_center, viewmat, p_view, scale, quat);
     let det = cov2d.x * cov2d.z - cov2d.y * cov2d.y;
 
     if det == 0.0 {
