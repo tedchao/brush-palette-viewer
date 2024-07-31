@@ -309,7 +309,7 @@ pub fn build_modules(
     for m in mods {
         match m.1 {
             ModuleInfo::Include { constants, types } => {
-                code.add_line(&format!("pub(crate) mod {} {{", m.0));
+                code.add_line(format!("pub(crate) mod {} {{", m.0));
 
                 let mut writes: Vec<_> = constants.iter().chain(types.iter()).collect();
                 writes.sort_by_key(|x| x.0.clone());
@@ -325,10 +325,10 @@ pub fn build_modules(
                 types,
                 wg_size,
             } => {
-                code.add_line(&format!("pub(crate) mod {} {{", m.0));
+                code.add_line(format!("pub(crate) mod {} {{", m.0));
 
                 let [wg_x, wg_y, wg_z] = wg_size;
-                code.add_line(&format!(
+                code.add_line(format!(
                     "pub(crate) const WORKGROUP_SIZE: [u32; 3] = [{wg_x}, {wg_y}, {wg_z}];"
                 ));
 
