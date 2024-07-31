@@ -51,7 +51,7 @@ public class FilePicker {
             try (InputStream inputStream = _activity.getContentResolver().openInputStream(uri)) {
                 return inputStream != null ? inputStream.readAllBytes() : null;
             }
-        } catch (IOException _) {
+        } catch (IOException e) {
             return null;
         }
     }
