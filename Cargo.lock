@@ -647,6 +647,7 @@ dependencies = [
  "eframe",
  "egui",
  "pollster 0.2.5",
+ "tracing-tracy",
 ]
 
 [[package]]

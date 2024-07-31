@@ -1,5 +1,3 @@
-use std::{ffi::OsStr, path::Path};
-
 use crate::{
     burn_texture::BurnTexture,
     dataset_readers,
