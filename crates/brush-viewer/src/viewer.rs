@@ -310,7 +310,7 @@ impl Viewer {
             last_train_step: (Instant::now(), 0),
             device,
             file_path: "/path/to/file".to_string(),
-            target_train_resolution: 512,
+            target_train_resolution: 800,
             max_frames: 32,
         }
     }

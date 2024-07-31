@@ -26,6 +26,10 @@ fn normalized_path_string(path: &Path) -> String {
 }
 
 fn resize_image_to_max(image: DynamicImage, max_size: u32) -> DynamicImage {
+    if image.width() <= max_size && image.height() <= max_size {
+        return image;
+    }
+
     let aspect_ratio = image.width() as f32 / image.height() as f32;
     let (new_width, new_height) = if image.width() > image.height() {
         (max_size, (max_size as f32 / aspect_ratio) as u32)
