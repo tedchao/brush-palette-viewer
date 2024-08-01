@@ -1,0 +1,177 @@
+use crate::{gaussian_splats::Splats, scene::Scene, train::TrainStepStats};
+use anyhow::Result;
+use brush_render::{AutodiffBackend, Backend};
+use burn::tensor::{ElementConversion, Tensor};
+use ndarray::Array;
+use rerun::{Color, RecordingStream};
+
+pub struct VisualizeTools {
+    rec: RecordingStream,
+}
+
+impl VisualizeTools {
+    pub fn new() -> Self {
+        let rec = rerun::RecordingStreamBuilder::new("brush_visualize")
+            .spawn()
+            .expect("Failed to start rerun");
+
+        Self { rec }
+    }
+
+    pub(crate) async fn log_splats<B: Backend>(&self, splats: &Splats<B>) -> Result<()> {
+        let means = splats
+            .means
+            .val()
+            .into_data_async()
+            .await
+            .to_vec::<f32>()
+            .unwrap();
+        let means = means.chunks(3).map(|c| glam::vec3(c[0], c[1], c[2]));
+
+        let sh_c0 = 0.2820947917738781;
+        let base_rgb = splats.sh_coeffs.val().slice([0..splats.num_splats(), 0..3]) * sh_c0 + 0.5;
+        let colors = base_rgb.into_data_async().await.to_vec::<f32>().unwrap();
+        let colors = colors.chunks(3).map(|c| {
+            Color::from_rgb(
+                (c[0] * 255.0) as u8,
+                (c[1] * 255.0) as u8,
+                (c[2] * 255.0) as u8,
+            )
+        });
+
+        let radii = splats
+            .log_scales
+            .val()
+            .exp()
+            .into_data_async()
+            .await
+            .to_vec()
+            .unwrap();
+
+        let radii = radii
+            .chunks(3)
+            .map(|c| 0.5 * glam::vec3(c[0], c[1], c[2]).length());
+
+        self.rec.log(
+            "world/splat/points",
+            &rerun::Points3D::new(means)
+                .with_colors(colors)
+                .with_radii(radii),
+        )?;
+        Ok(())
+    }
+
+    pub(crate) fn log_scene(&self, scene: &Scene) -> Result<()> {
+        let rec = &self.rec;
+        rec.log_static("world", &rerun::ViewCoordinates::RIGHT_HAND_Z_UP)?;
+
+        for (i, data) in scene.views.iter().enumerate() {
+            let path = format!("world/dataset/camera/{i}");
+            let (width, height, _) = data.image.dim();
+            let vis_size = glam::uvec2(width as u32, height as u32);
+            let rerun_camera = rerun::Pinhole::from_focal_length_and_resolution(
+                data.camera.focal(vis_size),
+                glam::vec2(vis_size.x as f32, vis_size.y as f32),
+            );
+            rec.log_static(path.clone(), &rerun_camera)?;
+            rec.log_static(
+                path.clone(),
+                &rerun::Transform3D::from_translation_rotation(
+                    data.camera.position,
+                    data.camera.rotation,
+                ),
+            )?;
+            rec.log_static(
+                path + "/image",
+                &rerun::Image::try_from(data.image.clone())?,
+            )?;
+        }
+        Ok(())
+    }
+
+    pub async fn log_train_stats<B: AutodiffBackend>(
+        &self,
+        splats: &Splats<B>,
+        stats: &TrainStepStats<B>,
+        gt_image: Tensor<B, 4>,
+    ) -> Result<()> {
+        let rec = &self.rec;
+        rec.set_time_sequence("iterations", stats.iter);
+        rec.log("lr/mean", &rerun::Scalar::new(stats.lr_mean))?;
+        rec.log("lr/opac", &rerun::Scalar::new(stats.lr_opac))?;
+        rec.log("lr/rest", &rerun::Scalar::new(stats.lr_rest))?;
+
+        rec.log(
+            "splats/num",
+            &rerun::Scalar::new(splats.num_splats() as f64).clone(),
+        )?;
+
+        let mse = (stats.pred_images.clone() - gt_image.clone())
+            .powf_scalar(2.0)
+            .mean();
+        let psnr = mse.clone().recip().log() * 10.0 / std::f32::consts::LN_10;
+
+        rec.log(
+            "losses/main",
+            &rerun::Scalar::new(stats.loss.clone().into_scalar_async().await.elem::<f64>()),
+        )?;
+        rec.log(
+            "stats/PSNR",
+            &rerun::Scalar::new(psnr.into_scalar_async().await.elem::<f64>()),
+        )?;
+
+        // Not sure what's best here, atm let's just log the first batch render only.
+        // Maybe could do an average instead?
+        let aux = &stats.auxes[0];
+
+        rec.log(
+            "splats/num_intersects",
+            &rerun::Scalar::new(aux.read_num_intersections() as f64),
+        )?;
+        rec.log(
+            "splats/num_visible",
+            &rerun::Scalar::new(aux.read_num_visible() as f64),
+        )?;
+
+        let tile_depth = aux.read_tile_depth();
+        rec.log(
+            "images/tile depth",
+            &rerun::Tensor::try_from(Array::from_shape_vec(
+                tile_depth.dims(),
+                tile_depth.into_data_async().await.to_vec::<i32>().unwrap(),
+            )?)?,
+        )?;
+
+        let main_pred_image = stats.pred_images.clone().slice([0..1]);
+        let pred_image = Array::from_shape_vec(
+            main_pred_image.dims(),
+            main_pred_image
+                .into_data_async()
+                .await
+                .to_vec::<f32>()
+                .unwrap(),
+        )?
+        .map(|x| (*x * 255.0).clamp(0.0, 255.0) as u8);
+
+        rec.log("images/predicted", &rerun::Image::try_from(pred_image)?)?;
+
+        let main_gt_image = gt_image.slice([0..1]);
+
+        rec.log(
+            "images/ground truth",
+            &rerun::Image::try_from(
+                ndarray::Array::from_shape_vec(
+                    main_gt_image.dims(),
+                    main_gt_image
+                        .into_data_async()
+                        .await
+                        .to_vec::<f32>()
+                        .unwrap(),
+                )?
+                .map(|x| (*x * 255.0).clamp(0.0, 255.0) as u8),
+            )?,
+        )?;
+
+        Ok(())
+    }
+}

@@ -4,9 +4,13 @@ fn main() -> anyhow::Result<()> {
     #[cfg(not(target_arch = "wasm32"))]
     {
         #[cfg(feature = "tracy")]
-        tracing::subscriber::set_global_default(
-            tracing_subscriber::registry().with(tracing_tracy::TracyLayer::default()),
-        )?;
+        {
+            use tracing_subscriber::layer::SubscriberExt;
+
+            tracing::subscriber::set_global_default(
+                tracing_subscriber::registry().with(tracing_tracy::TracyLayer::default()),
+            )?;
+        }
 
         // Build app display.
         let native_options = eframe::NativeOptions {

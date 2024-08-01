@@ -12,5 +12,8 @@ mod ssim;
 mod train;
 mod utils;
 
+#[cfg(feature = "rerun")]
+mod visualize;
+
 pub mod viewer;
 pub mod wgpu_config;

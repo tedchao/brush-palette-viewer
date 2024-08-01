@@ -66,6 +66,11 @@ thiserror = "*"
 # TODO: Maybe burn should re-export cubecl?
 cubecl = { version = "0.1.1", git = "https://github.com/tracel-ai/cubecl" }
 
+rerun = { version = "0.17", default-features = false, features = [
+    'sdk',
+    'glam',
+] }
+
 [patch.crates-io]
 egui = { git = "https://github.com/emilk/egui.git" }
 eframe = { git = "https://github.com/emilk/egui.git" }

@@ -7,9 +7,6 @@ use burn::{
     tensor::Device,
 };
 
-#[cfg(feature = "rerun")]
-use rerun::{Color, RecordingStream};
-
 #[derive(Module, Debug)]
 pub struct Splats<B: Backend> {
     pub(crate) means: Param<Tensor<B, 2>>,
@@ -86,50 +83,6 @@ impl<B: Backend> Splats<B> {
             bg_color,
             render_u32_buffer,
         )
-    }
-
-    #[cfg(feature = "rerun")]
-    pub(crate) async fn visualize(&self, rec: &RecordingStream) -> Result<()> {
-        let means = self
-            .means
-            .val()
-            .into_data_async()
-            .await
-            .to_vec::<f32>()
-            .unwrap();
-        let means = means.chunks(3).map(|c| glam::vec3(c[0], c[1], c[2]));
-
-        let sh_c0 = 0.2820947917738781;
-        let base_rgb = self.sh_coeffs.val().slice([0..self.num_splats(), 0..3]) * sh_c0 + 0.5;
-        let colors = base_rgb.into_data_async().await.to_vec::<f32>().unwrap();
-        let colors = colors.chunks(3).map(|c| {
-            Color::from_rgb(
-                (c[0] * 255.0) as u8,
-                (c[1] * 255.0) as u8,
-                (c[2] * 255.0) as u8,
-            )
-        });
-
-        let radii = self
-            .log_scales
-            .val()
-            .exp()
-            .into_data_async()
-            .await
-            .to_vec()
-            .unwrap();
-
-        let radii = radii
-            .chunks(3)
-            .map(|c| 0.5 * glam::vec3(c[0], c[1], c[2]).length());
-
-        rec.log(
-            "world/splat/points",
-            &rerun::Points3D::new(means)
-                .with_colors(colors)
-                .with_radii(radii),
-        )?;
-        Ok(())
     }
 
     pub(crate) fn num_splats(&self) -> usize {

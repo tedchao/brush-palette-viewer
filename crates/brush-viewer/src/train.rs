@@ -70,11 +70,14 @@ pub(crate) struct TrainConfig {
     pub init_splat_count: usize,
 }
 
-struct TrainStepStats<B: AutodiffBackend> {
-    pred_images: Tensor<B, 4>,
-    auxes: Vec<RenderAux>,
-    loss: Tensor<B, 1>,
-    psnr: Tensor<B, 1>,
+pub struct TrainStepStats<B: AutodiffBackend> {
+    pub pred_images: Tensor<B, 4>,
+    pub auxes: Vec<RenderAux>,
+    pub loss: Tensor<B, 1>,
+    pub lr_mean: f64,
+    pub lr_opac: f64,
+    pub lr_rest: f64,
+    pub iter: u32,
 }
 
 pub struct SplatTrainer<B: AutodiffBackend>
@@ -379,8 +382,7 @@ where
         &mut self,
         batch: SceneBatch<B>,
         splats: Splats<B>,
-        #[cfg(feature = "rerun")] rec: &rerun::RecordingStream,
-    ) -> Result<(Splats<B>, Tensor<B, 1>), anyhow::Error> {
+    ) -> Result<(Splats<B>, TrainStepStats<B>), anyhow::Error> {
         let device = &splats.means.device();
         let _span = info_span!("Train step").entered();
 
@@ -392,7 +394,7 @@ where
 
         let [batch_size, img_h, img_w, _] = batch.gt_image.dims();
 
-        let loss = {
+        let (pred_images, auxes, loss) = {
             let mut renders = vec![];
             let mut auxes = vec![];
 
@@ -441,7 +443,7 @@ where
                 loss = loss * (1.0 - self.config.ssim_weight)
                     + (-ssim_loss + 1.0) * self.config.ssim_weight;
             }
-            loss
+            (pred_images, auxes, loss)
         };
 
         let mut grads = {
@@ -553,115 +555,18 @@ where
             self.optim = self.opt_config.init::<B, Splats<B>>();
         }
 
-        #[cfg(feature = "rerun")]
-        {
-            rec.set_time_sequence("iterations", self.iter);
-
-            rec.log("lr/mean", &rerun::Scalar::new(lr_mean))?;
-            rec.log("lr/opac", &rerun::Scalar::new(lr_opac))?;
-            rec.log("lr/rest", &rerun::Scalar::new(lr_rest))?;
-
-            rec.log(
-                "splats/num",
-                &rerun::Scalar::new(splats.num_splats() as f64).clone(),
-            )?;
-
-            if self.iter % self.config.visualize_every == 0 {
-                let mse = (pred_images.clone() - batch.gt_image.clone())
-                    .powf_scalar(2.0)
-                    .mean();
-                let psnr = mse.clone().recip().log() * 10.0 / std::f32::consts::LN_10;
-
-                let stats = TrainStepStats {
-                    pred_images,
-                    auxes,
-                    loss,
-                    psnr,
-                };
-
-                self.visualize_train_stats(rec, stats).await?;
-
-                let main_gt_image = batch.gt_image.slice([0..1]);
-
-                rec.log(
-                    "images/ground truth",
-                    &rerun::Image::try_from(
-                        ndarray::Array::from_shape_vec(
-                            main_gt_image.dims(),
-                            main_gt_image
-                                .into_data_async()
-                                .await
-                                .to_vec::<f32>()
-                                .unwrap(),
-                        )?
-                        .map(|x| (*x * 255.0).clamp(0.0, 255.0) as u8),
-                    )?,
-                )?;
-            }
-
-            if self.iter % self.config.visualize_splats_every == 0 {
-                splats.visualize(rec).await?;
-            }
-        }
-
         self.iter += 1;
 
-        Ok((splats, loss))
-    }
+        let stats = TrainStepStats {
+            pred_images,
+            auxes,
+            loss,
+            lr_mean,
+            lr_opac,
+            lr_rest,
+            iter: self.iter,
+        };
 
-    #[cfg(feature = "rerun")]
-    async fn visualize_train_stats(
-        &self,
-        rec: &rerun::RecordingStream,
-        stats: TrainStepStats<B>,
-    ) -> Result<(), anyhow::Error> {
-        use burn::tensor::ElementConversion;
-        use ndarray::Array;
-
-        rec.log(
-            "losses/main",
-            &rerun::Scalar::new(stats.loss.into_scalar_async().await.elem::<f64>()),
-        )?;
-        rec.log(
-            "stats/PSNR",
-            &rerun::Scalar::new(stats.psnr.into_scalar_async().await.elem::<f64>()),
-        )?;
-
-        // Not sure what's best here, atm let's just log the first batch render only.
-        // Maybe could do an average instead?
-        let aux = &stats.auxes[0];
-
-        rec.log(
-            "splats/num_intersects",
-            &rerun::Scalar::new(aux.read_num_intersections() as f64),
-        )?;
-        rec.log(
-            "splats/num_visible",
-            &rerun::Scalar::new(aux.read_num_visible() as f64),
-        )?;
-
-        let tile_depth = aux.read_tile_depth();
-        rec.log(
-            "images/tile depth",
-            &rerun::Tensor::try_from(Array::from_shape_vec(
-                tile_depth.dims(),
-                tile_depth.into_data_async().await.to_vec::<f32>().unwrap(),
-            )?)?,
-        )?;
-
-        let main_pred_image = stats.pred_images.slice([0..1]);
-        let pred_image = Array::from_shape_vec(
-            main_pred_image.dims(),
-            main_pred_image
-                .into_data_async()
-                .await
-                .to_vec::<f32>()
-                .unwrap(),
-        )?
-        .map(|x| (*x * 255.0).clamp(0.0, 255.0) as u8);
-
-        rec.log("images/predicted", &rerun::Image::try_from(pred_image)?)?;
-
-        Ok(())
+        Ok((splats, stats))
     }
 }

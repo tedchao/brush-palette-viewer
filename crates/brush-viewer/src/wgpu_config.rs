@@ -1,6 +1,5 @@
-use std::sync::Arc;
-
 use eframe::egui_wgpu::WgpuConfiguration;
+use std::sync::Arc;
 
 pub fn get_config() -> WgpuConfiguration {
     WgpuConfiguration {

@@ -647,6 +647,7 @@ mod tests {
 
     type DiffBack = Autodiff<BurnBack>;
 
+    use ndarray::Array;
     use safetensors::tensor::TensorView;
     use safetensors::SafeTensors;
 
@@ -721,8 +722,6 @@ mod tests {
     #[test]
     fn test_reference() -> Result<()> {
         let device = WgpuDevice::BestAvailable;
-        #[cfg(feature = "rerun")]
-        let rec = rerun::RecordingStreamBuilder::new("visualize training").spawn()?;
 
         let crab_img = image::open("./test_cases/crab.png")?;
         // Convert the image to RGB format
@@ -795,9 +794,9 @@ mod tests {
 
             let out_rgb = out.clone().slice([0..img_dims[0], 0..img_dims[1], 0..3]);
 
-            #[cfg(feature = "rerun")]
-            {
-                use ndarray::Array;
+            let rec = rerun::RecordingStreamBuilder::new("visualize training").spawn();
+
+            if let Ok(rec) = rec {
                 rec.log(
                     "img/image",
                     &rerun::Image::try_from(

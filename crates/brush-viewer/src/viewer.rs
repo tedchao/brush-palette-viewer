@@ -73,110 +73,133 @@ struct TrainArgs {
     target_resolution: u32,
 }
 
+async fn load_ply_loop(
+    data: &[u8],
+    device: WgpuDevice,
+    sender: Sender<ViewerMessage>,
+    egui_ctx: egui::Context,
+) -> anyhow::Result<()> {
+    let total_count = splat_import::ply_count(data).context("Invalid ply file")?;
+
+    let splat_stream = splat_import::load_splat_from_ply::<Backend>(data, device.clone());
+
+    let mut splat_stream = std::pin::pin!(splat_stream);
+    while let Some(splats) = splat_stream.next().await {
+        egui_ctx.request_repaint();
+
+        let splats = splats?;
+        let msg = ViewerMessage::SplatLoad {
+            splats,
+            total_count,
+        };
+
+        sender
+            .send(msg)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to send message: {}", e))?;
+    }
+
+    Ok(())
+}
+
 async fn train_loop(
+    data: &[u8],
     device: WgpuDevice,
     sender: Sender<ViewerMessage>,
     egui_ctx: egui::Context,
     train_args: TrainArgs,
 ) -> anyhow::Result<()> {
+    let config = TrainConfig::new(
+        LrConfig::new().with_max_lr(4e-5).with_min_lr(2e-5),
+        LrConfig::new().with_max_lr(8e-2).with_min_lr(2e-2),
+        LrConfig::new().with_max_lr(2e-2).with_min_lr(1e-2),
+    );
+
+    let cameras = dataset_readers::read_synthetic_nerf_data(
+        data,
+        Some(train_args.frame_count),
+        Some(train_args.target_resolution),
+    )
+    .unwrap();
+    let scene = scene::Scene::new(cameras);
+
     #[cfg(feature = "rerun")]
-    let rec = rerun::RecordingStreamBuilder::new("visualize training")
-        .spawn()
-        .expect("Failed to start rerun");
+    let visualize = crate::visualize::VisualizeTools::new();
 
-    let picked = rrfd::pick_file().await?;
+    #[cfg(feature = "rerun")]
+    visualize.log_scene(&scene)?;
 
-    if picked.file_name.contains(".ply") {
-        let total_count = splat_import::ply_count(&picked.data).context("Invalid ply file")?;
+    let mut splats =
+        Splats::<Autodiff<Backend>>::init_random(config.init_splat_count, 2.0, &device);
 
-        let splat_stream =
-            splat_import::load_splat_from_ply::<Backend>(&picked.data, device.clone());
+    let batcher_train = SceneBatcher::<Autodiff<Backend>>::new(device.clone());
+    let mut dataloader = SceneLoader::new(scene, batcher_train, 1);
+    let mut trainer = SplatTrainer::new(splats.num_splats(), &config, &splats);
 
-        let mut splat_stream = std::pin::pin!(splat_stream);
-        while let Some(splats) = splat_stream.next().await {
-            egui_ctx.request_repaint();
+    loop {
+        let batch = {
+            let _span = info_span!("Get batch").entered();
+            dataloader.next()
+        };
 
-            let splats = splats?;
-            let msg = ViewerMessage::SplatLoad {
-                splats,
-                total_count,
-            };
-
-            sender
-                .send(msg)
-                .await
-                .map_err(|e| anyhow::anyhow!("Failed to send message: {}", e))?;
-        }
-
-        Ok(())
-    } else {
-        let config = TrainConfig::new(
-            LrConfig::new().with_max_lr(4e-5).with_min_lr(2e-5),
-            LrConfig::new().with_max_lr(8e-2).with_min_lr(2e-2),
-            LrConfig::new().with_max_lr(2e-2).with_min_lr(1e-2),
-        );
-
-        let cameras = dataset_readers::read_synthetic_nerf_data(
-            &picked.data,
-            Some(train_args.frame_count),
-            Some(train_args.target_resolution),
-        )
-        .unwrap();
-        let scene = scene::Scene::new(cameras);
+        let gt_image = batch.gt_image.clone();
+        let (new_splats, stats) = trainer.step(batch, splats).await.unwrap();
 
         #[cfg(feature = "rerun")]
-        scene.visualize(&rec).expect("Failed to visualize scene");
+        {
+            if trainer.iter % config.visualize_splats_every == 0 {
+                visualize
+                    .log_train_stats(&new_splats, &stats, gt_image)
+                    .await?;
+            }
 
-        let mut splats =
-            Splats::<Autodiff<Backend>>::init_random(config.init_splat_count, 2.0, &device);
-
-        let batcher_train = SceneBatcher::<Autodiff<Backend>>::new(device.clone());
-        let mut dataloader = SceneLoader::new(scene, batcher_train, 1);
-        let mut trainer = SplatTrainer::new(splats.num_splats(), &config, &splats);
-
-        loop {
-            let batch = {
-                let _span = info_span!("Get batch").entered();
-                dataloader.next()
-            };
-
-            let (new_splats, loss) = trainer
-                .step(
-                    batch,
-                    splats,
-                    #[cfg(feature = "rerun")]
-                    &rec,
-                )
-                .await
-                .unwrap();
-            splats = new_splats;
-            let _ = train::yield_macro::<Backend>(&device).await;
-
-            if trainer.iter % 4 == 0 {
-                let _span = info_span!("Send batch").entered();
-
-                let _ = train::yield_macro::<Backend>(&device).await;
-
-                let msg = ViewerMessage::TrainStep {
-                    splats: splats.valid(),
-                    loss: loss.into_scalar_async().await.elem::<f32>(),
-                    iter: trainer.iter,
-                    timestamp: Instant::now(),
-                };
-
-                match sender.try_send(msg) {
-                    Ok(_) => (),
-                    Err(TrySendError::Full(_)) => (),
-                    Err(_) => {
-                        break; // channel closed, bail.
-                    }
-                }
-
-                egui_ctx.request_repaint();
+            if trainer.iter % config.visualize_splats_every == 0 {
+                visualize.log_splats(&new_splats).await?;
             }
         }
 
-        Ok(())
+        splats = new_splats;
+        let _ = train::yield_macro::<Backend>(&device).await;
+
+        if trainer.iter % 4 == 0 {
+            let _span = info_span!("Send batch").entered();
+
+            let _ = train::yield_macro::<Backend>(&device).await;
+
+            let msg = ViewerMessage::TrainStep {
+                splats: splats.valid(),
+                loss: stats.loss.into_scalar_async().await.elem::<f32>(),
+                iter: trainer.iter,
+                timestamp: Instant::now(),
+            };
+
+            match sender.try_send(msg) {
+                Ok(_) => (),
+                Err(TrySendError::Full(_)) => (),
+                Err(_) => {
+                    break; // channel closed, bail.
+                }
+            }
+
+            egui_ctx.request_repaint();
+        }
+    }
+
+    Ok(())
+}
+
+async fn process_loop(
+    device: WgpuDevice,
+    sender: Sender<ViewerMessage>,
+    egui_ctx: egui::Context,
+    train_args: TrainArgs,
+) -> anyhow::Result<()> {
+    let picked = rrfd::pick_file().await?;
+
+    if picked.file_name.contains(".ply") {
+        load_ply_loop(&picked.data, device, sender, egui_ctx).await
+    } else {
+        train_loop(&picked.data, device, sender, egui_ctx, train_args).await
     }
 }
 
@@ -337,13 +360,13 @@ impl Viewer {
 
         // TODO: Show errors again.
 
-        async fn inner_train_loop(
+        async fn inner_process_loop(
             device: WgpuDevice,
             sender: Sender<ViewerMessage>,
             egui_ctx: egui::Context,
             train_args: TrainArgs,
         ) {
-            match train_loop(device, sender.clone(), egui_ctx, train_args).await {
+            match process_loop(device, sender.clone(), egui_ctx, train_args).await {
                 Ok(_) => (),
                 Err(e) => {
                     let _ = sender.send(ViewerMessage::Error(e)).await;
@@ -358,11 +381,11 @@ impl Viewer {
 
         #[cfg(not(target_arch = "wasm32"))]
         std::thread::spawn(move || {
-            pollster::block_on(inner_train_loop(device, sender, ctx, train_args))
+            pollster::block_on(inner_process_loop(device, sender, ctx, train_args))
         });
 
         #[cfg(target_arch = "wasm32")]
-        spawn_local(inner_train_loop(device, sender, ctx, train_args));
+        spawn_local(inner_process_loop(device, sender, ctx, train_args));
     }
 
     fn url_button(&mut self, label: &str, url: &str, ui: &mut egui::Ui) {

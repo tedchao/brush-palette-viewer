@@ -15,35 +15,6 @@ impl Scene {
         Scene { views }
     }
 
-    #[cfg(feature = "rerun")]
-    pub(crate) fn visualize(&self, rec: &rerun::RecordingStream) -> anyhow::Result<()> {
-        rec.log_static("world", &rerun::ViewCoordinates::RIGHT_HAND_Z_UP)?;
-
-        for (i, data) in self.views.iter().enumerate() {
-            let path = format!("world/dataset/camera/{i}");
-            let (width, height, _) = data.image.dim();
-            let vis_size = glam::uvec2(width as u32, height as u32);
-            let rerun_camera = rerun::Pinhole::from_focal_length_and_resolution(
-                data.camera.focal(vis_size),
-                glam::vec2(vis_size.x as f32, vis_size.y as f32),
-            );
-            rec.log_static(path.clone(), &rerun_camera)?;
-            rec.log_static(
-                path.clone(),
-                &rerun::Transform3D::from_translation_rotation(
-                    data.camera.position,
-                    data.camera.rotation,
-                ),
-            )?;
-            rec.log_static(
-                path + "/image",
-                &rerun::Image::try_from(data.image.clone())?,
-            )?;
-        }
-
-        Ok(())
-    }
-
     // Returns the extent of the cameras in the scene.
     fn cameras_extent(&self) -> f32 {
         let camera_centers = &self
