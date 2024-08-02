@@ -13,7 +13,6 @@ mod shaders;
 
 pub mod camera;
 pub mod render;
-pub mod sync_span;
 
 #[derive(Debug, Clone)]
 pub struct RenderAux {

@@ -3,15 +3,6 @@ fn main() -> anyhow::Result<()> {
 
     #[cfg(not(target_arch = "wasm32"))]
     {
-        #[cfg(feature = "tracy")]
-        {
-            use tracing_subscriber::layer::SubscriberExt;
-
-            tracing::subscriber::set_global_default(
-                tracing_subscriber::registry().with(tracing_tracy::TracyLayer::default()),
-            )?;
-        }
-
         // Build app display.
         let native_options = eframe::NativeOptions {
             viewport: egui::ViewportBuilder::default()
@@ -31,13 +22,7 @@ fn main() -> anyhow::Result<()> {
 
     #[cfg(target_arch = "wasm32")]
     {
-        tracing_wasm::set_as_global_default();
-
-        #[cfg(debug_assertions)]
-        {
-            console_error_panic_hook::set_once();
-            tracing_wasm::set_as_global_default();
-        }
+        console_error_panic_hook::set_once();
 
         let web_options = eframe::WebOptions {
             wgpu_options,

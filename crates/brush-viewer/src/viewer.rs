@@ -9,7 +9,7 @@ use crate::{
 };
 use anyhow::Context;
 use async_channel::{Receiver, Sender, TryRecvError, TrySendError};
-use brush_render::{camera::Camera, sync_span::SyncSpan};
+use brush_render::camera::Camera;
 use burn::{backend::Autodiff, module::AutodiffModule, tensor::ElementConversion};
 use burn_wgpu::{JitBackend, RuntimeOptions, WgpuDevice, WgpuRuntime};
 use egui::{pos2, CollapsingHeader, Color32, Hyperlink, Rect, Slider};
@@ -142,7 +142,9 @@ async fn train_loop(
             dataloader.next()
         };
 
+        #[cfg(feature = "rerun")]
         let gt_image = batch.gt_image.clone();
+
         let (new_splats, stats) = trainer.step(batch, splats).await.unwrap();
 
         #[cfg(feature = "rerun")]
@@ -258,12 +260,6 @@ impl SplatView {
 
                 // If there's actual rendering to do, not just an imgui update.
                 if ctx.has_requested_repaint() {
-                    // Check whether any work needs to be flushed.
-                    {
-                        let device = &splats.means.device();
-                        let _span = SyncSpan::<Backend>::new("pre setup", device);
-                    }
-
                     let (img, _) = {
                         let _span = info_span!("Render splats").entered();
                         splats.render(&self.camera, size, glam::vec3(0.0, 0.0, 0.0), true)
@@ -316,6 +312,26 @@ impl Viewer {
             // Splatting workload is much more granular, so don't want to flush nearly as often.
             RuntimeOptions { tasks_max: 1024 },
         );
+
+        cfg_if::cfg_if! {
+            if #[cfg(target_arch = "wasm32")] {
+                use tracing_subscriber::layer::SubscriberExt;
+
+                let subscriber = tracing_subscriber::registry().with(tracing_wasm::WasmLayer::new());
+                tracing::subscriber::set_global_default(subscriber)
+                    .expect("Failed to set tracing subscriber");
+            } else if #[cfg(feature = "tracy")] {
+                use tracing_subscriber::layer::SubscriberExt;
+
+                println!("Checking for tracing stuff");
+
+                let subscriber = tracing_subscriber::registry()
+                    .with(tracing_tracy::TracyLayer::default())
+                    .with(sync_span::SyncLayer::new(device.clone()));
+                tracing::subscriber::set_global_default(subscriber)
+                    .expect("Failed to set tracing subscriber");
+            }
+        }
 
         Viewer {
             receiver: None,
@@ -479,6 +495,13 @@ impl eframe::App for Viewer {
                         Err(TryRecvError::Closed) => self.receiver = None, // channel closed.
                     }
                 }
+            }
+
+            #[cfg(feature = "tracy")]
+            {
+                let mut checked = sync_span::is_enabled();
+                ui.checkbox(&mut checked, "Sync");
+                sync_span::set_enabled(checked);
             }
 
             if let Some(message) = self.last_message.as_ref() {

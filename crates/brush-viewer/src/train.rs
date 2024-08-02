@@ -1,7 +1,6 @@
 use crate::gaussian_splats::Splats;
 use crate::scene::SceneBatch;
 use anyhow::Result;
-use brush_render::sync_span::SyncSpan;
 use brush_render::{AutodiffBackend, Backend, RenderAux};
 use burn::lr_scheduler::linear::{LinearLrScheduler, LinearLrSchedulerConfig};
 use burn::lr_scheduler::LrScheduler;
@@ -416,7 +415,8 @@ where
 
             let pred_images = Tensor::stack(renders, 0);
 
-            let _span = SyncSpan::<B>::new("Calculate losses", device);
+            let _span = info_span!("Calculate losses", sync_burn = true).entered();
+
             // There might be some marginal benefit to caching the "loss objects". I wish Burn had a more
             // functional style for this.
             let huber = HuberLossConfig::new(0.05).init();
@@ -446,42 +446,9 @@ where
             (pred_images, auxes, loss)
         };
 
-        let mut grads = {
-            let _span = SyncSpan::<B>::new("Backward pass", device);
-            loss.backward()
-        };
+        let mut grads = info_span!("Backward pass", sync_burn = true).in_scope(|| loss.backward());
 
         yield_macro::<B>(device).await;
-
-        let step_span = SyncSpan::<B>::new("Optimizer step", device);
-        // Burn doesn't have a great way to use multiple different learning rates
-        // or different optimizers. The current best way seems to be to "distribute" the gradients
-        // to different GradientParams. Basically each optimizer step call only sees a
-        // a subset of parameter gradients.
-
-        let mut grad_means = GradientsParams::new();
-        grad_means.register(
-            splats.means.id.clone(),
-            splats.means.grad_remove(&mut grads).unwrap(),
-        );
-        let mut grad_opac = GradientsParams::new();
-        grad_opac.register(
-            splats.raw_opacity.id.clone(),
-            splats.raw_opacity.grad_remove(&mut grads).unwrap(),
-        );
-        let mut grad_rest = GradientsParams::new();
-        grad_rest.register(
-            splats.sh_coeffs.id.clone(),
-            splats.sh_coeffs.grad_remove(&mut grads).unwrap(),
-        );
-        grad_rest.register(
-            splats.rotation.id.clone(),
-            splats.rotation.grad_remove(&mut grads).unwrap(),
-        );
-        grad_rest.register(
-            splats.log_scales.id.clone(),
-            splats.log_scales.grad_remove(&mut grads).unwrap(),
-        );
 
         // There's an annoying issue in Burn where the scheduler step
         // is a trait function, which requires the backen to be known,
@@ -490,16 +457,44 @@ where
         let lr_opac = LrScheduler::<B>::step(&mut self.sched_opac);
         let lr_rest = LrScheduler::<B>::step(&mut self.sched_rest);
 
-        // Now step each optimizer
-        let mut splats = splats;
+        let mut splats = info_span!("Optimizer step", sync_burn = true).in_scope(|| {
+            // Burn doesn't have a great way to use multiple different learning rates
+            // or different optimizers. The current best way seems to be to "distribute" the gradients
+            // to different GradientParams. Basically each optimizer step call only sees a
+            // a subset of parameter gradients.
 
-        splats = self.optim.step(lr_mean, splats, grad_means);
-        splats = self.optim.step(lr_opac, splats, grad_opac);
-        splats = self.optim.step(lr_rest, splats, grad_rest);
-        drop(step_span);
+            let mut grad_means = GradientsParams::new();
+            grad_means.register(
+                splats.means.id.clone(),
+                splats.means.grad_remove(&mut grads).unwrap(),
+            );
+            let mut grad_opac = GradientsParams::new();
+            grad_opac.register(
+                splats.raw_opacity.id.clone(),
+                splats.raw_opacity.grad_remove(&mut grads).unwrap(),
+            );
+            let mut grad_rest = GradientsParams::new();
+            grad_rest.register(
+                splats.sh_coeffs.id.clone(),
+                splats.sh_coeffs.grad_remove(&mut grads).unwrap(),
+            );
+            grad_rest.register(
+                splats.rotation.id.clone(),
+                splats.rotation.grad_remove(&mut grads).unwrap(),
+            );
+            grad_rest.register(
+                splats.log_scales.id.clone(),
+                splats.log_scales.grad_remove(&mut grads).unwrap(),
+            );
 
-        {
-            let _span = SyncSpan::<B>::new("Housekeeping", device);
+            let mut splats = splats;
+            splats = self.optim.step(lr_mean, splats, grad_means);
+            splats = self.optim.step(lr_opac, splats, grad_opac);
+            splats = self.optim.step(lr_rest, splats, grad_rest);
+            splats
+        });
+
+        info_span!("Housekeeping", sync_burn = true).in_scope(|| {
             splats.norm_rotations();
 
             // TODO: Maybe can batch this.
@@ -516,7 +511,7 @@ where
                     .squeeze(1)
                     .sqrt(),
             );
-        }
+        });
 
         if self.iter % self.config.refine_every == 0 {
             // Remove barely visible gaussians.

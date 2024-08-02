@@ -16,8 +16,6 @@ use burn_wgpu::JitTensor;
 use tracing::info_span;
 
 pub fn prefix_sum(input: JitTensor<WgpuRuntime, u32, 1>) -> JitTensor<WgpuRuntime, u32, 1> {
-    let _span = info_span!("prefix sum");
-
     let threads_per_group = shaders::prefix_sum_helpers::THREADS_PER_GROUP as usize;
     let num = input.shape.dims[0];
     let client = &input.client;

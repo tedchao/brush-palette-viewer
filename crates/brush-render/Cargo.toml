@@ -25,6 +25,7 @@ tracing.workspace = true
 wgpu.workspace = true
 naga.workspace = true
 ndarray.workspace = true
+sync-span.path = "../sync-span"
 
 
 [build-dependencies]
@@ -33,9 +34,3 @@ miette.workspace = true
 
 [dev-dependencies]
 rerun.workspace = true
-
-[features]
-sync_tracy = []
-
-# Enable this to profile GPU timings with tracy.
-# default = ["sync_tracy"]
