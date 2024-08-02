@@ -13,7 +13,6 @@ kernel_source_gen!(PrefixSumScanSums {}, prefix_sum_scan_sums);
 kernel_source_gen!(PrefixSumAddScannedSums {}, prefix_sum_add_scanned_sums);
 
 use burn_wgpu::JitTensor;
-use tracing::info_span;
 
 pub fn prefix_sum(input: JitTensor<WgpuRuntime, u32, 1>) -> JitTensor<WgpuRuntime, u32, 1> {
     let threads_per_group = shaders::prefix_sum_helpers::THREADS_PER_GROUP as usize;

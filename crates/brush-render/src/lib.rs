@@ -66,7 +66,7 @@ pub trait Backend: burn::tensor::backend::Backend {
     // a whole bunch of gradients that we store.
     // The return just happens to be the xy screenspace points
     // which we use to 'carry' the gradients'.
-    fn render_gaussians(
+    fn render_splats(
         cam: &Camera,
         img_size: glam::UVec2,
         means: Tensor<Self, 2>,

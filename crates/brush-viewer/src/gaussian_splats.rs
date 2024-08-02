@@ -71,7 +71,7 @@ impl<B: Backend> Splats<B> {
         bg_color: glam::Vec3,
         render_u32_buffer: bool,
     ) -> (Tensor<B, 3>, brush_render::RenderAux) {
-        brush_render::render::render(
+        B::render_splats(
             camera,
             img_size,
             self.means.val(),

@@ -320,7 +320,7 @@ fn render_forward(
 }
 
 impl Backend for BurnBack {
-    fn render_gaussians(
+    fn render_splats(
         camera: &Camera,
         img_size: glam::UVec2,
         means: Tensor<Self, 2>,
@@ -364,7 +364,7 @@ struct GaussianBackwardState {
 struct RenderBackwards;
 
 impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
-    fn render_gaussians(
+    fn render_splats(
         camera: &Camera,
         img_size: glam::UVec2,
         means: Tensor<Self, 2>,
@@ -599,33 +599,6 @@ impl Backward<BurnBack, 3, 6> for RenderBackwards {
     }
 }
 
-pub fn render<B: Backend>(
-    camera: &Camera,
-    img_size: glam::UVec2,
-    means: Tensor<B, 2>,
-    xy_dummy: Tensor<B, 2>,
-    log_scales: Tensor<B, 2>,
-    quats: Tensor<B, 2>,
-    sh_coeffs: Tensor<B, 2>,
-    raw_opacity: Tensor<B, 1>,
-    background: glam::Vec3,
-    render_u32_buffer: bool,
-) -> (Tensor<B, 3>, RenderAux) {
-    let (img, aux) = B::render_gaussians(
-        camera,
-        img_size,
-        means,
-        xy_dummy,
-        log_scales,
-        quats,
-        sh_coeffs,
-        raw_opacity,
-        background,
-        render_u32_buffer,
-    );
-    (img, aux)
-}
-
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use std::fs::File;
@@ -666,7 +639,7 @@ mod tests {
             .repeat(0, num_points);
         let sh_coeffs = Tensor::ones([num_points, 4], &device);
         let raw_opacity = Tensor::zeros([num_points], &device);
-        let (output, _) = render(
+        let (output, _) = DiffBack::render_splats(
             &cam,
             img_size,
             means,
@@ -772,7 +745,7 @@ mod tests {
                 fov_y,
             );
 
-            let (out, aux) = render(
+            let (out, aux) = DiffBack::render_splats(
                 &cam,
                 glam::uvec2(img_dims[1] as u32, img_dims[0] as u32),
                 means.clone(),
