@@ -9,6 +9,7 @@ use crate::kernels::{
 
 use brush_kernel::{
     bitcast_tensor, calc_cube_count, create_dispatch_buffer, create_tensor, create_uniform_buffer,
+    CubeCount,
 };
 use brush_prefix_sum::prefix_sum;
 use brush_sort::radix_argsort;
@@ -17,7 +18,6 @@ use burn::tensor::ops::IntTensorOps;
 use burn::tensor::ops::{FloatTensor, FloatTensorOps};
 use burn::tensor::{Tensor, TensorPrimitive};
 use burn_wgpu::{JitBackend, JitTensor, WgpuRuntime};
-use cubecl::CubeCount;
 use tracing::info_span;
 
 use super::{shaders, Backend, RenderAux};

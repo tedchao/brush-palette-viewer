@@ -13,10 +13,10 @@ brush-kernel = { version = "0.1.0", path = "../brush-kernel" }
 brush-prefix-sum = { version = "0.1.0", path = "../brush-prefix-sum" }
 brush-sort = { version = "0.1.0", path = "../brush-sort" }
 burn.workspace = true
+burn-fusion.workspace = true
 burn-wgpu.workspace = true
 burn-jit.workspace = true
 bytemuck.workspace = true
-cubecl.workspace = true
 glam.workspace = true
 image.workspace = true
 naga_oil.workspace = true

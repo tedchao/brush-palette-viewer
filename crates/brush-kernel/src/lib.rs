@@ -4,7 +4,8 @@
 mod shaders;
 
 pub use cubecl::compute::{CompiledKernel, CubeTask};
-use cubecl::{client::ComputeClient, server::ComputeServer, CubeCount, CubeDim};
+pub use cubecl::KernelId;
+pub use cubecl::{client::ComputeClient, server::ComputeServer, CubeCount, CubeDim};
 
 use burn::tensor::Shape;
 
@@ -23,7 +24,11 @@ pub fn calc_cube_count<const D: usize, S: ComputeServer>(
     CubeCount::Static(execs[0], execs[1], execs[2])
 }
 
-pub fn module_to_compiled(module: naga::Module, workgroup_size: [u32; 3]) -> CompiledKernel {
+pub fn module_to_compiled(
+    name: &'static str,
+    module: naga::Module,
+    workgroup_size: [u32; 3],
+) -> CompiledKernel {
     let info = naga::valid::Validator::new(
         naga::valid::ValidationFlags::empty(),
         naga::valid::Capabilities::all(),
@@ -36,11 +41,23 @@ pub fn module_to_compiled(module: naga::Module, workgroup_size: [u32; 3]) -> Com
             .expect("failed to convert naga module to source");
 
     CompiledKernel {
+        name: Some(name),
         source: shader_string,
         cube_dim: CubeDim::new(workgroup_size[0], workgroup_size[1], workgroup_size[2]),
         // This is just a compiler hint for burn, but doesn't have to be set.
         shared_mem_bytes: 0,
+        debug_info: None,
     }
+}
+
+pub fn calc_kernel_id<T: 'static>(values: &[bool]) -> KernelId {
+    let mut kernel_id = KernelId::new::<T>();
+
+    for val in values.iter().copied() {
+        kernel_id = kernel_id.info(val);
+    }
+
+    kernel_id
 }
 
 #[macro_export]
@@ -85,24 +102,13 @@ macro_rules! kernel_source_gen {
         }
 
         impl brush_kernel::CubeTask for $struct_name {
-            fn id(&self) -> String {
-                let ids = stringify!($struct_name).to_owned();
-                $(
-                    let mut ids = ids;
-                    ids.push(
-                        if self.$field_name {
-                            '0'
-                        } else {
-                            '1'
-                        }
-                    );
-                )*
-                ids
+            fn id(&self) -> brush_kernel::KernelId {
+                brush_kernel::calc_kernel_id::<Self>(&[$(self.$field_name),*])
             }
 
             fn compile(&self) -> brush_kernel::CompiledKernel {
                 let module = self.source();
-                brush_kernel::module_to_compiled(module, Self::WORKGROUP_SIZE)
+                brush_kernel::module_to_compiled(stringify!($struct_name), module, Self::WORKGROUP_SIZE)
             }
         }
     };
@@ -169,12 +175,16 @@ use shaders::wg;
 pub(crate) struct CreateDispatchBuffer {}
 
 impl CubeTask for CreateDispatchBuffer {
-    fn id(&self) -> String {
-        "CreateDispatchBuffer".to_owned()
+    fn id(&self) -> KernelId {
+        KernelId::new::<Self>()
     }
 
     fn compile(&self) -> CompiledKernel {
-        module_to_compiled(wg::create_shader_source(Default::default()), [1, 1, 1])
+        module_to_compiled(
+            "CreateDispatchBuffer",
+            wg::create_shader_source(Default::default()),
+            [1, 1, 1],
+        )
     }
 }
 
