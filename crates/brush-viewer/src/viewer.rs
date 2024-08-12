@@ -200,8 +200,10 @@ async fn process_loop(
 
     if picked.file_name.contains(".ply") {
         load_ply_loop(&picked.data, device, sender, egui_ctx).await
-    } else {
+    } else if picked.file_name.contains(".zip") {
         train_loop(&picked.data, device, sender, egui_ctx, train_args).await
+    } else {
+        anyhow::bail!("Only .ply and .zip files are supported.")
     }
 }
 
