@@ -44,7 +44,7 @@ impl<B: Backend> Splats<B> {
         );
         let init_rotation = Tensor::<_, 1>::from_floats([1.0, 0.0, 0.0, 0.0], device)
             .unsqueeze::<2>()
-            .repeat(0, num_points);
+            .repeat_dim(0, num_points);
 
         let init_raw_opacity =
             Tensor::random([num_points], Distribution::Uniform(-2.0, -1.0), device);

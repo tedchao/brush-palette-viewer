@@ -636,7 +636,7 @@ mod tests {
 
         let quats = Tensor::<_, 1, _>::from_floats(glam::Quat::IDENTITY.to_array(), &device)
             .unsqueeze_dim(0)
-            .repeat(0, num_points);
+            .repeat_dim(0, num_points);
         let sh_coeffs = Tensor::ones([num_points, 4], &device);
         let raw_opacity = Tensor::zeros([num_points], &device);
         let (output, _) = DiffBack::render_splats(

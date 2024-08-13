@@ -17,7 +17,7 @@ fn create_window<B: Backend>(
 ) -> Tensor<B, 4> {
     let window1d = gaussian(window_size, 1.5, device).reshape([window_size, 1]);
     let window2d = window1d.clone() * window1d.transpose();
-    window2d.unsqueeze().repeat(1, channel)
+    window2d.unsqueeze().repeat_dim(1, channel)
 }
 
 pub fn ssim<B: Backend>(

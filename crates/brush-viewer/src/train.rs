@@ -288,7 +288,7 @@ where
                 .log_scales
                 .val()
                 .select(0, split_inds.clone())
-                .repeat(0, 2)
+                .repeat_dim(0, 2)
                 .exp()
                 * centered_samples;
 
@@ -302,7 +302,7 @@ where
                     .rotation
                     .val()
                     .select(0, split_inds.clone())
-                    .repeat(0, splits),
+                    .repeat_dim(0, splits),
             );
             // TODO: Rotate samples
             let new_means = rotated_samples
@@ -310,25 +310,25 @@ where
                     .means
                     .val()
                     .select(0, split_inds.clone())
-                    .repeat(0, splits);
+                    .repeat_dim(0, splits);
             let new_rots = splats
                 .rotation
                 .val()
                 .select(0, split_inds.clone())
-                .repeat(0, splits);
+                .repeat_dim(0, splits);
             let new_coeffs = splats
                 .sh_coeffs
                 .val()
                 .select(0, split_inds.clone())
-                .repeat(0, splits);
+                .repeat_dim(0, splits);
             let new_opac = splats
                 .raw_opacity
                 .val()
                 .select(0, split_inds.clone())
-                .repeat(0, splits);
+                .repeat_dim(0, splits);
             let new_scales = (splats.log_scales.val().select(0, split_inds.clone()).exp() / 1.6)
                 .log()
-                .repeat(0, splits);
+                .repeat_dim(0, splits);
             self.prune_points(splats, split_mask.clone()).await;
 
             splats.concat_splats(new_means, new_rots, new_coeffs, new_opac, new_scales);
