@@ -1,5 +1,5 @@
-use brush_render::camera::Camera;
-use brush_render::{render::num_sh_coeffs, Backend};
+use crate::camera::Camera;
+use crate::{render::num_sh_coeffs, Backend};
 use burn::tensor::Distribution;
 use burn::tensor::Tensor;
 use burn::{
@@ -9,14 +9,14 @@ use burn::{
 
 #[derive(Module, Debug)]
 pub struct Splats<B: Backend> {
-    pub(crate) means: Param<Tensor<B, 2>>,
-    pub(crate) sh_coeffs: Param<Tensor<B, 2>>,
-    pub(crate) rotation: Param<Tensor<B, 2>>,
-    pub(crate) raw_opacity: Param<Tensor<B, 1>>,
-    pub(crate) log_scales: Param<Tensor<B, 2>>,
+    pub means: Param<Tensor<B, 2>>,
+    pub sh_coeffs: Param<Tensor<B, 2>>,
+    pub rotation: Param<Tensor<B, 2>>,
+    pub raw_opacity: Param<Tensor<B, 1>>,
+    pub log_scales: Param<Tensor<B, 2>>,
 
     // Dummy input to track screenspace gradient.
-    pub(crate) xys_dummy: Tensor<B, 2>,
+    pub xys_dummy: Tensor<B, 2>,
 }
 
 fn map_param<B: Backend, const D: usize>(
@@ -27,7 +27,7 @@ fn map_param<B: Backend, const D: usize>(
 }
 
 impl<B: Backend> Splats<B> {
-    pub(crate) fn init_random(num_points: usize, aabb_scale: f32, device: &Device<B>) -> Splats<B> {
+    pub fn init_random(num_points: usize, aabb_scale: f32, device: &Device<B>) -> Splats<B> {
         let extent = (aabb_scale as f64) / 2.0;
         let means = Tensor::random(
             [num_points, 3],
@@ -64,13 +64,13 @@ impl<B: Backend> Splats<B> {
         }
     }
 
-    pub(crate) fn render(
+    pub fn render(
         &self,
         camera: &Camera,
         img_size: glam::UVec2,
         bg_color: glam::Vec3,
         render_u32_buffer: bool,
-    ) -> (Tensor<B, 3>, brush_render::RenderAux) {
+    ) -> (Tensor<B, 3>, crate::RenderAux) {
         B::render_splats(
             camera,
             img_size,
@@ -85,7 +85,7 @@ impl<B: Backend> Splats<B> {
         )
     }
 
-    pub(crate) fn num_splats(&self) -> usize {
+    pub fn num_splats(&self) -> usize {
         self.means.dims()[0]
     }
 

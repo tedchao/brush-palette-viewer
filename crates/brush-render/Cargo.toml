@@ -13,7 +13,6 @@ brush-kernel = { version = "0.1.0", path = "../brush-kernel" }
 brush-prefix-sum = { version = "0.1.0", path = "../brush-prefix-sum" }
 brush-sort = { version = "0.1.0", path = "../brush-sort" }
 burn.workspace = true
-burn-fusion.workspace = true
 burn-wgpu.workspace = true
 burn-jit.workspace = true
 bytemuck.workspace = true
@@ -22,11 +21,9 @@ image.workspace = true
 naga_oil.workspace = true
 safetensors.workspace = true
 tracing.workspace = true
-wgpu.workspace = true
 naga.workspace = true
 ndarray.workspace = true
 sync-span.path = "../sync-span"
-
 
 [build-dependencies]
 brush-wgsl.path = "../brush-wgsl"

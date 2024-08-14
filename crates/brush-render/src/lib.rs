@@ -12,6 +12,7 @@ mod kernels;
 mod shaders;
 
 pub mod camera;
+pub mod gaussian_splats;
 pub mod render;
 
 #[derive(Debug, Clone)]

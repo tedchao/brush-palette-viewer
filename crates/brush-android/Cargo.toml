@@ -6,8 +6,7 @@ readme.workspace = true
 license.workspace = true
 
 [dependencies]
-winit = { version = "0.30.2", features = ["android-game-activity"] }
-egui.workspace = true
+winit = { version = "0.30", features = ["android-game-activity"] }
 eframe.workspace = true
 brush-viewer.path = "../brush-viewer"
 rrfd.path = "../rrfd"
@@ -15,10 +14,6 @@ rrfd.path = "../rrfd"
 android_logger = "0.14.1"
 jni = "0.21.1"
 log.workspace = true
-lazy_static = "1.5.0"
-async-channel = "2.3.1"
-pollster = "0.3.0"
-anyhow.workspace = true
 
 [lib]
 name = "main"

@@ -1,16 +1,9 @@
-use crate::{
-    burn_texture::BurnTexture,
-    dataset_readers,
-    gaussian_splats::Splats,
-    orbit_controls::OrbitControls,
-    scene::{self, SceneBatcher, SceneLoader},
-    splat_import,
-    train::{self, LrConfig, SplatTrainer, TrainConfig},
-};
 use anyhow::Context;
 use async_channel::{Receiver, Sender, TryRecvError, TrySendError};
-use brush_render::camera::Camera;
-use burn::{backend::Autodiff, module::AutodiffModule, tensor::ElementConversion};
+use brush_dataset::scene_batch::{SceneBatcher, SceneLoader};
+use brush_render::{camera::Camera, gaussian_splats::Splats};
+use burn::tensor::ElementConversion;
+use burn::{backend::Autodiff, module::AutodiffModule};
 use burn_wgpu::{JitBackend, RuntimeOptions, WgpuDevice, WgpuRuntime};
 use egui::{pos2, CollapsingHeader, Color32, Hyperlink, Rect, Slider};
 use futures_lite::StreamExt;
@@ -20,8 +13,14 @@ use tracing::info_span;
 use web_time::Instant;
 use wgpu::CommandEncoderDescriptor;
 
+use brush_dataset;
+use brush_train::scene::Scene;
+use brush_train::train::{self, LrConfig, SplatTrainer, TrainConfig};
+
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen_futures::spawn_local;
+
+use crate::{burn_texture::BurnTexture, orbit_controls::OrbitControls, splat_import};
 
 type Backend = JitBackend<WgpuRuntime, f32, i32>;
 
@@ -115,13 +114,13 @@ async fn train_loop(
         LrConfig::new().with_max_lr(2e-2).with_min_lr(1e-2),
     );
 
-    let cameras = dataset_readers::read_synthetic_nerf_data(
+    let cameras = brush_dataset::read_synthetic_nerf_data(
         data,
         Some(train_args.frame_count),
         Some(train_args.target_resolution),
     )
     .unwrap();
-    let scene = scene::Scene::new(cameras);
+    let scene = Scene::new(cameras);
 
     #[cfg(feature = "rerun")]
     let visualize = crate::visualize::VisualizeTools::new();
@@ -139,7 +138,7 @@ async fn train_loop(
     loop {
         let batch = {
             let _span = info_span!("Get batch").entered();
-            dataloader.next()
+            dataloader.next_batch()
         };
 
         #[cfg(feature = "rerun")]

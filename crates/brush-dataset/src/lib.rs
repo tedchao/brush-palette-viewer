@@ -1,3 +1,5 @@
+pub mod scene_batch;
+
 use std::io::Cursor;
 use std::io::Read;
 use std::path::Path;
@@ -10,11 +12,7 @@ use brush_render::camera::Camera;
 use image::DynamicImage;
 use ndarray::Array3;
 
-#[derive(Debug, Default, Clone)]
-pub(crate) struct InputView {
-    pub(crate) camera: Camera,
-    pub(crate) image: Array3<f32>,
-}
+use brush_train::scene::SceneView;
 
 fn normalized_path_string(path: &Path) -> String {
     Path::new(path)
@@ -25,7 +23,7 @@ fn normalized_path_string(path: &Path) -> String {
         .replace(std::path::MAIN_SEPARATOR, "/")
 }
 
-fn resize_image_to_max(image: DynamicImage, max_size: u32) -> DynamicImage {
+fn clamp_img_to_max_size(image: DynamicImage, max_size: u32) -> DynamicImage {
     if image.width() <= max_size && image.height() <= max_size {
         return image;
     }
@@ -43,7 +41,7 @@ pub fn read_synthetic_nerf_data(
     zip_data: &[u8],
     max_frames: Option<usize>,
     max_resolution: Option<u32>,
-) -> Result<Vec<InputView>> {
+) -> Result<Vec<SceneView>> {
     let mut cameras = vec![];
 
     let mut archive = zip::ZipArchive::new(Cursor::new(zip_data))?;
@@ -122,7 +120,7 @@ pub fn read_synthetic_nerf_data(
             .decode()?;
 
         if let Some(max_resolution) = max_resolution {
-            image = resize_image_to_max(image, max_resolution);
+            image = clamp_img_to_max_size(image, max_resolution);
         }
 
         let image = image.resize(400, 400, image::imageops::FilterType::Lanczos3);
@@ -135,7 +133,7 @@ pub fn read_synthetic_nerf_data(
 
         let fovy = camera::focal_to_fov(camera::fov_to_focal(fovx, image.width()), image.height());
 
-        cameras.push(InputView {
+        cameras.push(SceneView {
             camera: Camera::new(translation, rotation, fovx, fovy),
             image: tensor.to_owned().map(|&x| (x as f32) / 255.0),
         });

@@ -1,6 +1,5 @@
-use crate::gaussian_splats::Splats;
-use crate::scene::SceneBatch;
 use anyhow::Result;
+use brush_render::gaussian_splats::Splats;
 use brush_render::{AutodiffBackend, Backend, RenderAux};
 use burn::lr_scheduler::linear::{LinearLrScheduler, LinearLrSchedulerConfig};
 use burn::lr_scheduler::LrScheduler;
@@ -13,11 +12,12 @@ use burn::{
     optim::{AdamConfig, GradientsParams, Optimizer},
     tensor::Tensor,
 };
-use rand::{rngs::StdRng, SeedableRng};
 use tracing::info_span;
 
+use crate::scene::SceneBatch;
+
 #[derive(Config)]
-pub(crate) struct LrConfig {
+pub struct LrConfig {
     #[config(default = 3e-3)]
     min_lr: f64,
     #[config(default = 3e-3)]
@@ -25,7 +25,7 @@ pub(crate) struct LrConfig {
 }
 
 #[derive(Config)]
-pub(crate) struct TrainConfig {
+pub struct TrainConfig {
     pub lr_mean: LrConfig,
     pub lr_opac: LrConfig,
     pub lr_rest: LrConfig,
@@ -86,7 +86,6 @@ where
     pub iter: u32,
 
     config: TrainConfig,
-    rng: StdRng,
 
     sched_mean: LinearLrScheduler,
     sched_opac: LinearLrScheduler,
@@ -100,7 +99,7 @@ where
     xy_grad_norm_accum: Tensor<B, 1>,
 }
 
-pub(crate) async fn yield_macro<B: Backend>(device: &B::Device) {
+pub async fn yield_macro<B: Backend>(device: &B::Device) {
     // Whenever yielding, flush GPU work so while CPU is idle
     // the GPU can do some work.
     B::sync(device, burn::tensor::backend::SyncType::Flush);
@@ -201,7 +200,6 @@ where
 
         Self {
             config: config.clone(),
-            rng: StdRng::from_seed([10; 32]),
             iter: 0,
             optim,
             opt_config,

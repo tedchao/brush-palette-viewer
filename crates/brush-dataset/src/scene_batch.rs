@@ -1,51 +1,10 @@
-use brush_render::camera::Camera;
-use burn::{prelude::*, tensor::Tensor};
+use brush_render::Backend;
+use burn::tensor::{Shape, Tensor};
+use ndarray::{ArrayView, Dim, Dimension};
 
-use crate::{dataset_readers::InputView, utils};
-
-// Encapsulates a multi-view scene including cameras and the splats.
-// Also provides methods for checkpointing the training process.
-#[derive(Debug)]
-pub(crate) struct Scene {
-    pub(crate) views: Vec<InputView>,
-}
-
-impl Scene {
-    pub(crate) fn new(views: Vec<InputView>) -> Self {
-        Scene { views }
-    }
-
-    // Returns the extent of the cameras in the scene.
-    fn cameras_extent(&self) -> f32 {
-        let camera_centers = &self
-            .views
-            .iter()
-            .map(|x| x.camera.position)
-            .collect::<Vec<_>>();
-
-        let scene_center: glam::Vec3 = camera_centers
-            .iter()
-            .copied()
-            .fold(glam::Vec3::ZERO, |x, y| x + y)
-            / (camera_centers.len() as f32);
-
-        camera_centers
-            .iter()
-            .copied()
-            .map(|x| (scene_center - x).length())
-            .max_by(|x, y| x.partial_cmp(y).unwrap())
-            .unwrap()
-            * 1.1
-    }
-
-    fn get(&self, index: usize) -> Option<InputView> {
-        self.views.get(index).cloned()
-    }
-
-    fn len(&self) -> usize {
-        self.views.len()
-    }
-}
+use brush_train::scene::Scene;
+use brush_train::scene::SceneBatch;
+use brush_train::scene::SceneView;
 
 // Normally the scene batcher is used with a Burn "dataloader" which handles some things
 // like shuffling & multithreading, but, we need some more control, and I also can't figure out how
@@ -61,17 +20,22 @@ impl<B: Backend> SceneBatcher<B> {
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct SceneBatch<B: Backend> {
-    pub gt_image: Tensor<B, 4>,
-    pub cameras: Vec<Camera>,
+pub(crate) fn ndarray_to_burn<B: Backend, const D: usize>(
+    arr: ArrayView<f32, Dim<[usize; D]>>,
+    device: &B::Device,
+) -> Tensor<B, D>
+where
+    Dim<[usize; D]>: Dimension,
+{
+    let shape = Shape::new(arr.shape().try_into().unwrap());
+    Tensor::<_, 1>::from_floats(arr.as_slice().unwrap(), device).reshape(shape)
 }
 
 impl<B: Backend> SceneBatcher<B> {
-    fn batch(&self, items: Vec<InputView>) -> SceneBatch<B> {
+    fn batch(&self, items: Vec<SceneView>) -> SceneBatch<B> {
         let burn_tensors = items
             .iter()
-            .map(|x| utils::ndarray_to_burn::<B, 3>(x.image.view(), &self.device))
+            .map(|x| ndarray_to_burn::<B, 3>(x.image.view(), &self.device))
             .collect::<Vec<_>>();
 
         let img_cat = Tensor::stack(burn_tensors, 0);
@@ -125,8 +89,8 @@ fn miller_shuffle(inx: usize, shuffle_id: usize, list_size: usize) -> usize {
 impl<B: Backend> SceneLoader<B> {
     pub fn new(scene: Scene, batcher: SceneBatcher<B>, batch_size: usize) -> Self {
         let total_batch = batcher.batch(
-            (0..scene.views.len())
-                .filter_map(|x| scene.get(x))
+            (0..scene.view_count())
+                .filter_map(|x| scene.get_view(x))
                 .collect(),
         );
 
@@ -137,7 +101,7 @@ impl<B: Backend> SceneLoader<B> {
         }
     }
 
-    pub fn next(&mut self) -> SceneBatch<B> {
+    pub fn next_batch(&mut self) -> SceneBatch<B> {
         let len = self.total_batch.gt_image.dims()[0];
 
         let indexes: Vec<_> = (0..self.batch_size)

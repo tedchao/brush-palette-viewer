@@ -625,17 +625,27 @@ name = "brush-android"
 version = "0.1.0"
 dependencies = [
  "android_logger",
- "anyhow",
- "async-channel",
  "brush-viewer",
  "eframe",
- "egui",
  "jni",
- "lazy_static",
  "log",
- "pollster 0.3.0",
  "rrfd",
  "winit",
+]
+
+[[package]]
+name = "brush-dataset"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "brush-render",
+ "brush-train",
+ "burn",
+ "glam",
+ "image",
+ "ndarray",
+ "serde_json",
+ "zip 2.1.6",
 ]
 
 [[package]]
@@ -646,27 +656,20 @@ dependencies = [
  "brush-viewer",
  "eframe",
  "egui",
- "pollster 0.2.5",
- "tracing",
- "tracing-subscriber",
- "tracing-tracy",
 ]
 
 [[package]]
 name = "brush-kernel"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "brush-wgsl",
  "burn",
  "burn-jit",
  "bytemuck",
  "cubecl",
- "glam",
  "miette",
  "naga 0.20.0",
  "naga_oil",
- "tracing",
 ]
 
 [[package]]
@@ -677,15 +680,10 @@ dependencies = [
  "brush-kernel",
  "brush-wgsl",
  "burn",
- "burn-jit",
  "burn-wgpu",
- "bytemuck",
- "glam",
  "miette",
  "naga 0.20.0",
  "naga_oil",
- "tracing",
- "wgpu",
 ]
 
 [[package]]
@@ -699,7 +697,6 @@ dependencies = [
  "brush-sort",
  "brush-wgsl",
  "burn",
- "burn-fusion",
  "burn-jit",
  "burn-wgpu",
  "bytemuck",
@@ -713,7 +710,6 @@ dependencies = [
  "safetensors",
  "sync-span",
  "tracing",
- "wgpu",
 ]
 
 [[package]]
@@ -727,12 +723,23 @@ dependencies = [
  "burn-jit",
  "burn-wgpu",
  "bytemuck",
- "glam",
  "miette",
  "naga 0.20.0",
  "naga_oil",
  "tracing",
- "wgpu",
+]
+
+[[package]]
+name = "brush-train"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "brush-render",
+ "burn",
+ "glam",
+ "ndarray",
+ "rand",
+ "tracing",
 ]
 
 [[package]]
@@ -741,12 +748,10 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-channel",
- "async-executor",
  "async-stream",
- "brush-kernel",
- "brush-prefix-sum",
+ "brush-dataset",
  "brush-render",
- "brush-sort",
+ "brush-train",
  "burn",
  "burn-wgpu",
  "cfg-if",
@@ -759,11 +764,9 @@ dependencies = [
  "image",
  "ndarray",
  "ply-rs 0.1.3 (git+https://github.com/ArthurBrussee/ply-rs.git)",
- "pollster 0.3.0",
- "rand",
+ "pollster",
  "rerun",
  "rrfd",
- "serde_json",
  "sync-span",
  "tracing",
  "tracing-subscriber",
@@ -773,7 +776,6 @@ dependencies = [
  "wasm-bindgen-futures",
  "web-time 1.1.0",
  "wgpu",
- "zip 2.1.6",
 ]
 
 [[package]]
@@ -782,13 +784,11 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "data-encoding",
- "miette",
  "naga 0.20.0",
  "naga_oil",
  "regex",
  "regex-syntax 0.8.4",
  "thiserror",
- "tracing",
 ]
 
 [[package]]
@@ -901,20 +901,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.74",
-]
-
-[[package]]
-name = "burn-fusion"
-version = "0.14.0"
-source = "git+https://github.com/tracel-ai/burn#ff8d0308fbfb213c356b7ff94e1fcfa1ec892646"
-dependencies = [
- "burn-common",
- "burn-tensor",
- "derive-new",
- "hashbrown 0.14.5",
- "log",
- "serde",
- "spin",
 ]
 
 [[package]]
@@ -1469,7 +1455,7 @@ source = "git+https://github.com/tracel-ai/cubecl?rev=4e17724fbc98de02d3cb4275e2
 dependencies = [
  "derive-new",
  "getrandom",
- "pollster 0.3.0",
+ "pollster",
  "rand",
  "serde",
  "spin",
@@ -1540,7 +1526,7 @@ dependencies = [
  "hashbrown 0.14.5",
  "log",
  "md5",
- "pollster 0.3.0",
+ "pollster",
  "serde",
  "serde_json",
  "spin",
@@ -1560,7 +1546,7 @@ dependencies = [
  "derive-new",
  "hashbrown 0.14.5",
  "log",
- "pollster 0.3.0",
+ "pollster",
  "wgpu",
 ]
 
@@ -1760,7 +1746,7 @@ dependencies = [
  "objc2-foundation",
  "parking_lot",
  "percent-encoding",
- "pollster 0.3.0",
+ "pollster",
  "raw-window-handle 0.6.2",
  "static_assertions",
  "wasm-bindgen",
@@ -3808,12 +3794,6 @@ dependencies = [
 
 [[package]]
 name = "pollster"
-version = "0.2.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5da3b0203fd7ee5720aa0b5e790b591aa5d3f41c3ed2c34a3a393382198af2f7"
-
-[[package]]
-name = "pollster"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "22686f4785f02a4fcc856d3b3bb19bf6c8160d103f7a99cc258bddd0251dc7f2"
@@ -4682,7 +4662,7 @@ dependencies = [
  "objc",
  "objc-foundation",
  "objc_id",
- "pollster 0.3.0",
+ "pollster",
  "raw-window-handle 0.5.2",
  "urlencoding",
  "wasm-bindgen",
@@ -4705,7 +4685,7 @@ dependencies = [
  "objc",
  "objc-foundation",
  "objc_id",
- "pollster 0.3.0",
+ "pollster",
  "raw-window-handle 0.6.2",
  "urlencoding",
  "wasm-bindgen",
@@ -4745,7 +4725,6 @@ dependencies = [
  "jni",
  "lazy_static",
  "log",
- "pollster 0.3.0",
  "rfd 0.14.1",
 ]
 

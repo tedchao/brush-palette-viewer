@@ -12,8 +12,8 @@ use ply_rs::{
 use std::io::BufRead;
 use tracing::info_span;
 
-use crate::gaussian_splats::Splats;
 use anyhow::{Context, Result};
+use brush_render::gaussian_splats::Splats;
 
 pub(crate) struct GaussianData {
     means: [f32; 3],

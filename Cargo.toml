@@ -69,6 +69,7 @@ rerun = { version = "0.17", default-features = false, features = [
     'sdk',
     'glam',
 ] }
+zip = { version = "2.1.3", default-features = false, features = ["deflate"] }
 
 [patch.crates-io]
 egui = { git = "https://github.com/emilk/egui.git" }

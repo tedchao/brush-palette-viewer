@@ -9,14 +9,10 @@ license.workspace = true
 
 [dependencies]
 anyhow.workspace = true
-pollster = "0.2"
 egui.workspace = true
 eframe.workspace = true
-tracing.workspace = true
-tracing-subscriber.workspace = true
 brush-viewer.path = "../brush-viewer"
-tracing-tracy = { version = "0.11.0", optional = true }
 
 [features]
-tracy = ["dep:tracing-tracy", "brush-viewer/tracy"]
+tracy = ["brush-viewer/tracy"]
 rerun = ["brush-viewer/rerun"]
