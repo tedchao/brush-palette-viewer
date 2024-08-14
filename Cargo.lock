@@ -670,7 +670,6 @@ dependencies = [
  "ndarray",
  "rerun",
  "safetensors",
- "sync-span",
  "tracing",
 ]
 
@@ -4741,7 +4740,6 @@ dependencies = [
  "async-channel",
  "jni",
  "lazy_static",
- "log",
  "rfd",
 ]
 

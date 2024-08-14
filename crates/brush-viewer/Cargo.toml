@@ -33,10 +33,7 @@ wasm-bindgen-futures = "0.4.42"
 web-time = "1.1.0"
 futures-lite = "2.3.0"
 pollster = "0.3.0"
-gloo-timers = { version = "0.3.0", features = ["futures"] }
-wasm-bindgen = "0.2.92"
 
-console_error_panic_hook = "0.1.7"
 tracing-wasm = "0.2.1"
 async-stream = "0.3.5"
 async-channel = "2.3.1"
@@ -44,6 +41,11 @@ rrfd.path = "../rrfd"
 sync-span.path = "../sync-span"
 
 cfg-if = "1.0.0"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+gloo-timers = { version = "0.3.0", features = ["futures"] }
+wasm-bindgen = "0.2.92"
+console_error_panic_hook = "0.1.7"
 
 [features]
 tracy = ["dep:tracing-tracy"]

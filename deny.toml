@@ -60,15 +60,17 @@ skip = [
     { name = 'peg-runtime' },    # Custom ply fork & rerun version.
     { name = 'cargo_metadata' }, # Duplicate from custom ply + rerun
 
+    # Egui at head
+    { name = 'emath' }, # Duplicate from custom egui + rerun.
+
     # Other
-    { name = "web-time" },            # Old version from rerun.
-    { name = "bincode" },             # Old version from rerun.
+    { name = "bincode" },             # Burn uses rc2, puffin 1.3.1
+    { name = "web-time" },            # Old version from egui & rerun.
     { name = 'windows_x86_64_msvc' }, # Old version from winit.
     { name = 'windows_x86_64_gnu' },  # Old version from winit.
     { name = 'windows-targets' },     # Old version from winit.
     { name = 'windows-sys' },         # Old version from winit.
-    { name = 'hashbrown' },           # Duplicate in burn.
-    { name = 'emath' },               # Duplicate from custom egui + rerun.
+    { name = 'hashbrown' },           # Old version from text_placeholder in burn.
 ]
 
 
