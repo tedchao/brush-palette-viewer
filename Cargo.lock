@@ -668,7 +668,7 @@ dependencies = [
  "bytemuck",
  "cubecl",
  "miette",
- "naga 0.20.0",
+ "naga",
  "naga_oil",
 ]
 
@@ -682,7 +682,7 @@ dependencies = [
  "burn",
  "burn-wgpu",
  "miette",
- "naga 0.20.0",
+ "naga",
  "naga_oil",
 ]
 
@@ -703,7 +703,7 @@ dependencies = [
  "glam",
  "image",
  "miette",
- "naga 0.20.0",
+ "naga",
  "naga_oil",
  "ndarray",
  "rerun",
@@ -724,7 +724,7 @@ dependencies = [
  "burn-wgpu",
  "bytemuck",
  "miette",
- "naga 0.20.0",
+ "naga",
  "naga_oil",
  "tracing",
 ]
@@ -784,7 +784,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "data-encoding",
- "naga 0.20.0",
+ "naga",
  "naga_oil",
  "regex",
  "regex-syntax 0.8.4",
@@ -3025,27 +3025,6 @@ dependencies = [
 
 [[package]]
 name = "naga"
-version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e536ae46fcab0876853bd4a632ede5df4b1c2527a58f6c5a4150fe86be858231"
-dependencies = [
- "arrayvec",
- "bit-set 0.5.3",
- "bitflags 2.6.0",
- "codespan-reporting",
- "hexf-parse",
- "indexmap",
- "log",
- "num-traits",
- "pp-rs",
- "rustc-hash",
- "termcolor",
- "thiserror",
- "unicode-xid",
-]
-
-[[package]]
-name = "naga"
 version = "22.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8bd5a652b6faf21496f2cfd88fc49989c8db0825d1f6746b1a71a6ede24a63ad"
@@ -3058,6 +3037,7 @@ dependencies = [
  "hexf-parse",
  "indexmap",
  "log",
+ "pp-rs",
  "rustc-hash",
  "spirv",
  "termcolor",
@@ -3067,15 +3047,15 @@ dependencies = [
 
 [[package]]
 name = "naga_oil"
-version = "0.14.0"
+version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "275d9720a7338eedac966141089232514c84d76a246a58ef501af88c5edf402f"
+checksum = "b4820e04fa302dda2ed32aa989bcf8014478be2233f331aea18f5eb7186fdae2"
 dependencies = [
  "bit-set 0.5.3",
  "codespan-reporting",
  "data-encoding",
  "indexmap",
- "naga 0.20.0",
+ "naga",
  "once_cell",
  "regex",
  "regex-syntax 0.8.4",
@@ -5922,7 +5902,7 @@ dependencies = [
  "document-features",
  "js-sys",
  "log",
- "naga 22.1.0",
+ "naga",
  "parking_lot",
  "profiling",
  "raw-window-handle 0.6.2",
@@ -5949,7 +5929,7 @@ dependencies = [
  "document-features",
  "indexmap",
  "log",
- "naga 22.1.0",
+ "naga",
  "once_cell",
  "parking_lot",
  "profiling",
@@ -5988,7 +5968,7 @@ dependencies = [
  "libloading",
  "log",
  "metal",
- "naga 22.1.0",
+ "naga",
  "ndk-sys 0.5.0+25.2.9519653",
  "objc",
  "once_cell",
