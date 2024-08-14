@@ -13,4 +13,4 @@ log.workspace = true
 anyhow.workspace = true
 
 [target.'cfg(not(target_os = "android"))'.dependencies]
-rfd = "0.14.1"
+rfd = "0.12.1"
