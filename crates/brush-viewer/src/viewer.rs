@@ -414,69 +414,30 @@ impl eframe::App for Viewer {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         let _span = info_span!("Draw UI").entered();
 
-        egui::SidePanel::left("Data").show(ctx, |ui| {
+        egui::CentralPanel::default().show(ctx, |ui| {
             ui.add_space(55.0);
 
-            ui.vertical_centered(|ui| {
+            ui.horizontal(|ui| {
+                ui.label("Select a .ply to visualize, or a .zip with a t");
+
+                ui.add_space(15.0);
+
                 if ui.button("Pick a file").clicked() {
                     self.start_data_load();
                 }
-                ui.add_space(15.0);
             });
-            ui.label("Select a .ply to visualize, or a .zip with a transforms_train.json and training images. (limited formats are supported currently)");
 
             ui.add_space(10.0);
 
             ui.heading("Train settings");
-            ui.add(Slider::new(&mut self.target_train_resolution, 32..=2048).text("Target train resolution"));
+            ui.add(
+                Slider::new(&mut self.target_train_resolution, 32..=2048)
+                    .text("Target train resolution"),
+            );
             ui.add(Slider::new(&mut self.max_frames, 1..=256).text("Max frames"));
 
             ui.add_space(15.0);
 
-            ui.heading("Pretrained splats");
-
-            ui.collapsing("Polycam examples", |ui| {
-                ui.label("Examples from poylcam showcase. Nb: Licenses apply, demo only!");
-                self.url_button("city_sector (250MB)", "https://drive.google.com/file/d/12yoAvwsUh1TNRt4I1rfTxyRp-_6p0x0b/view?usp=sharing", ui);
-                self.url_button("flowers (120MB)", "https://drive.google.com/file/d/1KD_IP-Qt782guD1PvNATQrJGM0kxIhGa/view?usp=sharing", ui);
-                self.url_button("fountain (340MB)", "https://drive.google.com/file/d/13mQfEoSNy-hOh5Ir9NuHLgtj6JA6aL4d/view?usp=sharing", ui);
-                self.url_button("hollywood sign (320MB)", "https://drive.google.com/file/d/1bZfsNe5DVVgq2FM49e7StRKcnKVrvAma/view?usp=sharing", ui);
-                self.url_button("inveraray castle (300MB)", "https://drive.google.com/file/d/1EOir_xBPE9Ns5CToEw_eAINGNHg5mA1F/view?usp=sharing", ui);
-                self.url_button("lighthouse (70MB)", "https://drive.google.com/file/d/1f_ZCp04wax_aD6M699zg8wlWmiMU2EFQ/view?usp=sharing", ui);
-                self.url_button("room arch vis (160MB)", "https://drive.google.com/file/d/1wi6B-6fPn2cQuGiucg_AMvVW623-reEF/view?usp=sharing", ui);
-                self.url_button("small bonsai (135MB)", "https://drive.google.com/file/d/1wXiW9vn32DXG7NP0MsBQP4E8RF4M8nV-/view?usp=sharing", ui);
-                self.url_button("varenna (200MB)", "https://drive.google.com/file/d/1lvljIKlMjVSRjy4KfPhbRSjN8t6KJYM9/view?usp=sharing", ui);
-            });
-
-            ui.collapsing("Mipnerf scenes (warning: big)", |ui| {
-                ui.label("Reference mipnerf ply files.");
-
-                self.url_button("bicycle (1.4GB)", "https://drive.google.com/file/d/1kHkNqGFLLutRt3R7k2tGkjGwfXnPLnCi/view?usp=sharing", ui);
-                self.url_button("bonsai (300MB)", "https://drive.google.com/file/d/1jf4bjaeTGeru1PQS_Ue716uc_edRbAPd/view?usp=sharing", ui);
-                self.url_button("counter (290MB)", "https://drive.google.com/file/d/1O89SIHcWdmrWi75Cf6tDrv2Dl6yGndcz/view?usp=sharing", ui);
-                self.url_button("drjohnson (800MB)", "https://drive.google.com/file/d/13FEQ7UZHYwymBTwxzpPeJob4cr8VxUTV/view?usp=sharing", ui);
-                self.url_button("garden (1.3GB)", "https://drive.google.com/file/d/13FEQ7UZHYwymBTwxzpPeJob4cr8VxUTV/view?usp=sharing", ui);
-                self.url_button("kitchen (440MB)", "https://drive.google.com/file/d/13FEQ7UZHYwymBTwxzpPeJob4cr8VxUTV/view?usp=sharing", ui);
-                self.url_button("playroom (600MB)", "https://drive.google.com/file/d/13FEQ7UZHYwymBTwxzpPeJob4cr8VxUTV/view?usp=sharing", ui);
-                self.url_button("room (375MB)", "https://drive.google.com/file/d/13FEQ7UZHYwymBTwxzpPeJob4cr8VxUTV/view?usp=sharing", ui);
-                self.url_button("stump (1.15GB)", "https://drive.google.com/file/d/13FEQ7UZHYwymBTwxzpPeJob4cr8VxUTV/view?usp=sharing", ui);
-            });
-
-            ui.heading("Training Data");
-
-            ui.collapsing("Train blender scenes", |ui| {
-                self.url_button("Chair", "https://drive.google.com/file/d/13Q6s0agTW1_a7cFGcSmll1-Aikq_OPKe/view?usp=sharing", ui);
-                self.url_button("Drums", "https://drive.google.com/file/d/1j8TuMiGb84YtlrZ0gnkMNOzUaIJqz0SY/view?usp=sharing", ui);
-                self.url_button("Ficus", "https://drive.google.com/file/d/1VzT5SDiBefn9fvRw7LeYjUfDBZHCyzQ4/view?usp=sharing", ui);
-                self.url_button("Hotdog", "https://drive.google.com/file/d/1hOjnCV8XdXClV2eC6c9H6PIQTUYv8zys/view?usp=sharing", ui);
-                self.url_button("Lego", "https://drive.google.com/file/d/1VxsNFTHhgxK9iCOgkuKxakBXJfgHUOQk/view?usp=sharing", ui);
-                self.url_button("Materials", "https://drive.google.com/file/d/1L7J5PNBcLcXde6CqzzkaNxHt7JtG2GIW/view?usp=sharing", ui);
-                self.url_button("Mic", "https://drive.google.com/file/d/1SA0NNi0HsUHE6FgAP8XpD23N1xftsrr-/view?usp=sharing", ui);
-                self.url_button("Ship", "https://drive.google.com/file/d/1rzL0KrWuLFebT1hLLm4uYnrNXNTkfjxM/view?usp=sharing", ui);
-            });
-        });
-
-        egui::CentralPanel::default().show(ctx, |ui| {
             if let Some(rx) = self.receiver.as_mut() {
                 if !self.train_pause {
                     match rx.try_recv() {
