@@ -411,7 +411,12 @@ where
                 auxes.push(aux);
             }
 
-            let pred_images = Tensor::stack(renders, 0);
+            // TODO: Could probably handle this in Burn.
+            let pred_images = if renders.len() == 1 {
+                renders[0].clone().reshape([1, img_h, img_w, 4])
+            } else {
+                Tensor::stack(renders, 0)
+            };
 
             let _span = info_span!("Calculate losses", sync_burn = true).entered();
 
