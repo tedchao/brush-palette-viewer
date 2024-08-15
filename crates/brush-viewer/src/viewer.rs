@@ -58,6 +58,8 @@ pub struct Viewer {
 
     target_train_resolution: u32,
     max_frames: usize,
+
+    constant_redraww: bool,
 }
 
 struct SplatView {
@@ -65,6 +67,7 @@ struct SplatView {
     controls: OrbitControls,
     backbuffer: Option<BurnTexture>,
     last_draw: Instant,
+    sync_render: bool,
 }
 
 struct TrainArgs {
@@ -261,10 +264,20 @@ impl SplatView {
 
                 // If there's actual rendering to do, not just an imgui update.
                 if ctx.has_requested_repaint() {
-                    let (img, _) = {
-                        let _span = info_span!("Render splats").entered();
-                        splats.render(&self.camera, size, glam::vec3(0.0, 0.0, 0.0), true)
-                    };
+                    if self.sync_render {
+                        sync_span::set_enabled(true);
+                        info_span!("Pre render", sync_burn = true).in_scope(|| {});
+                        sync_span::set_enabled(false);
+                    }
+                    let _span = info_span!("Render splats").entered();
+                    let (img, _) =
+                        splats.render(&self.camera, size, glam::vec3(0.0, 0.0, 0.0), true);
+
+                    if self.sync_render {
+                        sync_span::set_enabled(true);
+                        info_span!("Post render", sync_burn = true).in_scope(|| {});
+                        sync_span::set_enabled(false);
+                    }
 
                     let back = self
                         .backbuffer
@@ -310,8 +323,8 @@ impl Viewer {
             state.adapter.clone(),
             state.device.clone(),
             state.queue.clone(),
-            // Splatting workload is much more granular, so don't want to flush nearly as often.
-            RuntimeOptions { tasks_max: 1024 },
+            // Splatting workload is much more granular, so don't want to flush as often.
+            RuntimeOptions { tasks_max: 64 },
         );
 
         cfg_if::cfg_if! {
@@ -344,6 +357,7 @@ impl Viewer {
                 backbuffer: None,
                 controls: OrbitControls::new(7.0),
                 last_draw: Instant::now(),
+                sync_render: false,
             },
             train_pause: false,
             train_iter_per_s: 0.0,
@@ -352,6 +366,7 @@ impl Viewer {
             file_path: "/path/to/file".to_string(),
             target_train_resolution: 800,
             max_frames: 32,
+            constant_redraww: false,
         }
     }
 
@@ -408,10 +423,23 @@ impl Viewer {
     fn url_button(&mut self, label: &str, url: &str, ui: &mut egui::Ui) {
         ui.add(Hyperlink::from_label_and_url(label, url).open_in_new_tab(true));
     }
+
+    fn tracy_debug_ui(&mut self, ui: &mut egui::Ui) {
+        ui.checkbox(&mut self.constant_redraww, "Constant redraw");
+        ui.checkbox(&mut self.splat_view.sync_render, "Sync post render");
+
+        let mut checked = sync_span::is_enabled();
+        ui.checkbox(&mut checked, "Sync scopes");
+        sync_span::set_enabled(checked);
+    }
 }
 
 impl eframe::App for Viewer {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        if self.constant_redraww {
+            ctx.request_repaint();
+        }
+
         let _span = info_span!("Draw UI").entered();
 
         egui::Window::new("Load data")
@@ -464,11 +492,7 @@ impl eframe::App for Viewer {
             }
 
             #[cfg(feature = "tracy")]
-            {
-                let mut checked = sync_span::is_enabled();
-                ui.checkbox(&mut checked, "Sync");
-                sync_span::set_enabled(checked);
-            }
+            self.tracy_debug_ui(ui);
 
             if let Some(message) = self.last_message.as_ref() {
                 match message {
