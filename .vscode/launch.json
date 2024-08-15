@@ -11,11 +11,11 @@
             "cargo": {
                 "args": [
                     "build",
-                    "--bin=brush",
-                    "--package=brush"
+                    "--bin=brush-desktop",
+                    "--package=brush-desktop"
                 ],
                 "filter": {
-                    "name": "brush",
+                    "name": "brush-desktop",
                     "kind": "bin"
                 }
             },
