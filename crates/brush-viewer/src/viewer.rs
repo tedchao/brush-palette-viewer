@@ -414,29 +414,33 @@ impl eframe::App for Viewer {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         let _span = info_span!("Draw UI").entered();
 
-        egui::CentralPanel::default().show(ctx, |ui| {
-            ui.add_space(55.0);
+        egui::Window::new("Load data")
+            .anchor(egui::Align2::RIGHT_TOP, (0.0, 0.0))
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label("Select a .ply to visualize, or a .zip with training data.");
 
-            ui.horizontal(|ui| {
-                ui.label("Select a .ply to visualize, or a .zip with a t");
+                    ui.add_space(15.0);
+
+                    if ui.button("Pick a file").clicked() {
+                        self.start_data_load();
+                    }
+                });
+
+                ui.add_space(10.0);
+
+                ui.heading("Train settings");
+                ui.add(
+                    Slider::new(&mut self.target_train_resolution, 32..=2048)
+                        .text("Target train resolution"),
+                );
+                ui.add(Slider::new(&mut self.max_frames, 1..=256).text("Max frames"));
 
                 ui.add_space(15.0);
-
-                if ui.button("Pick a file").clicked() {
-                    self.start_data_load();
-                }
             });
 
-            ui.add_space(10.0);
-
-            ui.heading("Train settings");
-            ui.add(
-                Slider::new(&mut self.target_train_resolution, 32..=2048)
-                    .text("Target train resolution"),
-            );
-            ui.add(Slider::new(&mut self.max_frames, 1..=256).text("Max frames"));
-
-            ui.add_space(15.0);
+        egui::CentralPanel::default().show(ctx, |ui| {
+            ui.add_space(25.0);
 
             if let Some(rx) = self.receiver.as_mut() {
                 if !self.train_pause {
