@@ -12,6 +12,7 @@
     @group(0) @binding(5) var<storage, read_write> final_index : array<u32>;
 #endif
 
+var<workgroup> local_batch: array<helpers::ProjectedSplat, helpers::TILE_SIZE>;
 var<workgroup> tile_bins_wg: vec2u;
 
 // kernel function for rasterizing each tile
@@ -30,17 +31,23 @@ fn main(
     // Get index of tile being drawn.
     //let tile_id = workgroup_id.x + workgroup_id.y * uniforms.tile_bounds.x;
     let pix_id = global_id.x + global_id.y * img_size.x;
-    
+
     let tile_id = global_id.x / helpers::TILE_WIDTH + global_id.y / helpers::TILE_WIDTH * uniforms.tile_bounds.x;
     let pixel_coord = vec2f(global_id.xy) + 0.5;
 
     // return if out of bounds
     // keep not rasterizing threads around for reading data
     let inside = global_id.x < img_size.x && global_id.y < img_size.y;
+    var done = !inside;
 
     // have all threads in tile process the same gaussians in batches
     // first collect gaussians between range.x and range.y in batches
-    let range = tile_bins[tile_id];
+    if local_idx == 0u {
+        tile_bins_wg = tile_bins[tile_id];
+    }
+    // Hack to work around issues with non-uniform data.
+    // See https://github.com/tracel-ai/burn/issues/1996
+    let range = workgroupUniformLoad(&tile_bins_wg);
 
     let num_batches = helpers::ceil_div(range.y - range.x, helpers::TILE_SIZE);
     // current visibility left to render
@@ -53,29 +60,51 @@ fn main(
     // designated pixel
     var t = 0u;
     var final_idx = 0u;
-    for (var t = 0u; t < range.y - range.x && inside; t++) {
-        let isect_id = range.x + t;
-        let projected = projected_splats[compact_gid_from_isect[isect_id]];
 
-        let xy = vec2f(projected.x, projected.y);
-        let conic = vec3f(projected.conic_x, projected.conic_y, projected.conic_z);
+    // each thread loads one gaussian at a time before rasterizing its
+    // designated pixel
+    for (var b = 0u; b < num_batches; b++) {
+        let batch_start = range.x + b * helpers::TILE_SIZE;
 
-        let delta = xy - pixel_coord;
-        let sigma = 0.5f * (conic.x * delta.x * delta.x + conic.z * delta.y * delta.y) + conic.y * delta.x * delta.y;
-        let vis = exp(-sigma);
-        let alpha = min(0.999f, projected.a * vis);
+        // Wait for all in flight threads.
+        workgroupBarrier();
 
-        if sigma >= 0.0 && alpha >= 1.0 / 255.0 {
-            let next_T = T * (1.0 - alpha);
-            
-            if next_T <= 1e-4f { 
-                break;
+        let load_isect_id = batch_start + local_idx;
+        if load_isect_id < range.y {
+            local_batch[local_idx] = projected_splats[compact_gid_from_isect[load_isect_id]];
+        }
+        // Wait for all writes to complete.
+        workgroupBarrier();
+
+        // process gaussians in the current batch for this pixel
+        let remaining = min(helpers::TILE_SIZE, range.y - batch_start);
+
+        for (var t = 0u; t < remaining && !done; t++) {
+            let projected = local_batch[t];
+
+            let xy = vec2f(projected.x, projected.y);
+            let conic = vec3f(projected.conic_x, projected.conic_y, projected.conic_z);
+
+            let delta = xy - pixel_coord;
+            let sigma = 0.5f * (conic.x * delta.x * delta.x + conic.z * delta.y * delta.y) + conic.y * delta.x * delta.y;
+            let vis = exp(-sigma);
+            let alpha = min(0.999f, projected.a * vis);
+
+            if sigma >= 0.0 && alpha >= 1.0 / 255.0 {
+                let next_T = T * (1.0 - alpha);
+
+                if next_T <= 1e-4f {
+                    done = true;
+                    break;
+                }
+
+                let fac = alpha * T;
+                pix_out += vec3f(projected.r, projected.g, projected.b) * fac;
+                T = next_T;
+
+                let isect_id = batch_start + t;
+                final_idx = isect_id;
             }
-
-            let fac = alpha * T;
-            pix_out += vec3f(projected.r, projected.g, projected.b) * fac;
-            T = next_T;
-            final_idx = range.x + t;
         }
     }
 
@@ -85,7 +114,7 @@ fn main(
             let colors_u = vec4u(clamp(final_color * 255.0, vec4f(0.0), vec4f(255.0)));
             let packed: u32 = colors_u.x | (colors_u.y << 8u) | (colors_u.z << 16u) | (colors_u.w << 24u);
             out_img[pix_id] = packed;
-        #else 
+        #else
             out_img[pix_id] = final_color;
             final_index[pix_id] = final_idx;
         #endif

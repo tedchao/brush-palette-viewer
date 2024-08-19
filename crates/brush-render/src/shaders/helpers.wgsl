@@ -1,4 +1,4 @@
-const TILE_WIDTH: u32 = 22u;
+const TILE_WIDTH: u32 = 16u;
 // Nb: TILE_SIZE should be <= 512 for max compatibilty.
 const TILE_SIZE: u32 = TILE_WIDTH * TILE_WIDTH;
 
@@ -33,7 +33,7 @@ struct RenderUniforms {
 #else
     // Number of visible gaussians.
     // Offset 116
-    num_visible: u32, 
+    num_visible: u32,
 #endif
     // Offset 120
     total_splats: u32,
@@ -109,7 +109,7 @@ fn quat_to_rotmat(quat: vec4f) -> mat3x3f {
 fn scale_to_mat(scale: vec3f) -> mat3x3f {
     return mat3x3(
         vec3f(scale.x, 0.0, 0.0),
-        vec3f(0.0, scale.y, 0.0), 
+        vec3f(0.0, scale.y, 0.0),
         vec3f(0.0, 0.0, scale.z)
     );
 }
@@ -121,15 +121,15 @@ fn project_pix(fxfy: vec2f, p_view: vec3f, pp: vec2f) -> vec2f {
 
 fn calc_cov2d(focal: vec2f, img_size: vec2u, pixel_center: vec2f, viewmat: mat4x4f, p_view: vec3f, scale: vec3f, quat: vec4f) -> vec3f {
     let tan_fov = 0.5 * vec2f(img_size.xy) / focal;
-    
+
     let lims_neg = pixel_center / focal + 0.3f * tan_fov;
-    let lims_pos = (vec2f(img_size.xy) - pixel_center) / focal + 0.3f * tan_fov; 
+    let lims_pos = (vec2f(img_size.xy) - pixel_center) / focal + 0.3f * tan_fov;
 
     let lims = 1.3 * tan_fov;
 
     // Get ndc coords +- clipped to the frustum.
     let t = p_view.z * clamp(p_view.xy / p_view.z, -lims_neg, lims_pos);
-    
+
     var M = quat_to_rotmat(quat);
     M[0] *= scale.x;
     M[1] *= scale.y;
@@ -182,7 +182,7 @@ fn calc_vis(pixel_coord: vec2f, conic: vec3f, xy: vec2f) -> f32 {
 fn inverse(m: mat2x2f) -> mat2x2f {
     let det = determinant(m);
     return mat2x2f(
-        m[1][1] / det, -m[1][0] / det, 
+        m[1][1] / det, -m[1][0] / det,
         -m[0][1] / det, m[0][0] / det
     );
 }
@@ -223,11 +223,11 @@ fn check_edge(p1: vec2f, p2: vec2f, ellipse_center: vec2f, ellipse_conic: mat2x2
     let b = 2.0 * dot(f * ellipse_conic, edge);
     let c = dot(f * ellipse_conic, f) - 1.0;
     let discriminant = b * b - 4.0 * a * c;
-    
+
     if discriminant < 0.0 {
         return false;
     }
-    
+
     let sqrt_discriminant = sqrt(discriminant);
     let t1 = (-b - sqrt_discriminant) / (2.0 * a);
     let t2 = (-b + sqrt_discriminant) / (2.0 * a);
@@ -256,7 +256,7 @@ fn ellipse_intersects_aabb(box_pos: vec2f, box_extent: vec2f, ellipse_center: ve
     let edge1_end = nearest_corner - vec2f(corner_sign.x * 2.0 * box_extent.x, 0.0);
     let edge2_end = nearest_corner - vec2f(0.0, corner_sign.y * 2.0 * box_extent.y);
 
-    return check_edge(nearest_corner, edge1_end, ellipse_center, ellipse_conic) || 
+    return check_edge(nearest_corner, edge1_end, ellipse_center, ellipse_conic) ||
            check_edge(nearest_corner, edge2_end, ellipse_center, ellipse_conic);
 }
 

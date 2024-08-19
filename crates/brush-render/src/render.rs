@@ -763,6 +763,7 @@ mod tests {
             let rec = rerun::RecordingStreamBuilder::new("visualize training").spawn();
 
             if let Ok(rec) = rec {
+                println!("Recording to rec");
                 rec.log(
                     "img/image",
                     &rerun::Image::try_from(
