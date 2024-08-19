@@ -1,4 +1,4 @@
-use brush_render::camera::{self, Camera};
+use brush_render::camera::{self};
 use brush_train::scene::SceneView;
 use std::io::Cursor;
 

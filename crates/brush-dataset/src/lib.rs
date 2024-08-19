@@ -1,5 +1,5 @@
 pub mod colmap;
-mod colmap_read_model;
+pub mod colmap_read_model;
 pub mod nerf_synthetic;
 pub mod scene_batch;
 
