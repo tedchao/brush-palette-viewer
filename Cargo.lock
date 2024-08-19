@@ -603,6 +603,7 @@ dependencies = [
  "brush-render",
  "brush-train",
  "burn",
+ "byteorder",
  "glam",
  "image",
  "ndarray",

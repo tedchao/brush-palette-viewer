@@ -117,12 +117,11 @@ async fn train_loop(
         LrConfig::new().with_max_lr(2e-2).with_min_lr(1e-2),
     );
 
-    let cameras = brush_dataset::read_synthetic_nerf_data(
+    let cameras = brush_dataset::read_dataset(
         data,
         Some(train_args.frame_count),
         Some(train_args.target_resolution),
-    )
-    .unwrap();
+    )?;
     let scene = Scene::new(cameras);
 
     #[cfg(feature = "rerun")]
