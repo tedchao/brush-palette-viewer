@@ -464,6 +464,10 @@ impl eframe::App for Viewer {
                 ui.add(Slider::new(&mut self.max_frames, 1..=256).text("Max frames"));
 
                 ui.add_space(15.0);
+
+                if ui.input(|r| r.key_pressed(egui::Key::Escape)) {
+                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                }
             });
 
         egui::CentralPanel::default().show(ctx, |ui| {
