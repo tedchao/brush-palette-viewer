@@ -247,7 +247,6 @@ impl SplatView {
                 let delta_time = cur_time - self.last_draw;
                 self.last_draw = cur_time;
 
-                // TODO: Controls can be pretty borked.
                 self.controls.pan_orbit_camera(
                     &mut self.camera,
                     pan * 5.0,
@@ -257,7 +256,6 @@ impl SplatView {
                     delta_time.as_secs_f32(),
                 );
 
-                // TODO: For reference cameras just need to match fov?
                 self.camera.fovx = 0.75;
                 self.camera.fovy = self.camera.fovx * (size.y as f32) / (size.x as f32);
 
@@ -388,8 +386,6 @@ impl Viewer {
         );
         self.splat_view.controls = OrbitControls::new(7.0);
         self.train_pause = false;
-
-        // TODO: Show errors again.
 
         async fn inner_process_loop(
             device: WgpuDevice,

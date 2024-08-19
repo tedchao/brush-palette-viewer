@@ -9,7 +9,6 @@ pub struct PickedFile {
     pub file_name: String,
 }
 
-// TODO: Add file filters support.
 #[cfg(not(target_os = "android"))]
 pub async fn pick_file_rfd() -> Result<PickedFile> {
     use anyhow::Context;

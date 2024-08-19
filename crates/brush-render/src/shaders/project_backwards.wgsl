@@ -63,7 +63,7 @@ fn cov2d_to_conic_vjp(conic: vec3f, v_conic: vec3f) -> vec3f {
     // conic = inverse cov2d
     // df/d_cov2d = -conic * df/d_conic * conic
     let X = mat2x2f(vec2f(conic.x, conic.y), vec2f(conic.y, conic.z));
-    let G = mat2x2f(vec2f(v_conic.x, v_conic.y / 2.0), 
+    let G = mat2x2f(vec2f(v_conic.x, v_conic.y / 2.0),
                     vec2f(v_conic.y / 2.0, v_conic.z));
     let v_Sigma = X * G * X;
 
@@ -79,7 +79,7 @@ fn cov2d_to_conic_vjp(conic: vec3f, v_conic: vec3f) -> vec3f {
 @workgroup_size(256, 1, 1)
 fn main(@builtin(global_invocation_id) gid: vec3u) {
     let compact_gid = gid.x;
-    if compact_gid >= uniforms.num_visible { 
+    if compact_gid >= uniforms.num_visible {
         return;
     }
 
@@ -91,7 +91,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
 
     let viewmat = uniforms.viewmat;
     let focal = uniforms.focal;
-    
+
     let mean = helpers::as_vec(means[global_gid]);
     let scale = exp(helpers::as_vec(log_scales[global_gid]));
     let quat = quats[global_gid];
@@ -101,7 +101,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     var v_mean = transpose(W) * project_pix_vjp(focal, p_view, v_xy);
 
     // get z gradient contribution to mean3d gradient
-    // TODO: Is this indeed only active if depth is supervised?
+    // There's no way to supervise depth currently so this is currently disabled.
     // z = viemwat[8] * mean3d.x + viewmat[9] * mean3d.y + viewmat[10] *
     // mean3d.z + viewmat[11]
     // let v_z = v_depth[idx];
@@ -116,7 +116,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
 
     // // Compensation is applied as opac * comp
     // // so deriv is v_opac.
-    // // TODO: Re-enable compensation.
+    // // TODO: Re-enable compensation code.
     // let compensation = conic_comp.w;
     // let v_compensation = v_opacity[idx] * 0.0;
     // // comp = sqrt(det(cov2d - 0.3 I) / det(cov2d))
@@ -185,15 +185,14 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     );
 
     v_mean += vec3f(
-        dot(v_t, W[0]), 
-        dot(v_t, W[1]), 
+        dot(v_t, W[0]),
+        dot(v_t, W[1]),
         dot(v_t, W[2])
     );
 
     // cov3d is upper triangular elements of matrix
     // off-diagonal elements count grads from both ij and ji elements,
     // must halve when expanding back into symmetric matrix
-    // TODO: Is this definitely the same as above?
     let v_V_symm = mat3x3f(
         vec3f(
             v_cov3d0,

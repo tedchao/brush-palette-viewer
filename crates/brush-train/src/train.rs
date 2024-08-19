@@ -291,7 +291,6 @@ where
                 * centered_samples;
 
             // Remove original points we're splitting.
-            // TODO: Could just replace them? Maybe?
             let splits = 2;
 
             let rotated_samples = quaternion_rotation(
@@ -302,7 +301,6 @@ where
                     .select(0, split_inds.clone())
                     .repeat_dim(0, splits),
             );
-            // TODO: Rotate samples
             let new_means = rotated_samples
                 + splats
                     .means

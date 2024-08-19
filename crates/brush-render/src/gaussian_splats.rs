@@ -52,7 +52,6 @@ impl<B: Backend> Splats<B> {
         // TODO: Fancy KNN init.
         let init_scale = Tensor::random([num_points, 3], Distribution::Uniform(-3.0, -2.0), device);
 
-        // TODO: Support lazy loading.
         // Model parameters.
         Splats {
             means: Param::initialized(ParamId::new(), means.require_grad()),

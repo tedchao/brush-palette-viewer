@@ -136,7 +136,6 @@ fn interleave_coeffs(sh_dc: [f32; 3], sh_rest: &[f32]) -> Vec<f32> {
     result
 }
 
-// TODO: This is better modelled by an async stream I think.
 pub fn load_splat_from_ply<B: Backend>(
     ply_data: &[u8],
     device: B::Device,

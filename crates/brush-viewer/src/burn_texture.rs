@@ -66,7 +66,6 @@ fn create_texture(size: glam::UVec2, device: Arc<wgpu::Device>) -> wgpu::Texture
     })
 }
 
-// TODO: Slightly awkward combination of tensor <-> texture and texture <-> egui.
 impl BurnTexture {
     pub fn new<B: Backend>(tensor: Tensor<B, 3>, frame: &eframe::Frame) -> Self {
         let render_state = frame.wgpu_render_state().unwrap();
