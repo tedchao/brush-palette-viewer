@@ -66,7 +66,7 @@ pub struct Camera {
 #[derive(Debug)]
 pub struct Image {
     pub id: i32,
-    pub qvec: glam::Quat,
+    pub quat: glam::Quat,
     pub tvec: glam::Vec3,
     pub camera_id: i32,
     pub name: String,
@@ -272,7 +272,7 @@ pub(crate) fn read_images_text<R: Read>(reader: &mut R) -> io::Result<HashMap<i3
             id,
             Image {
                 id,
-                qvec,
+                quat: qvec,
                 tvec,
                 camera_id,
                 name,
@@ -286,30 +286,34 @@ pub(crate) fn read_images_text<R: Read>(reader: &mut R) -> io::Result<HashMap<i3
     Ok(images)
 }
 
-pub(crate) fn read_images_binary<R: Read>(reader: &mut R) -> io::Result<HashMap<i32, Image>> {
+pub(crate) fn read_images_binary<R: BufRead>(reader: &mut R) -> io::Result<HashMap<i32, Image>> {
     let mut images = HashMap::new();
     let num_images = reader.read_u64::<LittleEndian>()?;
 
     for _ in 0..num_images {
         let image_id = reader.read_i32::<LittleEndian>()?;
-        let qvec = glam::quat(
+
+        let [w, x, y, z] = [
             reader.read_f64::<LittleEndian>()? as f32,
             reader.read_f64::<LittleEndian>()? as f32,
             reader.read_f64::<LittleEndian>()? as f32,
             reader.read_f64::<LittleEndian>()? as f32,
-        );
+        ];
+        let quat = glam::quat(x, y, z, w);
+
         let tvec = glam::vec3(
             reader.read_f64::<LittleEndian>()? as f32,
             reader.read_f64::<LittleEndian>()? as f32,
             reader.read_f64::<LittleEndian>()? as f32,
         );
         let camera_id = reader.read_i32::<LittleEndian>()?;
-
-        let name_length = reader.read_u64::<LittleEndian>()?;
-        let mut name = vec![0u8; name_length as usize];
-        reader.read_exact(&mut name)?;
-        let name =
-            String::from_utf8(name).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+        let mut name_bytes = Vec::new();
+        reader.read_until(0, &mut name_bytes)?;
+        if name_bytes.last() == Some(&0) {
+            name_bytes.pop(); // Remove the null terminator if present
+        }
+        let name = String::from_utf8(name_bytes)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
 
         let num_points2d = reader.read_u64::<LittleEndian>()?;
         let mut xys = Vec::with_capacity(num_points2d as usize);
@@ -327,7 +331,7 @@ pub(crate) fn read_images_binary<R: Read>(reader: &mut R) -> io::Result<HashMap<
             image_id,
             Image {
                 id: image_id,
-                qvec,
+                quat,
                 tvec,
                 camera_id,
                 name,
@@ -444,7 +448,7 @@ pub fn read_cameras<R: Read>(reader: &mut R, binary: bool) -> io::Result<HashMap
     }
 }
 
-pub fn read_images<R: Read>(reader: &mut R, binary: bool) -> io::Result<HashMap<i32, Image>> {
+pub fn read_images<R: BufRead>(reader: &mut R, binary: bool) -> io::Result<HashMap<i32, Image>> {
     if binary {
         read_images_binary(reader)
     } else {
@@ -460,7 +464,7 @@ pub fn read_points3d<R: Read>(reader: &mut R, binary: bool) -> io::Result<HashMa
     }
 }
 
-pub fn read_model<R: Read>(
+pub fn read_model<R: BufRead>(
     camera_reader: &mut R,
     image_reader: &mut R,
     points3d_reader: &mut R,

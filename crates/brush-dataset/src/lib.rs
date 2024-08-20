@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use anyhow::Result;
 use brush_train::scene::SceneView;
 use image::DynamicImage;
+use ndarray::Array3;
 
 pub(crate) fn normalized_path_string(path: &Path) -> String {
     Path::new(path)
@@ -30,6 +31,15 @@ pub(crate) fn clamp_img_to_max_size(image: DynamicImage, max_size: u32) -> Dynam
         ((max_size as f32 * aspect_ratio) as u32, max_size)
     };
     image.resize(new_width, new_height, image::imageops::FilterType::Lanczos3)
+}
+
+fn img_to_tensor(image: &image::DynamicImage) -> Result<Array3<f32>> {
+    let im_data = image.to_rgba8().into_vec();
+    let tensor = Array3::from_shape_vec(
+        [image.height() as usize, image.width() as usize, 4],
+        im_data,
+    )?;
+    Ok(tensor.to_owned().map(|&x| (x as f32) / 255.0))
 }
 
 pub fn read_dataset(

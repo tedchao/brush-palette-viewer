@@ -6,11 +6,11 @@ use anyhow::Context;
 use anyhow::Result;
 use brush_render::camera;
 use brush_render::camera::Camera;
-use ndarray::Array3;
 
 use brush_train::scene::SceneView;
 
 use crate::clamp_img_to_max_size;
+use crate::img_to_tensor;
 use crate::normalized_path_string;
 
 // TODO: This could be simplified with some serde-fu by creating a struct
@@ -90,30 +90,25 @@ pub fn read_dataset(
         let image_path =
             normalized_path_string(&base_path.join(image_file_path.to_owned() + ".png"));
 
-        let mut img_buffer = Vec::new();
-        archive.by_name(&image_path)?.read_to_end(&mut img_buffer)?;
+        let img_buffer = archive
+            .by_name(&image_path)?
+            .bytes()
+            .collect::<Result<Vec<_>, _>>()?;
+
         // Create a cursor from the buffer
-        let mut image = image::ImageReader::new(Cursor::new(img_buffer))
-            .with_guessed_format()?
-            .decode()?;
+        let mut image = image::load_from_memory(&img_buffer)?;
 
         if let Some(max_resolution) = max_resolution {
             image = clamp_img_to_max_size(image, max_resolution);
         }
 
-        let image = image.resize(400, 400, image::imageops::FilterType::Lanczos3);
-
-        let im_data = image.to_rgba8().into_vec();
-        let tensor = Array3::from_shape_vec(
-            [image.width() as usize, image.height() as usize, 4],
-            im_data,
-        )?;
+        let tensor = img_to_tensor(&image)?;
 
         let fovy = camera::focal_to_fov(camera::fov_to_focal(fovx, image.width()), image.height());
 
         cameras.push(SceneView {
             camera: Camera::new(translation, rotation, fovx, fovy),
-            image: tensor.to_owned().map(|&x| (x as f32) / 255.0),
+            image: tensor,
         });
 
         if let Some(max) = max_frames {

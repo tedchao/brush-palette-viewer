@@ -89,7 +89,7 @@ fn miller_shuffle(inx: usize, shuffle_id: usize, list_size: usize) -> usize {
 impl<B: Backend> SceneLoader<B> {
     pub fn new(scene: Scene, batcher: SceneBatcher<B>, batch_size: usize) -> Self {
         let total_batch = batcher.batch(
-            (0..scene.view_count())
+            (0..scene.views.len())
                 .filter_map(|x| scene.get_view(x))
                 .collect(),
         );

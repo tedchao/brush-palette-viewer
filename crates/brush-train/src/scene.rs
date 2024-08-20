@@ -12,7 +12,7 @@ pub struct SceneView {
 // Also provides methods for checkpointing the training process.
 #[derive(Debug)]
 pub struct Scene {
-    pub(crate) views: Vec<SceneView>,
+    pub views: Vec<SceneView>,
 }
 
 impl Scene {
@@ -45,10 +45,6 @@ impl Scene {
 
     pub fn get_view(&self, index: usize) -> Option<SceneView> {
         self.views.get(index).cloned()
-    }
-
-    pub fn view_count(&self) -> usize {
-        self.views.len()
     }
 }
 

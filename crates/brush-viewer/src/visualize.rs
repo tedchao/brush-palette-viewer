@@ -1,6 +1,6 @@
-use crate::{gaussian_splats::Splats, scene::Scene, train::TrainStepStats};
 use anyhow::Result;
-use brush_render::{AutodiffBackend, Backend};
+use brush_render::{gaussian_splats::Splats, AutodiffBackend, Backend};
+use brush_train::{scene::Scene, train::TrainStepStats};
 use burn::tensor::{ElementConversion, Tensor};
 use ndarray::Array;
 use rerun::{Color, RecordingStream};
@@ -67,7 +67,7 @@ impl VisualizeTools {
 
         for (i, data) in scene.views.iter().enumerate() {
             let path = format!("world/dataset/camera/{i}");
-            let (width, height, _) = data.image.dim();
+            let (height, width, _) = data.image.dim();
             let vis_size = glam::uvec2(width as u32, height as u32);
             let rerun_camera = rerun::Pinhole::from_focal_length_and_resolution(
                 data.camera.focal(vis_size),
