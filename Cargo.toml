@@ -15,7 +15,7 @@ license = "MIT OR Apache-2.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [workspace.dependencies]
-glam = "0.22"
+glam = "0.28"
 
 burn = { git = "https://github.com/tracel-ai/burn", features = [
     'wgpu',
@@ -65,7 +65,7 @@ log = "0.4.22"
 miette = { version = "7.2.0", features = ["fancy"] }
 thiserror = "*"
 
-rerun = { version = "0.17", default-features = false, features = [
+rerun = { version = "0.18", default-features = false, features = [
     'sdk',
     'glam',
 ] }

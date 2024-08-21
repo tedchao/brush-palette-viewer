@@ -1,9 +1,9 @@
 use anyhow::Result;
 use brush_render::{gaussian_splats::Splats, AutodiffBackend, Backend};
 use brush_train::{scene::Scene, train::TrainStepStats};
-use burn::tensor::{ElementConversion, Tensor};
+use burn::tensor::{activation::sigmoid, ElementConversion, Tensor};
 use ndarray::Array;
-use rerun::{Color, RecordingStream};
+use rerun::{Color, FillMode, RecordingStream};
 
 pub struct VisualizeTools {
     rec: RecordingStream,
@@ -30,6 +30,9 @@ impl VisualizeTools {
 
         let sh_c0 = 0.2820947917738781;
         let base_rgb = splats.sh_coeffs.val().slice([0..splats.num_splats(), 0..3]) * sh_c0 + 0.5;
+
+        let transparency = sigmoid(splats.raw_opacity.val());
+
         let colors = base_rgb.into_data_async().await.to_vec::<f32>().unwrap();
         let colors = colors.chunks(3).map(|c| {
             Color::from_rgb(
@@ -39,25 +42,35 @@ impl VisualizeTools {
             )
         });
 
-        let radii = splats
-            .log_scales
-            .val()
-            .exp()
+        // Visualize 2 sigma, and simulate some of the small covariance blurring.
+        let radii = (splats.log_scales.val().exp() * transparency.unsqueeze_dim(1) * 2.0 + 0.004)
             .into_data_async()
             .await
             .to_vec()
             .unwrap();
 
-        let radii = radii
-            .chunks(3)
-            .map(|c| 0.5 * glam::vec3(c[0], c[1], c[2]).length());
+        let rotations = splats
+            .rotation
+            .val()
+            .into_data_async()
+            .await
+            .to_vec::<f32>()
+            .unwrap();
+        let rotations = rotations.chunks(4).map(|q| {
+            let rotation = glam::Quat::from_array([q[1], q[2], q[3], q[0]]);
+            rotation
+        });
+
+        let radii = radii.chunks(3).map(|r| glam::vec3(r[0], r[1], r[2]));
 
         self.rec.log(
             "world/splat/points",
-            &rerun::Points3D::new(means)
+            &rerun::Ellipsoids3D::from_centers_and_half_sizes(means, radii)
+                .with_quaternions(rotations)
                 .with_colors(colors)
-                .with_radii(radii),
+                .with_fill_mode(FillMode::Solid),
         )?;
+
         Ok(())
     }
 
@@ -83,7 +96,10 @@ impl VisualizeTools {
             )?;
             rec.log_static(
                 path + "/image",
-                &rerun::Image::try_from(data.image.clone())?,
+                &rerun::Image::from_color_model_and_tensor(
+                    rerun::ColorModel::RGBA,
+                    data.image.clone(),
+                )?,
             )?;
         }
         Ok(())
@@ -153,13 +169,17 @@ impl VisualizeTools {
         )?
         .map(|x| (*x * 255.0).clamp(0.0, 255.0) as u8);
 
-        rec.log("images/predicted", &rerun::Image::try_from(pred_image)?)?;
+        rec.log(
+            "images/predicted",
+            &rerun::Image::from_color_model_and_tensor(rerun::ColorModel::RGBA, pred_image)?,
+        )?;
 
         let main_gt_image = gt_image.slice([0..1]);
 
         rec.log(
             "images/ground truth",
-            &rerun::Image::try_from(
+            &rerun::Image::from_color_model_and_tensor(
+                rerun::ColorModel::RGBA,
                 ndarray::Array::from_shape_vec(
                     main_gt_image.dims(),
                     main_gt_image

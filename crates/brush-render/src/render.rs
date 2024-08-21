@@ -764,20 +764,11 @@ mod tests {
 
             if let Ok(rec) = rec {
                 println!("Recording to rec");
-                rec.log(
-                    "img/image",
-                    &rerun::Image::try_from(
-                        Array::from_shape_vec(
-                            out_rgb.dims(),
-                            out_rgb.to_data().to_vec::<f32>().unwrap(),
-                        )?
-                        .map(|x| (*x * 255.0).clamp(0.0, 255.0) as u8),
-                    )?,
-                )?;
 
                 rec.log(
                     "img/ref",
-                    &rerun::Image::try_from(
+                    &rerun::Image::from_color_model_and_tensor(
+                        rerun::ColorModel::RGBA,
                         Array::from_shape_vec(
                             img_ref.dims(),
                             img_ref.to_data().to_vec::<f32>().unwrap(),
