@@ -5,6 +5,9 @@
   {
     "label": "debug",
     "command": "cargo run",
+    "env": {
+      "RUST_BACKTRACE": "1"
+    },
     "use_new_terminal": false,
     "allow_concurrent_runs": false,
     "reveal": "always",
@@ -15,6 +18,9 @@
     "label": "release",
     "command": "cargo run",
     "args": ["--release"],
+    "env": {
+      "RUST_BACKTRACE": "1"
+    },
     "use_new_terminal": false,
     "allow_concurrent_runs": false,
     "reveal": "always",
@@ -25,6 +31,9 @@
     "label": "release + rerun",
     "command": "cargo run",
     "args": ["--release", "--features=rerun"],
+    "env": {
+      "RUST_BACKTRACE": "1"
+    },
     "use_new_terminal": false,
     "allow_concurrent_runs": false,
     "reveal": "always",
