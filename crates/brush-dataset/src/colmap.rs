@@ -34,29 +34,46 @@ pub fn read_dataset(
 
     let mut views = vec![];
 
-    for (_, img_info) in img_infos {
+    let mut img_info_list = img_infos
+        .iter()
+        .map(|(id, info)| (*id, info))
+        .collect::<Vec<_>>();
+
+    img_info_list.sort_by_key(|(id, info)| *id);
+
+    for (_, img_info) in img_info_list.iter() {
         let cam = &cam_model_data[&img_info.camera_id];
 
-        // TODO: Handle off-center calibration.
+        // let img_tensor = ndarray::Array3::<f32>::zeros((512, 512, 4));
+        let img_path = &img_info.name;
+        let image_data = archive.by_name(&format!("images/{img_path}"))?;
+        let img_bytes = image_data.bytes().collect::<std::io::Result<Vec<u8>>>()?;
+        let mut img = image::load_from_memory(&img_bytes)?;
+        if let Some(max) = max_resolution {
+            img = crate::clamp_img_to_max_size(img, max);
+        }
+        let img_tensor = crate::img_to_tensor(&img)?;
+
+        let translation = img_info.tvec;
+        let quat = img_info.quat;
+
+        // Convert w2c to c2w.
+        let world_to_cam = glam::Mat4::from_rotation_translation(quat, translation);
+        let cam_to_world = world_to_cam.inverse();
+
+        let (_, quat, translation) = cam_to_world.to_scale_rotation_translation();
+
         let focal = cam.focal();
         let fovx = camera::focal_to_fov(focal.x, cam.width as u32);
         let fovy = camera::focal_to_fov(focal.y, cam.height as u32);
 
-        let img_path = img_info.name;
+        let center = cam.center();
+        let center_uv = center / glam::vec2(cam.width as f32, cam.height as f32);
 
-        let image_data = archive.by_name(&format!("images/{img_path}"))?;
-
-        let img_bytes = image_data.bytes().collect::<std::io::Result<Vec<u8>>>()?;
-        let mut img = image::load_from_memory(&img_bytes)?;
-
-        if let Some(max) = max_resolution {
-            img = crate::clamp_img_to_max_size(img, max);
-        }
-
-        let img_tensor = crate::img_to_tensor(&img)?;
+        println!("Center UV: {center_uv:?}, focal: {focal:?}");
 
         views.push(SceneView {
-            camera: Camera::new(img_info.tvec, img_info.quat, fovx, fovy),
+            camera: Camera::new(translation, quat, glam::vec2(fovx, fovy), center_uv),
             image: img_tensor,
         });
 

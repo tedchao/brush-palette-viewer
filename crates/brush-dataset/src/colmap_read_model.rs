@@ -65,9 +65,8 @@ pub struct Camera {
 
 #[derive(Debug)]
 pub struct Image {
-    pub id: i32,
-    pub quat: glam::Quat,
     pub tvec: glam::Vec3,
+    pub quat: glam::Quat,
     pub camera_id: i32,
     pub name: String,
     pub xys: Vec<glam::Vec2>,
@@ -244,13 +243,15 @@ pub(crate) fn read_images_text<R: Read>(reader: &mut R) -> io::Result<HashMap<i3
         }
 
         let id: i32 = parse(parts[0])?;
-        let qvec = glam::quat(
+        let [w, x, y, z] = [
             parse(parts[1])?,
             parse(parts[2])?,
             parse(parts[3])?,
             parse(parts[4])?,
-        );
+        ];
+        let quat = glam::quat(x, y, z, w);
         let tvec = glam::vec3(parse(parts[5])?, parse(parts[6])?, parse(parts[7])?);
+
         let camera_id: i32 = parse(parts[8])?;
         let name = parts[9].to_string();
 
@@ -271,8 +272,7 @@ pub(crate) fn read_images_text<R: Read>(reader: &mut R) -> io::Result<HashMap<i3
         images.insert(
             id,
             Image {
-                id,
-                quat: qvec,
+                quat,
                 tvec,
                 camera_id,
                 name,
@@ -308,12 +308,11 @@ pub(crate) fn read_images_binary<R: BufRead>(reader: &mut R) -> io::Result<HashM
         );
         let camera_id = reader.read_i32::<LittleEndian>()?;
         let mut name_bytes = Vec::new();
-        reader.read_until(0, &mut name_bytes)?;
-        if name_bytes.last() == Some(&0) {
-            name_bytes.pop(); // Remove the null terminator if present
-        }
-        let name = String::from_utf8(name_bytes)
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+        reader.read_until(b'\0', &mut name_bytes)?;
+
+        let name = std::str::from_utf8(&name_bytes[..name_bytes.len() - 1])
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?
+            .to_owned();
 
         let num_points2d = reader.read_u64::<LittleEndian>()?;
         let mut xys = Vec::with_capacity(num_points2d as usize);
@@ -330,7 +329,6 @@ pub(crate) fn read_images_binary<R: BufRead>(reader: &mut R) -> io::Result<HashM
         images.insert(
             image_id,
             Image {
-                id: image_id,
                 quat,
                 tvec,
                 camera_id,

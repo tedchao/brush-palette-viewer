@@ -107,7 +107,12 @@ pub fn read_dataset(
         let fovy = camera::focal_to_fov(camera::fov_to_focal(fovx, image.width()), image.height());
 
         cameras.push(SceneView {
-            camera: Camera::new(translation, rotation, fovx, fovy),
+            camera: Camera::new(
+                translation,
+                rotation,
+                glam::vec2(fovx, fovy),
+                glam::vec2(0.5, 0.5),
+            ),
             image: tensor,
         });
 
@@ -186,7 +191,12 @@ pub fn read_viewpoint_data(file: &str) -> Result<Vec<Camera>> {
         let rotation = glam::Quat::from_mat3(&rot_matrix);
         let fovx = camera::focal_to_fov(fx as f32, width);
         let fovy = camera::focal_to_fov(fy as f32, height);
-        cameras.push(Camera::new(translation, rotation, fovx, fovy));
+        cameras.push(Camera::new(
+            translation,
+            rotation,
+            glam::vec2(fovx, fovy),
+            glam::vec2(0.5, 0.5),
+        ));
     }
 
     Ok(cameras)

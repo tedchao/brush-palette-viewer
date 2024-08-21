@@ -256,8 +256,9 @@ impl SplatView {
                     delta_time.as_secs_f32(),
                 );
 
-                self.camera.fovx = 0.75;
-                self.camera.fovy = self.camera.fovx * (size.y as f32) / (size.x as f32);
+                let base_fov = 0.75;
+                self.camera.fov =
+                    glam::vec2(base_fov, base_fov * (size.y as f32) / (size.x as f32));
 
                 // If there's actual rendering to do, not just an imgui update.
                 if ctx.has_requested_repaint() {
@@ -350,7 +351,12 @@ impl Viewer {
             last_train_iter: 0,
             ctx: cc.egui_ctx.clone(),
             splat_view: SplatView {
-                camera: Camera::new(Vec3::ZERO, Quat::IDENTITY, 0.5, 0.5),
+                camera: Camera::new(
+                    Vec3::ZERO,
+                    Quat::IDENTITY,
+                    glam::vec2(0.5, 0.5),
+                    glam::vec2(0.5, 0.5),
+                ),
                 backbuffer: None,
                 controls: OrbitControls::new(7.0),
                 last_draw: Instant::now(),
@@ -381,8 +387,8 @@ impl Viewer {
             Vec3::ZERO,
             Quat::from_rotation_y(std::f32::consts::PI / 2.0)
                 * Quat::from_rotation_x(-std::f32::consts::PI / 8.0),
-            0.5,
-            0.5,
+            glam::vec2(0.5, 0.5),
+            glam::vec2(0.5, 0.5),
         );
         self.splat_view.controls = OrbitControls::new(7.0);
         self.train_pause = false;

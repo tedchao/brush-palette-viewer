@@ -624,7 +624,12 @@ mod tests {
         // Check if rendering doesn't hard crash or anything.
         // These are some zero-sized gaussians, so we know
         // what the result should look like.
-        let cam = Camera::new(glam::vec3(0.0, 0.0, 0.0), glam::Quat::IDENTITY, 0.5, 0.5);
+        let cam = Camera::new(
+            glam::vec3(0.0, 0.0, 0.0),
+            glam::Quat::IDENTITY,
+            glam::vec2(0.5, 0.5),
+            glam::vec2(0.5, 0.5),
+        );
         let img_size = glam::uvec2(32, 32);
         let device = WgpuDevice::BestAvailable;
 
@@ -741,8 +746,8 @@ mod tests {
             let cam = Camera::new(
                 glam::vec3(0.0, 0.0, -8.0),
                 glam::Quat::IDENTITY,
-                fov_x,
-                fov_y,
+                glam::vec2(fov_x, fov_y),
+                glam::vec2(0.5, 0.5),
             );
 
             let (out, aux) = DiffBack::render_splats(
