@@ -32,14 +32,16 @@ pub fn read_dataset(
         colmap_read_model::read_images(&mut buf_reader, bin)?
     };
 
-    let mut views = vec![];
-
     let mut img_info_list = img_infos
         .iter()
         .map(|(id, info)| (*id, info))
         .collect::<Vec<_>>();
 
+    // The ids aren't guaranteed to be meaningful but seem to usually correspond
+    // to capture order.
     img_info_list.sort_by_key(|(id, info)| *id);
+
+    let mut views = Vec::with_capacity(img_info_list.len());
 
     for (_, img_info) in img_info_list.iter() {
         let cam = &cam_model_data[&img_info.camera_id];
@@ -69,8 +71,6 @@ pub fn read_dataset(
 
         let center = cam.center();
         let center_uv = center / glam::vec2(cam.width as f32, cam.height as f32);
-
-        println!("Center UV: {center_uv:?}, focal: {focal:?}");
 
         views.push(SceneView {
             camera: Camera::new(translation, quat, glam::vec2(fovx, fovy), center_uv),

@@ -708,7 +708,11 @@ mod tests {
         )
         .reshape([crab_img.height() as usize, crab_img.width() as usize, 3]);
 
-        for path in ["tiny_case", "basic_case", "mix_case"] {
+        let rec = rerun::RecordingStreamBuilder::new("render test").spawn();
+
+        for (i, path) in ["tiny_case", "basic_case", "mix_case"].iter().enumerate() {
+            println!("path {path}");
+
             let mut buffer = Vec::new();
             let _ =
                 File::open(format!("./test_cases/{path}.safetensors"))?.read_to_end(&mut buffer)?;
@@ -735,13 +739,13 @@ mod tests {
             let xys_ref = safe_tensor_to_burn2::<DiffBack>(tensors.tensor("xys")?, &device);
             let conics_ref = safe_tensor_to_burn2::<DiffBack>(tensors.tensor("conics")?, &device);
             let img_ref = safe_tensor_to_burn3::<DiffBack>(tensors.tensor("out_img")?, &device);
-            let img_dims = img_ref.dims();
+            let [h, w, _] = img_ref.dims();
 
             let fov = std::f32::consts::PI * 0.5;
 
-            let focal = fov_to_focal(fov, img_dims[1] as u32);
-            let fov_x = focal_to_fov(focal, img_dims[1] as u32);
-            let fov_y = focal_to_fov(focal, img_dims[0] as u32);
+            let focal = fov_to_focal(fov, w as u32);
+            let fov_x = focal_to_fov(focal, w as u32);
+            let fov_y = focal_to_fov(focal, h as u32);
 
             let cam = Camera::new(
                 glam::vec3(0.0, 0.0, -8.0),
@@ -752,7 +756,7 @@ mod tests {
 
             let (out, aux) = DiffBack::render_splats(
                 &cam,
-                glam::uvec2(img_dims[1] as u32, img_dims[0] as u32),
+                glam::uvec2(w as u32, h as u32),
                 means.clone(),
                 xy_dummy.clone(),
                 log_scales.clone(),
@@ -763,17 +767,27 @@ mod tests {
                 false,
             );
 
-            let out_rgb = out.clone().slice([0..img_dims[0], 0..img_dims[1], 0..3]);
+            let out_rgb = out.clone().slice([0..h, 0..w, 0..3]);
 
-            let rec = rerun::RecordingStreamBuilder::new("visualize training").spawn();
-
-            if let Ok(rec) = rec {
-                println!("Recording to rec");
+            if let Ok(rec) = rec.as_ref() {
+                let out_rgb = out_rgb.clone();
+                rec.set_time_sequence("test case", i as i64);
+                rec.log(
+                    "img/render",
+                    &rerun::Image::from_color_model_and_tensor(
+                        rerun::ColorModel::RGB,
+                        Array::from_shape_vec(
+                            out_rgb.dims(),
+                            out_rgb.to_data().to_vec::<f32>().unwrap(),
+                        )?
+                        .map(|x| (*x * 255.0).clamp(0.0, 255.0) as u8),
+                    )?,
+                )?;
 
                 rec.log(
                     "img/ref",
                     &rerun::Image::from_color_model_and_tensor(
-                        rerun::ColorModel::RGBA,
+                        rerun::ColorModel::RGB,
                         Array::from_shape_vec(
                             img_ref.dims(),
                             img_ref.to_data().to_vec::<f32>().unwrap(),
@@ -854,7 +868,10 @@ mod tests {
 
             assert!(xys.all_close(xys_ref, Some(1e-5), Some(1e-5)));
             assert!(conics.all_close(conics_ref, Some(1e-5), Some(1e-6)));
-            assert!(out_rgb.all_close(img_ref, Some(1e-5), Some(1e-6)));
+
+            // Slightly less precise than other values. This might be because
+            // gSplat uses halfs for the image blending.
+            assert!(out_rgb.all_close(img_ref, Some(1e-5), Some(1e-4)));
 
             assert!(v_xys.all_close(v_xys_ref, Some(1e-5), Some(1e-6)));
             assert!(v_opacities.all_close(v_opacities_ref, Some(1e-5), Some(1e-6)));

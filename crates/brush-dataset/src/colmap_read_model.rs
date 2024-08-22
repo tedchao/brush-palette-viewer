@@ -461,19 +461,3 @@ pub fn read_points3d<R: Read>(reader: &mut R, binary: bool) -> io::Result<HashMa
         read_points3d_text(reader)
     }
 }
-
-pub fn read_model<R: BufRead>(
-    camera_reader: &mut R,
-    image_reader: &mut R,
-    points3d_reader: &mut R,
-    binary: bool,
-) -> io::Result<(
-    HashMap<i32, Camera>,
-    HashMap<i32, Image>,
-    HashMap<i64, Point3D>,
-)> {
-    let cameras = read_cameras(camera_reader, binary)?;
-    let images = read_images(image_reader, binary)?;
-    let points3d = read_points3d(points3d_reader, binary)?;
-    Ok((cameras, images, points3d))
-}
