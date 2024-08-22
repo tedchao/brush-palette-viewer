@@ -76,7 +76,7 @@ impl VisualizeTools {
 
     pub(crate) fn log_scene(&self, scene: &Scene) -> Result<()> {
         let rec = &self.rec;
-        rec.log_static("world", &rerun::ViewCoordinates::RIGHT_HAND_Z_UP)?;
+        rec.log_static("world", &rerun::ViewCoordinates::RIGHT_HAND_Y_DOWN)?;
 
         for (i, data) in scene.views.iter().enumerate() {
             let path = format!("world/dataset/camera/{i}");
