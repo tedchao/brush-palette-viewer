@@ -30,3 +30,8 @@ miette.workspace = true
 
 [dev-dependencies]
 rerun.workspace = true
+divan = "0.1.14"
+
+[[bench]]
+name = "render_bench"
+harness = false

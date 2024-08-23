@@ -6,6 +6,7 @@ use crate::kernels::{
     GatherGrads, GetTileBinEdges, MapGaussiansToIntersect, ProjectBackwards, ProjectSplats,
     ProjectVisible, Rasterize, RasterizeBackwards,
 };
+use crate::BurnBack;
 
 use brush_kernel::{
     bitcast_tensor, calc_cube_count, create_dispatch_buffer, create_tensor, create_uniform_buffer,
@@ -17,7 +18,7 @@ use burn::backend::autodiff::NodeID;
 use burn::tensor::ops::IntTensorOps;
 use burn::tensor::ops::{FloatTensor, FloatTensorOps};
 use burn::tensor::{Tensor, TensorPrimitive};
-use burn_wgpu::{JitBackend, JitTensor, WgpuRuntime};
+use burn_wgpu::{JitTensor, WgpuRuntime};
 use tracing::info_span;
 
 use super::{shaders, Backend, RenderAux};
@@ -30,8 +31,6 @@ use burn::backend::{
     Autodiff,
 };
 use glam::uvec2;
-
-type BurnBack = JitBackend<WgpuRuntime, f32, i32>;
 
 pub const fn num_sh_coeffs(degree: usize) -> usize {
     (degree + 1).pow(2)
@@ -604,20 +603,23 @@ mod tests {
     use std::fs::File;
     use std::io::Read;
 
-    use crate::camera::{focal_to_fov, fov_to_focal};
+    use crate::{
+        camera::{focal_to_fov, fov_to_focal},
+        gaussian_splats::Splats,
+        safetensor_utils::{safe_tensor_to_burn1, safe_tensor_to_burn2, safe_tensor_to_burn3},
+    };
 
     use super::*;
     use assert_approx_eq::assert_approx_eq;
-    use burn::tensor::{Float, Int, TensorData};
+    use burn::tensor::{Float, Int};
     use burn_wgpu::WgpuDevice;
 
     type DiffBack = Autodiff<BurnBack>;
 
     use ndarray::Array;
-    use safetensors::tensor::TensorView;
-    use safetensors::SafeTensors;
 
     use anyhow::{Context, Result};
+    use safetensors::SafeTensors;
 
     #[test]
     fn renders_at_all() {
@@ -632,13 +634,10 @@ mod tests {
         );
         let img_size = glam::uvec2(32, 32);
         let device = WgpuDevice::BestAvailable;
-
         let num_points = 8;
         let means = Tensor::<DiffBack, 2, _>::zeros([num_points, 3], &device);
         let xy_dummy = Tensor::<DiffBack, 2, _>::zeros([num_points, 2], &device);
-
         let log_scales = Tensor::ones([num_points, 3], &device) * 2.0;
-
         let quats = Tensor::<_, 1, _>::from_floats(glam::Quat::IDENTITY.to_array(), &device)
             .unsqueeze_dim(0)
             .repeat_dim(0, num_points);
@@ -656,38 +655,12 @@ mod tests {
             glam::vec3(0.123, 0.123, 0.123),
             false,
         );
-
         let rgb = output.clone().slice([0..32, 0..32, 0..3]);
         let alpha = output.clone().slice([0..32, 0..32, 3..4]);
         let rgb_mean = rgb.clone().mean().to_data().as_slice::<f32>().unwrap()[0];
         let alpha_mean = alpha.clone().mean().to_data().as_slice::<f32>().unwrap()[0];
         assert_approx_eq!(rgb_mean, 0.123, 1e-5);
         assert_approx_eq!(alpha_mean, 0.0);
-    }
-
-    fn float_from_u8(data: &[u8]) -> Vec<f32> {
-        data.chunks_exact(4)
-            .map(|x| f32::from_le_bytes([x[0], x[1], x[2], x[3]]))
-            .collect()
-    }
-
-    // Nb: this only handles float tensors, good enough :)
-    fn safe_tensor_to_burn1<B: Backend>(t: TensorView, device: &B::Device) -> Tensor<B, 1, Float> {
-        let data = TensorData::new::<f32, _>(float_from_u8(t.data()), [t.shape()[0]]);
-        Tensor::from_data(data, device)
-    }
-
-    fn safe_tensor_to_burn2<B: Backend>(t: TensorView, device: &B::Device) -> Tensor<B, 2, Float> {
-        let data = TensorData::new::<f32, _>(float_from_u8(t.data()), [t.shape()[0], t.shape()[1]]);
-        Tensor::from_data(data, device)
-    }
-
-    fn safe_tensor_to_burn3<B: Backend>(t: TensorView, device: &B::Device) -> Tensor<B, 3, Float> {
-        let data = TensorData::new::<f32, _>(
-            float_from_u8(t.data()),
-            [t.shape()[0], t.shape()[1], t.shape()[2]],
-        );
-        Tensor::from_data(data, device)
     }
 
     #[test]
@@ -716,25 +689,9 @@ mod tests {
             let mut buffer = Vec::new();
             let _ =
                 File::open(format!("./test_cases/{path}.safetensors"))?.read_to_end(&mut buffer)?;
+
             let tensors = SafeTensors::deserialize(&buffer)?;
-
-            let means =
-                safe_tensor_to_burn2::<DiffBack>(tensors.tensor("means")?, &device).require_grad();
-            let num_points = means.dims()[0];
-
-            let xy_dummy = Tensor::zeros([num_points, 2], &device).require_grad();
-
-            let log_scales =
-                safe_tensor_to_burn2::<DiffBack>(tensors.tensor("scales")?, &device).require_grad();
-
-            let coeffs = safe_tensor_to_burn3::<DiffBack>(tensors.tensor("coeffs")?, &device)
-                .reshape([num_points, 3])
-                .require_grad();
-
-            let quats =
-                safe_tensor_to_burn2::<DiffBack>(tensors.tensor("quats")?, &device).require_grad();
-            let opacities = safe_tensor_to_burn1::<DiffBack>(tensors.tensor("opacities")?, &device)
-                .require_grad();
+            let splats = Splats::<DiffBack>::from_safetensors(&tensors, &device)?;
 
             let xys_ref = safe_tensor_to_burn2::<DiffBack>(tensors.tensor("xys")?, &device);
             let conics_ref = safe_tensor_to_burn2::<DiffBack>(tensors.tensor("conics")?, &device);
@@ -754,15 +711,9 @@ mod tests {
                 glam::vec2(0.5, 0.5),
             );
 
-            let (out, aux) = DiffBack::render_splats(
+            let (out, aux) = splats.render(
                 &cam,
                 glam::uvec2(w as u32, h as u32),
-                means.clone(),
-                xy_dummy.clone(),
-                log_scales.clone(),
-                quats.clone(),
-                coeffs.clone(),
-                opacities.clone(),
                 glam::vec3(0.0, 0.0, 0.0),
                 false,
             );
@@ -841,30 +792,30 @@ mod tests {
 
             let v_opacities_ref =
                 safe_tensor_to_burn1::<DiffBack>(tensors.tensor("v_opacities")?, &device).inner();
-            let v_opacities = opacities.grad(&grads).context("opacities grad")?;
+            let v_opacities = splats.raw_opacity.grad(&grads).context("opacities grad")?;
 
             let v_coeffs_ref =
                 safe_tensor_to_burn3::<DiffBack>(tensors.tensor("v_coeffs")?, &device)
-                    .reshape([num_points, 3])
+                    .reshape([splats.num_splats(), 3])
                     .inner();
-            let v_coeffs = coeffs.grad(&grads).context("coeffs grad")?;
+            let v_coeffs = splats.sh_coeffs.grad(&grads).context("coeffs grad")?;
 
-            let v_quats = quats.grad(&grads).context("quats grad")?;
+            let v_quats = splats.rotation.grad(&grads).context("quats grad")?;
             let v_quats_ref =
                 safe_tensor_to_burn2::<DiffBack>(tensors.tensor("v_quats")?, &device).inner();
 
-            let v_scales = log_scales.grad(&grads).context("scales grad")?;
+            let v_scales = splats.log_scales.grad(&grads).context("scales grad")?;
             let v_scales_ref =
                 safe_tensor_to_burn2::<DiffBack>(tensors.tensor("v_scales")?, &device).inner();
 
             let v_means_ref =
                 safe_tensor_to_burn2::<DiffBack>(tensors.tensor("v_means")?, &device).inner();
-            let v_means = means.grad(&grads).context("means grad")?;
+            let v_means = splats.means.grad(&grads).context("means grad")?;
 
             let v_xys_ref =
                 safe_tensor_to_burn2::<DiffBack>(tensors.tensor("v_xy")?, &device).inner();
 
-            let v_xys = xy_dummy.grad(&grads).context("no xys grad")?;
+            let v_xys = splats.xys_dummy.grad(&grads).context("no xys grad")?;
 
             assert!(xys.all_close(xys_ref, Some(1e-5), Some(1e-5)));
             assert!(conics.all_close(conics_ref, Some(1e-5), Some(1e-6)));

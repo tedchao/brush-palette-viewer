@@ -9,6 +9,7 @@ use camera::Camera;
 
 mod dim_check;
 mod kernels;
+mod safetensor_utils;
 mod shaders;
 
 pub mod camera;
@@ -83,3 +84,5 @@ pub trait Backend: burn::tensor::backend::Backend {
 
 pub trait AutodiffBackend: burn::tensor::backend::AutodiffBackend + Backend {}
 impl<B: Backend> AutodiffBackend for Autodiff<B> where burn::backend::Autodiff<B>: Backend {}
+
+pub type BurnBack = JitBackend<WgpuRuntime, f32, i32>;

@@ -1,4 +1,5 @@
 use crate::camera::Camera;
+use crate::safetensor_utils::{safe_tensor_to_burn1, safe_tensor_to_burn2, safe_tensor_to_burn3};
 use crate::{render::num_sh_coeffs, Backend};
 use burn::tensor::Distribution;
 use burn::tensor::Tensor;
@@ -6,6 +7,8 @@ use burn::{
     module::{Module, Param, ParamId},
     tensor::Device,
 };
+
+use safetensors::SafeTensors;
 
 #[derive(Module, Debug)]
 pub struct Splats<B: Backend> {
@@ -53,12 +56,31 @@ impl<B: Backend> Splats<B> {
         let init_scale = Tensor::random([num_points, 3], Distribution::Uniform(-3.0, -2.0), device);
 
         // Model parameters.
+        Self::init_from_data(
+            means,
+            sh_coeffs,
+            init_rotation,
+            init_raw_opacity,
+            init_scale,
+            device,
+        )
+    }
+
+    fn init_from_data(
+        means: Tensor<B, 2>,
+        sh_coeffs: Tensor<B, 2>,
+        rotation: Tensor<B, 2>,
+        raw_opacity: Tensor<B, 1>,
+        log_scales: Tensor<B, 2>,
+        device: &Device<B>,
+    ) -> Self {
+        let num_points = means.shape().dims[0];
         Splats {
             means: Param::initialized(ParamId::new(), means.require_grad()),
             sh_coeffs: Param::initialized(ParamId::new(), sh_coeffs.require_grad()),
-            rotation: Param::initialized(ParamId::new(), init_rotation.require_grad()),
-            raw_opacity: Param::initialized(ParamId::new(), init_raw_opacity.require_grad()),
-            log_scales: Param::initialized(ParamId::new(), init_scale.require_grad()),
+            rotation: Param::initialized(ParamId::new(), rotation.require_grad()),
+            raw_opacity: Param::initialized(ParamId::new(), raw_opacity.require_grad()),
+            log_scales: Param::initialized(ParamId::new(), log_scales.require_grad()),
             xys_dummy: Tensor::zeros([num_points, 2], device).require_grad(),
         }
     }
@@ -115,5 +137,28 @@ impl<B: Backend> Splats<B> {
         map_param(&mut self.rotation, |x| {
             x.clone() / Tensor::clamp_min(Tensor::sum_dim(x.powf_scalar(2.0), 1).sqrt(), 1e-6)
         });
+    }
+
+    pub fn from_safetensors(tensors: &SafeTensors, device: &B::Device) -> anyhow::Result<Self> {
+        let means = safe_tensor_to_burn2::<B>(tensors.tensor("means")?, &device);
+        let num_points = means.dims()[0];
+        let log_scales = safe_tensor_to_burn2::<B>(tensors.tensor("scales")?, &device);
+
+        // TODO: This doesn't really handle SH properly. Probably should serialize this in the format
+        // we expect and save this reshape hassle.
+        let sh_coeffs =
+            safe_tensor_to_burn3::<B>(tensors.tensor("coeffs")?, &device).reshape([num_points, 3]);
+
+        let quats = safe_tensor_to_burn2::<B>(tensors.tensor("quats")?, &device);
+        let raw_opacity = safe_tensor_to_burn1::<B>(tensors.tensor("opacities")?, &device);
+
+        Ok(Self::init_from_data(
+            means,
+            sh_coeffs,
+            quats,
+            raw_opacity,
+            log_scales,
+            device,
+        ))
     }
 }
