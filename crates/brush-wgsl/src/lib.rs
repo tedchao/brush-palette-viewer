@@ -3,7 +3,7 @@ mod codewriter;
 use std::{borrow::Cow, collections::HashMap, io, sync::OnceLock};
 
 use anyhow::Result;
-use naga::{proc::GlobalCtx, Handle};
+use naga::{proc::GlobalCtx, valid::Capabilities, Handle};
 use naga_oil::compose::{
     ComposableModuleDescriptor, Composer, ComposerError, NagaModuleDescriptor,
 };
@@ -133,10 +133,10 @@ pub fn build_modules(
 
     code.add_lines(&[
         "fn create_composer() -> naga_oil::compose::Composer {",
-        "let mut composer = naga_oil::compose::Composer::default();",
+        "let mut composer = naga_oil::compose::Composer::default().with_capabilities(naga::valid::Capabilities::SUBGROUP);",
     ]);
 
-    let mut composer = Composer::default();
+    let mut composer = Composer::default().with_capabilities(Capabilities::SUBGROUP);
     let mut modules = HashMap::new();
 
     for include in includes {
@@ -249,6 +249,13 @@ pub fn build_modules(
                     }
 
                     let mangled_name = t.1.name.as_ref().unwrap();
+
+                    // Ignore some builtins.
+                    if mangled_name.contains("__atomic_compare_exchange_result") {
+                        continue;
+                    }
+
+
                     let (m, name) = mod_name_from_mangled(mangled_name);
 
                     let max_align = members
