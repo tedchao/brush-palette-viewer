@@ -12,7 +12,7 @@ fn main() -> miette::Result<()> {
             "src/shaders/gather_grads.wgsl",
             "src/shaders/project_backwards.wgsl",
         ],
-        &["src/shaders/helpers.wgsl", "src/shaders/grads.wgsl"],
+        &["src/shaders/helpers.wgsl"],
         "src/shaders",
         "src/shaders/mod.rs",
     )

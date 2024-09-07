@@ -223,6 +223,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     let raw_opac = raw_opacities[global_gid];
     let v_opac = v_color.w * v_sigmoid(raw_opac);
     v_opacs[global_gid] = v_opac;
-    // Scatter the xy gradients as we need them to be global.
+
+    // Scatter the xy gradients, as later operations need them to be global.
     v_xy_global[global_gid] = v_xy_local[compact_gid];
 }
