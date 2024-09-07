@@ -133,10 +133,11 @@ pub fn build_modules(
 
     code.add_lines(&[
         "fn create_composer() -> naga_oil::compose::Composer {",
-        "let mut composer = naga_oil::compose::Composer::default().with_capabilities(naga::valid::Capabilities::SUBGROUP);",
+        "let mut composer = naga_oil::compose::Composer::default().with_capabilities(naga::valid::Capabilities::SUBGROUP | naga::valid::Capabilities::SUBGROUP_BARRIER);",
     ]);
 
-    let mut composer = Composer::default().with_capabilities(Capabilities::SUBGROUP);
+    let mut composer = Composer::default()
+        .with_capabilities(Capabilities::SUBGROUP | Capabilities::SUBGROUP_BARRIER);
     let mut modules = HashMap::new();
 
     for include in includes {
@@ -254,7 +255,6 @@ pub fn build_modules(
                     if mangled_name.contains("__atomic_compare_exchange_result") {
                         continue;
                     }
-
 
                     let (m, name) = mod_name_from_mangled(mangled_name);
 
