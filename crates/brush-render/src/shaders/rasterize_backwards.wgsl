@@ -11,7 +11,9 @@
 @group(0) @binding(5) var<storage, read_write> output: array<vec4f>;
 @group(0) @binding(6) var<storage, read_write> v_output: array<vec4f>;
 
-@group(0) @binding(7) var<storage, read_write> scatter_grads: array<atomic<u32>>;
+@group(0) @binding(7) var<storage, read_write> v_xy: array<atomic<u32>>;
+@group(0) @binding(8) var<storage, read_write> v_conics: array<atomic<u32>>;
+@group(0) @binding(9) var<storage, read_write> v_colors: array<atomic<u32>>;
 
 const MIN_WG_SIZE: u32 = 8u;
 const BATCH_SIZE = helpers::TILE_SIZE;
@@ -31,29 +33,70 @@ var<workgroup> gather_grad_id: array<u32, GATHER_GRADS_MEM>;
 // Tile bin workaround.
 var<workgroup> tile_bins_wg: vec2u;
 
-// Functions to write gradients atomically using a CAS loop,
-// as wgsl lacks native atomic floats.
-fn write_grad_atomic(id: u32, field: u32, add: f32) {
-    let wid = id * 9 + field;
-    var old_value = atomicLoad(&scatter_grads[wid]);
-    loop {
-        let new_value = bitcast<u32>(bitcast<f32>(old_value) + add);
-        let cas = atomicCompareExchangeWeak(&scatter_grads[wid], old_value, new_value);
-        if cas.exchanged { break; }
-        old_value = cas.old_value;
-    }
+fn add_bitcast(cur: u32, add: f32) -> u32 {
+    return bitcast<u32>(bitcast<f32>(cur) + add);
 }
 
 fn write_grads_atomic(grads: helpers::ProjectedSplat, id: u32) {
-    write_grad_atomic(id, 0u, grads.x);
-    write_grad_atomic(id, 1u, grads.y);
-    write_grad_atomic(id, 2u, grads.conic_x);
-    write_grad_atomic(id, 3u, grads.conic_y);
-    write_grad_atomic(id, 4u, grads.conic_z);
-    write_grad_atomic(id, 5u, grads.r);
-    write_grad_atomic(id, 6u, grads.g);
-    write_grad_atomic(id, 7u, grads.b);
-    write_grad_atomic(id, 8u, grads.a);
+    // Writing out all these CAS loops individually is terrible but wgsl doesn't have a mechanism to
+    // turn this into a function as ptr<storage> can't be passed to a function...
+
+    // v_xy.x
+    var old_value = atomicLoad(&v_xy[id * 2 + 0]);
+    loop {
+        let cas = atomicCompareExchangeWeak(&v_xy[id * 2 + 0], old_value, add_bitcast(old_value, grads.x));
+        if cas.exchanged { break; } else { old_value = cas.old_value; }
+    }
+    // v_xy.y
+    old_value = atomicLoad(&v_xy[id * 2 + 1]);
+    loop {
+        let cas = atomicCompareExchangeWeak(&v_xy[id * 2 + 1], old_value, add_bitcast(old_value, grads.y));
+        if cas.exchanged { break; } else { old_value = cas.old_value; }
+    }
+
+    // v_conic.x
+    old_value = atomicLoad(&v_conics[id * 3 + 0]);
+    loop {
+        let cas = atomicCompareExchangeWeak(&v_conics[id * 3 + 0], old_value, add_bitcast(old_value, grads.conic_x));
+        if cas.exchanged { break; } else { old_value = cas.old_value; }
+    }
+    // v_conic.y
+    old_value = atomicLoad(&v_conics[id * 3 + 1]);
+    loop {
+        let cas = atomicCompareExchangeWeak(&v_conics[id * 3 + 1], old_value, add_bitcast(old_value, grads.conic_y));
+        if cas.exchanged { break; } else { old_value = cas.old_value; }
+    }
+    // v_conic.z
+    old_value = atomicLoad(&v_conics[id * 3 + 2]);
+    loop {
+        let cas = atomicCompareExchangeWeak(&v_conics[id * 3 + 2], old_value, add_bitcast(old_value, grads.conic_z));
+        if cas.exchanged { break; } else { old_value = cas.old_value; }
+    }
+
+    // v_color.r
+    old_value = atomicLoad(&v_colors[id * 4 + 0]);
+    loop {
+        let cas = atomicCompareExchangeWeak(&v_colors[id * 4 + 0], old_value, add_bitcast(old_value, grads.r));
+        if cas.exchanged { break; } else { old_value = cas.old_value; }
+    }
+    // v_color.g
+    old_value = atomicLoad(&v_colors[id * 4 + 1]);
+    loop {
+        let cas = atomicCompareExchangeWeak(&v_colors[id * 4 + 1], old_value, add_bitcast(old_value, grads.g));
+        if cas.exchanged { break; } else { old_value = cas.old_value; }
+    }
+    // v_color.b
+    old_value = atomicLoad(&v_colors[id * 4 + 2]);
+    loop {
+        let cas = atomicCompareExchangeWeak(&v_colors[id * 4 + 2], old_value, add_bitcast(old_value, grads.b));
+        if cas.exchanged { break; } else { old_value = cas.old_value; }
+    }
+    // v_color.a
+    old_value = atomicLoad(&v_colors[id * 4 + 3]);
+    loop {
+        let cas = atomicCompareExchangeWeak(&v_colors[id * 4 + 3], old_value, add_bitcast(old_value, grads.a));
+        if cas.exchanged { break; } else { old_value = cas.old_value; }
+    }
 }
 
 // kernel function for rasterizing each tile

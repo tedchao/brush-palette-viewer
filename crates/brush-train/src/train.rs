@@ -499,7 +499,12 @@ where
             splats.norm_rotations();
 
             // TODO: Maybe can batch this.
-            let xys_grad = Tensor::from_inner(splats.xys_dummy.grad_remove(&mut grads).unwrap());
+            let xys_grad = Tensor::from_inner(
+                splats
+                    .xys_dummy
+                    .grad_remove(&mut grads)
+                    .expect("XY gradients should be calculated."),
+            );
 
             // TODO: Original implementation has a running average instead. That seems wrong to me -
             // but might need some proper ablation.

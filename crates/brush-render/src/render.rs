@@ -17,7 +17,7 @@ use brush_sort::radix_argsort;
 use burn::backend::autodiff::NodeID;
 use burn::tensor::ops::IntTensorOps;
 use burn::tensor::ops::{FloatTensor, FloatTensorOps};
-use burn::tensor::{Shape, Tensor, TensorPrimitive};
+use burn::tensor::{Tensor, TensorPrimitive};
 use burn_wgpu::{JitTensor, WgpuRuntime};
 use tracing::info_span;
 
@@ -479,17 +479,17 @@ impl Backward<BurnBack, 3, 6> for RenderBackwards {
         let num_points = means.shape.dims[0];
 
         let (v_xys, v_conics, v_coeffs, v_opacities) = {
-            let scatter_size = size_of::<shaders::helpers::ProjectedSplat>() / size_of::<f32>();
-
-            let scatter_grads =
-                BurnBack::float_zeros(Shape::new([num_points, scatter_size]), device);
-
             let tile_bounds = uvec2(
                 img_size.x.div_ceil(shaders::helpers::TILE_WIDTH),
                 img_size.y.div_ceil(shaders::helpers::TILE_WIDTH),
             );
 
             let invocations = tile_bounds.x * tile_bounds.y;
+
+            // These gradients are atomically added to so important to zero them.
+            let v_xys_local = BurnBack::float_zeros([num_points, 2].into(), device);
+            let v_conics = BurnBack::float_zeros([num_points, 3].into(), device);
+            let v_colors = BurnBack::float_zeros([num_points, 4].into(), device);
 
             tracing::info_span!("RasterizeBackwards", sync_burn = true).in_scope(|| unsafe {
                 client.execute_unchecked(
@@ -503,13 +503,13 @@ impl Backward<BurnBack, 3, 6> for RenderBackwards {
                         aux.final_index.handle.binding(),
                         state.out_img.handle.binding(),
                         v_output.handle.binding(),
-                        scatter_grads.handle.clone().binding(),
+                        v_xys_local.clone().handle.binding(),
+                        v_conics.clone().handle.binding(),
+                        v_colors.clone().handle.binding(),
                     ],
                 );
             });
 
-            let v_xys = BurnBack::float_zeros([num_points, 2].into(), device);
-            let v_conics = BurnBack::float_zeros([num_points, 4].into(), device);
             let v_coeffs = BurnBack::float_zeros(
                 [num_points, num_sh_coeffs(state.sh_degree) * 3].into(),
                 device,
@@ -523,6 +523,8 @@ impl Backward<BurnBack, 3, 6> for RenderBackwards {
                 GatherGrads::WORKGROUP_SIZE,
             );
 
+            let v_xys_global = BurnBack::float_zeros([num_points, 2].into(), device);
+
             unsafe {
                 client.execute_unchecked(
                     GatherGrads::task(),
@@ -532,16 +534,16 @@ impl Backward<BurnBack, 3, 6> for RenderBackwards {
                         aux.global_from_compact_gid.clone().handle.binding(),
                         raw_opac.clone().handle.binding(),
                         means.clone().handle.binding(),
-                        scatter_grads.clone().handle.binding(),
-                        v_xys.handle.clone().binding(),
-                        v_conics.handle.clone().binding(),
+                        v_colors.clone().handle.binding(),
+                        v_xys_local.handle.binding(),
                         v_coeffs.handle.clone().binding(),
                         v_opacities.handle.clone().binding(),
+                        v_xys_global.handle.clone().binding(),
                     ],
                 );
             }
 
-            (v_xys, v_conics, v_coeffs, v_opacities)
+            (v_xys_global, v_conics, v_coeffs, v_opacities)
         };
 
         // Create tensors to hold gradients.
@@ -570,7 +572,6 @@ impl Backward<BurnBack, 3, 6> for RenderBackwards {
                 ],
             );
         });
-
         // Register gradients for parent nodes (This code is already skipped entirely
         // if no parent nodes require gradients).
         let [mean_parent, xys_parent, log_scales_parent, quats_parent, coeffs_parent, raw_opacity_parent] =
@@ -819,7 +820,6 @@ mod tests {
 
             let v_xys_ref =
                 safe_tensor_to_burn2::<DiffBack>(tensors.tensor("v_xy")?, &device).inner();
-
             let v_xys = splats.xys_dummy.grad(&grads).context("no xys grad")?;
 
             assert!(xys.all_close(xys_ref, Some(1e-5), Some(1e-5)));

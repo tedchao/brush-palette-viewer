@@ -5,13 +5,13 @@
 
 @group(0) @binding(2) var<storage, read_write> raw_opacities: array<f32>;
 @group(0) @binding(3) var<storage, read_write> means: array<helpers::PackedVec3>;
+@group(0) @binding(4) var<storage, read_write> v_colors: array<vec4f>;
+@group(0) @binding(5) var<storage, read_write> v_xy_local: array<vec2f>;
 
-@group(0) @binding(4) var<storage, read_write> scatter_gradients: array<f32>;
-@group(0) @binding(5) var<storage, read_write> v_xys: array<vec2f>;
-@group(0) @binding(6) var<storage, read_write> v_conics: array<vec4f>;
+@group(0) @binding(6) var<storage, read_write> v_coeffs: array<f32>;
+@group(0) @binding(7) var<storage, read_write> v_opacs: array<f32>;
+@group(0) @binding(8) var<storage, read_write> v_xy_global: array<vec2f>;
 
-@group(0) @binding(7) var<storage, read_write> v_coeffs: array<f32>;
-@group(0) @binding(8) var<storage, read_write> v_opacs: array<f32>;
 
 fn sh_coeffs_to_color_fast_vjp(
     degree: u32,
@@ -172,26 +172,17 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         return;
     }
 
+    // Load colors gradients.
+    var v_color = v_colors[compact_gid];
 
-    let base_index = compact_gid * 9u;
-    var v_xy_agg = vec2f(scatter_gradients[base_index], scatter_gradients[base_index + 1u]);
-    var v_conic_agg = vec3f(scatter_gradients[base_index + 2u], scatter_gradients[base_index + 3u], scatter_gradients[base_index + 4u]);
-    var v_colors_agg = vec4f(
-        scatter_gradients[base_index + 5u],
-        scatter_gradients[base_index + 6u],
-        scatter_gradients[base_index + 7u],
-        scatter_gradients[base_index + 8u]
-    );
-
-    // Write global gradients.
+    // Write global SH gradients.
     let global_gid = global_from_compact_gid[compact_gid];
 
-    // SH gradients.
     let mean = helpers::as_vec(means[global_gid]);
     let viewdir = normalize(-uniforms.viewmat[3].xyz - mean);
 
     let sh_degree = uniforms.sh_degree;
-    let v_coeff = sh_coeffs_to_color_fast_vjp(sh_degree, viewdir, v_colors_agg.xyz);
+    let v_coeff = sh_coeffs_to_color_fast_vjp(sh_degree, viewdir, v_color.xyz);
     let num_coeffs = num_sh_coeffs(sh_degree);
     var base_id = global_gid * num_coeffs * 3;
 
@@ -230,9 +221,8 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     }
 
     let raw_opac = raw_opacities[global_gid];
-    let v_opac = v_colors_agg.w * v_sigmoid(raw_opac);
-
-    v_xys[global_gid] = v_xy_agg;
-    v_conics[global_gid] = vec4f(v_conic_agg, 0.0);
+    let v_opac = v_color.w * v_sigmoid(raw_opac);
     v_opacs[global_gid] = v_opac;
+    // Scatter the xy gradients as we need them to be global.
+    v_xy_global[global_gid] = v_xy_local[compact_gid];
 }

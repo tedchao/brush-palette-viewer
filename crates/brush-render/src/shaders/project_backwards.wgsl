@@ -10,7 +10,7 @@
 @group(0) @binding(4) var<storage, read_write> global_from_compact_gid: array<u32>;
 
 @group(0) @binding(5) var<storage, read_write> v_xys: array<vec2f>;
-@group(0) @binding(6) var<storage, read_write> v_conics: array<vec4f>;
+@group(0) @binding(6) var<storage, read_write> v_conics: array<helpers::PackedVec3>;
 
 @group(0) @binding(7) var<storage, read_write> v_means: array<helpers::PackedVec3>;
 @group(0) @binding(8) var<storage, read_write> v_scales: array<helpers::PackedVec3>;
@@ -83,11 +83,10 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         return;
     }
 
-    let global_gid = global_from_compact_gid[compact_gid];
+    let v_conic = helpers::as_vec(v_conics[compact_gid]);
 
-    // Aggregate the gradients that are written per tile.
+    let global_gid = global_from_compact_gid[compact_gid];
     let v_xy = v_xys[global_gid];
-    let v_conic = v_conics[global_gid].xyz;
 
     let viewmat = uniforms.viewmat;
     let focal = uniforms.focal;
