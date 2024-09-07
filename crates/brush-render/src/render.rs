@@ -478,7 +478,7 @@ impl Backward<BurnBack, 3, 6> for RenderBackwards {
 
         let num_points = means.shape.dims[0];
 
-        let (v_xys, v_conics, v_coeffs, v_opacities) = {
+        let (v_xys, v_xys_global, v_conics, v_coeffs, v_opacities) = {
             let tile_bounds = uvec2(
                 img_size.x.div_ceil(shaders::helpers::TILE_WIDTH),
                 img_size.y.div_ceil(shaders::helpers::TILE_WIDTH),
@@ -535,7 +535,7 @@ impl Backward<BurnBack, 3, 6> for RenderBackwards {
                         raw_opac.clone().handle.binding(),
                         means.clone().handle.binding(),
                         v_colors.clone().handle.binding(),
-                        v_xys_local.handle.binding(),
+                        v_xys_local.clone().handle.binding(),
                         v_coeffs.handle.clone().binding(),
                         v_opacities.handle.clone().binding(),
                         v_xys_global.handle.clone().binding(),
@@ -543,7 +543,7 @@ impl Backward<BurnBack, 3, 6> for RenderBackwards {
                 );
             }
 
-            (v_xys_global, v_conics, v_coeffs, v_opacities)
+            (v_xys_local, v_xys_global, v_conics, v_coeffs, v_opacities)
         };
 
         // Create tensors to hold gradients.
@@ -583,7 +583,7 @@ impl Backward<BurnBack, 3, 6> for RenderBackwards {
 
         // Register the gradients for the dummy xy input.
         if let Some(node) = xys_parent {
-            grads.register::<BurnBack, 2>(node.id, v_xys);
+            grads.register::<BurnBack, 2>(node.id, v_xys_global);
         }
 
         if let Some(node) = log_scales_parent {

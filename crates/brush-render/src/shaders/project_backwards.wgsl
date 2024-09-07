@@ -84,13 +84,12 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     }
 
     let v_conic = helpers::as_vec(v_conics[compact_gid]);
-
-    let global_gid = global_from_compact_gid[compact_gid];
-    let v_xy = v_xys[global_gid];
+    let v_xy = v_xys[compact_gid];
 
     let viewmat = uniforms.viewmat;
     let focal = uniforms.focal;
 
+    let global_gid = global_from_compact_gid[compact_gid];
     let mean = helpers::as_vec(means[global_gid]);
     let scale = exp(helpers::as_vec(log_scales[global_gid]));
     let quat = quats[global_gid];
