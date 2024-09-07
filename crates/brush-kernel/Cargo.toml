@@ -9,10 +9,8 @@ license.workspace = true
 burn.workspace = true
 burn-jit.workspace = true
 bytemuck.workspace = true
-cubecl.workspace = true
 naga_oil.workspace = true
 naga.workspace = true
 
 [build-dependencies]
 brush-wgsl.path = "../brush-wgsl"
-miette.workspace = true
