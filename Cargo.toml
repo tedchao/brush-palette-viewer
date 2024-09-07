@@ -55,6 +55,8 @@ eframe = { version = "0.28.1", default-features = false, features = [
     "android-game-activity",
 ] }
 
+miette = { version = "7.2.0", features = ["fancy"] }
+
 assert_approx_eq = "1.1.0"
 safetensors = "0.4.3"
 

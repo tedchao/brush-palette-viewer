@@ -1,4 +1,6 @@
-fn main() -> Result<(), brush_wgsl::GenError> {
+use miette::IntoDiagnostic;
+
+fn main() -> miette::Result<()> {
     brush_wgsl::build_modules(
         &[
             "src/shaders/prefix_sum_add_scanned_sums.wgsl",
@@ -9,4 +11,5 @@ fn main() -> Result<(), brush_wgsl::GenError> {
         "src/shaders",
         "src/shaders/mod.rs",
     )
+    .into_diagnostic()
 }

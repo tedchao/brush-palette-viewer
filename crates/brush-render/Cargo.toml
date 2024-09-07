@@ -26,6 +26,7 @@ ndarray.workspace = true
 
 [build-dependencies]
 brush-wgsl.path = "../brush-wgsl"
+miette.workspace = true
 
 [dev-dependencies]
 rerun.workspace = true

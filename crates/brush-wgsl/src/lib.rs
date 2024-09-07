@@ -165,7 +165,6 @@ pub fn build_modules(
             "}).unwrap();",
         ]);
 
-        println!("adding {} ", include_name);
         modules.insert(
             include_name,
             ModuleInfo::Include {
