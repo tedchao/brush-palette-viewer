@@ -69,15 +69,15 @@ fn main(
         // Wait for all in flight threads.
         workgroupBarrier();
 
-        let load_isect_id = batch_start + local_idx;
-        if load_isect_id < range.y {
+        // process gaussians in the current batch for this pixel
+        let remaining = min(helpers::TILE_SIZE, range.y - batch_start);
+
+        if local_idx < remaining {
+            let load_isect_id = batch_start + local_idx;
             local_batch[local_idx] = projected_splats[compact_gid_from_isect[load_isect_id]];
         }
         // Wait for all writes to complete.
         workgroupBarrier();
-
-        // process gaussians in the current batch for this pixel
-        let remaining = min(helpers::TILE_SIZE, range.y - batch_start);
 
         for (var t = 0u; t < remaining && !done; t++) {
             let projected = local_batch[t];

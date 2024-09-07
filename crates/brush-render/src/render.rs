@@ -17,7 +17,7 @@ use brush_sort::radix_argsort;
 use burn::backend::autodiff::NodeID;
 use burn::tensor::ops::IntTensorOps;
 use burn::tensor::ops::{FloatTensor, FloatTensorOps};
-use burn::tensor::{Tensor, TensorPrimitive};
+use burn::tensor::{Shape, Tensor, TensorPrimitive};
 use burn_wgpu::{JitTensor, WgpuRuntime};
 use tracing::info_span;
 
@@ -469,26 +469,24 @@ impl Backward<BurnBack, 3, 6> for RenderBackwards {
             checkpointer.retrieve_node_output::<FloatTensor<BurnBack, 1>>(state.raw_opac);
 
         let num_points = means.shape.dims[0];
-        let max_intersects = aux.compact_gid_from_isect.shape.dims[0];
-
-        // All the gradients _per tile_. These are later summed up in the final
-        // backward projection pass.
-        let scatter_size = size_of::<shaders::grads::ScatterGradient>() / size_of::<f32>();
 
         let (v_xys, v_conics, v_coeffs, v_opacities) = {
-            let scatter_grads = create_tensor::<f32, 2, WgpuRuntime>(
-                [max_intersects, scatter_size],
-                device,
-                client,
+            let scatter_size = size_of::<shaders::helpers::ProjectedSplat>() / size_of::<f32>();
+
+            let scatter_grads =
+                BurnBack::float_zeros(Shape::new([num_points, scatter_size]), device);
+
+            let tile_bounds = uvec2(
+                img_size.x.div_ceil(shaders::helpers::TILE_WIDTH),
+                img_size.y.div_ceil(shaders::helpers::TILE_WIDTH),
             );
 
-            // Exclusive prefix sum of the number of visible splats.
-            let hit_ids = BurnBack::int_zeros([num_points].into(), device);
+            let invocations = tile_bounds.x * tile_bounds.y;
 
             tracing::info_span!("RasterizeBackwards", sync_burn = true).in_scope(|| {
                 client.execute(
                     RasterizeBackwards::task(),
-                    calc_cube_count([img_size.x, img_size.y], RasterizeBackwards::WORKGROUP_SIZE),
+                    CubeCount::Static(invocations, 1, 1),
                     vec![
                         aux.uniforms_buffer.clone().handle.binding(),
                         aux.compact_gid_from_isect.handle.binding(),
@@ -498,8 +496,6 @@ impl Backward<BurnBack, 3, 6> for RenderBackwards {
                         state.out_img.handle.binding(),
                         v_output.handle.binding(),
                         scatter_grads.handle.clone().binding(),
-                        aux.cum_tiles_hit.clone().handle.clone().binding(),
-                        hit_ids.handle.binding(),
                     ],
                 );
             });
@@ -525,7 +521,6 @@ impl Backward<BurnBack, 3, 6> for RenderBackwards {
                 vec![
                     aux.uniforms_buffer.clone().handle.binding(),
                     aux.global_from_compact_gid.clone().handle.binding(),
-                    aux.cum_tiles_hit.clone().handle.binding(),
                     raw_opac.clone().handle.binding(),
                     means.clone().handle.binding(),
                     scatter_grads.clone().handle.binding(),

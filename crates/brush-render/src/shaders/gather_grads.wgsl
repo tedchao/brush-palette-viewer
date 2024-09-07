@@ -2,17 +2,16 @@
 
 @group(0) @binding(0) var<storage, read_write> uniforms: helpers::RenderUniforms;
 @group(0) @binding(1) var<storage, read_write> global_from_compact_gid: array<u32>;
-@group(0) @binding(2) var<storage, read_write> cum_tiles_hit: array<u32>;
 
-@group(0) @binding(3) var<storage, read_write> raw_opacities: array<f32>;
-@group(0) @binding(4) var<storage, read_write> means: array<helpers::PackedVec3>;
+@group(0) @binding(2) var<storage, read_write> raw_opacities: array<f32>;
+@group(0) @binding(3) var<storage, read_write> means: array<helpers::PackedVec3>;
 
-@group(0) @binding(5) var<storage, read_write> scatter_gradients: array<grads::ScatterGradient>;
-@group(0) @binding(6) var<storage, read_write> v_xys: array<vec2f>;
-@group(0) @binding(7) var<storage, read_write> v_conics: array<vec4f>;
+@group(0) @binding(4) var<storage, read_write> scatter_gradients: array<f32>;
+@group(0) @binding(5) var<storage, read_write> v_xys: array<vec2f>;
+@group(0) @binding(6) var<storage, read_write> v_conics: array<vec4f>;
 
-@group(0) @binding(8) var<storage, read_write> v_coeffs: array<f32>;
-@group(0) @binding(9) var<storage, read_write> v_opacs: array<f32>;
+@group(0) @binding(7) var<storage, read_write> v_coeffs: array<f32>;
+@group(0) @binding(8) var<storage, read_write> v_opacs: array<f32>;
 
 fn sh_coeffs_to_color_fast_vjp(
     degree: u32,
@@ -169,28 +168,23 @@ fn v_sigmoid(x: f32) -> f32 {
 fn main(@builtin(global_invocation_id) gid: vec3u) {
     let compact_gid = gid.x;
 
-    if compact_gid >= uniforms.num_visible { 
+    if compact_gid >= uniforms.num_visible {
         return;
     }
 
-    let global_gid = global_from_compact_gid[compact_gid];
 
-    var v_xy_agg = vec2f(0.0);
-    var v_conic_agg = vec3f(0.0);
-    var v_colors_agg = vec4f(0.0);
-
-    var grad_idx = 0u;
-    if compact_gid > 0 {
-        grad_idx = cum_tiles_hit[compact_gid - 1u];
-    }
-    for(; grad_idx < cum_tiles_hit[compact_gid]; grad_idx++) {
-        let scatter = scatter_gradients[grad_idx];
-        v_xy_agg += vec2f(scatter.x, scatter.y);
-        v_conic_agg += vec3f(scatter.conic_x, scatter.conic_y, scatter.conic_z);
-        v_colors_agg += vec4f(scatter.r, scatter.g, scatter.b, scatter.a);
-    }
+    let base_index = compact_gid * 9u;
+    var v_xy_agg = vec2f(scatter_gradients[base_index], scatter_gradients[base_index + 1u]);
+    var v_conic_agg = vec3f(scatter_gradients[base_index + 2u], scatter_gradients[base_index + 3u], scatter_gradients[base_index + 4u]);
+    var v_colors_agg = vec4f(
+        scatter_gradients[base_index + 5u],
+        scatter_gradients[base_index + 6u],
+        scatter_gradients[base_index + 7u],
+        scatter_gradients[base_index + 8u]
+    );
 
     // Write global gradients.
+    let global_gid = global_from_compact_gid[compact_gid];
 
     // SH gradients.
     let mean = helpers::as_vec(means[global_gid]);
