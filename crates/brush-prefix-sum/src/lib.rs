@@ -20,11 +20,13 @@ pub fn prefix_sum(input: JitTensor<WgpuRuntime, u32, 1>) -> JitTensor<WgpuRuntim
     let client = &input.client;
     let outputs = create_tensor(input.shape.dims, &input.device, client);
 
-    client.execute(
-        PrefixSumScan::task(),
-        calc_cube_count([num as u32], PrefixSumScan::WORKGROUP_SIZE),
-        vec![input.handle.binding(), outputs.handle.clone().binding()],
-    );
+    unsafe {
+        client.execute_unchecked(
+            PrefixSumScan::task(),
+            calc_cube_count([num as u32], PrefixSumScan::WORKGROUP_SIZE),
+            vec![input.handle.binding(), outputs.handle.clone().binding()],
+        );
+    }
 
     if num <= threads_per_group {
         return outputs;
@@ -43,50 +45,58 @@ pub fn prefix_sum(input: JitTensor<WgpuRuntime, u32, 1>) -> JitTensor<WgpuRuntim
         work_size.push(work_sz);
     }
 
-    client.execute(
-        PrefixSumScanSums::task(),
-        calc_cube_count([work_size[0] as u32], PrefixSumScanSums::WORKGROUP_SIZE),
-        vec![
-            outputs.handle.clone().binding(),
-            group_buffer[0].handle.clone().binding(),
-        ],
-    );
-
-    for l in 0..(group_buffer.len() - 1) {
-        client.execute(
+    unsafe {
+        client.execute_unchecked(
             PrefixSumScanSums::task(),
-            calc_cube_count([work_size[l + 1] as u32], PrefixSumScanSums::WORKGROUP_SIZE),
+            calc_cube_count([work_size[0] as u32], PrefixSumScanSums::WORKGROUP_SIZE),
             vec![
-                group_buffer[l].handle.clone().binding(),
-                group_buffer[l + 1].handle.clone().binding(),
+                outputs.handle.clone().binding(),
+                group_buffer[0].handle.clone().binding(),
             ],
         );
+    }
+
+    for l in 0..(group_buffer.len() - 1) {
+        unsafe {
+            client.execute_unchecked(
+                PrefixSumScanSums::task(),
+                calc_cube_count([work_size[l + 1] as u32], PrefixSumScanSums::WORKGROUP_SIZE),
+                vec![
+                    group_buffer[l].handle.clone().binding(),
+                    group_buffer[l + 1].handle.clone().binding(),
+                ],
+            );
+        }
     }
 
     for l in (1..group_buffer.len()).rev() {
         let work_sz = work_size[l - 1];
 
-        client.execute(
+        unsafe {
+            client.execute_unchecked(
+                PrefixSumAddScannedSums::task(),
+                calc_cube_count([work_sz as u32], PrefixSumAddScannedSums::WORKGROUP_SIZE),
+                vec![
+                    group_buffer[l].handle.clone().binding(),
+                    group_buffer[l - 1].handle.clone().binding(),
+                ],
+            );
+        }
+    }
+
+    unsafe {
+        client.execute_unchecked(
             PrefixSumAddScannedSums::task(),
-            calc_cube_count([work_sz as u32], PrefixSumAddScannedSums::WORKGROUP_SIZE),
+            calc_cube_count(
+                [(work_size[0] * threads_per_group) as u32],
+                PrefixSumAddScannedSums::WORKGROUP_SIZE,
+            ),
             vec![
-                group_buffer[l].handle.clone().binding(),
-                group_buffer[l - 1].handle.clone().binding(),
+                group_buffer[0].handle.clone().binding(),
+                outputs.handle.clone().binding(),
             ],
         );
     }
-
-    client.execute(
-        PrefixSumAddScannedSums::task(),
-        calc_cube_count(
-            [(work_size[0] * threads_per_group) as u32],
-            PrefixSumAddScannedSums::WORKGROUP_SIZE,
-        ),
-        vec![
-            group_buffer[0].handle.clone().binding(),
-            outputs.handle.clone().binding(),
-        ],
-    );
 
     outputs
 }

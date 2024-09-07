@@ -15,9 +15,9 @@ fn main() {
 
 type DiffBack = Autodiff<brush_render::BurnBack>;
 
-const SIZE_RANGE: [u32; 12] = [1, 2, 3, 4, 4, 5, 6, 7, 8, 9, 10, 11];
+const SIZE_RANGE: [u32; 2] = [10, 11];
 
-#[divan::bench(max_time = 5, args = SIZE_RANGE, threads = 1)]
+// #[divan::bench(max_time = 5, args = SIZE_RANGE, threads = 1)]
 fn fwd(bencher: divan::Bencher, num: u32) {
     let path = format!("bench_{num}");
     let device = WgpuDevice::BestAvailable;

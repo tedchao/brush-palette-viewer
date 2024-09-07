@@ -204,15 +204,19 @@ pub fn create_dispatch_buffer<R: JitRuntime>(
         &client,
     );
     let ret = create_tensor([3], &thread_nums.device, &client);
-    client.execute(
-        Box::new(CreateDispatchBuffer {}),
-        CubeCount::Static(1, 1, 1),
-        vec![
-            uniforms_buffer.handle.binding(),
-            thread_nums.handle.binding(),
-            ret.clone().handle.binding(),
-        ],
-    );
+
+    // SAFETY: wgsl FFI, kernel checked to have no OOB.
+    unsafe {
+        client.execute_unchecked(
+            Box::new(CreateDispatchBuffer {}),
+            CubeCount::Static(1, 1, 1),
+            vec![
+                uniforms_buffer.handle.binding(),
+                thread_nums.handle.binding(),
+                ret.clone().handle.binding(),
+            ],
+        );
+    }
 
     ret
 }

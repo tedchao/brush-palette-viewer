@@ -123,8 +123,10 @@ fn render_forward(
         let global_from_presort_gid = create_tensor::<u32, 1, _>([num_points], device, client);
         let depths = create_tensor::<f32, 1, _>([num_points], device, client);
 
-        tracing::info_span!("ProjectSplats", sync_burn = true).in_scope(|| {
-            client.execute(
+        tracing::info_span!("ProjectSplats", sync_burn = true).in_scope(||
+            // SAFETY: wgsl FFI, kernel checked to have no OOB.
+            unsafe {
+            client.execute_unchecked(
                 ProjectSplats::task(),
                 calc_cube_count([num_points as u32], ProjectSplats::WORKGROUP_SIZE),
                 vec![
@@ -167,8 +169,8 @@ fn render_forward(
     let num_tiles_hit = bitcast_tensor(BurnBack::int_zeros([num_points].into(), device));
     let num_vis_wg = create_dispatch_buffer(num_visible.clone(), [shaders::helpers::MAIN_WG, 1, 1]);
 
-    tracing::info_span!("ProjectVisibile", sync_burn = true).in_scope(|| {
-        client.execute(
+    tracing::info_span!("ProjectVisibile", sync_burn = true).in_scope(|| unsafe {
+        client.execute_unchecked(
             ProjectVisible::task(),
             CubeCount::Dynamic(num_vis_wg.clone().handle.binding()),
             vec![
@@ -210,8 +212,8 @@ fn render_forward(
         let tile_id_from_isect = create_tensor::<u32, 1, _>([max_intersects], device, client);
         let compact_gid_from_isect = create_tensor::<u32, 1, _>([max_intersects], device, client);
 
-        tracing::info_span!("MapGaussiansToIntersect", sync_burn = true).in_scope(|| {
-            client.execute(
+        tracing::info_span!("MapGaussiansToIntersect", sync_burn = true).in_scope(|| unsafe {
+            client.execute_unchecked(
                 MapGaussiansToIntersect::task(),
                 CubeCount::Dynamic(num_vis_wg.handle.binding()),
                 vec![
@@ -244,20 +246,24 @@ fn render_forward(
             [tile_bounds.y as usize, tile_bounds.x as usize, 2].into(),
             device,
         ));
-
-        client.execute(
-            GetTileBinEdges::task(),
-            CubeCount::Dynamic(
-                create_dispatch_buffer(num_intersections.clone(), GetTileBinEdges::WORKGROUP_SIZE)
+        unsafe {
+            client.execute_unchecked(
+                GetTileBinEdges::task(),
+                CubeCount::Dynamic(
+                    create_dispatch_buffer(
+                        num_intersections.clone(),
+                        GetTileBinEdges::WORKGROUP_SIZE,
+                    )
                     .handle
                     .binding(),
-            ),
-            vec![
-                tile_id_from_isect.handle.clone().binding(),
-                num_intersections.handle.clone().binding(),
-                tile_bins.handle.clone().binding(),
-            ],
-        );
+                ),
+                vec![
+                    tile_id_from_isect.handle.clone().binding(),
+                    num_intersections.handle.clone().binding(),
+                    tile_bins.handle.clone().binding(),
+                ],
+            );
+        }
 
         (tile_bins, compact_gid_from_isect)
     };
@@ -296,11 +302,13 @@ fn render_forward(
         handles.push(final_index.handle.clone().binding());
     }
 
-    client.execute(
-        Rasterize::task(raster_u32),
-        calc_cube_count([img_size.x, img_size.y], Rasterize::WORKGROUP_SIZE),
-        handles,
-    );
+    unsafe {
+        client.execute_unchecked(
+            Rasterize::task(raster_u32),
+            calc_cube_count([img_size.x, img_size.y], Rasterize::WORKGROUP_SIZE),
+            handles,
+        );
+    }
 
     (
         out_img,
@@ -483,8 +491,8 @@ impl Backward<BurnBack, 3, 6> for RenderBackwards {
 
             let invocations = tile_bounds.x * tile_bounds.y;
 
-            tracing::info_span!("RasterizeBackwards", sync_burn = true).in_scope(|| {
-                client.execute(
+            tracing::info_span!("RasterizeBackwards", sync_burn = true).in_scope(|| unsafe {
+                client.execute_unchecked(
                     RasterizeBackwards::task(),
                     CubeCount::Static(invocations, 1, 1),
                     vec![
@@ -515,21 +523,23 @@ impl Backward<BurnBack, 3, 6> for RenderBackwards {
                 GatherGrads::WORKGROUP_SIZE,
             );
 
-            client.execute(
-                GatherGrads::task(),
-                CubeCount::Dynamic(num_vis_wg.handle.binding()),
-                vec![
-                    aux.uniforms_buffer.clone().handle.binding(),
-                    aux.global_from_compact_gid.clone().handle.binding(),
-                    raw_opac.clone().handle.binding(),
-                    means.clone().handle.binding(),
-                    scatter_grads.clone().handle.binding(),
-                    v_xys.handle.clone().binding(),
-                    v_conics.handle.clone().binding(),
-                    v_coeffs.handle.clone().binding(),
-                    v_opacities.handle.clone().binding(),
-                ],
-            );
+            unsafe {
+                client.execute_unchecked(
+                    GatherGrads::task(),
+                    CubeCount::Dynamic(num_vis_wg.handle.binding()),
+                    vec![
+                        aux.uniforms_buffer.clone().handle.binding(),
+                        aux.global_from_compact_gid.clone().handle.binding(),
+                        raw_opac.clone().handle.binding(),
+                        means.clone().handle.binding(),
+                        scatter_grads.clone().handle.binding(),
+                        v_xys.handle.clone().binding(),
+                        v_conics.handle.clone().binding(),
+                        v_coeffs.handle.clone().binding(),
+                        v_opacities.handle.clone().binding(),
+                    ],
+                );
+            }
 
             (v_xys, v_conics, v_coeffs, v_opacities)
         };
@@ -542,8 +552,8 @@ impl Backward<BurnBack, 3, 6> for RenderBackwards {
         let v_scales = BurnBack::float_zeros([num_points, 3].into(), device);
         let v_quats = BurnBack::float_zeros([num_points, 4].into(), device);
 
-        tracing::info_span!("ProjectBackwards", sync_burn = true).in_scope(|| {
-            client.execute(
+        tracing::info_span!("ProjectBackwards", sync_burn = true).in_scope(|| unsafe {
+            client.execute_unchecked(
                 ProjectBackwards::task(),
                 calc_cube_count([num_points as u32], ProjectBackwards::WORKGROUP_SIZE),
                 vec![

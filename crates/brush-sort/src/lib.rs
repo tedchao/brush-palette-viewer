@@ -74,67 +74,78 @@ pub fn radix_argsort(
         let count_buf =
             create_tensor::<u32, 1, WgpuRuntime>([(max_needed_wgs as usize) * 16], device, client);
 
-        client.execute(
-            SortCount::task(),
-            CubeCount::Dynamic(num_wgs.clone().handle.binding()),
-            vec![
-                uniforms_buffer.clone().handle.binding(),
-                n_sort.clone().handle.binding(),
-                cur_keys.handle.clone().binding(),
-                count_buf.clone().handle.binding(),
-            ],
-        );
-
-        {
-            let reduced_buf =
-                create_tensor::<u32, 1, WgpuRuntime>([BLOCK_SIZE as usize], device, client);
-
-            client.execute(
-                SortReduce::task(),
-                CubeCount::Dynamic(num_reduce_wgs.clone().handle.binding()),
+        // SAFETY: wgsl FFI, kernel checked to have no OOB.
+        unsafe {
+            client.execute_unchecked(
+                SortCount::task(),
+                CubeCount::Dynamic(num_wgs.clone().handle.binding()),
                 vec![
+                    uniforms_buffer.clone().handle.binding(),
                     n_sort.clone().handle.binding(),
-                    count_buf.clone().handle.binding(),
-                    reduced_buf.clone().handle.binding(),
-                ],
-            );
-
-            client.execute(
-                SortScan::task(),
-                CubeCount::Static(1, 1, 1),
-                vec![
-                    n_sort.clone().handle.binding(),
-                    reduced_buf.clone().handle.binding(),
-                ],
-            );
-
-            client.execute(
-                SortScanAdd::task(),
-                CubeCount::Dynamic(num_reduce_wgs.handle.clone().binding()),
-                vec![
-                    n_sort.clone().handle.binding(),
-                    reduced_buf.clone().handle.binding(),
+                    cur_keys.handle.clone().binding(),
                     count_buf.clone().handle.binding(),
                 ],
             );
         }
 
+        {
+            let reduced_buf =
+                create_tensor::<u32, 1, WgpuRuntime>([BLOCK_SIZE as usize], device, client);
+
+            unsafe {
+                client.execute_unchecked(
+                    SortReduce::task(),
+                    CubeCount::Dynamic(num_reduce_wgs.clone().handle.binding()),
+                    vec![
+                        n_sort.clone().handle.binding(),
+                        count_buf.clone().handle.binding(),
+                        reduced_buf.clone().handle.binding(),
+                    ],
+                );
+            }
+
+            unsafe {
+                client.execute_unchecked(
+                    SortScan::task(),
+                    CubeCount::Static(1, 1, 1),
+                    vec![
+                        n_sort.clone().handle.binding(),
+                        reduced_buf.clone().handle.binding(),
+                    ],
+                );
+            }
+
+            unsafe {
+                client.execute_unchecked(
+                    SortScanAdd::task(),
+                    CubeCount::Dynamic(num_reduce_wgs.handle.clone().binding()),
+                    vec![
+                        n_sort.clone().handle.binding(),
+                        reduced_buf.clone().handle.binding(),
+                        count_buf.clone().handle.binding(),
+                    ],
+                );
+            }
+        }
+
         let output_keys = create_tensor::<u32, 1, _>([max_n as usize], device, client);
         let output_values = create_tensor::<u32, 1, _>([max_n as usize], device, client);
 
-        client.execute(
-            SortScatter::task(),
-            CubeCount::Dynamic(num_wgs.clone().handle.binding()),
-            vec![
-                uniforms_buffer.handle.clone().binding(),
-                n_sort.clone().handle.binding(),
-                cur_keys.handle.clone().binding(),
-                cur_vals.handle.clone().binding(),
-                count_buf.handle.clone().binding(),
-                output_keys.handle.clone().binding(),
-                output_values.handle.clone().binding(),
-            ],
-        );
+        unsafe {
+            client.execute_unchecked(
+                SortScatter::task(),
+                CubeCount::Dynamic(num_wgs.clone().handle.binding()),
+                vec![
+                    uniforms_buffer.handle.clone().binding(),
+                    n_sort.clone().handle.binding(),
+                    cur_keys.handle.clone().binding(),
+                    cur_vals.handle.clone().binding(),
+                    count_buf.handle.clone().binding(),
+                    output_keys.handle.clone().binding(),
+                    output_values.handle.clone().binding(),
+                ],
+            );
+        }
 
         cur_keys = output_keys;
         cur_vals = output_values;
