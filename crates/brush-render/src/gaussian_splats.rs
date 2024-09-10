@@ -56,7 +56,7 @@ impl<B: Backend> Splats<B> {
         let init_scale = Tensor::random([num_points, 3], Distribution::Uniform(-3.0, -2.0), device);
 
         // Model parameters.
-        Self::init_from_data(
+        Self::from_data(
             means,
             sh_coeffs,
             init_rotation,
@@ -66,7 +66,7 @@ impl<B: Backend> Splats<B> {
         )
     }
 
-    fn init_from_data(
+    pub fn from_data(
         means: Tensor<B, 2>,
         sh_coeffs: Tensor<B, 2>,
         rotation: Tensor<B, 2>,
@@ -76,12 +76,14 @@ impl<B: Backend> Splats<B> {
     ) -> Self {
         let num_points = means.shape().dims[0];
         Splats {
-            means: Param::initialized(ParamId::new(), means.require_grad()),
-            sh_coeffs: Param::initialized(ParamId::new(), sh_coeffs.require_grad()),
-            rotation: Param::initialized(ParamId::new(), rotation.require_grad()),
-            raw_opacity: Param::initialized(ParamId::new(), raw_opacity.require_grad()),
-            log_scales: Param::initialized(ParamId::new(), log_scales.require_grad()),
-            xys_dummy: Tensor::zeros([num_points, 2], device).require_grad(),
+            means: Param::initialized(ParamId::new(), means.detach().require_grad()),
+            sh_coeffs: Param::initialized(ParamId::new(), sh_coeffs.detach().require_grad()),
+            rotation: Param::initialized(ParamId::new(), rotation.detach().require_grad()),
+            raw_opacity: Param::initialized(ParamId::new(), raw_opacity.detach().require_grad()),
+            log_scales: Param::initialized(ParamId::new(), log_scales.detach().require_grad()),
+            xys_dummy: Tensor::zeros([num_points, 2], device)
+                .detach()
+                .require_grad(),
         }
     }
 
@@ -152,7 +154,7 @@ impl<B: Backend> Splats<B> {
         let quats = safe_tensor_to_burn2::<B>(tensors.tensor("quats")?, &device);
         let raw_opacity = safe_tensor_to_burn1::<B>(tensors.tensor("opacities")?, &device);
 
-        Ok(Self::init_from_data(
+        Ok(Self::from_data(
             means,
             sh_coeffs,
             quats,
