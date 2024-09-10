@@ -12,7 +12,6 @@
 @group(0) @binding(7) var<storage, read_write> v_opacs: array<f32>;
 @group(0) @binding(8) var<storage, read_write> v_xy_global: array<vec2f>;
 
-
 fn sh_coeffs_to_color_fast_vjp(
     degree: u32,
     viewdir: vec3f,
@@ -81,10 +80,10 @@ fn sh_coeffs_to_color_fast_vjp(
     v_coeffs.b3_c5 = pSH14 * v_colors;
     v_coeffs.b3_c6 = pSH15 * v_colors;
     return v_coeffs;
+
     // if (degree < 4) {
     //     return v_coeffs;
     // }
-
     // let fTmp0D = z * (-4.683325804901025f * z2 + 2.007139630671868f);
     // let fTmp1C = 3.31161143515146f * z2 - 0.47308734787878f;
     // let fTmp2B = -1.770130769779931f * z;
@@ -175,7 +174,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     // Load colors gradients.
     var v_color = v_colors[compact_gid];
 
-    // Write global SH gradients.
+    // Convert RGB to global SH gradients.
     let global_gid = global_from_compact_gid[compact_gid];
 
     let mean = helpers::as_vec(means[global_gid]);
@@ -220,6 +219,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         }
     }
 
+    // Transform alpha gradient to opacity gradient.
     let raw_opac = raw_opacities[global_gid];
     let v_opac = v_color.w * v_sigmoid(raw_opac);
     v_opacs[global_gid] = v_opac;

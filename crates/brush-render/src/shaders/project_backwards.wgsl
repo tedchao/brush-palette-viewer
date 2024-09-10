@@ -30,29 +30,26 @@ fn quat_to_rotmat_vjp(quat: vec4f, v_R: mat3x3f) -> vec4f {
 
     return vec4f(
         // w element stored in x field
-        2.f * (
-                  // v_quat.w = 2.f * (
-                  x * (v_R[1][2] - v_R[2][1]) + y * (v_R[2][0] - v_R[0][2]) +
-                  z * (v_R[0][1] - v_R[1][0])
-              ),
-        // x element in y field
-        2.f *
+        2.0f *
         (
-            // v_quat.x = 2.f * (
+            x * (v_R[1][2] - v_R[2][1]) + y * (v_R[2][0] - v_R[0][2]) +
+            z * (v_R[0][1] - v_R[1][0])
+        ),
+        // x element in y field
+        2.0f *
+        (
             -2.f * x * (v_R[1][1] + v_R[2][2]) + y * (v_R[0][1] + v_R[1][0]) +
             z * (v_R[0][2] + v_R[2][0]) + w * (v_R[1][2] - v_R[2][1])
         ),
         // y element in z field
-        2.f *
+        2.0f *
         (
-            // v_quat.y = 2.f * (
             x * (v_R[0][1] + v_R[1][0]) - 2.f * y * (v_R[0][0] + v_R[2][2]) +
             z * (v_R[1][2] + v_R[2][1]) + w * (v_R[2][0] - v_R[0][2])
         ),
         // z element in w field
-        2.f *
+        2.0f *
         (
-            // v_quat.z = 2.f * (
             x * (v_R[0][2] + v_R[2][0]) + y * (v_R[1][2] + v_R[2][1]) -
             2.f * z * (v_R[0][0] + v_R[1][1]) + w * (v_R[0][1] - v_R[1][0])
         )

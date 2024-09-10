@@ -93,7 +93,6 @@ fn render_forward(
     //  global_from_compact_gid.
 
     // Tile rendering setup.
-
     let sh_degree = sh_degree_from_coeffs(sh_coeffs.shape.dims[1] / 3);
     let total_splats = means.shape.dims[0] as u32;
 
@@ -199,16 +198,16 @@ fn render_forward(
 
     let num_tiles = tile_bounds[0] * tile_bounds[1];
 
-    // On wasm, we cannot do a sync readback at all.
-    // Instead, can just estimate a max number of intersects. All the kernels only handle the actual
-    // cound of intersects, and spin up empty threads for the rest atm. In the future, could use indirect
-    // dispatch to avoid this.
-    // Estimating the max number of intersects can be a bad hack though... The worst case sceneario is so massive
-    // that it's easy to run out of memory... How do we actually properly deal with this :/
-    let max_intersects = (num_points * num_tiles as usize).min(128 * 65535);
-
     // Each intersection maps to a gaussian.
     let (tile_bins, compact_gid_from_isect) = {
+        // On wasm, we cannot do a sync readback at all.
+        // Instead, can just estimate a max number of intersects. All the kernels only handle the actual
+        // cound of intersects, and spin up empty threads for the rest atm. In the future, could use indirect
+        // dispatch to avoid this.
+        // Estimating the max number of intersects can be a bad hack though... The worst case sceneario is so massive
+        // that it's easy to run out of memory... How do we actually properly deal with this :/
+        let max_intersects = (num_points * num_tiles as usize).min(128 * 65535);
+
         let tile_id_from_isect = create_tensor::<u32, 1, _>([max_intersects], device, client);
         let compact_gid_from_isect = create_tensor::<u32, 1, _>([max_intersects], device, client);
 
@@ -357,7 +356,6 @@ impl Backend for BurnBack {
 
 #[derive(Debug, Clone)]
 struct GaussianBackwardState {
-    // Splat inputs.
     means: NodeID,
     log_scales: NodeID,
     quats: NodeID,
@@ -383,6 +381,8 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
         background: glam::Vec3,
         render_u32_buffer: bool,
     ) -> (Tensor<Self, 3>, RenderAux) {
+        // Get backend tensors & dequantize if needed. Could try and support quantized inputs
+        // in the future.
         let means = means.into_primitive().tensor();
         let xy_dummy = xy_dummy.into_primitive().tensor();
         let log_scales = log_scales.into_primitive().tensor();
@@ -403,7 +403,7 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
             render_u32_buffer,
         );
 
-        // Prepare backward pass, and check if we even need to do it.
+        // Prepare backward pass, and check if we even need to do it. Store nodes that need gradients.
         let prep_nodes = RenderBackwards
             .prepare::<C>([
                 means.clone().node,
@@ -612,7 +612,7 @@ mod tests {
     use crate::{
         camera::{focal_to_fov, fov_to_focal},
         gaussian_splats::Splats,
-        safetensor_utils::{safe_tensor_to_burn1, safe_tensor_to_burn2, safe_tensor_to_burn3},
+        safetensor_utils::safetensor_to_burn,
     };
 
     use super::*;
@@ -699,9 +699,9 @@ mod tests {
             let tensors = SafeTensors::deserialize(&buffer)?;
             let splats = Splats::<DiffBack>::from_safetensors(&tensors, &device)?;
 
-            let xys_ref = safe_tensor_to_burn2::<DiffBack>(tensors.tensor("xys")?, &device);
-            let conics_ref = safe_tensor_to_burn2::<DiffBack>(tensors.tensor("conics")?, &device);
-            let img_ref = safe_tensor_to_burn3::<DiffBack>(tensors.tensor("out_img")?, &device);
+            let xys_ref = safetensor_to_burn::<DiffBack, 2>(tensors.tensor("xys")?, &device);
+            let conics_ref = safetensor_to_burn::<DiffBack, 2>(tensors.tensor("conics")?, &device);
+            let img_ref = safetensor_to_burn::<DiffBack, 3>(tensors.tensor("out_img")?, &device);
             let [h, w, _] = img_ref.dims();
 
             let fov = std::f32::consts::PI * 0.5;
@@ -797,29 +797,29 @@ mod tests {
                 .backward();
 
             let v_opacities_ref =
-                safe_tensor_to_burn1::<DiffBack>(tensors.tensor("v_opacities")?, &device).inner();
+                safetensor_to_burn::<DiffBack, 1>(tensors.tensor("v_opacities")?, &device).inner();
             let v_opacities = splats.raw_opacity.grad(&grads).context("opacities grad")?;
 
             let v_coeffs_ref =
-                safe_tensor_to_burn3::<DiffBack>(tensors.tensor("v_coeffs")?, &device)
+                safetensor_to_burn::<DiffBack, 3>(tensors.tensor("v_coeffs")?, &device)
                     .reshape([splats.num_splats(), 3])
                     .inner();
             let v_coeffs = splats.sh_coeffs.grad(&grads).context("coeffs grad")?;
 
             let v_quats = splats.rotation.grad(&grads).context("quats grad")?;
             let v_quats_ref =
-                safe_tensor_to_burn2::<DiffBack>(tensors.tensor("v_quats")?, &device).inner();
+                safetensor_to_burn::<DiffBack, 2>(tensors.tensor("v_quats")?, &device).inner();
 
             let v_scales = splats.log_scales.grad(&grads).context("scales grad")?;
             let v_scales_ref =
-                safe_tensor_to_burn2::<DiffBack>(tensors.tensor("v_scales")?, &device).inner();
+                safetensor_to_burn::<DiffBack, 2>(tensors.tensor("v_scales")?, &device).inner();
 
             let v_means_ref =
-                safe_tensor_to_burn2::<DiffBack>(tensors.tensor("v_means")?, &device).inner();
+                safetensor_to_burn::<DiffBack, 2>(tensors.tensor("v_means")?, &device).inner();
             let v_means = splats.means.grad(&grads).context("means grad")?;
 
             let v_xys_ref =
-                safe_tensor_to_burn2::<DiffBack>(tensors.tensor("v_xy")?, &device).inner();
+                safetensor_to_burn::<DiffBack, 2>(tensors.tensor("v_xy")?, &device).inner();
             let v_xys = splats.xys_dummy.grad(&grads).context("no xys grad")?;
 
             assert!(xys.all_close(xys_ref, Some(1e-5), Some(1e-5)));
@@ -828,7 +828,6 @@ mod tests {
             // Slightly less precise than other values. This might be because
             // gSplat uses halfs for the image blending.
             assert!(out_rgb.all_close(img_ref, Some(1e-5), Some(1e-4)));
-
             assert!(v_xys.all_close(v_xys_ref, Some(1e-5), Some(1e-6)));
             assert!(v_opacities.all_close(v_opacities_ref, Some(1e-5), Some(1e-6)));
             assert!(v_coeffs.all_close(v_coeffs_ref, Some(1e-5), Some(1e-6)));

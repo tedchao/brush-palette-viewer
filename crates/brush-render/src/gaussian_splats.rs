@@ -1,5 +1,5 @@
 use crate::camera::Camera;
-use crate::safetensor_utils::{safe_tensor_to_burn1, safe_tensor_to_burn2, safe_tensor_to_burn3};
+use crate::safetensor_utils::safetensor_to_burn;
 use crate::{render::num_sh_coeffs, Backend};
 use burn::tensor::Distribution;
 use burn::tensor::Tensor;
@@ -7,7 +7,6 @@ use burn::{
     module::{Module, Param, ParamId},
     tensor::Device,
 };
-
 use safetensors::SafeTensors;
 
 #[derive(Module, Debug)]
@@ -55,7 +54,6 @@ impl<B: Backend> Splats<B> {
         // TODO: Fancy KNN init.
         let init_scale = Tensor::random([num_points, 3], Distribution::Uniform(-3.0, -2.0), device);
 
-        // Model parameters.
         Self::from_data(
             means,
             sh_coeffs,
@@ -81,9 +79,7 @@ impl<B: Backend> Splats<B> {
             rotation: Param::initialized(ParamId::new(), rotation.detach().require_grad()),
             raw_opacity: Param::initialized(ParamId::new(), raw_opacity.detach().require_grad()),
             log_scales: Param::initialized(ParamId::new(), log_scales.detach().require_grad()),
-            xys_dummy: Tensor::zeros([num_points, 2], device)
-                .detach()
-                .require_grad(),
+            xys_dummy: Tensor::zeros([num_points, 2], device).require_grad(),
         }
     }
 
@@ -142,17 +138,16 @@ impl<B: Backend> Splats<B> {
     }
 
     pub fn from_safetensors(tensors: &SafeTensors, device: &B::Device) -> anyhow::Result<Self> {
-        let means = safe_tensor_to_burn2::<B>(tensors.tensor("means")?, &device);
+        let means = safetensor_to_burn::<B, 2>(tensors.tensor("means")?, &device);
         let num_points = means.dims()[0];
-        let log_scales = safe_tensor_to_burn2::<B>(tensors.tensor("scales")?, &device);
+        let log_scales = safetensor_to_burn::<B, 2>(tensors.tensor("scales")?, &device);
 
         // TODO: This doesn't really handle SH properly. Probably should serialize this in the format
         // we expect and save this reshape hassle.
         let sh_coeffs =
-            safe_tensor_to_burn3::<B>(tensors.tensor("coeffs")?, &device).reshape([num_points, 3]);
-
-        let quats = safe_tensor_to_burn2::<B>(tensors.tensor("quats")?, &device);
-        let raw_opacity = safe_tensor_to_burn1::<B>(tensors.tensor("opacities")?, &device);
+            safetensor_to_burn::<B, 3>(tensors.tensor("coeffs")?, &device).reshape([num_points, 3]);
+        let quats = safetensor_to_burn::<B, 2>(tensors.tensor("quats")?, &device);
+        let raw_opacity = safetensor_to_burn::<B, 1>(tensors.tensor("opacities")?, &device);
 
         Ok(Self::from_data(
             means,

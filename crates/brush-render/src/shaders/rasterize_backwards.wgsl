@@ -23,7 +23,6 @@ var<workgroup> local_batch: array<helpers::ProjectedSplat, BATCH_SIZE>;
 var<workgroup> local_id: array<u32, BATCH_SIZE>;
 
 // Current queue of gradients to be flushed.
-
 // Target count of #gradients to gather per go.
 const GATHER_GRADS_MEM = BATCH_SIZE;
 var<workgroup> grad_count: atomic<i32>;

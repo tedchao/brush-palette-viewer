@@ -4,7 +4,7 @@
 @group(0) @binding(1) var<storage, read_write> num_intersections: u32;
 
 // This really is a vec2 per tile, but, we have to be able to write x/y from different threads.
-// Actually writing a vec2 can lead to torn writes.
+// Actually writing a vec2 leads to torn writes.
 @group(0) @binding(2) var<storage, read_write> tile_bins: array<u32>;
 
 const THREAD_COUNT: u32 = 256;

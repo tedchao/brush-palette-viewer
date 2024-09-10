@@ -204,7 +204,6 @@ fn radius_from_conic(conic: vec3f, opac: f32) -> u32 {
     // x^T Sigma^-1 x = -2 * log(eps / opac)
     // Find maximal |x| using quadratic form
     // |x|^2 = c / lambd_min.
-
     // // Now solve for maximal |r| such that min alpha = 1.0 / 255.0.
     // //
     // // we actually go for 2.0 / 255.0 or so to match the cutoff from gsplat better.

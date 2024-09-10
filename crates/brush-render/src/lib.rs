@@ -61,13 +61,16 @@ impl RenderAux {
     }
 }
 
-/// We create our own Backend trait that extends the Burn backend trait.
+// Custom operations in Burn work by extending the backend with an extra func.
 pub trait Backend: burn::tensor::backend::Backend {
-    // Render splats
-    // Project splats processing step. This produces
-    // a whole bunch of gradients that we store.
-    // The return just happens to be the xy screenspace points
-    // which we use to 'carry' the gradients'.
+    /// Render splats to a buffer.
+    ///
+    /// This projects the gaussians, sorts them, and rasterizes them to a buffer, in a\
+    /// differentiable way.
+    /// The arguments are all passed as raw tensors. See [`Splats`] for a convenient Module that wraps this fun
+    /// The ['xy_dummy'] variable is only used to cary screenspace xy gradients.
+    /// This function can optionally render a "u32" buffer, which is a packed RGBA (8 bits per channel)
+    /// buffer. This is useful when the results need to be displayed immediatly.
     fn render_splats(
         cam: &Camera,
         img_size: glam::UVec2,
