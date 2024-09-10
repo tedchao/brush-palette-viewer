@@ -16,11 +16,14 @@ fn main() {
 
 type DiffBack = Autodiff<brush_render::BurnBack>;
 
-const BENCH_DENSITIES: [f32; 7] = [0.1, 0.2, 0.3, 0.4, 0.5, 0.75, 1.0];
+const BENCH_DENSITIES: [f32; 10] = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0];
 const DENSE_MULT: f32 = 0.25;
 
-const TARGET_SAMPLE_COUNT: u32 = 20;
-const INTERNAL_ITERS: u32 = 8;
+const LOW_RES: glam::UVec2 = glam::uvec2(512, 512);
+const HIGH_RES: glam::UVec2 = glam::uvec2(1024, 1024);
+
+const TARGET_SAMPLE_COUNT: u32 = 40;
+const INTERNAL_ITERS: u32 = 2;
 
 fn bench_general(
     bencher: divan::Bencher,
@@ -76,7 +79,7 @@ fn bench_general(
 
         bencher.bench_local(move || {
             for _ in 0..INTERNAL_ITERS {
-                let _ = splats.render(&camera, resolution, glam::vec3(0.0, 0.0, 0.0), false);
+                let _ = splats.render(&camera, resolution, glam::vec3(0.0, 0.0, 0.0), true);
             }
             // Wait for GPU work.
             <BurnBack as burn::prelude::Backend>::sync(
@@ -86,9 +89,6 @@ fn bench_general(
         });
     }
 }
-
-const LOW_RES: glam::UVec2 = glam::uvec2(512, 512);
-const HIGH_RES: glam::UVec2 = glam::uvec2(1024, 1024);
 
 #[divan::bench_group(max_time = 20, sample_count = TARGET_SAMPLE_COUNT, sample_size = 1)]
 mod fwd {
