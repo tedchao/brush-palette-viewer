@@ -13,6 +13,7 @@ use ndarray::Array3;
 pub(crate) fn normalized_path_string(path: &Path) -> String {
     Path::new(path)
         .components()
+        .skip_while(|c| matches!(c, std::path::Component::CurDir))
         .collect::<PathBuf>()
         .to_str()
         .unwrap()
