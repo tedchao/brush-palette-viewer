@@ -1,11 +1,12 @@
 use std::{fs::File, io::Read};
 
+use brush_render::BurnBack;
 use brush_render::{
     camera::{focal_to_fov, fov_to_focal, Camera},
     gaussian_splats::Splats,
-    BurnBack,
 };
-use burn::{backend::Autodiff, tensor::Tensor};
+use burn::backend::Autodiff;
+use burn::module::AutodiffModule;
 use burn_wgpu::WgpuDevice;
 use safetensors::SafeTensors;
 
@@ -15,85 +16,37 @@ fn main() {
 
 type DiffBack = Autodiff<brush_render::BurnBack>;
 
-const SIZE_RANGE: [u32; 2] = [10, 11];
+const BENCH_DENSITIES: [f32; 7] = [0.1, 0.2, 0.3, 0.4, 0.5, 0.75, 1.0];
+const DENSE_MULT: f32 = 0.25;
 
-// #[divan::bench(max_time = 5, args = SIZE_RANGE, threads = 1)]
-fn fwd(bencher: divan::Bencher, num: u32) {
-    let path = format!("bench_{num}");
+const TARGET_SAMPLE_COUNT: u32 = 20;
+const INTERNAL_ITERS: u32 = 8;
+
+fn bench_general(
+    bencher: divan::Bencher,
+    dens: f32,
+    mean_mult: f32,
+    resolution: glam::UVec2,
+    grad: bool,
+) {
     let device = WgpuDevice::BestAvailable;
-
-    // TODO: Make function to load this?
     let mut buffer = Vec::new();
-    let _ = File::open(format!("./test_cases/{path}.safetensors"))
-        .unwrap()
-        .read_to_end(&mut buffer)
-        .unwrap();
-    let tensors = SafeTensors::deserialize(&buffer).unwrap();
-    let splats = Splats::<brush_render::BurnBack>::from_safetensors(&tensors, &device).unwrap();
-
-    let [w, h] = [123, 82];
-    let device = WgpuDevice::BestAvailable;
-
-    let fov = std::f32::consts::PI * 0.5;
-    let focal = fov_to_focal(fov, w as u32);
-    let fov_x = focal_to_fov(focal, w as u32);
-    let fov_y = focal_to_fov(focal, h as u32);
-    let camera = Camera::new(
-        glam::vec3(0.0, 0.0, -8.0),
-        glam::Quat::IDENTITY,
-        glam::vec2(fov_x, fov_y),
-        glam::vec2(0.5, 0.5),
-    );
-
-    bencher.bench_local(move || {
-        for _ in 0..64 {
-            let _ = splats.render(
-                &camera,
-                glam::uvec2(w as u32, h as u32),
-                glam::vec3(0.0, 0.0, 0.0),
-                false,
-            );
-        }
-        // Wait for GPU work.
-        <BurnBack as burn::prelude::Backend>::sync(&device, burn::tensor::backend::SyncType::Wait);
-    })
-}
-
-#[divan::bench(max_time = 5, args = SIZE_RANGE)]
-fn fwd_bwd(bencher: divan::Bencher, num: u32) {
-    let path = format!("bench_{num}");
-    let device = WgpuDevice::BestAvailable;
-    let crab_img = image::open("./test_cases/crab.png").unwrap();
-
-    // Convert the image to RGB format
-    // Get the raw buffer
-    let raw_buffer = crab_img.to_rgb8().into_raw();
-    let crab_tens: Tensor<DiffBack, 3> = Tensor::<_, 1>::from_floats(
-        raw_buffer
-            .iter()
-            .map(|&b| b as f32 / 255.0)
-            .collect::<Vec<_>>()
-            .as_slice(),
-        &device,
-    )
-    .reshape([crab_img.height() as usize, crab_img.width() as usize, 3]);
-
-    // TODO: Make function to load this?
-    let mut buffer = Vec::new();
-    let _ = File::open(format!("./test_cases/{path}.safetensors"))
+    let _ = File::open(format!("./test_cases/bench_data.safetensors"))
         .unwrap()
         .read_to_end(&mut buffer)
         .unwrap();
     let tensors = SafeTensors::deserialize(&buffer).unwrap();
     let splats = Splats::<DiffBack>::from_safetensors(&tensors, &device).unwrap();
-
-    let device = WgpuDevice::BestAvailable;
-
-    let [h, w] = [
-        crab_tens.shape().dims[0] as usize,
-        crab_tens.shape().dims[1] as usize,
-    ];
-
+    let num_points = (splats.num_splats() as f32 * dens) as usize;
+    let splats = Splats::from_data(
+        (splats.means.val() * mean_mult).slice([0..num_points]),
+        splats.sh_coeffs.val().slice([0..num_points]),
+        splats.rotation.val().slice([0..num_points]),
+        splats.raw_opacity.val().slice([0..num_points]),
+        splats.log_scales.val().slice([0..num_points]),
+        &device,
+    );
+    let [w, h] = resolution.into();
     let fov = std::f32::consts::PI * 0.5;
     let focal = fov_to_focal(fov, w as u32);
     let fov_x = focal_to_fov(focal, w as u32);
@@ -105,22 +58,74 @@ fn fwd_bwd(bencher: divan::Bencher, num: u32) {
         glam::vec2(0.5, 0.5),
     );
 
-    bencher.bench_local(move || {
-        for _ in 0..64 {
-            let (out, _) = splats.render(
-                &camera,
-                glam::uvec2(w as u32, h as u32),
-                glam::vec3(0.0, 0.0, 0.0),
-                false,
+    if grad {
+        bencher.bench_local(move || {
+            for _ in 0..INTERNAL_ITERS {
+                let out = splats.render(&camera, resolution, glam::vec3(0.0, 0.0, 0.0), false);
+                let _ = out.0.mean().backward();
+            }
+            // Wait for GPU work.
+            <BurnBack as burn::prelude::Backend>::sync(
+                &WgpuDevice::BestAvailable,
+                burn::tensor::backend::SyncType::Wait,
             );
-            let out_rgb = out.clone().slice([0..h, 0..w, 0..3]);
-            let _ = (out_rgb.clone() - crab_tens.clone())
-                .powf_scalar(2.0)
-                .mean()
-                .backward();
-        }
+        });
+    } else {
+        // Run with no autodiff graph.
+        let splats = splats.valid();
 
-        // Wait for GPU work.
-        <BurnBack as burn::prelude::Backend>::sync(&device, burn::tensor::backend::SyncType::Wait);
-    })
+        bencher.bench_local(move || {
+            for _ in 0..INTERNAL_ITERS {
+                let _ = splats.render(&camera, resolution, glam::vec3(0.0, 0.0, 0.0), false);
+            }
+            // Wait for GPU work.
+            <BurnBack as burn::prelude::Backend>::sync(
+                &WgpuDevice::BestAvailable,
+                burn::tensor::backend::SyncType::Wait,
+            );
+        });
+    }
+}
+
+const LOW_RES: glam::UVec2 = glam::uvec2(512, 512);
+const HIGH_RES: glam::UVec2 = glam::uvec2(1024, 1024);
+
+#[divan::bench_group(max_time = 20, sample_count = TARGET_SAMPLE_COUNT, sample_size = 1)]
+mod fwd {
+    use super::*;
+
+    #[divan::bench(args = BENCH_DENSITIES)]
+    fn base(bencher: divan::Bencher, dens: f32) {
+        bench_general(bencher, dens, 1.0, LOW_RES, false);
+    }
+
+    #[divan::bench(args = BENCH_DENSITIES)]
+    fn dense(bencher: divan::Bencher, dens: f32) {
+        bench_general(bencher, dens, DENSE_MULT, LOW_RES, false);
+    }
+
+    #[divan::bench(args = BENCH_DENSITIES)]
+    fn hd(bencher: divan::Bencher, dens: f32) {
+        bench_general(bencher, dens, 1.0, HIGH_RES, false);
+    }
+}
+
+#[divan::bench_group(max_time = 20, sample_count = TARGET_SAMPLE_COUNT, sample_size = 1)]
+mod bwd {
+    use super::*;
+
+    #[divan::bench(args = BENCH_DENSITIES)]
+    fn base(bencher: divan::Bencher, dens: f32) {
+        bench_general(bencher, dens, 1.0, LOW_RES, true);
+    }
+
+    #[divan::bench(args = BENCH_DENSITIES)]
+    fn dense(bencher: divan::Bencher, dens: f32) {
+        bench_general(bencher, dens, DENSE_MULT, LOW_RES, true);
+    }
+
+    #[divan::bench(args = BENCH_DENSITIES)]
+    fn hd(bencher: divan::Bencher, dens: f32) {
+        bench_general(bencher, dens, 1.0, HIGH_RES, true);
+    }
 }
