@@ -138,16 +138,16 @@ impl<B: Backend> Splats<B> {
     }
 
     pub fn from_safetensors(tensors: &SafeTensors, device: &B::Device) -> anyhow::Result<Self> {
-        let means = safetensor_to_burn::<B, 2>(tensors.tensor("means")?, &device);
+        let means = safetensor_to_burn::<B, 2>(tensors.tensor("means")?, device);
         let num_points = means.dims()[0];
-        let log_scales = safetensor_to_burn::<B, 2>(tensors.tensor("scales")?, &device);
+        let log_scales = safetensor_to_burn::<B, 2>(tensors.tensor("scales")?, device);
 
         // TODO: This doesn't really handle SH properly. Probably should serialize this in the format
         // we expect and save this reshape hassle.
         let sh_coeffs =
-            safetensor_to_burn::<B, 3>(tensors.tensor("coeffs")?, &device).reshape([num_points, 3]);
-        let quats = safetensor_to_burn::<B, 2>(tensors.tensor("quats")?, &device);
-        let raw_opacity = safetensor_to_burn::<B, 1>(tensors.tensor("opacities")?, &device);
+            safetensor_to_burn::<B, 3>(tensors.tensor("coeffs")?, device).reshape([num_points, 3]);
+        let quats = safetensor_to_burn::<B, 2>(tensors.tensor("quats")?, device);
+        let raw_opacity = safetensor_to_burn::<B, 1>(tensors.tensor("opacities")?, device);
 
         Ok(Self::from_data(
             means,

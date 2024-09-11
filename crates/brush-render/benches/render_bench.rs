@@ -1,3 +1,4 @@
+#![allow(clippy::single_range_in_vec_init)]
 use std::{fs::File, io::Read};
 
 use brush_render::BurnBack;
@@ -34,7 +35,7 @@ fn bench_general(
 ) {
     let device = WgpuDevice::BestAvailable;
     let mut buffer = Vec::new();
-    let _ = File::open(format!("./test_cases/bench_data.safetensors"))
+    let _ = File::open("./test_cases/bench_data.safetensors")
         .unwrap()
         .read_to_end(&mut buffer)
         .unwrap();
@@ -51,9 +52,9 @@ fn bench_general(
     );
     let [w, h] = resolution.into();
     let fov = std::f32::consts::PI * 0.5;
-    let focal = fov_to_focal(fov, w as u32);
-    let fov_x = focal_to_fov(focal, w as u32);
-    let fov_y = focal_to_fov(focal, h as u32);
+    let focal = fov_to_focal(fov, w);
+    let fov_x = focal_to_fov(focal, w);
+    let fov_y = focal_to_fov(focal, h);
     let camera = Camera::new(
         glam::vec3(0.0, 0.0, -8.0),
         glam::Quat::IDENTITY,
