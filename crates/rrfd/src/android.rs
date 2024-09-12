@@ -31,23 +31,28 @@ pub fn jni_initialize(vm: Arc<jni::JavaVM>) {
 pub(crate) async fn pick_file() -> Result<PickedFile> {
     let (sender, receiver) = async_channel::bounded(1);
     {
-        let mut channel = CHANNEL.write().unwrap();
-        *channel = Some(sender);
+        let channel = CHANNEL.write();
+        if let Ok(mut channel) = channel {
+            *channel = Some(sender);
+        } else {
+            anyhow::bail!("Failed to initialize file picker");
+        }
     }
 
     // Call method. Be sure this is scoped so we drop all guards before waiting.
     {
-        let java_vm = VM.read().unwrap().clone().unwrap();
+        let java_vm = VM.read().unwrap().clone().expect("Failed to initialize Java VM");
         let mut env = java_vm.attach_current_thread()?;
 
-        let class = FILE_PICKER_CLASS.read().unwrap();
-        let method = START_FILE_PICKER.read().unwrap();
+        let class = FILE_PICKER_CLASS.read().expect("Failed to initialize FilePicker class");
+        let method = START_FILE_PICKER.read().expect("Failed to initialize FilePicker method");
+        
         // SAFETY: This is safe as long as we cached the method in the right way, and
         // this matches the Java side. Not much more we can do here.
         let _ = unsafe {
             env.call_static_method_unchecked(
-                class.as_ref().unwrap(),
-                method.as_ref().unwrap(),
+                class.as_ref().expect("Failed to get class reference"),
+                method.as_ref().expect("Failed to get method reference"),
                 jni::signature::ReturnType::Primitive(Primitive::Void),
                 &[],
             )
@@ -68,10 +73,11 @@ extern "system" fn Java_com_splats_app_FilePicker_onFilePickerResult<'local>(
         let file_name = env.get_string(&file_name)?.into();
         Ok(PickedFile { data, file_name })
     });
-    let channel = CHANNEL.read().unwrap();
-    channel
-        .as_ref()
-        .unwrap()
-        .try_send(picked_file.map_err(|err| err.into()))
-        .unwrap();
+
+    // Channel can be gone before the callback if other parts of pick_file fail.
+    if let Ok(ch) = CHANNEL.read() {
+        if let Some(ch) = ch.as_ref() {
+            ch.try_send(picked_file.map_err(|err| err.into())).expect("Failed to send file picking result");
+        }
+    }
 }
