@@ -387,7 +387,7 @@ where
             glam::Vec3::ZERO
         };
 
-        let [batch_size, img_h, img_w, _] = batch.gt_image.dims();
+        let [batch_size, img_h, img_w, _] = batch.gt_images.dims();
 
         let (pred_images, auxes, loss) = {
             let mut renders = vec![];
@@ -423,7 +423,7 @@ where
             let huber = HuberLossConfig::new(0.05).init();
             let mut loss = huber.forward(
                 pred_images.clone(),
-                batch.gt_image.clone(),
+                batch.gt_images.clone(),
                 burn::nn::loss::Reduction::Mean,
             );
 
@@ -433,7 +433,7 @@ where
                     .slice([0..batch_size, 0..img_h, 0..img_w, 0..3]);
                 let gt_rgb =
                     batch
-                        .gt_image
+                        .gt_images
                         .clone()
                         .slice([0..batch_size, 0..img_h, 0..img_w, 0..3]);
                 let ssim_loss = crate::ssim::ssim(

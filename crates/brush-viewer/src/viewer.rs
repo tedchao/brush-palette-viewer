@@ -1,6 +1,6 @@
 use anyhow::Context;
 use async_channel::{Receiver, Sender, TryRecvError, TrySendError};
-use brush_dataset::scene_batch::{SceneBatcher, SceneLoader};
+use brush_dataset::scene_batch::SceneLoader;
 use brush_render::{camera::Camera, gaussian_splats::Splats};
 use burn::tensor::ElementConversion;
 use burn::{backend::Autodiff, module::AutodiffModule};
@@ -133,8 +133,7 @@ async fn train_loop(
     let mut splats =
         Splats::<Autodiff<Backend>>::init_random(config.init_splat_count, 2.0, &device);
 
-    let batcher_train = SceneBatcher::<Autodiff<Backend>>::new(device.clone());
-    let mut dataloader = SceneLoader::new(scene, batcher_train, 1);
+    let mut dataloader = SceneLoader::new(scene, &device, 1);
     let mut trainer = SplatTrainer::new(splats.num_splats(), &config, &splats);
 
     loop {

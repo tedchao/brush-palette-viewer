@@ -1,24 +1,10 @@
+use brush_render::camera::Camera;
 use brush_render::Backend;
 use burn::tensor::{Shape, Tensor};
 use ndarray::{ArrayView, Dim, Dimension};
 
 use brush_train::scene::Scene;
 use brush_train::scene::SceneBatch;
-use brush_train::scene::SceneView;
-
-// Normally the scene batcher is used with a Burn "dataloader" which handles some things
-// like shuffling & multithreading, but, we need some more control, and I also can't figure out how
-// to make their dataset loader work with lifetimes. Also also, it doesn't work on wasm.
-#[derive(Clone)]
-pub struct SceneBatcher<B: Backend> {
-    device: B::Device,
-}
-
-impl<B: Backend> SceneBatcher<B> {
-    pub fn new(device: B::Device) -> Self {
-        Self { device }
-    }
-}
 
 pub(crate) fn ndarray_to_burn<B: Backend, const D: usize>(
     arr: ArrayView<f32, Dim<[usize; D]>>,
@@ -31,24 +17,9 @@ where
     Tensor::<_, 1>::from_floats(arr.as_slice().unwrap(), device).reshape(shape)
 }
 
-impl<B: Backend> SceneBatcher<B> {
-    fn batch(&self, items: Vec<SceneView>) -> SceneBatch<B> {
-        let burn_tensors = items
-            .iter()
-            .map(|x| ndarray_to_burn::<B, 3>(x.image.view(), &self.device))
-            .collect::<Vec<_>>();
-
-        let img_cat = Tensor::stack(burn_tensors, 0);
-
-        SceneBatch {
-            gt_image: img_cat,
-            cameras: items.iter().map(|x| x.camera.clone()).collect(),
-        }
-    }
-}
-
 pub struct SceneLoader<B: Backend> {
-    total_batch: SceneBatch<B>,
+    images: Vec<Tensor<B, 3>>,
+    cameras: Vec<Camera>,
     index: usize,
     batch_size: usize,
 }
@@ -87,22 +58,22 @@ fn miller_shuffle(inx: usize, shuffle_id: usize, list_size: usize) -> usize {
 }
 
 impl<B: Backend> SceneLoader<B> {
-    pub fn new(scene: Scene, batcher: SceneBatcher<B>, batch_size: usize) -> Self {
-        let total_batch = batcher.batch(
-            (0..scene.views.len())
-                .filter_map(|x| scene.get_view(x))
-                .collect(),
-        );
+    pub fn new(scene: Scene, device: &B::Device, batch_size: usize) -> Self {
+        let burn_tensors = scene.views
+            .iter()
+            .map(|x| ndarray_to_burn::<B, 3>(x.image.view(), device))
+            .collect::<Vec<_>>();
 
         Self {
-            total_batch,
+            images: burn_tensors,
+            cameras: scene.views.iter().map(|x| x.camera.clone()).collect(),
             index: 0,
             batch_size,
         }
     }
 
     pub fn next_batch(&mut self) -> SceneBatch<B> {
-        let len = self.total_batch.gt_image.dims()[0];
+        let len = self.images.len();
 
         let indexes: Vec<_> = (0..self.batch_size)
             .map(|_| {
@@ -112,14 +83,14 @@ impl<B: Backend> SceneLoader<B> {
             })
             .collect();
 
-        let index_tensor =
-            Tensor::from_ints(indexes.as_slice(), &self.total_batch.gt_image.device());
+        let selected_tensors = indexes.iter().map(|x| self.images[*x as usize].clone()).collect();
+        let batch_tensor = Tensor::stack(selected_tensors, 0);
 
         SceneBatch {
-            gt_image: self.total_batch.gt_image.clone().select(0, index_tensor),
+            gt_images: batch_tensor,
             cameras: indexes
                 .into_iter()
-                .map(|x| self.total_batch.cameras[x as usize].clone())
+                .map(|x| self.cameras[x as usize].clone())
                 .collect(),
         }
     }

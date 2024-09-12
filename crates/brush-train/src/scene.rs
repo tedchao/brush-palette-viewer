@@ -50,6 +50,6 @@ impl Scene {
 
 #[derive(Clone, Debug)]
 pub struct SceneBatch<B: Backend> {
-    pub gt_image: Tensor<B, 4>,
+    pub gt_images: Tensor<B, 4>,
     pub cameras: Vec<Camera>,
 }

@@ -76,6 +76,12 @@ wasm-bindgen = "=0.2.92"
 egui = { git = "https://github.com/emilk/egui.git", rev = "e9522cf" }
 eframe = { git = "https://github.com/emilk/egui.git", rev = "e9522cf" }
 
+# [patch."https://github.com/tracel-ai/cubecl.git"]
+# cubecl = { path = "../cubecl/crates/cubecl" }
+# cubecl-common = { path = "../cubecl/crates/cubecl-common" }
+# cubecl-core = { path = "../cubecl/crates/cubecl-core" }
+# cubecl-runtime = { path = "../cubecl/crates/cubecl-runtime" }
+
 [profile.dev]
 opt-level = 0
 debug = true
