@@ -143,7 +143,7 @@ async fn train_loop(
         };
 
         #[cfg(feature = "rerun")]
-        let gt_image = batch.gt_image.clone();
+        let gt_image = batch.gt_images.clone();
 
         let (new_splats, stats) = trainer.step(batch, splats).await.unwrap();
 
