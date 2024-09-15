@@ -3,7 +3,7 @@ mod codewriter;
 use std::{borrow::Cow, collections::HashMap, io, sync::OnceLock};
 
 use anyhow::Result;
-use naga::{proc::GlobalCtx, valid::Capabilities, Handle};
+use naga::{proc::GlobalCtx, valid::Capabilities, Handle, Type};
 use naga_oil::compose::{
     ComposableModuleDescriptor, Composer, ComposerError, NagaModuleDescriptor,
 };
@@ -98,7 +98,7 @@ fn rust_type_name(ty: Handle<naga::Type>, ctx: &GlobalCtx) -> String {
     }
 }
 
-fn alignment_of(ty: Handle<naga::Type>, ctx: &GlobalCtx) -> usize {
+fn alignment_of(ty: Handle<Type>, ctx: &GlobalCtx) -> usize {
     let wgsl_name = ty.to_wgsl(ctx);
 
     match wgsl_name.as_str() {
@@ -133,7 +133,9 @@ pub fn build_modules(
 
     code.add_lines(&[
         "fn create_composer() -> naga_oil::compose::Composer {",
-        "let mut composer = naga_oil::compose::Composer::default().with_capabilities(naga::valid::Capabilities::SUBGROUP | naga::valid::Capabilities::SUBGROUP_BARRIER);",
+        "let mut composer = naga_oil::compose::Composer::default().with_capabilities(
+            naga::valid::Capabilities::SUBGROUP | naga::valid::Capabilities::SUBGROUP_BARRIER
+        );",
     ]);
 
     let mut composer = Composer::default()

@@ -5,9 +5,7 @@ pub fn get_config() -> WgpuConfiguration {
     WgpuConfiguration {
         device_descriptor: Arc::new(|adapter| wgpu::DeviceDescriptor {
             label: Some("egui+burn wgpu device"),
-            required_features: wgpu::Features::default()
-                | wgpu::Features::SUBGROUP
-                | wgpu::Features::SUBGROUP_BARRIER,
+            required_features: adapter.features(),
             required_limits: adapter.limits(),
             // cube already batches allocations.
             memory_hints: wgpu::MemoryHints::MemoryUsage,
