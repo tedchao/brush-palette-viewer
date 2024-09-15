@@ -59,7 +59,8 @@ fn miller_shuffle(inx: usize, shuffle_id: usize, list_size: usize) -> usize {
 
 impl<B: Backend> SceneLoader<B> {
     pub fn new(scene: Scene, device: &B::Device, batch_size: usize) -> Self {
-        let burn_tensors = scene.views
+        let burn_tensors = scene
+            .views
             .iter()
             .map(|x| ndarray_to_burn::<B, 3>(x.image.view(), device))
             .collect::<Vec<_>>();
@@ -83,15 +84,20 @@ impl<B: Backend> SceneLoader<B> {
             })
             .collect();
 
-        let selected_tensors = indexes.iter().map(|x| self.images[*x as usize].clone()).collect();
+        let cameras = indexes
+            .iter()
+            .map(|&x| self.cameras[x as usize].clone())
+            .collect();
+        let selected_tensors = indexes
+            .iter()
+            .map(|&x| self.images[x as usize].clone())
+            .collect::<Vec<_>>();
+
         let batch_tensor = Tensor::stack(selected_tensors, 0);
 
         SceneBatch {
             gt_images: batch_tensor,
-            cameras: indexes
-                .into_iter()
-                .map(|x| self.cameras[x as usize].clone())
-                .collect(),
+            cameras,
         }
     }
 }
