@@ -24,7 +24,7 @@ const LOW_RES: glam::UVec2 = glam::uvec2(512, 512);
 const HIGH_RES: glam::UVec2 = glam::uvec2(1024, 1024);
 
 const TARGET_SAMPLE_COUNT: u32 = 40;
-const INTERNAL_ITERS: u32 = 2;
+const INTERNAL_ITERS: u32 = 4;
 
 fn bench_general(
     bencher: divan::Bencher,
