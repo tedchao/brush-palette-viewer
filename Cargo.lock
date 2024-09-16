@@ -526,11 +526,11 @@ dependencies = [
 
 [[package]]
 name = "bit-set"
-version = "0.8.0"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "08807e080ed7f9d5433fa9b275196cfc35414f66a0c79d864dc51a0d825231a3"
+checksum = "f0481a0e032742109b1133a095184ee93d88f3dc9e0d28a5d033dc77a073f44f"
 dependencies = [
- "bit-vec 0.8.0",
+ "bit-vec 0.7.0",
 ]
 
 [[package]]
@@ -541,9 +541,9 @@ checksum = "349f9b6a179ed607305526ca489b34ad0a41aed5f7980fa90eb03160b69598fb"
 
 [[package]]
 name = "bit-vec"
-version = "0.8.0"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5e764a1d40d510daf35e07be9eb06e75770908c27d411ee6c92109c9840eaaf7"
+checksum = "d2c54ff287cfc0a34f38a6b832ea1bd8e448a330b3e40a50859e6488bee07f22"
 
 [[package]]
 name = "bitflags"
@@ -780,7 +780,7 @@ checksum = "79296716171880943b8470b5f8d03aa55eb2e645a4874bdbb28adb49162e012c"
 [[package]]
 name = "burn"
 version = "0.15.0"
-source = "git+https://github.com/tracel-ai/burn#6f0e61aa4f7368914c2492b11095a74145f4209c"
+source = "git+https://github.com/tracel-ai/burn#7ac5deebe2f2c5f0b44a84e8ed000e86f9f13412"
 dependencies = [
  "burn-core",
 ]
@@ -788,7 +788,7 @@ dependencies = [
 [[package]]
 name = "burn-autodiff"
 version = "0.15.0"
-source = "git+https://github.com/tracel-ai/burn#6f0e61aa4f7368914c2492b11095a74145f4209c"
+source = "git+https://github.com/tracel-ai/burn#7ac5deebe2f2c5f0b44a84e8ed000e86f9f13412"
 dependencies = [
  "burn-common",
  "burn-tensor",
@@ -800,7 +800,7 @@ dependencies = [
 [[package]]
 name = "burn-candle"
 version = "0.15.0"
-source = "git+https://github.com/tracel-ai/burn#6f0e61aa4f7368914c2492b11095a74145f4209c"
+source = "git+https://github.com/tracel-ai/burn#7ac5deebe2f2c5f0b44a84e8ed000e86f9f13412"
 dependencies = [
  "burn-tensor",
  "candle-core",
@@ -811,7 +811,7 @@ dependencies = [
 [[package]]
 name = "burn-common"
 version = "0.15.0"
-source = "git+https://github.com/tracel-ai/burn#6f0e61aa4f7368914c2492b11095a74145f4209c"
+source = "git+https://github.com/tracel-ai/burn#7ac5deebe2f2c5f0b44a84e8ed000e86f9f13412"
 dependencies = [
  "cubecl-common",
  "data-encoding",
@@ -823,7 +823,7 @@ dependencies = [
 [[package]]
 name = "burn-core"
 version = "0.15.0"
-source = "git+https://github.com/tracel-ai/burn#6f0e61aa4f7368914c2492b11095a74145f4209c"
+source = "git+https://github.com/tracel-ai/burn#7ac5deebe2f2c5f0b44a84e8ed000e86f9f13412"
 dependencies = [
  "bincode 2.0.0-rc.3",
  "burn-autodiff",
@@ -851,7 +851,7 @@ dependencies = [
 [[package]]
 name = "burn-cuda"
 version = "0.15.0"
-source = "git+https://github.com/tracel-ai/burn#6f0e61aa4f7368914c2492b11095a74145f4209c"
+source = "git+https://github.com/tracel-ai/burn#7ac5deebe2f2c5f0b44a84e8ed000e86f9f13412"
 dependencies = [
  "burn-jit",
  "burn-tensor",
@@ -865,7 +865,7 @@ dependencies = [
 [[package]]
 name = "burn-derive"
 version = "0.15.0"
-source = "git+https://github.com/tracel-ai/burn#6f0e61aa4f7368914c2492b11095a74145f4209c"
+source = "git+https://github.com/tracel-ai/burn#7ac5deebe2f2c5f0b44a84e8ed000e86f9f13412"
 dependencies = [
  "derive-new",
  "proc-macro2",
@@ -876,7 +876,7 @@ dependencies = [
 [[package]]
 name = "burn-jit"
 version = "0.15.0"
-source = "git+https://github.com/tracel-ai/burn#6f0e61aa4f7368914c2492b11095a74145f4209c"
+source = "git+https://github.com/tracel-ai/burn#7ac5deebe2f2c5f0b44a84e8ed000e86f9f13412"
 dependencies = [
  "burn-common",
  "burn-tensor",
@@ -896,7 +896,7 @@ dependencies = [
 [[package]]
 name = "burn-ndarray"
 version = "0.15.0"
-source = "git+https://github.com/tracel-ai/burn#6f0e61aa4f7368914c2492b11095a74145f4209c"
+source = "git+https://github.com/tracel-ai/burn#7ac5deebe2f2c5f0b44a84e8ed000e86f9f13412"
 dependencies = [
  "burn-autodiff",
  "burn-common",
@@ -914,7 +914,7 @@ dependencies = [
 [[package]]
 name = "burn-tensor"
 version = "0.15.0"
-source = "git+https://github.com/tracel-ai/burn#6f0e61aa4f7368914c2492b11095a74145f4209c"
+source = "git+https://github.com/tracel-ai/burn#7ac5deebe2f2c5f0b44a84e8ed000e86f9f13412"
 dependencies = [
  "burn-common",
  "bytemuck",
@@ -933,7 +933,7 @@ dependencies = [
 [[package]]
 name = "burn-wgpu"
 version = "0.15.0"
-source = "git+https://github.com/tracel-ai/burn#6f0e61aa4f7368914c2492b11095a74145f4209c"
+source = "git+https://github.com/tracel-ai/burn#7ac5deebe2f2c5f0b44a84e8ed000e86f9f13412"
 dependencies = [
  "burn-jit",
  "burn-tensor",
@@ -1088,9 +1088,9 @@ dependencies = [
 
 [[package]]
 name = "cc"
-version = "1.1.18"
+version = "1.1.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b62ac837cdb5cb22e10a256099b4fc502b1dfe560cb282963a974d7abd80e476"
+checksum = "2d74707dde2ba56f86ae90effb3b43ddd369504387e718014de010cec7959800"
 dependencies = [
  "jobserver",
  "libc",
@@ -1331,6 +1331,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "core-foundation"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b55271e5c8c478ad3f38ad24ef34923091e0548492a266d19b3c0b4d82574c63"
+dependencies = [
+ "core-foundation-sys",
+ "libc",
+]
+
+[[package]]
 name = "core-foundation-sys"
 version = "0.8.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1343,7 +1353,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c07782be35f9e1140080c6b96f0d44b739e2278479f64e02fdab4e32dfd8b081"
 dependencies = [
  "bitflags 1.3.2",
- "core-foundation",
+ "core-foundation 0.9.4",
  "core-graphics-types",
  "foreign-types",
  "libc",
@@ -1356,7 +1366,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "45390e6114f68f718cc7a830514a96f903cccd70d02a8f6d9f643ac4ba45afaf"
 dependencies = [
  "bitflags 1.3.2",
- "core-foundation",
+ "core-foundation 0.9.4",
  "libc",
 ]
 
@@ -1475,7 +1485,7 @@ dependencies = [
 [[package]]
 name = "cubecl"
 version = "0.2.0"
-source = "git+https://github.com/ArthurBrussee/cubecl?branch=wgpu-upgrade#8eba39312d7ec7d43022ee4f3ff4ab9dccc32028"
+source = "git+https://github.com/tracel-ai/cubecl?rev=7a86f9a86e376fedb09f096f2b548e501a130883#7a86f9a86e376fedb09f096f2b548e501a130883"
 dependencies = [
  "cubecl-core",
  "cubecl-cuda",
@@ -1486,7 +1496,7 @@ dependencies = [
 [[package]]
 name = "cubecl-common"
 version = "0.2.0"
-source = "git+https://github.com/ArthurBrussee/cubecl?branch=wgpu-upgrade#8eba39312d7ec7d43022ee4f3ff4ab9dccc32028"
+source = "git+https://github.com/tracel-ai/cubecl?rev=7a86f9a86e376fedb09f096f2b548e501a130883#7a86f9a86e376fedb09f096f2b548e501a130883"
 dependencies = [
  "derive-new",
  "getrandom",
@@ -1501,7 +1511,7 @@ dependencies = [
 [[package]]
 name = "cubecl-core"
 version = "0.2.0"
-source = "git+https://github.com/ArthurBrussee/cubecl?branch=wgpu-upgrade#8eba39312d7ec7d43022ee4f3ff4ab9dccc32028"
+source = "git+https://github.com/tracel-ai/cubecl?rev=7a86f9a86e376fedb09f096f2b548e501a130883#7a86f9a86e376fedb09f096f2b548e501a130883"
 dependencies = [
  "bytemuck",
  "cubecl-common",
@@ -1517,7 +1527,7 @@ dependencies = [
 [[package]]
 name = "cubecl-cuda"
 version = "0.2.0"
-source = "git+https://github.com/ArthurBrussee/cubecl?branch=wgpu-upgrade#8eba39312d7ec7d43022ee4f3ff4ab9dccc32028"
+source = "git+https://github.com/tracel-ai/cubecl?rev=7a86f9a86e376fedb09f096f2b548e501a130883#7a86f9a86e376fedb09f096f2b548e501a130883"
 dependencies = [
  "bytemuck",
  "cubecl-common",
@@ -1532,7 +1542,7 @@ dependencies = [
 [[package]]
 name = "cubecl-linalg"
 version = "0.2.0"
-source = "git+https://github.com/ArthurBrussee/cubecl?branch=wgpu-upgrade#8eba39312d7ec7d43022ee4f3ff4ab9dccc32028"
+source = "git+https://github.com/tracel-ai/cubecl?rev=7a86f9a86e376fedb09f096f2b548e501a130883#7a86f9a86e376fedb09f096f2b548e501a130883"
 dependencies = [
  "bytemuck",
  "cubecl-core",
@@ -1543,7 +1553,7 @@ dependencies = [
 [[package]]
 name = "cubecl-macros"
 version = "0.2.0"
-source = "git+https://github.com/ArthurBrussee/cubecl?branch=wgpu-upgrade#8eba39312d7ec7d43022ee4f3ff4ab9dccc32028"
+source = "git+https://github.com/tracel-ai/cubecl?rev=7a86f9a86e376fedb09f096f2b548e501a130883#7a86f9a86e376fedb09f096f2b548e501a130883"
 dependencies = [
  "cubecl-common",
  "darling",
@@ -1558,7 +1568,7 @@ dependencies = [
 [[package]]
 name = "cubecl-runtime"
 version = "0.2.0"
-source = "git+https://github.com/ArthurBrussee/cubecl?branch=wgpu-upgrade#8eba39312d7ec7d43022ee4f3ff4ab9dccc32028"
+source = "git+https://github.com/tracel-ai/cubecl?rev=7a86f9a86e376fedb09f096f2b548e501a130883#7a86f9a86e376fedb09f096f2b548e501a130883"
 dependencies = [
  "async-channel",
  "cfg_aliases 0.2.1",
@@ -1578,7 +1588,7 @@ dependencies = [
 [[package]]
 name = "cubecl-wgpu"
 version = "0.2.0"
-source = "git+https://github.com/ArthurBrussee/cubecl?branch=wgpu-upgrade#8eba39312d7ec7d43022ee4f3ff4ab9dccc32028"
+source = "git+https://github.com/tracel-ai/cubecl?rev=7a86f9a86e376fedb09f096f2b548e501a130883#7a86f9a86e376fedb09f096f2b548e501a130883"
 dependencies = [
  "async-channel",
  "bytemuck",
@@ -1611,7 +1621,7 @@ checksum = "96a6ac251f4a2aca6b3f91340350eab87ae57c3f127ffeb585e92bd336717991"
 [[package]]
 name = "d3d12"
 version = "22.0.0"
-source = "git+https://github.com/ArthurBrussee/wgpu?branch=flt-atom#1b803f0fa57de6f16d224259ffcc55b2b64cfe1c"
+source = "git+https://github.com/ArthurBrussee/wgpu?branch=flt-atom#6af6146151a05527bdacf55c83714c2685eb1ed3"
 dependencies = [
  "bitflags 2.6.0",
  "libloading",
@@ -1832,16 +1842,16 @@ dependencies = [
 [[package]]
 name = "ecolor"
 version = "0.28.1"
-source = "git+https://github.com/ArthurBrussee/egui?branch=wgpu-custom#11f4dc7f3976d205b828593f1a408e9d1b4d98da"
+source = "git+https://github.com/emilk/egui#89da356b79f7c7e11ac225e0f7c81ff953169db6"
 dependencies = [
  "bytemuck",
- "emath 0.28.1 (git+https://github.com/ArthurBrussee/egui?branch=wgpu-custom)",
+ "emath 0.28.1 (git+https://github.com/emilk/egui)",
 ]
 
 [[package]]
 name = "eframe"
 version = "0.28.1"
-source = "git+https://github.com/ArthurBrussee/egui?branch=wgpu-custom#11f4dc7f3976d205b828593f1a408e9d1b4d98da"
+source = "git+https://github.com/emilk/egui#89da356b79f7c7e11ac225e0f7c81ff953169db6"
 dependencies = [
  "ahash",
  "bytemuck",
@@ -1873,10 +1883,10 @@ dependencies = [
 [[package]]
 name = "egui"
 version = "0.28.1"
-source = "git+https://github.com/ArthurBrussee/egui?branch=wgpu-custom#11f4dc7f3976d205b828593f1a408e9d1b4d98da"
+source = "git+https://github.com/emilk/egui#89da356b79f7c7e11ac225e0f7c81ff953169db6"
 dependencies = [
  "ahash",
- "emath 0.28.1 (git+https://github.com/ArthurBrussee/egui?branch=wgpu-custom)",
+ "emath 0.28.1 (git+https://github.com/emilk/egui)",
  "epaint",
  "log",
  "nohash-hasher",
@@ -1885,7 +1895,7 @@ dependencies = [
 [[package]]
 name = "egui-wgpu"
 version = "0.28.1"
-source = "git+https://github.com/ArthurBrussee/egui?branch=wgpu-custom#11f4dc7f3976d205b828593f1a408e9d1b4d98da"
+source = "git+https://github.com/emilk/egui#89da356b79f7c7e11ac225e0f7c81ff953169db6"
 dependencies = [
  "ahash",
  "bytemuck",
@@ -1903,7 +1913,7 @@ dependencies = [
 [[package]]
 name = "egui-winit"
 version = "0.28.1"
-source = "git+https://github.com/ArthurBrussee/egui?branch=wgpu-custom#11f4dc7f3976d205b828593f1a408e9d1b4d98da"
+source = "git+https://github.com/emilk/egui#89da356b79f7c7e11ac225e0f7c81ff953169db6"
 dependencies = [
  "ahash",
  "arboard",
@@ -1931,7 +1941,7 @@ checksum = "0a6a21708405ea88f63d8309650b4d77431f4bc28fb9d8e6f77d3963b51249e6"
 [[package]]
 name = "emath"
 version = "0.28.1"
-source = "git+https://github.com/ArthurBrussee/egui?branch=wgpu-custom#11f4dc7f3976d205b828593f1a408e9d1b4d98da"
+source = "git+https://github.com/emilk/egui#89da356b79f7c7e11ac225e0f7c81ff953169db6"
 dependencies = [
  "bytemuck",
 ]
@@ -2000,13 +2010,13 @@ dependencies = [
 [[package]]
 name = "epaint"
 version = "0.28.1"
-source = "git+https://github.com/ArthurBrussee/egui?branch=wgpu-custom#11f4dc7f3976d205b828593f1a408e9d1b4d98da"
+source = "git+https://github.com/emilk/egui#89da356b79f7c7e11ac225e0f7c81ff953169db6"
 dependencies = [
  "ab_glyph",
  "ahash",
  "bytemuck",
- "ecolor 0.28.1 (git+https://github.com/ArthurBrussee/egui?branch=wgpu-custom)",
- "emath 0.28.1 (git+https://github.com/ArthurBrussee/egui?branch=wgpu-custom)",
+ "ecolor 0.28.1 (git+https://github.com/emilk/egui)",
+ "emath 0.28.1 (git+https://github.com/emilk/egui)",
  "epaint_default_fonts",
  "log",
  "nohash-hasher",
@@ -2016,7 +2026,7 @@ dependencies = [
 [[package]]
 name = "epaint_default_fonts"
 version = "0.28.1"
-source = "git+https://github.com/ArthurBrussee/egui?branch=wgpu-custom#11f4dc7f3976d205b828593f1a408e9d1b4d98da"
+source = "git+https://github.com/emilk/egui#89da356b79f7c7e11ac225e0f7c81ff953169db6"
 
 [[package]]
 name = "equivalent"
@@ -2547,9 +2557,9 @@ dependencies = [
 
 [[package]]
 name = "glow"
-version = "0.14.0"
+version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f865cbd94bd355b89611211e49508da98a1fce0ad755c1e8448fb96711b24528"
+checksum = "bd348e04c43b32574f2de31c8bb397d96c9fcfa1371bd4ca6d8bdc464ab121b1"
 dependencies = [
  "js-sys",
  "slotmap",
@@ -2598,15 +2608,15 @@ dependencies = [
 
 [[package]]
 name = "gpu-allocator"
-version = "0.27.0"
+version = "0.26.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c151a2a5ef800297b4e79efa4f4bec035c5f51d5ae587287c9b952bdf734cacd"
+checksum = "fdd4240fc91d3433d5e5b0fc5b67672d771850dc19bbee03c1381e19322803d7"
 dependencies = [
  "log",
  "presser",
  "thiserror",
  "winapi",
- "windows 0.58.0",
+ "windows 0.52.0",
 ]
 
 [[package]]
@@ -3223,10 +3233,10 @@ dependencies = [
 [[package]]
 name = "naga"
 version = "22.2.0"
-source = "git+https://github.com/ArthurBrussee/wgpu?branch=flt-atom#1b803f0fa57de6f16d224259ffcc55b2b64cfe1c"
+source = "git+https://github.com/ArthurBrussee/wgpu?branch=flt-atom#6af6146151a05527bdacf55c83714c2685eb1ed3"
 dependencies = [
  "arrayvec",
- "bit-set 0.8.0",
+ "bit-set 0.6.0",
  "bitflags 2.6.0",
  "cfg_aliases 0.1.1",
  "codespan-reporting",
@@ -3701,9 +3711,9 @@ dependencies = [
 
 [[package]]
 name = "once_cell"
-version = "1.20.0"
+version = "1.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "33ea5043e58958ee56f3e15a90aee535795cd7dfd319846288d93c5b57d85cbe"
+checksum = "3fdb12b2476b595f9358c5161aa467c2438859caa136dec86c26fdd2efe17b92"
 
 [[package]]
 name = "option-ext"
@@ -4273,7 +4283,7 @@ dependencies = [
 [[package]]
 name = "re_build_info"
 version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#ecb20e7d723caada74f9ea2f3149a50084007466"
+source = "git+https://github.com/rerun-io/rerun#46c970e648720db58870ba472572cee37d7c47ef"
 dependencies = [
  "serde",
 ]
@@ -4281,7 +4291,7 @@ dependencies = [
 [[package]]
 name = "re_build_tools"
 version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#ecb20e7d723caada74f9ea2f3149a50084007466"
+source = "git+https://github.com/rerun-io/rerun#46c970e648720db58870ba472572cee37d7c47ef"
 dependencies = [
  "anyhow",
  "cargo_metadata 0.18.1",
@@ -4295,7 +4305,7 @@ dependencies = [
 [[package]]
 name = "re_case"
 version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#ecb20e7d723caada74f9ea2f3149a50084007466"
+source = "git+https://github.com/rerun-io/rerun#46c970e648720db58870ba472572cee37d7c47ef"
 dependencies = [
  "convert_case",
 ]
@@ -4303,7 +4313,7 @@ dependencies = [
 [[package]]
 name = "re_chunk"
 version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#ecb20e7d723caada74f9ea2f3149a50084007466"
+source = "git+https://github.com/rerun-io/rerun#46c970e648720db58870ba472572cee37d7c47ef"
 dependencies = [
  "ahash",
  "anyhow",
@@ -4330,7 +4340,7 @@ dependencies = [
 [[package]]
 name = "re_chunk_store"
 version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#ecb20e7d723caada74f9ea2f3149a50084007466"
+source = "git+https://github.com/rerun-io/rerun#46c970e648720db58870ba472572cee37d7c47ef"
 dependencies = [
  "ahash",
  "anyhow",
@@ -4355,7 +4365,7 @@ dependencies = [
 [[package]]
 name = "re_crash_handler"
 version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#ecb20e7d723caada74f9ea2f3149a50084007466"
+source = "git+https://github.com/rerun-io/rerun#46c970e648720db58870ba472572cee37d7c47ef"
 dependencies = [
  "backtrace",
  "itertools 0.13.0",
@@ -4367,7 +4377,7 @@ dependencies = [
 [[package]]
 name = "re_dataframe"
 version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#ecb20e7d723caada74f9ea2f3149a50084007466"
+source = "git+https://github.com/rerun-io/rerun#46c970e648720db58870ba472572cee37d7c47ef"
 dependencies = [
  "ahash",
  "anyhow",
@@ -4394,7 +4404,7 @@ dependencies = [
 [[package]]
 name = "re_entity_db"
 version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#ecb20e7d723caada74f9ea2f3149a50084007466"
+source = "git+https://github.com/rerun-io/rerun#46c970e648720db58870ba472572cee37d7c47ef"
 dependencies = [
  "ahash",
  "document-features",
@@ -4422,12 +4432,12 @@ dependencies = [
 [[package]]
 name = "re_error"
 version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#ecb20e7d723caada74f9ea2f3149a50084007466"
+source = "git+https://github.com/rerun-io/rerun#46c970e648720db58870ba472572cee37d7c47ef"
 
 [[package]]
 name = "re_format"
 version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#ecb20e7d723caada74f9ea2f3149a50084007466"
+source = "git+https://github.com/rerun-io/rerun#46c970e648720db58870ba472572cee37d7c47ef"
 dependencies = [
  "num-traits",
 ]
@@ -4435,7 +4445,7 @@ dependencies = [
 [[package]]
 name = "re_format_arrow"
 version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#ecb20e7d723caada74f9ea2f3149a50084007466"
+source = "git+https://github.com/rerun-io/rerun#46c970e648720db58870ba472572cee37d7c47ef"
 dependencies = [
  "comfy-table",
  "re_arrow2",
@@ -4446,7 +4456,7 @@ dependencies = [
 [[package]]
 name = "re_int_histogram"
 version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#ecb20e7d723caada74f9ea2f3149a50084007466"
+source = "git+https://github.com/rerun-io/rerun#46c970e648720db58870ba472572cee37d7c47ef"
 dependencies = [
  "smallvec",
  "static_assertions",
@@ -4455,7 +4465,7 @@ dependencies = [
 [[package]]
 name = "re_log"
 version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#ecb20e7d723caada74f9ea2f3149a50084007466"
+source = "git+https://github.com/rerun-io/rerun#46c970e648720db58870ba472572cee37d7c47ef"
 dependencies = [
  "env_logger",
  "js-sys",
@@ -4469,7 +4479,7 @@ dependencies = [
 [[package]]
 name = "re_log_encoding"
 version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#ecb20e7d723caada74f9ea2f3149a50084007466"
+source = "git+https://github.com/rerun-io/rerun#46c970e648720db58870ba472572cee37d7c47ef"
 dependencies = [
  "lz4_flex",
  "parking_lot",
@@ -4486,7 +4496,7 @@ dependencies = [
 [[package]]
 name = "re_log_types"
 version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#ecb20e7d723caada74f9ea2f3149a50084007466"
+source = "git+https://github.com/rerun-io/rerun#46c970e648720db58870ba472572cee37d7c47ef"
 dependencies = [
  "ahash",
  "anyhow",
@@ -4524,7 +4534,7 @@ dependencies = [
 [[package]]
 name = "re_memory"
 version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#ecb20e7d723caada74f9ea2f3149a50084007466"
+source = "git+https://github.com/rerun-io/rerun#46c970e648720db58870ba472572cee37d7c47ef"
 dependencies = [
  "ahash",
  "backtrace",
@@ -4546,7 +4556,7 @@ dependencies = [
 [[package]]
 name = "re_query"
 version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#ecb20e7d723caada74f9ea2f3149a50084007466"
+source = "git+https://github.com/rerun-io/rerun#46c970e648720db58870ba472572cee37d7c47ef"
 dependencies = [
  "ahash",
  "anyhow",
@@ -4572,7 +4582,7 @@ dependencies = [
 [[package]]
 name = "re_sdk"
 version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#ecb20e7d723caada74f9ea2f3149a50084007466"
+source = "git+https://github.com/rerun-io/rerun#46c970e648720db58870ba472572cee37d7c47ef"
 dependencies = [
  "ahash",
  "crossbeam",
@@ -4597,7 +4607,7 @@ dependencies = [
 [[package]]
 name = "re_sdk_comms"
 version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#ecb20e7d723caada74f9ea2f3149a50084007466"
+source = "git+https://github.com/rerun-io/rerun#46c970e648720db58870ba472572cee37d7c47ef"
 dependencies = [
  "ahash",
  "crossbeam",
@@ -4613,7 +4623,7 @@ dependencies = [
 [[package]]
 name = "re_smart_channel"
 version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#ecb20e7d723caada74f9ea2f3149a50084007466"
+source = "git+https://github.com/rerun-io/rerun#46c970e648720db58870ba472572cee37d7c47ef"
 dependencies = [
  "crossbeam",
  "parking_lot",
@@ -4625,7 +4635,7 @@ dependencies = [
 [[package]]
 name = "re_string_interner"
 version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#ecb20e7d723caada74f9ea2f3149a50084007466"
+source = "git+https://github.com/rerun-io/rerun#46c970e648720db58870ba472572cee37d7c47ef"
 dependencies = [
  "ahash",
  "nohash-hasher",
@@ -4638,7 +4648,7 @@ dependencies = [
 [[package]]
 name = "re_tracing"
 version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#ecb20e7d723caada74f9ea2f3149a50084007466"
+source = "git+https://github.com/rerun-io/rerun#46c970e648720db58870ba472572cee37d7c47ef"
 dependencies = [
  "puffin",
  "puffin_http",
@@ -4649,7 +4659,7 @@ dependencies = [
 [[package]]
 name = "re_tuid"
 version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#ecb20e7d723caada74f9ea2f3149a50084007466"
+source = "git+https://github.com/rerun-io/rerun#46c970e648720db58870ba472572cee37d7c47ef"
 dependencies = [
  "document-features",
  "getrandom",
@@ -4661,7 +4671,7 @@ dependencies = [
 [[package]]
 name = "re_types"
 version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#ecb20e7d723caada74f9ea2f3149a50084007466"
+source = "git+https://github.com/rerun-io/rerun#46c970e648720db58870ba472572cee37d7c47ef"
 dependencies = [
  "anyhow",
  "array-init",
@@ -4697,7 +4707,7 @@ dependencies = [
 [[package]]
 name = "re_types_builder"
 version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#ecb20e7d723caada74f9ea2f3149a50084007466"
+source = "git+https://github.com/rerun-io/rerun#46c970e648720db58870ba472572cee37d7c47ef"
 dependencies = [
  "anyhow",
  "camino",
@@ -4725,7 +4735,7 @@ dependencies = [
 [[package]]
 name = "re_types_core"
 version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#ecb20e7d723caada74f9ea2f3149a50084007466"
+source = "git+https://github.com/rerun-io/rerun#46c970e648720db58870ba472572cee37d7c47ef"
 dependencies = [
  "anyhow",
  "backtrace",
@@ -4839,7 +4849,7 @@ checksum = "19b30a45b0cd0bcca8037f3d0dc3421eaf95327a17cad11964fb8179b4fc4832"
 [[package]]
 name = "rerun"
 version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#ecb20e7d723caada74f9ea2f3149a50084007466"
+source = "git+https://github.com/rerun-io/rerun#46c970e648720db58870ba472572cee37d7c47ef"
 dependencies = [
  "anyhow",
  "document-features",
@@ -6146,12 +6156,12 @@ dependencies = [
 
 [[package]]
 name = "webbrowser"
-version = "1.0.1"
+version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "425ba64c1e13b1c6e8c5d2541c8fac10022ca584f33da781db01b5756aef1f4e"
+checksum = "2e5f07fb9bc8de2ddfe6b24a71a75430673fd679e568c48b52716cef1cfae923"
 dependencies = [
  "block2",
- "core-foundation",
+ "core-foundation 0.10.0",
  "home",
  "jni",
  "log",
@@ -6165,7 +6175,7 @@ dependencies = [
 [[package]]
 name = "wgpu"
 version = "22.2.0"
-source = "git+https://github.com/ArthurBrussee/wgpu?branch=flt-atom#1b803f0fa57de6f16d224259ffcc55b2b64cfe1c"
+source = "git+https://github.com/ArthurBrussee/wgpu?branch=flt-atom#6af6146151a05527bdacf55c83714c2685eb1ed3"
 dependencies = [
  "arrayvec",
  "cfg_aliases 0.1.1",
@@ -6189,10 +6199,10 @@ dependencies = [
 [[package]]
 name = "wgpu-core"
 version = "22.2.0"
-source = "git+https://github.com/ArthurBrussee/wgpu?branch=flt-atom#1b803f0fa57de6f16d224259ffcc55b2b64cfe1c"
+source = "git+https://github.com/ArthurBrussee/wgpu?branch=flt-atom#6af6146151a05527bdacf55c83714c2685eb1ed3"
 dependencies = [
  "arrayvec",
- "bit-vec 0.8.0",
+ "bit-vec 0.7.0",
  "bitflags 2.6.0",
  "cfg_aliases 0.1.1",
  "document-features",
@@ -6213,12 +6223,12 @@ dependencies = [
 [[package]]
 name = "wgpu-hal"
 version = "22.2.0"
-source = "git+https://github.com/ArthurBrussee/wgpu?branch=flt-atom#1b803f0fa57de6f16d224259ffcc55b2b64cfe1c"
+source = "git+https://github.com/ArthurBrussee/wgpu?branch=flt-atom#6af6146151a05527bdacf55c83714c2685eb1ed3"
 dependencies = [
  "android_system_properties",
  "arrayvec",
  "ash",
- "bit-set 0.8.0",
+ "bit-set 0.6.0",
  "bitflags 2.6.0",
  "block",
  "cfg_aliases 0.1.1",
@@ -6252,13 +6262,12 @@ dependencies = [
  "web-sys",
  "wgpu-types",
  "winapi",
- "windows 0.58.0",
 ]
 
 [[package]]
 name = "wgpu-types"
 version = "22.2.0"
-source = "git+https://github.com/ArthurBrussee/wgpu?branch=flt-atom#1b803f0fa57de6f16d224259ffcc55b2b64cfe1c"
+source = "git+https://github.com/ArthurBrussee/wgpu?branch=flt-atom#6af6146151a05527bdacf55c83714c2685eb1ed3"
 dependencies = [
  "bitflags 2.6.0",
  "js-sys",
@@ -6614,7 +6623,7 @@ dependencies = [
  "calloop",
  "cfg_aliases 0.2.1",
  "concurrent-queue",
- "core-foundation",
+ "core-foundation 0.9.4",
  "core-graphics",
  "cursor-icon",
  "dpi",
