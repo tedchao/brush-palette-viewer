@@ -6,6 +6,9 @@ const THREADS_PER_GROUP: u32 = 512u;
 var<workgroup> bucket: array<u32, THREADS_PER_GROUP>;
 
 fn groupScan(id: u32, gi: u32, x: u32) {
+    if id >= arrayLength(&output) {
+        return;
+    }
     bucket[gi] = x;
     for (var t = 1u; t < THREADS_PER_GROUP; t = t * 2u) {
         workgroupBarrier();

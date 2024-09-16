@@ -1621,7 +1621,7 @@ checksum = "96a6ac251f4a2aca6b3f91340350eab87ae57c3f127ffeb585e92bd336717991"
 [[package]]
 name = "d3d12"
 version = "22.0.0"
-source = "git+https://github.com/ArthurBrussee/wgpu?branch=flt-atom#6af6146151a05527bdacf55c83714c2685eb1ed3"
+source = "git+https://github.com/ArthurBrussee/wgpu?branch=flt-atom#d7c0678b220399072f3dd211c81c883969fdffec"
 dependencies = [
  "bitflags 2.6.0",
  "libloading",
@@ -3233,7 +3233,7 @@ dependencies = [
 [[package]]
 name = "naga"
 version = "22.2.0"
-source = "git+https://github.com/ArthurBrussee/wgpu?branch=flt-atom#6af6146151a05527bdacf55c83714c2685eb1ed3"
+source = "git+https://github.com/ArthurBrussee/wgpu?branch=flt-atom#d7c0678b220399072f3dd211c81c883969fdffec"
 dependencies = [
  "arrayvec",
  "bit-set 0.6.0",
@@ -4283,7 +4283,7 @@ dependencies = [
 [[package]]
 name = "re_build_info"
 version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#46c970e648720db58870ba472572cee37d7c47ef"
+source = "git+https://github.com/rerun-io/rerun#17fb079f44e4e06410e5f0df772639fa22dd5533"
 dependencies = [
  "serde",
 ]
@@ -4291,7 +4291,7 @@ dependencies = [
 [[package]]
 name = "re_build_tools"
 version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#46c970e648720db58870ba472572cee37d7c47ef"
+source = "git+https://github.com/rerun-io/rerun#17fb079f44e4e06410e5f0df772639fa22dd5533"
 dependencies = [
  "anyhow",
  "cargo_metadata 0.18.1",
@@ -4305,7 +4305,7 @@ dependencies = [
 [[package]]
 name = "re_case"
 version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#46c970e648720db58870ba472572cee37d7c47ef"
+source = "git+https://github.com/rerun-io/rerun#17fb079f44e4e06410e5f0df772639fa22dd5533"
 dependencies = [
  "convert_case",
 ]
@@ -4313,7 +4313,7 @@ dependencies = [
 [[package]]
 name = "re_chunk"
 version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#46c970e648720db58870ba472572cee37d7c47ef"
+source = "git+https://github.com/rerun-io/rerun#17fb079f44e4e06410e5f0df772639fa22dd5533"
 dependencies = [
  "ahash",
  "anyhow",
@@ -4340,7 +4340,7 @@ dependencies = [
 [[package]]
 name = "re_chunk_store"
 version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#46c970e648720db58870ba472572cee37d7c47ef"
+source = "git+https://github.com/rerun-io/rerun#17fb079f44e4e06410e5f0df772639fa22dd5533"
 dependencies = [
  "ahash",
  "anyhow",
@@ -4365,7 +4365,7 @@ dependencies = [
 [[package]]
 name = "re_crash_handler"
 version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#46c970e648720db58870ba472572cee37d7c47ef"
+source = "git+https://github.com/rerun-io/rerun#17fb079f44e4e06410e5f0df772639fa22dd5533"
 dependencies = [
  "backtrace",
  "itertools 0.13.0",
@@ -4377,7 +4377,7 @@ dependencies = [
 [[package]]
 name = "re_dataframe"
 version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#46c970e648720db58870ba472572cee37d7c47ef"
+source = "git+https://github.com/rerun-io/rerun#17fb079f44e4e06410e5f0df772639fa22dd5533"
 dependencies = [
  "ahash",
  "anyhow",
@@ -4404,7 +4404,7 @@ dependencies = [
 [[package]]
 name = "re_entity_db"
 version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#46c970e648720db58870ba472572cee37d7c47ef"
+source = "git+https://github.com/rerun-io/rerun#17fb079f44e4e06410e5f0df772639fa22dd5533"
 dependencies = [
  "ahash",
  "document-features",
@@ -4432,12 +4432,12 @@ dependencies = [
 [[package]]
 name = "re_error"
 version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#46c970e648720db58870ba472572cee37d7c47ef"
+source = "git+https://github.com/rerun-io/rerun#17fb079f44e4e06410e5f0df772639fa22dd5533"
 
 [[package]]
 name = "re_format"
 version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#46c970e648720db58870ba472572cee37d7c47ef"
+source = "git+https://github.com/rerun-io/rerun#17fb079f44e4e06410e5f0df772639fa22dd5533"
 dependencies = [
  "num-traits",
 ]
@@ -4445,7 +4445,7 @@ dependencies = [
 [[package]]
 name = "re_format_arrow"
 version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#46c970e648720db58870ba472572cee37d7c47ef"
+source = "git+https://github.com/rerun-io/rerun#17fb079f44e4e06410e5f0df772639fa22dd5533"
 dependencies = [
  "comfy-table",
  "re_arrow2",
@@ -4456,7 +4456,7 @@ dependencies = [
 [[package]]
 name = "re_int_histogram"
 version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#46c970e648720db58870ba472572cee37d7c47ef"
+source = "git+https://github.com/rerun-io/rerun#17fb079f44e4e06410e5f0df772639fa22dd5533"
 dependencies = [
  "smallvec",
  "static_assertions",
@@ -4465,7 +4465,7 @@ dependencies = [
 [[package]]
 name = "re_log"
 version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#46c970e648720db58870ba472572cee37d7c47ef"
+source = "git+https://github.com/rerun-io/rerun#17fb079f44e4e06410e5f0df772639fa22dd5533"
 dependencies = [
  "env_logger",
  "js-sys",
@@ -4479,7 +4479,7 @@ dependencies = [
 [[package]]
 name = "re_log_encoding"
 version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#46c970e648720db58870ba472572cee37d7c47ef"
+source = "git+https://github.com/rerun-io/rerun#17fb079f44e4e06410e5f0df772639fa22dd5533"
 dependencies = [
  "lz4_flex",
  "parking_lot",
@@ -4496,7 +4496,7 @@ dependencies = [
 [[package]]
 name = "re_log_types"
 version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#46c970e648720db58870ba472572cee37d7c47ef"
+source = "git+https://github.com/rerun-io/rerun#17fb079f44e4e06410e5f0df772639fa22dd5533"
 dependencies = [
  "ahash",
  "anyhow",
@@ -4534,7 +4534,7 @@ dependencies = [
 [[package]]
 name = "re_memory"
 version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#46c970e648720db58870ba472572cee37d7c47ef"
+source = "git+https://github.com/rerun-io/rerun#17fb079f44e4e06410e5f0df772639fa22dd5533"
 dependencies = [
  "ahash",
  "backtrace",
@@ -4556,7 +4556,7 @@ dependencies = [
 [[package]]
 name = "re_query"
 version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#46c970e648720db58870ba472572cee37d7c47ef"
+source = "git+https://github.com/rerun-io/rerun#17fb079f44e4e06410e5f0df772639fa22dd5533"
 dependencies = [
  "ahash",
  "anyhow",
@@ -4582,7 +4582,7 @@ dependencies = [
 [[package]]
 name = "re_sdk"
 version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#46c970e648720db58870ba472572cee37d7c47ef"
+source = "git+https://github.com/rerun-io/rerun#17fb079f44e4e06410e5f0df772639fa22dd5533"
 dependencies = [
  "ahash",
  "crossbeam",
@@ -4607,7 +4607,7 @@ dependencies = [
 [[package]]
 name = "re_sdk_comms"
 version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#46c970e648720db58870ba472572cee37d7c47ef"
+source = "git+https://github.com/rerun-io/rerun#17fb079f44e4e06410e5f0df772639fa22dd5533"
 dependencies = [
  "ahash",
  "crossbeam",
@@ -4623,7 +4623,7 @@ dependencies = [
 [[package]]
 name = "re_smart_channel"
 version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#46c970e648720db58870ba472572cee37d7c47ef"
+source = "git+https://github.com/rerun-io/rerun#17fb079f44e4e06410e5f0df772639fa22dd5533"
 dependencies = [
  "crossbeam",
  "parking_lot",
@@ -4635,7 +4635,7 @@ dependencies = [
 [[package]]
 name = "re_string_interner"
 version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#46c970e648720db58870ba472572cee37d7c47ef"
+source = "git+https://github.com/rerun-io/rerun#17fb079f44e4e06410e5f0df772639fa22dd5533"
 dependencies = [
  "ahash",
  "nohash-hasher",
@@ -4648,7 +4648,7 @@ dependencies = [
 [[package]]
 name = "re_tracing"
 version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#46c970e648720db58870ba472572cee37d7c47ef"
+source = "git+https://github.com/rerun-io/rerun#17fb079f44e4e06410e5f0df772639fa22dd5533"
 dependencies = [
  "puffin",
  "puffin_http",
@@ -4659,7 +4659,7 @@ dependencies = [
 [[package]]
 name = "re_tuid"
 version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#46c970e648720db58870ba472572cee37d7c47ef"
+source = "git+https://github.com/rerun-io/rerun#17fb079f44e4e06410e5f0df772639fa22dd5533"
 dependencies = [
  "document-features",
  "getrandom",
@@ -4671,7 +4671,7 @@ dependencies = [
 [[package]]
 name = "re_types"
 version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#46c970e648720db58870ba472572cee37d7c47ef"
+source = "git+https://github.com/rerun-io/rerun#17fb079f44e4e06410e5f0df772639fa22dd5533"
 dependencies = [
  "anyhow",
  "array-init",
@@ -4707,7 +4707,7 @@ dependencies = [
 [[package]]
 name = "re_types_builder"
 version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#46c970e648720db58870ba472572cee37d7c47ef"
+source = "git+https://github.com/rerun-io/rerun#17fb079f44e4e06410e5f0df772639fa22dd5533"
 dependencies = [
  "anyhow",
  "camino",
@@ -4735,7 +4735,7 @@ dependencies = [
 [[package]]
 name = "re_types_core"
 version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#46c970e648720db58870ba472572cee37d7c47ef"
+source = "git+https://github.com/rerun-io/rerun#17fb079f44e4e06410e5f0df772639fa22dd5533"
 dependencies = [
  "anyhow",
  "backtrace",
@@ -4849,7 +4849,7 @@ checksum = "19b30a45b0cd0bcca8037f3d0dc3421eaf95327a17cad11964fb8179b4fc4832"
 [[package]]
 name = "rerun"
 version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#46c970e648720db58870ba472572cee37d7c47ef"
+source = "git+https://github.com/rerun-io/rerun#17fb079f44e4e06410e5f0df772639fa22dd5533"
 dependencies = [
  "anyhow",
  "document-features",
@@ -6175,7 +6175,7 @@ dependencies = [
 [[package]]
 name = "wgpu"
 version = "22.2.0"
-source = "git+https://github.com/ArthurBrussee/wgpu?branch=flt-atom#6af6146151a05527bdacf55c83714c2685eb1ed3"
+source = "git+https://github.com/ArthurBrussee/wgpu?branch=flt-atom#d7c0678b220399072f3dd211c81c883969fdffec"
 dependencies = [
  "arrayvec",
  "cfg_aliases 0.1.1",
@@ -6199,7 +6199,7 @@ dependencies = [
 [[package]]
 name = "wgpu-core"
 version = "22.2.0"
-source = "git+https://github.com/ArthurBrussee/wgpu?branch=flt-atom#6af6146151a05527bdacf55c83714c2685eb1ed3"
+source = "git+https://github.com/ArthurBrussee/wgpu?branch=flt-atom#d7c0678b220399072f3dd211c81c883969fdffec"
 dependencies = [
  "arrayvec",
  "bit-vec 0.7.0",
@@ -6223,7 +6223,7 @@ dependencies = [
 [[package]]
 name = "wgpu-hal"
 version = "22.2.0"
-source = "git+https://github.com/ArthurBrussee/wgpu?branch=flt-atom#6af6146151a05527bdacf55c83714c2685eb1ed3"
+source = "git+https://github.com/ArthurBrussee/wgpu?branch=flt-atom#d7c0678b220399072f3dd211c81c883969fdffec"
 dependencies = [
  "android_system_properties",
  "arrayvec",
@@ -6267,7 +6267,7 @@ dependencies = [
 [[package]]
 name = "wgpu-types"
 version = "22.2.0"
-source = "git+https://github.com/ArthurBrussee/wgpu?branch=flt-atom#6af6146151a05527bdacf55c83714c2685eb1ed3"
+source = "git+https://github.com/ArthurBrussee/wgpu?branch=flt-atom#d7c0678b220399072f3dd211c81c883969fdffec"
 dependencies = [
  "bitflags 2.6.0",
  "js-sys",

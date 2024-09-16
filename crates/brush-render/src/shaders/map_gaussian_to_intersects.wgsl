@@ -36,7 +36,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
 
     for (var ty = tile_min.y; ty < tile_max.y; ty++) {
         for (var tx = tile_min.x; tx < tile_max.x; tx++) {
-            if helpers::can_be_visible(vec2u(tx, ty), xy, conic, opac) {
+            if helpers::can_be_visible(vec2u(tx, ty), xy, conic, opac) && isect_id < arrayLength(&tile_id_from_isect) {
                 let tile_id = tx + ty * tile_bounds.x; // tile within image
                 tile_id_from_isect[isect_id] = tile_id;
                 compact_gid_from_isect[isect_id] = compact_gid;

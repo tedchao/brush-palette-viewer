@@ -148,7 +148,7 @@ mod tests {
 
     #[test]
     fn test_sum() {
-        const ITERS: usize = 512 * 16;
+        const ITERS: usize = 512 * 16 + 123;
         let mut data = vec![];
         for i in 0..ITERS {
             data.push(2 + i as i32);

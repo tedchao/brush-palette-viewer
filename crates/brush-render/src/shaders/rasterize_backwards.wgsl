@@ -102,7 +102,10 @@ fn main(
     }
 
     // df/d_out for this pixel
-    let v_out = v_output[pix_id];
+    var v_out = vec4f(0.0);
+    if inside {
+        v_out = v_output[pix_id];
+    }
 
     // Make sure all groups start with empty gradient queue.
     atomicStore(&grad_count, 0);
