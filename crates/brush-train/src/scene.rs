@@ -1,11 +1,10 @@
 use brush_render::{camera::Camera, Backend};
 use burn::tensor::Tensor;
-use ndarray::Array3;
 
 #[derive(Debug, Default, Clone)]
 pub struct SceneView {
     pub camera: Camera,
-    pub image: Array3<f32>,
+    pub image: image::DynamicImage,
 }
 
 // Encapsulates a multi-view scene including cameras and the splats.

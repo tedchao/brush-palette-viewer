@@ -621,10 +621,8 @@ mod tests {
     use burn_wgpu::WgpuDevice;
 
     type DiffBack = Autodiff<BurnBack>;
-
-    use ndarray::Array;
-
     use anyhow::{Context, Result};
+    use rerun::{ChannelDatatype, ColorModel, TensorBuffer, TensorData, TensorDimension};
     use safetensors::SafeTensors;
 
     #[test]
@@ -727,50 +725,57 @@ mod tests {
             let out_rgb = out.clone().slice([0..h, 0..w, 0..3]);
 
             if let Ok(rec) = rec.as_ref() {
-                let out_rgb = out_rgb.clone();
                 rec.set_time_sequence("test case", i as i64);
                 rec.log(
                     "img/render",
-                    &rerun::Image::from_color_model_and_tensor(
-                        rerun::ColorModel::RGB,
-                        Array::from_shape_vec(
-                            out_rgb.dims(),
-                            out_rgb.to_data().to_vec::<f32>().unwrap(),
-                        )?
-                        .map(|x| (*x * 255.0).clamp(0.0, 255.0) as u8),
-                    )?,
+                    &rerun::Image::from_color_model_and_bytes(
+                        out.to_data().bytes,
+                        [out.shape().dims[1] as u32, out.shape().dims[0] as u32],
+                        ColorModel::RGBA,
+                        ChannelDatatype::F32,
+                    ),
                 )?;
 
                 rec.log(
                     "img/ref",
-                    &rerun::Image::from_color_model_and_tensor(
-                        rerun::ColorModel::RGB,
-                        Array::from_shape_vec(
-                            img_ref.dims(),
-                            img_ref.to_data().to_vec::<f32>().unwrap(),
-                        )?
-                        .map(|x| (*x * 255.0).clamp(0.0, 255.0) as u8),
-                    )?,
+                    &rerun::Image::from_color_model_and_bytes(
+                        img_ref.to_data().bytes,
+                        [
+                            img_ref.shape().dims[1] as u32,
+                            img_ref.shape().dims[0] as u32,
+                        ],
+                        ColorModel::RGBA,
+                        ChannelDatatype::F32,
+                    ),
                 )?;
 
                 rec.log(
                     "img/dif",
-                    &rerun::Tensor::try_from(Array::from_shape_vec(
-                        img_ref.dims(),
-                        (img_ref.clone() - out_rgb.clone())
-                            .into_data()
-                            .to_vec::<f32>()
-                            .unwrap(),
-                    )?)?,
+                    &rerun::Tensor::new(TensorData::new(
+                        img_ref
+                            .dims()
+                            .map(|x| TensorDimension::unnamed(x as u64))
+                            .to_vec(),
+                        TensorBuffer::F32(
+                            (img_ref.clone() - out_rgb.clone())
+                                .into_data()
+                                .to_vec::<f32>()
+                                .unwrap()
+                                .into(),
+                        ),
+                    )),
                 )?;
 
                 let tile_depth = aux.read_tile_depth();
                 rec.log(
                     "images/tile depth",
-                    &rerun::Tensor::try_from(Array::from_shape_vec(
-                        tile_depth.dims(),
-                        tile_depth.into_data().to_vec::<i32>().unwrap(),
-                    )?)?,
+                    &rerun::Tensor::new(TensorData::new(
+                        tile_depth
+                            .dims()
+                            .map(|x| TensorDimension::unnamed(x as u64))
+                            .to_vec(),
+                        TensorBuffer::I32(tile_depth.into_data().to_vec::<i32>().unwrap().into()),
+                    )),
                 )?;
             }
 

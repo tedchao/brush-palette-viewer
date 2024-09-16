@@ -1,21 +1,11 @@
 use brush_render::camera::Camera;
 use brush_render::Backend;
-use burn::tensor::{Shape, Tensor};
-use ndarray::{ArrayView, Dim, Dimension};
+use burn::tensor::Tensor;
 
 use brush_train::scene::Scene;
 use brush_train::scene::SceneBatch;
 
-pub(crate) fn ndarray_to_burn<B: Backend, const D: usize>(
-    arr: ArrayView<f32, Dim<[usize; D]>>,
-    device: &B::Device,
-) -> Tensor<B, D>
-where
-    Dim<[usize; D]>: Dimension,
-{
-    let shape = Shape::new(arr.shape().try_into().unwrap());
-    Tensor::<_, 1>::from_floats(arr.as_slice().unwrap(), device).reshape(shape)
-}
+use crate::image_to_tensor;
 
 pub struct SceneLoader<B: Backend> {
     images: Vec<Tensor<B, 3>>,
@@ -62,7 +52,7 @@ impl<B: Backend> SceneLoader<B> {
         let burn_tensors = scene
             .views
             .iter()
-            .map(|x| ndarray_to_burn::<B, 3>(x.image.view(), device))
+            .filter_map(|x| image_to_tensor(&x.image, device).ok())
             .collect::<Vec<_>>();
 
         Self {

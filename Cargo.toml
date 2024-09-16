@@ -1,9 +1,5 @@
 [workspace]
-# Try
-# require version 2 to avoid "feature" additiveness for dev-dependencies
-# https://doc.rust-lang.org/cargo/reference/resolver.html#feature-resolver-version-2
 resolver = "2"
-
 members = ["crates/*"]
 default-members = ["crates/brush-desktop"]
 
@@ -11,13 +7,11 @@ default-members = ["crates/brush-desktop"]
 edition = "2021"
 version = "0.1.0"
 readme = "README.md"
-license = "MIT OR Apache-2.0"
+license = "Apache-2.0"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [workspace.dependencies]
 glam = "0.28"
 bytemuck = "1.15"
-ndarray = "0.15"
 image = { version = "0.25", default-features = false, features = [
     'png',
     'webp',
@@ -64,6 +58,7 @@ eframe = { version = "0.28.1", default-features = false, features = [
 rerun = { git = "https://github.com/rerun-io/rerun", default-features = false, features = [
     'sdk',
     'glam',
+    'image',
 ] }
 
 # Build dependencies.

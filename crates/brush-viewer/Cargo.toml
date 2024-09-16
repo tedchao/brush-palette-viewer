@@ -18,7 +18,6 @@ burn-wgpu.workspace = true
 
 image.workspace = true
 anyhow.workspace = true
-ndarray.workspace = true
 eframe.workspace = true
 egui.workspace = true
 tracing.workspace = true

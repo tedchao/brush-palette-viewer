@@ -2,11 +2,22 @@ use anyhow::Result;
 use brush_render::{gaussian_splats::Splats, AutodiffBackend, Backend};
 use brush_train::{scene::Scene, train::TrainStepStats};
 use burn::tensor::{activation::sigmoid, ElementConversion, Tensor};
-use ndarray::Array;
-use rerun::{Color, FillMode, RecordingStream};
+use image::{DynamicImage, GenericImageView};
+use rerun::{Color, FillMode, RecordingStream, TensorBuffer, TensorDimension};
 
 pub struct VisualizeTools {
     rec: RecordingStream,
+}
+
+async fn tensor_to_image<B: Backend>(tensor: Tensor<B, 3>) -> DynamicImage {
+    image::DynamicImage::from(
+        image::Rgba32FImage::from_raw(
+            tensor.shape().dims[1] as u32,
+            tensor.shape().dims[0] as u32,
+            tensor.into_data_async().await.to_vec::<f32>().unwrap(),
+        )
+        .unwrap(),
+    )
 }
 
 impl VisualizeTools {
@@ -80,8 +91,8 @@ impl VisualizeTools {
 
         for (i, data) in scene.views.iter().enumerate() {
             let path = format!("world/dataset/camera/{i}");
-            let (height, width, _) = data.image.dim();
-            let vis_size = glam::uvec2(width as u32, height as u32);
+            let (width, height) = data.image.dimensions();
+            let vis_size = glam::uvec2(width, height);
             let rerun_camera = rerun::Pinhole::from_focal_length_and_resolution(
                 data.camera.focal(vis_size),
                 glam::vec2(vis_size.x as f32, vis_size.y as f32),
@@ -96,10 +107,7 @@ impl VisualizeTools {
             )?;
             rec.log_static(
                 path + "/image",
-                &rerun::Image::from_color_model_and_tensor(
-                    rerun::ColorModel::RGBA,
-                    data.image.clone(),
-                )?,
+                &rerun::Image::from_dynamic_image(data.image.clone())?,
             )?;
         }
         Ok(())
@@ -152,44 +160,26 @@ impl VisualizeTools {
         let tile_depth = aux.read_tile_depth();
         rec.log(
             "images/tile depth",
-            &rerun::Tensor::try_from(Array::from_shape_vec(
-                tile_depth.dims(),
-                tile_depth.into_data_async().await.to_vec::<i32>().unwrap(),
-            )?)?,
+            &rerun::Tensor::new(rerun::TensorData::new(
+                tile_depth
+                    .dims()
+                    .map(|x| TensorDimension::unnamed(x as u64))
+                    .to_vec(),
+                TensorBuffer::I32(tile_depth.into_data().to_vec::<i32>().unwrap().into()),
+            )),
         )?;
 
-        let main_pred_image = stats.pred_images.clone().slice([0..1]);
-        let pred_image = Array::from_shape_vec(
-            main_pred_image.dims(),
-            main_pred_image
-                .into_data_async()
-                .await
-                .to_vec::<f32>()
-                .unwrap(),
-        )?
-        .map(|x| (*x * 255.0).clamp(0.0, 255.0) as u8);
+        let main_gt_image = tensor_to_image(gt_image.slice([0..1]).squeeze(0)).await;
+        let main_pred_image =
+            tensor_to_image(stats.pred_images.clone().slice([0..1]).squeeze(0)).await;
 
         rec.log(
             "images/predicted",
-            &rerun::Image::from_color_model_and_tensor(rerun::ColorModel::RGBA, pred_image)?,
+            &rerun::Image::from_image(main_pred_image.to_rgba8())?,
         )?;
-
-        let main_gt_image = gt_image.slice([0..1]);
-
         rec.log(
             "images/ground truth",
-            &rerun::Image::from_color_model_and_tensor(
-                rerun::ColorModel::RGBA,
-                ndarray::Array::from_shape_vec(
-                    main_gt_image.dims(),
-                    main_gt_image
-                        .into_data_async()
-                        .await
-                        .to_vec::<f32>()
-                        .unwrap(),
-                )?
-                .map(|x| (*x * 255.0).clamp(0.0, 255.0) as u8),
-            )?,
+            &rerun::Image::from_image(main_gt_image.to_rgba8())?,
         )?;
 
         Ok(())

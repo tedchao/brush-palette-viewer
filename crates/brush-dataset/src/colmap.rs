@@ -46,7 +46,6 @@ pub fn read_dataset(
     for (_, img_info) in img_info_list.iter() {
         let cam = &cam_model_data[&img_info.camera_id];
 
-        // let img_tensor = ndarray::Array3::<f32>::zeros((512, 512, 4));
         let img_path = &img_info.name;
         let image_data = archive.by_name(&format!("images/{img_path}"))?;
         let img_bytes = image_data.bytes().collect::<std::io::Result<Vec<u8>>>()?;
@@ -54,7 +53,6 @@ pub fn read_dataset(
         if let Some(max) = max_resolution {
             img = crate::clamp_img_to_max_size(img, max);
         }
-        let img_tensor = crate::img_to_tensor(&img)?;
 
         let translation = img_info.tvec;
         let quat = img_info.quat;
@@ -74,7 +72,7 @@ pub fn read_dataset(
 
         views.push(SceneView {
             camera: Camera::new(translation, quat, glam::vec2(fovx, fovy), center_uv),
-            image: img_tensor,
+            image: img,
         });
 
         if let Some(max) = max_frames {

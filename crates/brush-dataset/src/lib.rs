@@ -7,8 +7,11 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use brush_train::scene::SceneView;
-use image::DynamicImage;
-use ndarray::Array3;
+use burn::{
+    prelude::Backend,
+    tensor::{Tensor, TensorData},
+};
+use image::{DynamicImage, GenericImageView};
 
 pub(crate) fn normalized_path_string(path: &Path) -> String {
     Path::new(path)
@@ -34,13 +37,20 @@ pub(crate) fn clamp_img_to_max_size(image: DynamicImage, max_size: u32) -> Dynam
     image.resize(new_width, new_height, image::imageops::FilterType::Lanczos3)
 }
 
-fn img_to_tensor(image: &image::DynamicImage) -> Result<Array3<f32>> {
-    let im_data = image.to_rgba8().into_vec();
-    let tensor = Array3::from_shape_vec(
-        [image.height() as usize, image.width() as usize, 4],
-        im_data,
-    )?;
-    Ok(tensor.to_owned().map(|&x| (x as f32) / 255.0))
+fn image_to_tensor<B: Backend>(
+    image: &DynamicImage,
+    device: &B::Device,
+) -> anyhow::Result<Tensor<B, 3>> {
+    let (w, h) = image.dimensions();
+    let num_channels = image.color().channel_count();
+    let data = if num_channels == 3 {
+        image.to_rgb32f().into_vec()
+    } else {
+        image.to_rgba32f().into_vec()
+    };
+
+    let tensor_data = TensorData::new(data, [h as usize, w as usize, num_channels as usize]);
+    Ok(Tensor::from_data(tensor_data, device))
 }
 
 pub fn read_dataset(

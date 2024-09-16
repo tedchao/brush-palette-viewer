@@ -618,7 +618,6 @@ dependencies = [
  "byteorder",
  "glam",
  "image",
- "ndarray 0.15.6",
  "serde_json",
  "zip 2.2.0",
 ]
@@ -679,11 +678,9 @@ dependencies = [
  "miette",
  "naga",
  "naga_oil",
- "ndarray 0.15.6",
  "rerun",
  "safetensors",
  "tracing",
- "wgpu",
 ]
 
 [[package]]
@@ -710,7 +707,7 @@ dependencies = [
  "brush-render",
  "burn",
  "glam",
- "ndarray 0.15.6",
+ "image",
  "rand",
  "tracing",
 ]
@@ -735,7 +732,6 @@ dependencies = [
  "glam",
  "gloo-timers",
  "image",
- "ndarray 0.15.6",
  "ply-rs 0.1.3 (git+https://github.com/ArthurBrussee/ply-rs.git)",
  "pollster",
  "rerun",
@@ -1827,6 +1823,15 @@ dependencies = [
 [[package]]
 name = "ecolor"
 version = "0.28.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2e6b451ff1143f6de0f33fc7f1b68fecfd2c7de06e104de96c4514de3f5396f8"
+dependencies = [
+ "emath 0.28.1 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "ecolor"
+version = "0.28.1"
 source = "git+https://github.com/ArthurBrussee/egui?branch=wgpu-custom#11f4dc7f3976d205b828593f1a408e9d1b4d98da"
 dependencies = [
  "bytemuck",
@@ -2000,7 +2005,7 @@ dependencies = [
  "ab_glyph",
  "ahash",
  "bytemuck",
- "ecolor",
+ "ecolor 0.28.1 (git+https://github.com/ArthurBrussee/egui?branch=wgpu-custom)",
  "emath 0.28.1 (git+https://github.com/ArthurBrussee/egui?branch=wgpu-custom)",
  "epaint_default_fonts",
  "log",
@@ -4662,9 +4667,11 @@ dependencies = [
  "array-init",
  "bytemuck",
  "document-features",
+ "ecolor 0.28.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "emath 0.28.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "glam",
  "half",
+ "image",
  "infer",
  "itertools 0.13.0",
  "linked-hash-map",

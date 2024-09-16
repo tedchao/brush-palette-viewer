@@ -10,7 +10,6 @@ use brush_render::camera::Camera;
 use brush_train::scene::SceneView;
 
 use crate::clamp_img_to_max_size;
-use crate::img_to_tensor;
 use crate::normalized_path_string;
 
 // TODO: This could be simplified with some serde-fu by creating a struct
@@ -102,8 +101,6 @@ pub fn read_dataset(
             image = clamp_img_to_max_size(image, max_resolution);
         }
 
-        let tensor = img_to_tensor(&image)?;
-
         let fovy = camera::focal_to_fov(camera::fov_to_focal(fovx, image.width()), image.height());
 
         cameras.push(SceneView {
@@ -113,7 +110,7 @@ pub fn read_dataset(
                 glam::vec2(fovx, fovy),
                 glam::vec2(0.5, 0.5),
             ),
-            image: tensor,
+            image,
         });
 
         if let Some(max) = max_frames {

@@ -10,7 +10,6 @@ brush-render.path = "../brush-render"
 brush-train.path = "../brush-train"
 anyhow.workspace = true
 image.workspace = true
-ndarray.workspace = true
 serde_json.workspace = true
 zip.workspace = true
 glam.workspace = true
