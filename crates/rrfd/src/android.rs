@@ -16,15 +16,13 @@ lazy_static! {
 }
 
 pub fn jni_initialize(vm: Arc<jni::JavaVM>) {
-    {
-        let mut env = vm.get_env().expect("Cannot get reference to the JNIEnv");
-        let class = env.find_class("com/splats/app/FilePicker").unwrap();
-        let method = env
-            .get_static_method_id(&class, "startFilePicker", "()V")
-            .unwrap();
-        *FILE_PICKER_CLASS.write().unwrap() = Some(env.new_global_ref(class).unwrap());
-        *START_FILE_PICKER.write().unwrap() = Some(method);
-    }
+    let mut env = vm.get_env().expect("Cannot get reference to the JNIEnv");
+    let class = env.find_class("com/splats/app/FilePicker").unwrap();
+    let method = env
+        .get_static_method_id(&class, "startFilePicker", "()V")
+        .unwrap();
+    *FILE_PICKER_CLASS.write().expect("Failed to write JNI data.") = Some(env.new_global_ref(class).unwrap());
+    *START_FILE_PICKER.write().expect("Failed to write JNI data.") = Some(method);
     *VM.write().unwrap() = Some(vm);
 }
 
@@ -69,14 +67,17 @@ extern "system" fn Java_com_splats_app_FilePicker_onFilePickerResult<'local>(
     data: JByteArray<'local>,
     file_name: JString<'local>,
 ) {
-    let picked_file = env.convert_byte_array(data).and_then(|data| {
-        let file_name = env.get_string(&file_name)?.into();
-        Ok(PickedFile { data, file_name })
-    });
-
     // Channel can be gone before the callback if other parts of pick_file fail.
     if let Ok(ch) = CHANNEL.read() {
         if let Some(ch) = ch.as_ref() {
+            let picked_file = if data.is_null() {
+                Err(jni::errors::Error::NullPtr("No file selected"))
+            } else {
+                env.convert_byte_array(data).and_then(|data| {
+                    let file_name = env.get_string(&file_name)?.into();
+                    Ok(PickedFile { data, file_name })
+                })
+            };
             ch.try_send(picked_file.map_err(|err| err.into())).expect("Failed to send file picking result");
         }
     }
