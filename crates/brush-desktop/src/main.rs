@@ -1,3 +1,4 @@
+
 fn main() -> anyhow::Result<()> {
     let wgpu_options = brush_viewer::wgpu_config::get_config();
 
@@ -22,6 +23,8 @@ fn main() -> anyhow::Result<()> {
 
     #[cfg(target_arch = "wasm32")]
     {
+        use wasm_bindgen::JsCast;
+
         console_error_panic_hook::set_once();
 
         let web_options = eframe::WebOptions {
@@ -29,12 +32,15 @@ fn main() -> anyhow::Result<()> {
             ..Default::default()
         };
 
+        let document = web_sys::window().unwrap().document().unwrap();
+        let canvas = document.get_element_by_id("main_canvas").unwrap().dyn_into::<web_sys::HtmlCanvasElement>().unwrap();
+
         wasm_bindgen_futures::spawn_local(async {
             eframe::WebRunner::new()
                 .start(
-                    "main_canvas", // hardcode it
+                    canvas,
                     web_options,
-                    Box::new(|cc| Ok(Box::new(Viewer::new(cc)))),
+                    Box::new(|cc| Ok(Box::new(brush_viewer::viewer::Viewer::new(cc)))),
                 )
                 .await
                 .expect("failed to start eframe");

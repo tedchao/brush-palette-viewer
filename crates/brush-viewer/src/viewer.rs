@@ -328,14 +328,11 @@ impl Viewer {
             if #[cfg(target_arch = "wasm32")] {
                 use tracing_subscriber::layer::SubscriberExt;
 
-                let subscriber = tracing_subscriber::registry().with(tracing_wasm::WasmLayer::new());
+                let subscriber = tracing_subscriber::registry().with(tracing_wasm::WASMLayer::new(Default::default()));
                 tracing::subscriber::set_global_default(subscriber)
                     .expect("Failed to set tracing subscriber");
             } else if #[cfg(feature = "tracy")] {
                 use tracing_subscriber::layer::SubscriberExt;
-
-                println!("Checking for tracing stuff");
-
                 let subscriber = tracing_subscriber::registry()
                     .with(tracing_tracy::TracyLayer::default())
                     .with(sync_span::SyncLayer::new(device.clone()));

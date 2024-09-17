@@ -77,6 +77,8 @@ rerun = { git = "https://github.com/rerun-io/rerun", default-features = false, f
 thiserror = "*"
 zip = { version = "2.1.3", default-features = false, features = ["deflate"] }
 
+web-sys = "0.3.70"
+
 [patch.crates-io]
 egui = { git = "https://github.com/emilk/egui" }
 eframe = { git = "https://github.com/emilk/egui" }
