@@ -491,9 +491,11 @@ impl Backward<BurnBack, 3, 6> for RenderBackwards {
             let v_conics = BurnBack::float_zeros([num_points, 3].into(), device);
             let v_colors = BurnBack::float_zeros([num_points, 4].into(), device);
 
+            let hard_float = !cfg!(target_arch = "wasm32");
+
             tracing::info_span!("RasterizeBackwards", sync_burn = true).in_scope(|| unsafe {
                 client.execute_unchecked(
-                    RasterizeBackwards::task(),
+                    RasterizeBackwards::task(hard_float),
                     CubeCount::Static(invocations, 1, 1),
                     vec![
                         aux.uniforms_buffer.clone().handle.binding(),

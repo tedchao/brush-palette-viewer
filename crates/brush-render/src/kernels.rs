@@ -10,6 +10,6 @@ kernel_source_gen!(ProjectVisible {}, project_visible);
 kernel_source_gen!(MapGaussiansToIntersect {}, map_gaussian_to_intersects);
 kernel_source_gen!(GetTileBinEdges {}, get_tile_bin_edges);
 kernel_source_gen!(Rasterize { raster_u32 }, rasterize);
-kernel_source_gen!(RasterizeBackwards {}, rasterize_backwards);
+kernel_source_gen!(RasterizeBackwards { hard_float }, rasterize_backwards);
 kernel_source_gen!(GatherGrads {}, gather_grads);
 kernel_source_gen!(ProjectBackwards {}, project_backwards);

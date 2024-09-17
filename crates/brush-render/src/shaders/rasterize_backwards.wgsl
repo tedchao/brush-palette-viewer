@@ -11,9 +11,16 @@
 @group(0) @binding(5) var<storage, read_write> output: array<vec4f>;
 @group(0) @binding(6) var<storage, read_write> v_output: array<vec4f>;
 
-@group(0) @binding(7) var<storage, read_write> v_xy: array<atomic<f32>>;
-@group(0) @binding(8) var<storage, read_write> v_conics: array<atomic<f32>>;
-@group(0) @binding(9) var<storage, read_write> v_colors: array<atomic<f32>>;
+#ifdef HARD_FLOAT
+    @group(0) @binding(7) var<storage, read_write> v_xy: array<atomic<f32>>;
+    @group(0) @binding(8) var<storage, read_write> v_conics: array<atomic<f32>>;
+    @group(0) @binding(9) var<storage, read_write> v_colors: array<atomic<f32>>;
+#else
+    @group(0) @binding(7) var<storage, read_write> v_xy: array<atomic<u32>>;
+    @group(0) @binding(8) var<storage, read_write> v_conics: array<atomic<u32>>;
+    @group(0) @binding(9) var<storage, read_write> v_colors: array<atomic<u32>>;
+#endif
+
 
 const MIN_WG_SIZE: u32 = 8u;
 const BATCH_SIZE = helpers::TILE_SIZE;
@@ -37,6 +44,7 @@ fn add_bitcast(cur: u32, add: f32) -> u32 {
 }
 
 fn write_grads_atomic(grads: helpers::ProjectedSplat, id: u32) {
+#ifdef HARD_FLOAT
     atomicAdd(&v_xy[id * 2 + 0], grads.x);
     atomicAdd(&v_xy[id * 2 + 1], grads.y);
 
@@ -48,6 +56,66 @@ fn write_grads_atomic(grads: helpers::ProjectedSplat, id: u32) {
     atomicAdd(&v_colors[id * 4 + 1], grads.g);
     atomicAdd(&v_colors[id * 4 + 2], grads.b);
     atomicAdd(&v_colors[id * 4 + 3], grads.a);
+#else
+    // Writing out all these CAS loops individually is terrible but wgsl doesn't have a mechanism to
+    // turn this into a function as ptr<storage> can't be passed to a function...
+    // v_xy.x
+    var old_value = atomicLoad(&v_xy[id * 2 + 0]);
+    loop {
+        let cas = atomicCompareExchangeWeak(&v_xy[id * 2 + 0], old_value, add_bitcast(old_value, grads.x));
+        if cas.exchanged { break; } else { old_value = cas.old_value; }
+    }
+    // v_xy.y
+    old_value = atomicLoad(&v_xy[id * 2 + 1]);
+    loop {
+        let cas = atomicCompareExchangeWeak(&v_xy[id * 2 + 1], old_value, add_bitcast(old_value, grads.y));
+        if cas.exchanged { break; } else { old_value = cas.old_value; }
+    }
+
+    // v_conic.x
+    old_value = atomicLoad(&v_conics[id * 3 + 0]);
+    loop {
+        let cas = atomicCompareExchangeWeak(&v_conics[id * 3 + 0], old_value, add_bitcast(old_value, grads.conic_x));
+        if cas.exchanged { break; } else { old_value = cas.old_value; }
+    }
+    // v_conic.y
+    old_value = atomicLoad(&v_conics[id * 3 + 1]);
+    loop {
+        let cas = atomicCompareExchangeWeak(&v_conics[id * 3 + 1], old_value, add_bitcast(old_value, grads.conic_y));
+        if cas.exchanged { break; } else { old_value = cas.old_value; }
+    }
+    // v_conic.z
+    old_value = atomicLoad(&v_conics[id * 3 + 2]);
+    loop {
+        let cas = atomicCompareExchangeWeak(&v_conics[id * 3 + 2], old_value, add_bitcast(old_value, grads.conic_z));
+        if cas.exchanged { break; } else { old_value = cas.old_value; }
+    }
+
+    // v_color.r
+    old_value = atomicLoad(&v_colors[id * 4 + 0]);
+    loop {
+        let cas = atomicCompareExchangeWeak(&v_colors[id * 4 + 0], old_value, add_bitcast(old_value, grads.r));
+        if cas.exchanged { break; } else { old_value = cas.old_value; }
+    }
+    // v_color.g
+    old_value = atomicLoad(&v_colors[id * 4 + 1]);
+    loop {
+        let cas = atomicCompareExchangeWeak(&v_colors[id * 4 + 1], old_value, add_bitcast(old_value, grads.g));
+        if cas.exchanged { break; } else { old_value = cas.old_value; }
+    }
+    // v_color.b
+    old_value = atomicLoad(&v_colors[id * 4 + 2]);
+    loop {
+        let cas = atomicCompareExchangeWeak(&v_colors[id * 4 + 2], old_value, add_bitcast(old_value, grads.b));
+        if cas.exchanged { break; } else { old_value = cas.old_value; }
+    }
+    // v_color.a
+    old_value = atomicLoad(&v_colors[id * 4 + 3]);
+    loop {
+        let cas = atomicCompareExchangeWeak(&v_colors[id * 4 + 3], old_value, add_bitcast(old_value, grads.a));
+        if cas.exchanged { break; } else { old_value = cas.old_value; }
+    }
+#endif
 }
 
 // kernel function for rasterizing each tile
