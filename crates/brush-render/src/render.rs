@@ -744,7 +744,7 @@ mod tests {
                             img_ref.shape().dims[1] as u32,
                             img_ref.shape().dims[0] as u32,
                         ],
-                        ColorModel::RGBA,
+                        ColorModel::RGB,
                         ChannelDatatype::F32,
                     ),
                 )?;
