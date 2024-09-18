@@ -127,7 +127,6 @@ fn main(
     @builtin(global_invocation_id) global_id: vec3u,
     @builtin(local_invocation_index) local_idx: u32,
     @builtin(subgroup_size) subgroup_size: u32,
-    @builtin(subgroup_id) subgroup_id: u32,
     @builtin(subgroup_invocation_id) subgroup_invocation_id: u32
 ) {
     let background = uniforms.background.xyz;
