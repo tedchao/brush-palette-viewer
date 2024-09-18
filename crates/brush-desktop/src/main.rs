@@ -27,6 +27,8 @@ fn main() -> anyhow::Result<()> {
 
         console_error_panic_hook::set_once();
 
+        wasm_logger::init(wasm_logger::Config::default());
+
         let web_options = eframe::WebOptions {
             wgpu_options,
             ..Default::default()

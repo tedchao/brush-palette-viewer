@@ -41,6 +41,15 @@ pub fn module_to_compiled(
         naga::back::wgsl::write_string(&module, &info, naga::back::wgsl::WriterFlags::empty())
             .expect("failed to convert naga module to source");
 
+    // Dawn annoyingly wants an extra non-standard syntax to enable subgroups,
+    // so just hack this in when running on wasm.
+    #[cfg(target_arch = "wasm32")]
+    let shader_string = if shader_string.contains("subgroupAdd") {
+        "enable subgroups;\n".to_owned() + &shader_string
+    } else {
+        shader_string
+    };
+
     CompiledKernel {
         name: Some(name),
         source: shader_string,

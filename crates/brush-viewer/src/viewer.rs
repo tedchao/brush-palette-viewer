@@ -15,7 +15,7 @@ use wgpu::CommandEncoderDescriptor;
 
 use brush_dataset;
 use brush_train::scene::Scene;
-use brush_train::train::{self, LrConfig, SplatTrainer, TrainConfig};
+use brush_train::train::{LrConfig, SplatTrainer, TrainConfig};
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen_futures::spawn_local;
@@ -161,13 +161,9 @@ async fn train_loop(
         }
 
         splats = new_splats;
-        let _ = train::yield_macro::<Backend>(&device).await;
 
-        if trainer.iter % 4 == 0 {
+        if trainer.iter % 5 == 0 {
             let _span = info_span!("Send batch").entered();
-
-            let _ = train::yield_macro::<Backend>(&device).await;
-
             let msg = ViewerMessage::TrainStep {
                 splats: splats.valid(),
                 loss: stats.loss.into_scalar_async().await.elem::<f32>(),
@@ -182,9 +178,12 @@ async fn train_loop(
                     break; // channel closed, bail.
                 }
             }
-
             egui_ctx.request_repaint();
         }
+
+        // On wasm, yield to the browser.
+        #[cfg(target_arch = "wasm32")]
+        gloo_timers::future::TimeoutFuture::new(0).await;
     }
 
     Ok(())

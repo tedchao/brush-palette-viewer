@@ -99,15 +99,6 @@ where
     xy_grad_norm_accum: Tensor<B, 1>,
 }
 
-pub async fn yield_macro<B: Backend>(device: &B::Device) {
-    // Whenever yielding, flush GPU work so while CPU is idle
-    // the GPU can do some work.
-    B::sync(device, burn::tensor::backend::SyncType::Flush);
-
-    #[cfg(target_arch = "wasm32")]
-    gloo_timers::future::TimeoutFuture::new(0).await;
-}
-
 pub(crate) fn quat_multiply<B: Backend>(q: Tensor<B, 2>, r: Tensor<B, 2>) -> Tensor<B, 2> {
     let num = q.dims()[0];
 
@@ -390,8 +381,6 @@ where
                     false,
                 );
 
-                yield_macro::<B>(device).await;
-
                 renders.push(pred_image);
                 auxes.push(aux);
             }
@@ -435,8 +424,6 @@ where
         };
 
         let mut grads = info_span!("Backward pass", sync_burn = true).in_scope(|| loss.backward());
-
-        yield_macro::<B>(device).await;
 
         // There's an annoying issue in Burn where the scheduler step
         // is a trait function, which requires the backen to be known,
