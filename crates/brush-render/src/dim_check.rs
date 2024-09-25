@@ -34,7 +34,7 @@ impl<'a, R: JitRuntime> DimCheck<'a, R> {
             Some(d) => assert_eq!(d, &tensor.device),
         }
 
-        for (cur_dim, bound) in dims.into_iter().zip(bounds) {
+        for (cur_dim, bound) in dims.iter().zip(bounds) {
             match bound {
                 DimBound::Exact(dim) => assert_eq!(cur_dim, dim),
                 DimBound::Any => (),
