@@ -31,14 +31,11 @@ kernel_source_gen!(SortScan {}, sort_scan);
 kernel_source_gen!(SortScatter {}, sort_scatter);
 
 pub fn radix_argsort(
-    input_keys: JitTensor<WgpuRuntime, u32, 1>,
-    input_values: JitTensor<WgpuRuntime, u32, 1>,
-    n_sort: JitTensor<WgpuRuntime, u32, 1>,
+    input_keys: JitTensor<WgpuRuntime, u32>,
+    input_values: JitTensor<WgpuRuntime, u32>,
+    n_sort: JitTensor<WgpuRuntime, u32>,
     sorting_bits: u32,
-) -> (
-    JitTensor<WgpuRuntime, u32, 1>,
-    JitTensor<WgpuRuntime, u32, 1>,
-) {
+) -> (JitTensor<WgpuRuntime, u32>, JitTensor<WgpuRuntime, u32>) {
     assert_eq!(input_keys.shape.dims[0], input_values.shape.dims[0]);
     assert!(sorting_bits <= 32);
 
@@ -58,14 +55,14 @@ pub fn radix_argsort(
             num_wgs.clone(),
             [BLOCK_SIZE, 1, 1],
         ))) * Tensor::from_ints([BIN_COUNT, 1, 1], device);
-    let num_reduce_wgs: JitTensor<WgpuRuntime, u32, 1> =
+    let num_reduce_wgs: JitTensor<WgpuRuntime, u32> =
         bitcast_tensor(num_reduce_wgs.into_primitive());
 
     let mut cur_keys = input_keys;
     let mut cur_vals = input_values;
 
     for pass in 0..sorting_bits.div_ceil(4) {
-        let uniforms_buffer: JitTensor<WgpuRuntime, u32, 1> = create_uniform_buffer(
+        let uniforms_buffer: JitTensor<WgpuRuntime, u32> = create_uniform_buffer(
             shaders::sort_count::Uniforms { shift: pass * 4 },
             device,
             client,

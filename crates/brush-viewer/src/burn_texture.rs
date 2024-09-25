@@ -7,11 +7,11 @@ use egui::TextureId;
 use wgpu::ImageDataLayout;
 
 fn copy_buffer_to_texture(
-    img: JitTensor<WgpuRuntime, f32, 3>,
+    img: JitTensor<WgpuRuntime, f32>,
     texture: &wgpu::Texture,
     encoder: &mut wgpu::CommandEncoder,
 ) {
-    let [height, width, _] = img.shape.dims;
+    let [height, width, _] = img.shape.dims();
 
     img.client.sync(burn::tensor::backend::SyncType::Flush);
 
@@ -70,7 +70,7 @@ impl BurnTexture {
     pub fn new<B: Backend>(tensor: Tensor<B, 3>, frame: &eframe::Frame) -> Self {
         let render_state = frame.wgpu_render_state().unwrap();
         let device = render_state.device.clone();
-        let [h, w, _] = tensor.shape().dims;
+        let [h, w, _] = tensor.shape().dims();
         let texture = create_texture(glam::uvec2(w as u32, h as u32), device.clone());
         let view = texture.create_view(&Default::default());
         let mut renderer = render_state.renderer.write();
@@ -78,13 +78,13 @@ impl BurnTexture {
         Self { texture, id }
     }
 
-    pub fn update_texture<B: Backend<FloatTensorPrimitive<3> = JitTensor<WgpuRuntime, f32, 3>>>(
+    pub fn update_texture<B: Backend<FloatTensorPrimitive = JitTensor<WgpuRuntime, f32>>>(
         &mut self,
         tensor: Tensor<B, 3>,
         frame: &eframe::Frame,
         encoder: &mut wgpu::CommandEncoder,
     ) {
-        let [h, w, _] = tensor.shape().dims;
+        let [h, w, _] = tensor.shape().dims();
         let size = glam::uvec2(w as u32, h as u32);
 
         let render_state = frame.wgpu_render_state().unwrap();

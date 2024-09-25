@@ -50,14 +50,14 @@ pub fn sh_degree_from_coeffs(coeffs_per_channel: usize) -> usize {
 fn render_forward(
     camera: &Camera,
     img_size: glam::UVec2,
-    means: JitTensor<WgpuRuntime, f32, 2>,
-    log_scales: JitTensor<WgpuRuntime, f32, 2>,
-    quats: JitTensor<WgpuRuntime, f32, 2>,
-    sh_coeffs: JitTensor<WgpuRuntime, f32, 2>,
-    raw_opacities: JitTensor<WgpuRuntime, f32, 1>,
+    means: JitTensor<WgpuRuntime, f32>,
+    log_scales: JitTensor<WgpuRuntime, f32>,
+    quats: JitTensor<WgpuRuntime, f32>,
+    sh_coeffs: JitTensor<WgpuRuntime, f32>,
+    raw_opacities: JitTensor<WgpuRuntime, f32>,
     background: glam::Vec3,
     raster_u32: bool,
-) -> (JitTensor<WgpuRuntime, f32, 3>, RenderAux) {
+) -> (JitTensor<WgpuRuntime, f32>, RenderAux) {
     let device = &means.device.clone();
     let client = means.client.clone();
 
@@ -68,11 +68,11 @@ fn render_forward(
 
     // Check whether dimesions are valid.
     DimCheck::new()
-        .check_dims(&means, ["D".into(), 3.into()])
-        .check_dims(&log_scales, ["D".into(), 3.into()])
-        .check_dims(&quats, ["D".into(), 4.into()])
-        .check_dims(&sh_coeffs, ["D".into(), "C".into()])
-        .check_dims(&raw_opacities, ["D".into()]);
+        .check_dims(&means, &["D".into(), 3.into()])
+        .check_dims(&log_scales, &["D".into(), 3.into()])
+        .check_dims(&quats, &["D".into(), 4.into()])
+        .check_dims(&sh_coeffs, &["D".into(), "C".into()])
+        .check_dims(&raw_opacities, &["D".into()]);
 
     // Divide screen into tiles.
     let tile_bounds = uvec2(
@@ -119,7 +119,7 @@ fn render_forward(
     let client = &means.client.clone();
 
     let (global_from_compact_gid, num_visible) = {
-        let global_from_presort_gid = create_tensor::<u32, 1, _>([num_points], device, client);
+        let global_from_presort_gid = create_tensor([num_points], device, client);
         let depths = create_tensor::<f32, 1, _>([num_points], device, client);
 
         tracing::info_span!("ProjectSplats", sync_burn = true).in_scope(||
@@ -143,7 +143,7 @@ fn render_forward(
         let num_vis_field_offset = offset_of!(shaders::helpers::RenderUniforms, num_visible) / 4;
         let num_visible = bitcast_tensor(BurnBack::int_slice(
             bitcast_tensor(uniforms_buffer.clone()),
-            [num_vis_field_offset..num_vis_field_offset + 1],
+            &[num_vis_field_offset..num_vis_field_offset + 1],
         ));
 
         let (_, global_from_compact_gid) = tracing::info_span!("DepthSort", sync_burn = true)
@@ -193,7 +193,7 @@ fn render_forward(
 
     let num_intersections = bitcast_tensor(BurnBack::int_slice(
         bitcast_tensor(cum_tiles_hit.clone()),
-        [num_points - 1..num_points],
+        &[num_points - 1..num_points],
     ));
 
     let num_tiles = tile_bounds[0] * tile_bounds[1];
@@ -361,7 +361,7 @@ struct GaussianBackwardState {
     quats: NodeID,
     raw_opac: NodeID,
     sh_degree: usize,
-    out_img: JitTensor<WgpuRuntime, f32, 3>,
+    out_img: JitTensor<WgpuRuntime, f32>,
     aux: RenderAux,
 }
 
@@ -448,7 +448,7 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
     }
 }
 
-impl Backward<BurnBack, 3, 6> for RenderBackwards {
+impl Backward<BurnBack, 6> for RenderBackwards {
     type State = GaussianBackwardState;
 
     fn backward(
@@ -465,16 +465,15 @@ impl Backward<BurnBack, 3, 6> for RenderBackwards {
         let img_dimgs = state.out_img.shape.dims;
         let img_size = glam::uvec2(img_dimgs[1] as u32, img_dimgs[0] as u32);
 
-        let v_output = grads.consume::<BurnBack, 3>(&ops.node);
+        let v_output = grads.consume::<BurnBack>(&ops.node);
         let client = &v_output.client;
         let device = &v_output.device;
 
-        let means = checkpointer.retrieve_node_output::<FloatTensor<BurnBack, 2>>(state.means);
-        let quats = checkpointer.retrieve_node_output::<FloatTensor<BurnBack, 2>>(state.quats);
+        let means = checkpointer.retrieve_node_output::<FloatTensor<BurnBack>>(state.means);
+        let quats = checkpointer.retrieve_node_output::<FloatTensor<BurnBack>>(state.quats);
         let log_scales =
-            checkpointer.retrieve_node_output::<FloatTensor<BurnBack, 2>>(state.log_scales);
-        let raw_opac =
-            checkpointer.retrieve_node_output::<FloatTensor<BurnBack, 1>>(state.raw_opac);
+            checkpointer.retrieve_node_output::<FloatTensor<BurnBack>>(state.log_scales);
+        let raw_opac = checkpointer.retrieve_node_output::<FloatTensor<BurnBack>>(state.raw_opac);
 
         let num_points = means.shape.dims[0];
 
@@ -580,28 +579,28 @@ impl Backward<BurnBack, 3, 6> for RenderBackwards {
             ops.parents;
 
         if let Some(node) = mean_parent {
-            grads.register::<BurnBack, 2>(node.id, v_means);
+            grads.register::<BurnBack>(node.id, v_means);
         }
 
         // Register the gradients for the dummy xy input.
         if let Some(node) = xys_parent {
-            grads.register::<BurnBack, 2>(node.id, v_xys_global);
+            grads.register::<BurnBack>(node.id, v_xys_global);
         }
 
         if let Some(node) = log_scales_parent {
-            grads.register::<BurnBack, 2>(node.id, v_scales);
+            grads.register::<BurnBack>(node.id, v_scales);
         }
 
         if let Some(node) = quats_parent {
-            grads.register::<BurnBack, 2>(node.id, v_quats);
+            grads.register::<BurnBack>(node.id, v_quats);
         }
 
         if let Some(node) = coeffs_parent {
-            grads.register::<BurnBack, 2>(node.id, v_coeffs);
+            grads.register::<BurnBack>(node.id, v_coeffs);
         }
 
         if let Some(node) = raw_opacity_parent {
-            grads.register::<BurnBack, 1>(node.id, v_opacities);
+            grads.register::<BurnBack>(node.id, v_opacities);
         }
     }
 }

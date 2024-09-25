@@ -22,12 +22,12 @@ impl<'a, R: JitRuntime> DimCheck<'a, R> {
         }
     }
 
-    pub fn check_dims<E: JitElement, const D: usize>(
+    pub fn check_dims<E: JitElement>(
         mut self,
-        tensor: &JitTensor<R, E, D>,
-        bounds: [DimBound; D],
+        tensor: &JitTensor<R, E>,
+        bounds: &[DimBound],
     ) -> Self {
-        let dims = tensor.shape.dims;
+        let dims = &tensor.shape.dims;
 
         match self.device.as_ref() {
             None => self.device = Some(tensor.device.clone()),
@@ -39,7 +39,7 @@ impl<'a, R: JitRuntime> DimCheck<'a, R> {
                 DimBound::Exact(dim) => assert_eq!(cur_dim, dim),
                 DimBound::Any => (),
                 DimBound::Matching(id) => {
-                    let dim = *self.bound.entry(id).or_insert(cur_dim);
+                    let dim = self.bound.entry(id).or_insert(*cur_dim);
                     assert_eq!(cur_dim, dim);
                 }
             }

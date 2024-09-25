@@ -14,11 +14,11 @@ kernel_source_gen!(PrefixSumAddScannedSums {}, prefix_sum_add_scanned_sums);
 
 use burn_wgpu::JitTensor;
 
-pub fn prefix_sum(input: JitTensor<WgpuRuntime, u32, 1>) -> JitTensor<WgpuRuntime, u32, 1> {
+pub fn prefix_sum(input: JitTensor<WgpuRuntime, u32>) -> JitTensor<WgpuRuntime, u32> {
     let threads_per_group = shaders::prefix_sum_helpers::THREADS_PER_GROUP as usize;
     let num = input.shape.dims[0];
     let client = &input.client;
-    let outputs = create_tensor(input.shape.dims, &input.device, client);
+    let outputs = create_tensor(input.shape.dims::<1>(), &input.device, client);
 
     unsafe {
         client.execute_unchecked(

@@ -18,15 +18,15 @@ pub mod render;
 
 #[derive(Debug, Clone)]
 pub struct RenderAux {
-    pub uniforms_buffer: JitTensor<WgpuRuntime, u32, 1>,
-    pub projected_splats: JitTensor<WgpuRuntime, f32, 2>,
-    pub num_intersections: JitTensor<WgpuRuntime, u32, 1>,
-    pub num_visible: JitTensor<WgpuRuntime, u32, 1>,
-    pub final_index: JitTensor<WgpuRuntime, u32, 2>,
-    pub cum_tiles_hit: JitTensor<WgpuRuntime, u32, 1>,
-    pub tile_bins: JitTensor<WgpuRuntime, u32, 3>,
-    pub compact_gid_from_isect: JitTensor<WgpuRuntime, u32, 1>,
-    pub global_from_compact_gid: JitTensor<WgpuRuntime, u32, 1>,
+    pub uniforms_buffer: JitTensor<WgpuRuntime, u32>,
+    pub projected_splats: JitTensor<WgpuRuntime, f32>,
+    pub num_intersections: JitTensor<WgpuRuntime, u32>,
+    pub num_visible: JitTensor<WgpuRuntime, u32>,
+    pub final_index: JitTensor<WgpuRuntime, u32>,
+    pub cum_tiles_hit: JitTensor<WgpuRuntime, u32>,
+    pub tile_bins: JitTensor<WgpuRuntime, u32>,
+    pub compact_gid_from_isect: JitTensor<WgpuRuntime, u32>,
+    pub global_from_compact_gid: JitTensor<WgpuRuntime, u32>,
 }
 
 #[derive(Debug, Clone)]

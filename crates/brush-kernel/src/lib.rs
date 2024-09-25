@@ -126,9 +126,9 @@ macro_rules! kernel_source_gen {
 
 // Convert a tensors type. This only reinterprets the data, and doesn't
 // do any actual conversions.
-pub fn bitcast_tensor<const D: usize, R: JitRuntime, EIn: JitElement, EOut: JitElement>(
-    tensor: JitTensor<R, EIn, D>,
-) -> JitTensor<R, EOut, D> {
+pub fn bitcast_tensor<R: JitRuntime, EIn: JitElement, EOut: JitElement>(
+    tensor: JitTensor<R, EIn>,
+) -> JitTensor<R, EOut> {
     JitTensor::new(
         tensor.client,
         tensor.handle,
@@ -143,8 +143,8 @@ pub fn create_tensor<E: JitElement, const D: usize, R: JitRuntime>(
     shape: [usize; D],
     device: &R::Device,
     client: &ComputeClient<R::Server, R::Channel>,
-) -> JitTensor<R, E, D> {
-    let shape = Shape::new(shape);
+) -> JitTensor<R, E> {
+    let shape = Shape::from(shape.to_vec());
     let bufsize = shape.num_elements() * core::mem::size_of::<E>();
     let buffer = client.empty(bufsize);
 
@@ -154,8 +154,7 @@ pub fn create_tensor<E: JitElement, const D: usize, R: JitRuntime>(
         use burn_jit::JitBackend;
         // for tests - make doubly sure we're not accidentally relying on values
         // being initialized to zero by adding in some random noise.
-        let f =
-            JitTensor::<R, f32, D>::new_contiguous(client.clone(), device.clone(), shape, buffer);
+        let f = JitTensor::<R, f32>::new_contiguous(client.clone(), device.clone(), shape, buffer);
         bitcast_tensor(JitBackend::<R, f32, i32>::float_add_scalar(f, -12345.0))
     }
 
@@ -167,7 +166,7 @@ pub fn create_uniform_buffer<R: JitRuntime, T: Pod>(
     val: T,
     device: &R::Device,
     client: &ComputeClient<R::Server, R::Channel>,
-) -> JitTensor<R, u32, 1> {
+) -> JitTensor<R, u32> {
     let bytes = bytemuck::bytes_of(&val);
     let shape = bytes.len() / 4;
 
@@ -199,9 +198,9 @@ impl CubeTask for CreateDispatchBuffer {
 }
 
 pub fn create_dispatch_buffer<R: JitRuntime>(
-    thread_nums: JitTensor<R, u32, 1>,
+    thread_nums: JitTensor<R, u32>,
     wg_size: [u32; 3],
-) -> JitTensor<R, u32, 1> {
+) -> JitTensor<R, u32> {
     let client = thread_nums.client;
     let uniforms_buffer = create_uniform_buffer::<R, _>(
         wg::Uniforms {
