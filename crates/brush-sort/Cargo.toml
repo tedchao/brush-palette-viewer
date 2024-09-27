@@ -15,6 +15,9 @@ naga_oil.workspace = true
 bytemuck.workspace = true
 naga.workspace = true
 
+[dev-dependencies]
+rand.workspace = true
+
 [build-dependencies]
 brush-wgsl.path = "../brush-wgsl"
 miette.workspace = true

@@ -711,6 +711,7 @@ dependencies = [
  "miette",
  "naga",
  "naga_oil",
+ "rand",
  "tracing",
 ]
 
