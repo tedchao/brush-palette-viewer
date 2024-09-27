@@ -29,6 +29,7 @@ miette.workspace = true
 
 [dev-dependencies]
 rerun.workspace = true
+brush-rerun.path = "../brush-rerun"
 divan = "0.1.14"
 
 [[bench]]

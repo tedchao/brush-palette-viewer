@@ -1,0 +1,11 @@
+[package]
+name = "brush-rerun"
+edition.workspace = true
+version.workspace = true
+readme.workspace = true
+license.workspace = true
+
+[dependencies]
+burn.workspace = true
+bytemuck.workspace = true
+rerun.workspace = true

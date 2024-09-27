@@ -677,6 +677,7 @@ dependencies = [
  "assert_approx_eq",
  "brush-kernel",
  "brush-prefix-sum",
+ "brush-rerun",
  "brush-sort",
  "brush-wgsl",
  "burn",
@@ -692,6 +693,15 @@ dependencies = [
  "rerun",
  "safetensors",
  "tracing",
+]
+
+[[package]]
+name = "brush-rerun"
+version = "0.1.0"
+dependencies = [
+ "burn",
+ "bytemuck",
+ "rerun",
 ]
 
 [[package]]
@@ -733,6 +743,7 @@ dependencies = [
  "async-stream",
  "brush-dataset",
  "brush-render",
+ "brush-rerun",
  "brush-train",
  "burn",
  "burn-wgpu",

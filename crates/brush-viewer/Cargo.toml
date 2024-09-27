@@ -25,6 +25,7 @@ wgpu.workspace = true
 ply-rs.workspace = true
 tracing-subscriber.workspace = true
 rerun = { workspace = true, optional = true }
+brush-rerun = { path = "../brush-rerun", optional = true }
 
 web-time.workspace = true
 futures-lite.workspace = true
@@ -48,7 +49,7 @@ gloo-timers.workspace = true
 
 [features]
 tracy = ["dep:tracing-tracy"]
-rerun = ["dep:rerun"]
+rerun = ["dep:rerun", "dep:brush-rerun"]
 
 [package.metadata.wasm-pack.profile.release.wasm-bindgen]
 debug-js-glue = false
