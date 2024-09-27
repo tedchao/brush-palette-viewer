@@ -152,15 +152,11 @@ pub fn radix_argsort(
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
-    use std::{
-        fs::File,
-        io::{BufReader, Read},
-    };
-
     use crate::radix_argsort;
     use brush_kernel::bitcast_tensor;
     use burn::tensor::{Int, Tensor};
     use burn_wgpu::{JitBackend, WgpuRuntime};
+    use rand::Rng;
 
     type Backend = JitBackend<WgpuRuntime, f32, i32>;
 
@@ -233,18 +229,21 @@ mod tests {
 
     #[test]
     fn test_sorting_big() {
-        let file = File::open("sort_test.txt").unwrap();
-        let mut reader = BufReader::new(file);
-        let mut content = String::new();
-        reader.read_to_string(&mut content).unwrap();
+        // Simulate some data as one might find for a bunch of gaussians.
+        let mut rng = rand::thread_rng();
+        let mut keys_inp = Vec::new();
+        for i in 0..10000 {
+            let start = rng.gen_range(i.. i + 150);
+            let end = rng.gen_range(start..start + 250);
 
-        // Split on newlines to get each record
-        let keys_inp: Vec<_> = content
-            .split(',')
-            .map(|field| field.trim().parse().unwrap())
-            .collect();
+            for j in start..end {
+                if rng.gen::<f32>() < 0.5 {
+                    keys_inp.push(j);
+                }
+            }
+        }
 
-        let values_inp: Vec<_> = keys_inp.iter().copied().map(|x| x * 2 + 5).collect();
+        let values_inp: Vec<_> = keys_inp.iter().map(|&x| x * 2 + 5).collect();
 
         let device = Default::default();
         let keys = bitcast_tensor(
@@ -263,8 +262,8 @@ mod tests {
             Tensor::<Backend, 1, Int>::from_primitive(bitcast_tensor(ret_keys)).to_data();
         let ret_values =
             Tensor::<Backend, 1, Int>::from_primitive(bitcast_tensor(ret_values)).to_data();
+        
         let inds = argsort(&keys_inp);
-
         let ref_keys: Vec<u32> = inds.iter().map(|&i| keys_inp[i]).collect();
         let ref_values: Vec<u32> = inds.iter().map(|&i| values_inp[i]).collect();
 
