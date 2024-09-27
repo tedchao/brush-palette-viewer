@@ -9,5 +9,7 @@ mod splat_import;
 #[cfg(feature = "rerun")]
 mod visualize;
 
+mod splat_view;
+
 pub mod viewer;
 pub mod wgpu_config;

@@ -20,6 +20,7 @@ image.workspace = true
 anyhow.workspace = true
 eframe.workspace = true
 egui.workspace = true
+egui_extras.workspace = true
 tracing.workspace = true
 wgpu.workspace = true
 ply-rs.workspace = true

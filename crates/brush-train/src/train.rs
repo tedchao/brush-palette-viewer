@@ -425,13 +425,6 @@ where
 
         let mut grads = info_span!("Backward pass", sync_burn = true).in_scope(|| loss.backward());
 
-        // There's an annoying issue in Burn where the scheduler step
-        // is a trait function, which requires the backen to be known,
-        // which is otherwise unconstrained, leading to needing this ugly call.
-        let lr_mean = LrScheduler::<B>::step(&mut self.sched_mean);
-        let lr_opac = LrScheduler::<B>::step(&mut self.sched_opac);
-        let lr_rest = LrScheduler::<B>::step(&mut self.sched_rest);
-
         let mut splats = info_span!("Optimizer step", sync_burn = true).in_scope(|| {
             // Burn doesn't have a great way to use multiple different learning rates
             // or different optimizers. The current best way seems to be to "distribute" the gradients
@@ -463,9 +456,9 @@ where
             );
 
             let mut splats = splats;
-            splats = self.optim.step(lr_mean, splats, grad_means);
-            splats = self.optim.step(lr_opac, splats, grad_opac);
-            splats = self.optim.step(lr_rest, splats, grad_rest);
+            splats = self.optim.step(self.sched_mean.step(), splats, grad_means);
+            splats = self.optim.step(self.sched_opac.step(), splats, grad_opac);
+            splats = self.optim.step(self.sched_rest.step(), splats, grad_rest);
             splats
         });
 
@@ -536,9 +529,9 @@ where
             pred_images,
             auxes,
             loss,
-            lr_mean,
-            lr_opac,
-            lr_rest,
+            lr_mean: self.sched_mean.step(),
+            lr_opac: self.sched_opac.step(),
+            lr_rest: self.sched_rest.step(),
             iter: self.iter,
         };
 

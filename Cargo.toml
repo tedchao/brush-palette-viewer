@@ -62,8 +62,9 @@ burn-wgpu = { git = "https://github.com/tracel-ai/burn", default-features = fals
 
 # Rerun currently has to be at head to be compatible with other egui/eframe. Once version 0.19
 # is released this requirement should go away.
-egui = { version = "0.28.1" }
-eframe = { version = "0.28.1", default-features = false, features = [
+egui = { version = "0.29.0" }
+egui_extras = { version = "0.29.0" }
+eframe = { version = "0.29.0", default-features = false, features = [
     "wgpu",
     "android-game-activity",
 ] }
@@ -82,6 +83,7 @@ wasm-logger = "0.2.0"
 
 [patch.crates-io]
 egui = { git = "https://github.com/emilk/egui" }
+egui_extras = { git = "https://github.com/emilk/egui" }
 eframe = { git = "https://github.com/emilk/egui" }
 
 # Overrides to use wgpu branch with float atomics.
