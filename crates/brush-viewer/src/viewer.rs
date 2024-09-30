@@ -80,17 +80,17 @@ pub struct Viewer {
     splat_view: SplatView,
 
     file_path: String,
-    target_train_resolution: u32,
-    max_frames: usize,
+
+    target_train_resolution: Option<u32>,
+    max_frames: Option<usize>,
+    train_state: TrainState,
 
     constant_redraww: bool,
-
-    train_state: TrainState,
 }
 
 struct TrainArgs {
-    frame_count: usize,
-    target_resolution: u32,
+    frame_count: Option<usize>,
+    target_resolution: Option<u32>,
 }
 
 async fn load_ply_loop(
@@ -135,11 +135,8 @@ async fn train_loop(
         LrConfig::new().with_max_lr(2e-2).with_min_lr(1e-2),
     );
 
-    let views = brush_dataset::read_dataset(
-        data,
-        Some(train_args.frame_count),
-        Some(train_args.target_resolution),
-    )?;
+    let views =
+        brush_dataset::read_dataset(data, train_args.frame_count, train_args.target_resolution)?;
     let msg = ViewerMessage::Viewpoints(views.clone());
     sender.send(msg).await.unwrap();
 
@@ -260,12 +257,12 @@ impl Viewer {
             receiver: None,
             last_message: None,
             train_state: TrainState::new(),
+            target_train_resolution: None,
+            max_frames: None,
             ctx: cc.egui_ctx.clone(),
             splat_view: SplatView::new(),
             device,
             file_path: "/path/to/file".to_string(),
-            target_train_resolution: 800,
-            max_frames: 32,
             constant_redraww: false,
         }
     }
@@ -347,11 +344,27 @@ impl eframe::App for Viewer {
                 ui.add_space(10.0);
 
                 ui.heading("Train settings");
-                ui.add(
-                    Slider::new(&mut self.target_train_resolution, 32..=2048)
-                        .text("Target train resolution"),
-                );
-                ui.add(Slider::new(&mut self.max_frames, 1..=256).text("Max frames"));
+
+                let mut limit_res = self.target_train_resolution.is_some();
+                if ui
+                    .checkbox(&mut limit_res, "Limit training resolution")
+                    .clicked()
+                {
+                    self.target_train_resolution = if limit_res { Some(800) } else { None };
+                }
+
+                if let Some(target_res) = self.target_train_resolution.as_mut() {
+                    ui.add(Slider::new(target_res, 32..=2048));
+                }
+
+                let mut limit_frames = self.max_frames.is_some();
+                if ui.checkbox(&mut limit_frames, "Limit max frames").clicked() {
+                    self.max_frames = if limit_frames { Some(32) } else { None };
+                }
+
+                if let Some(max_frames) = self.max_frames.as_mut() {
+                    ui.add(Slider::new(max_frames, 1..=256));
+                }
 
                 ui.add_space(15.0);
 
