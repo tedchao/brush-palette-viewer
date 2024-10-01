@@ -21,14 +21,14 @@ pub struct Splats<B: Backend> {
     pub xys_dummy: Tensor<B, 2>,
 }
 
-fn map_param<B: Backend, const D: usize>(
-    tensor: &mut Param<Tensor<B, D>>,
-    f: impl Fn(Tensor<B, D>) -> Tensor<B, D>,
-) {
-    *tensor = tensor.clone().map(|x| f(x).detach().require_grad());
-}
-
 impl<B: Backend> Splats<B> {
+    pub fn map_param<const D: usize>(
+        tensor: &mut Param<Tensor<B, D>>,
+        f: impl Fn(Tensor<B, D>) -> Tensor<B, D>,
+    ) {
+        *tensor = tensor.clone().map(|x| f(x).detach().require_grad());
+    }
+
     pub fn init_random(num_points: usize, aabb_scale: f32, device: &Device<B>) -> Splats<B> {
         let extent = (aabb_scale as f64) / 2.0;
         let means = Tensor::random(
@@ -116,23 +116,23 @@ impl<B: Backend> Splats<B> {
         raw_opacities: Tensor<B, 1>,
         log_scales: Tensor<B, 2>,
     ) {
-        map_param(&mut self.means, |x| Tensor::cat(vec![x, means.clone()], 0));
-        map_param(&mut self.rotation, |x| {
+        Self::map_param(&mut self.means, |x| Tensor::cat(vec![x, means.clone()], 0));
+        Self::map_param(&mut self.rotation, |x| {
             Tensor::cat(vec![x, rotations.clone()], 0)
         });
-        map_param(&mut self.sh_coeffs, |x| {
+        Self::map_param(&mut self.sh_coeffs, |x| {
             Tensor::cat(vec![x, sh_coeffs.clone()], 0)
         });
-        map_param(&mut self.raw_opacity, |x| {
+        Self::map_param(&mut self.raw_opacity, |x| {
             Tensor::cat(vec![x, raw_opacities.clone()], 0)
         });
-        map_param(&mut self.log_scales, |x| {
+        Self::map_param(&mut self.log_scales, |x| {
             Tensor::cat(vec![x, log_scales.clone()], 0)
         });
     }
 
     pub fn norm_rotations(&mut self) {
-        map_param(&mut self.rotation, |x| {
+        Self::map_param(&mut self.rotation, |x| {
             x.clone() / Tensor::clamp_min(Tensor::sum_dim(x.powf_scalar(2.0), 1).sqrt(), 1e-6)
         });
     }

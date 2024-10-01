@@ -1,25 +1,17 @@
 use anyhow::Result;
 use brush_render::{gaussian_splats::Splats, AutodiffBackend, Backend};
+use brush_rerun::{BurnToImage, BurnToRerun};
 use brush_train::{scene::Scene, train::TrainStepStats};
 use burn::tensor::{activation::sigmoid, ElementConversion, Tensor};
-use image::{DynamicImage, GenericImageView};
-use rerun::{Color, FillMode, RecordingStream, TensorBuffer, TensorDimension};
+use image::GenericImageView;
+use rerun::{Color, FillMode, RecordingStream};
 
 pub struct VisualizeTools {
     rec: RecordingStream,
 }
 
-async fn tensor_to_image<B: Backend>(tensor: Tensor<B, 3>) -> DynamicImage {
-    image::DynamicImage::from(
-        image::Rgba32FImage::from_raw(
-            tensor.shape().dims[1] as u32,
-            tensor.shape().dims[0] as u32,
-            tensor.into_data_async().await.to_vec::<f32>().unwrap(),
-        )
-        .unwrap(),
-    )
-}
-
+// TODO: Not all these reads are async, and also, are still being done sequential?
+// Can we not run the readbacks concurrently?
 impl VisualizeTools {
     pub fn new() -> Self {
         let rec = rerun::RecordingStreamBuilder::new("brush_visualize")
@@ -67,10 +59,9 @@ impl VisualizeTools {
             .await
             .to_vec::<f32>()
             .unwrap();
-        let rotations = rotations.chunks(4).map(|q| {
-            let rotation = glam::Quat::from_array([q[1], q[2], q[3], q[0]]);
-            rotation
-        });
+        let rotations = rotations
+            .chunks(4)
+            .map(|q| glam::Quat::from_array([q[1], q[2], q[3], q[0]]));
 
         let radii = radii.chunks(3).map(|r| glam::vec3(r[0], r[1], r[2]));
 
@@ -146,42 +137,24 @@ impl VisualizeTools {
 
         // Not sure what's best here, atm let's just log the first batch render only.
         // Maybe could do an average instead?
-        let aux = &stats.auxes[0];
+        let main_aux = &stats.auxes[0];
+        let main_gt_image = gt_image.slice([0..1]).squeeze(0);
+        let main_pred_image = stats.pred_images.clone().slice([0..1]).squeeze(0);
 
         rec.log(
             "splats/num_intersects",
-            &rerun::Scalar::new(aux.read_num_intersections() as f64),
+            &rerun::Scalar::new(main_aux.read_num_intersections() as f64),
         )?;
         rec.log(
             "splats/num_visible",
-            &rerun::Scalar::new(aux.read_num_visible() as f64),
+            &rerun::Scalar::new(main_aux.read_num_visible() as f64),
         )?;
-
-        let tile_depth = aux.read_tile_depth();
         rec.log(
             "images/tile depth",
-            &rerun::Tensor::new(rerun::TensorData::new(
-                tile_depth
-                    .dims()
-                    .map(|x| TensorDimension::unnamed(x as u64))
-                    .to_vec(),
-                TensorBuffer::I32(tile_depth.into_data().to_vec::<i32>().unwrap().into()),
-            )),
+            &main_aux.read_tile_depth().into_rerun(),
         )?;
-
-        let main_gt_image = tensor_to_image(gt_image.slice([0..1]).squeeze(0)).await;
-        let main_pred_image =
-            tensor_to_image(stats.pred_images.clone().slice([0..1]).squeeze(0)).await;
-
-        rec.log(
-            "images/predicted",
-            &rerun::Image::from_image(main_pred_image.to_rgba8())?,
-        )?;
-        rec.log(
-            "images/ground truth",
-            &rerun::Image::from_image(main_gt_image.to_rgba8())?,
-        )?;
-
+        rec.log("images/ground truth", &main_gt_image.into_rerun_image())?;
+        rec.log("images/predicted", &main_pred_image.into_rerun_image())?;
         Ok(())
     }
 }
