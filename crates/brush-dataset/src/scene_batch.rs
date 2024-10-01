@@ -1,5 +1,5 @@
-use brush_render::camera::Camera;
-use brush_render::Backend;
+use brush_train::scene::SceneView;
+use burn::prelude::Backend;
 use burn::tensor::Tensor;
 
 use brush_train::scene::Scene;
@@ -7,11 +7,9 @@ use brush_train::scene::SceneBatch;
 
 use crate::image_to_tensor;
 
-pub struct SceneLoader<B: Backend> {
-    images: Vec<Tensor<B, 3>>,
-    cameras: Vec<Camera>,
+pub struct SceneLoader {
+    views: Vec<SceneView>,
     index: usize,
-    batch_size: usize,
 }
 
 // Simple rust port of https://github.com/RondeSC/Miller_Shuffle_Algo/blob/main/MillerShuffle.c,
@@ -51,26 +49,22 @@ fn miller_shuffle(inx: usize, shuffle_id: usize, list_size: usize) -> usize {
     si
 }
 
-impl<B: Backend> SceneLoader<B> {
-    pub fn new(scene: Scene, device: &B::Device, batch_size: usize) -> Self {
-        let burn_tensors = scene
-            .views
-            .iter()
-            .filter_map(|x| image_to_tensor(&x.image, device).ok())
-            .collect::<Vec<_>>();
-
+impl SceneLoader {
+    pub fn new(scene: Scene) -> Self {
         Self {
-            images: burn_tensors,
-            cameras: scene.views.iter().map(|x| x.camera.clone()).collect(),
+            views: scene.views.clone(),
             index: 0,
-            batch_size,
         }
     }
 
-    pub fn next_batch(&mut self) -> SceneBatch<B> {
-        let len = self.images.len();
+    pub fn next_batch<B: Backend>(
+        &mut self,
+        batch_size: usize,
+        device: &B::Device,
+    ) -> SceneBatch<B> {
+        let len = self.views.len();
 
-        let indexes: Vec<_> = (0..self.batch_size)
+        let indexes: Vec<_> = (0..batch_size)
             .map(|_| {
                 let list_index = miller_shuffle(self.index % len, self.index / len, len);
                 self.index += 1;
@@ -80,11 +74,15 @@ impl<B: Backend> SceneLoader<B> {
 
         let cameras = indexes
             .iter()
-            .map(|&x| self.cameras[x as usize].clone())
+            .map(|&x| self.views[x as usize].camera.clone())
             .collect();
+
         let selected_tensors = indexes
             .iter()
-            .map(|&x| self.images[x as usize].clone())
+            .map(|&x| {
+                image_to_tensor(&self.views[x as usize].image, device)
+                    .expect("Failed to upload img")
+            })
             .collect::<Vec<_>>();
 
         let batch_tensor = Tensor::stack(selected_tensors, 0);

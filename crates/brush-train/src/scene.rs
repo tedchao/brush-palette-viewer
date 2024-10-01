@@ -1,5 +1,5 @@
-use brush_render::{camera::Camera, Backend};
-use burn::tensor::Tensor;
+use brush_render::camera::Camera;
+use burn::{prelude::Backend, tensor::Tensor};
 
 #[derive(Debug, Default, Clone)]
 pub struct SceneView {

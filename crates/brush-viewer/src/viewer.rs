@@ -148,13 +148,13 @@ async fn train_loop(
 
     let mut splats = config.initial_model_config.init::<Autodiff<Wgpu>>(&device);
 
-    let mut dataloader = SceneLoader::new(scene, &device, 1);
+    let mut dataloader = SceneLoader::new(scene);
     let mut trainer = SplatTrainer::new(splats.num_splats(), &config, &splats);
 
     loop {
         let batch = {
             let _span = info_span!("Get batch").entered();
-            dataloader.next_batch()
+            dataloader.next_batch(1, &device)
         };
 
         #[cfg(feature = "rerun")]
