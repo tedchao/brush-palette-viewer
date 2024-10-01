@@ -14,6 +14,10 @@ pub struct SceneLoader<B: Backend> {
     batch_size: usize,
 }
 
+// Simple rust port of https://github.com/RondeSC/Miller_Shuffle_Algo/blob/main/MillerShuffle.c,
+// "Miller Shuffle Algorithm E variant".
+// Copyright 2022 Ronald R. Miller
+// http://www.apache.org/licenses/LICENSE-2.0
 fn miller_shuffle(inx: usize, shuffle_id: usize, list_size: usize) -> usize {
     let p1: usize = 24317;
     let p2: usize = 32141;

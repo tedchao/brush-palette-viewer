@@ -70,9 +70,9 @@ pub fn read_dataset(
             })
             .collect();
         let mut transform = glam::Mat4::from_cols_slice(&transform_matrix).transpose();
-        // TODO: This is all so strange? How did this even happen?
-        // The original comment here makes no sense, we're transforming between some axis spaces
-        // but without changing the transform, which can't be right.
+
+        // Swap basis to go from z-up, left handed (a la OpenCV) to our kernel format
+        // (right-handed, y-down).
         transform.y_axis *= -1.0;
         transform.z_axis *= -1.0;
 

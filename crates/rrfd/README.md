@@ -1,4 +1,4 @@
-## rrfd - realy rusty file reader
+## rrfd - really rusty file reader
 
 `rrfd` is `rfd` + an android file picker. It uses some JNI code to start a new activity that returns a file name and the file contents.
 
