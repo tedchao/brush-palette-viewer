@@ -2,6 +2,7 @@ use anyhow::Context;
 use async_channel::{Receiver, Sender, TryRecvError, TrySendError};
 use brush_dataset::scene_batch::SceneLoader;
 use brush_render::gaussian_splats::{RandomSplatsConfig, Splats};
+use burn::lr_scheduler::exponential::ExponentialLrSchedulerConfig;
 use burn::tensor::ElementConversion;
 use burn::{backend::Autodiff, module::AutodiffModule};
 use burn_wgpu::{RuntimeOptions, Wgpu, WgpuDevice};
@@ -13,7 +14,7 @@ use web_time::Instant;
 
 use brush_dataset;
 use brush_train::scene::{Scene, SceneView};
-use brush_train::train::{LrConfig, SplatTrainer, TrainConfig};
+use brush_train::train::{SplatTrainer, TrainConfig};
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen_futures::spawn_local;
@@ -128,9 +129,7 @@ async fn train_loop(
     train_args: TrainArgs,
 ) -> anyhow::Result<()> {
     let config = TrainConfig::new(
-        LrConfig::new().with_max_lr(4e-5).with_min_lr(2e-5),
-        LrConfig::new().with_max_lr(8e-2).with_min_lr(2e-2),
-        LrConfig::new().with_max_lr(2e-2).with_min_lr(1e-2),
+        ExponentialLrSchedulerConfig::new(1.6e-4, 1e-2f64.powf(1.0 / 30000.0)),
         RandomSplatsConfig::new(),
     );
 

@@ -1,7 +1,7 @@
 use anyhow::Result;
 use brush_render::gaussian_splats::{RandomSplatsConfig, Splats};
 use brush_render::{AutodiffBackend, Backend, RenderAux};
-use burn::lr_scheduler::linear::{LinearLrScheduler, LinearLrSchedulerConfig};
+use burn::lr_scheduler::exponential::{ExponentialLrScheduler, ExponentialLrSchedulerConfig};
 use burn::lr_scheduler::LrScheduler;
 use burn::optim::adaptor::OptimizerAdaptor;
 use burn::optim::Adam;
@@ -14,14 +14,6 @@ use burn::{
 use tracing::info_span;
 
 use crate::scene::SceneBatch;
-
-#[derive(Config)]
-pub struct LrConfig {
-    #[config(default = 3e-3)]
-    min_lr: f64,
-    #[config(default = 3e-3)]
-    max_lr: f64,
-}
 
 #[derive(Config)]
 pub struct TrainConfig {
@@ -47,7 +39,7 @@ pub struct TrainConfig {
 
     // threshold of positional gradient norm for densifying gaussians
     // TODO: Abs grad.
-    #[config(default = 0.0004)]
+    #[config(default = 0.0001)]
     densify_grad_thresh: f32,
 
     // below this size, gaussians are *duplicated*, otherwise split.
@@ -64,9 +56,18 @@ pub struct TrainConfig {
     // TODO: Add a resolution schedule.
 
     // Learning rates.
-    lr_mean: LrConfig,
-    lr_opac: LrConfig,
-    lr_rest: LrConfig,
+    lr_mean: ExponentialLrSchedulerConfig,
+    #[config(default = 0.0025)]
+    lr_coeffs: f64,
+
+    #[config(default = 0.05)]
+    lr_opac: f64,
+
+    #[config(default = 0.005)]
+    lr_scale: f64,
+
+    #[config(default = 0.001)]
+    lr_rotation: f64,
 
     #[config(default = 5000)]
     schedule_steps: u32,
@@ -88,8 +89,6 @@ pub struct TrainStepStats<B: AutodiffBackend> {
     pub auxes: Vec<RenderAux>,
     pub loss: Tensor<B, 1>,
     pub lr_mean: f64,
-    pub lr_opac: f64,
-    pub lr_rest: f64,
     pub iter: u32,
 }
 
@@ -101,12 +100,9 @@ where
 
     config: TrainConfig,
 
-    sched_mean: LinearLrScheduler,
-    sched_opac: LinearLrScheduler,
-    sched_rest: LinearLrScheduler,
-
-    opt_config: AdamConfig,
+    sched_mean: ExponentialLrScheduler,
     optim: OptimizerAdaptor<Adam<B::InnerBackend>, Splats<B>, B>,
+    opt_config: AdamConfig,
 
     // Helper tensors for accumulating the viewspace_xy gradients and the number
     // of observations per gaussian. Used in pruning and densification.
@@ -149,35 +145,12 @@ where
 
         let device = &splats.means.device();
 
-        let sched_mean = LinearLrSchedulerConfig::new(
-            config.lr_mean.max_lr,
-            config.lr_mean.min_lr,
-            config.schedule_steps as usize,
-        )
-        .init();
-
-        let sched_opac = LinearLrSchedulerConfig::new(
-            config.lr_opac.max_lr,
-            config.lr_opac.min_lr,
-            config.schedule_steps as usize,
-        )
-        .init();
-
-        let sched_rest = LinearLrSchedulerConfig::new(
-            config.lr_rest.max_lr,
-            config.lr_rest.min_lr,
-            config.schedule_steps as usize,
-        )
-        .init();
-
         Self {
             config: config.clone(),
             iter: 0,
+            sched_mean: config.lr_mean.init(),
             optim,
             opt_config,
-            sched_mean,
-            sched_opac,
-            sched_rest,
             grad_2d_accum: Tensor::zeros([num_points], device),
             xy_grad_counts: Tensor::zeros([num_points], device),
         }
@@ -322,34 +295,41 @@ where
         let mut grads = info_span!("Backward pass", sync_burn = true).in_scope(|| loss.backward());
 
         let mut splats = info_span!("Optimizer step", sync_burn = true).in_scope(|| {
+            let mut splats = splats;
             let mut grad_means = GradientsParams::new();
             grad_means.register(
                 splats.means.id.clone(),
                 splats.means.grad_remove(&mut grads).unwrap(),
             );
+            splats = self.optim.step(self.sched_mean.step(), splats, grad_means);
+
             let mut grad_opac = GradientsParams::new();
             grad_opac.register(
                 splats.raw_opacity.id.clone(),
                 splats.raw_opacity.grad_remove(&mut grads).unwrap(),
             );
-            let mut grad_rest = GradientsParams::new();
-            grad_rest.register(
+            splats = self.optim.step(self.config.lr_opac, splats, grad_opac);
+
+            let mut grad_coeff = GradientsParams::new();
+            grad_coeff.register(
                 splats.sh_coeffs.id.clone(),
                 splats.sh_coeffs.grad_remove(&mut grads).unwrap(),
             );
-            grad_rest.register(
+            splats = self.optim.step(self.config.lr_coeffs, splats, grad_coeff);
+
+            let mut grad_rot = GradientsParams::new();
+            grad_rot.register(
                 splats.rotation.id.clone(),
                 splats.rotation.grad_remove(&mut grads).unwrap(),
             );
-            grad_rest.register(
+            splats = self.optim.step(self.config.lr_rotation, splats, grad_rot);
+
+            let mut grad_scale = GradientsParams::new();
+            grad_scale.register(
                 splats.log_scales.id.clone(),
                 splats.log_scales.grad_remove(&mut grads).unwrap(),
             );
-
-            let mut splats = splats;
-            splats = self.optim.step(self.sched_mean.step(), splats, grad_means);
-            splats = self.optim.step(self.sched_opac.step(), splats, grad_opac);
-            splats = self.optim.step(self.sched_rest.step(), splats, grad_rest);
+            splats = self.optim.step(self.config.lr_scale, splats, grad_scale);
             splats
         });
 
@@ -483,8 +463,6 @@ where
             auxes,
             loss,
             lr_mean: self.sched_mean.step(),
-            lr_opac: self.sched_opac.step(),
-            lr_rest: self.sched_rest.step(),
             iter: self.iter,
         };
 
