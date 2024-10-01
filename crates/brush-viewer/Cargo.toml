@@ -47,7 +47,8 @@ web-sys.workspace = true
 gloo-timers.workspace = true
 
 [features]
-tracy = ["dep:tracing-tracy"]
+tracy = ["dep:tracing-tracy", "tracing"]
+tracing = []
 rerun = ["dep:rerun"]
 
 [package.metadata.wasm-pack.profile.release.wasm-bindgen]

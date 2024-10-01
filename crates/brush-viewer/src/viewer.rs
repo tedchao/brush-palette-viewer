@@ -420,7 +420,7 @@ impl Viewer {
         ui.add(Hyperlink::from_label_and_url(label, url).open_in_new_tab(true));
     }
 
-    fn tracy_debug_ui(&mut self, ui: &mut egui::Ui) {
+    fn tracing_debug_ui(&mut self, ui: &mut egui::Ui) {
         ui.checkbox(&mut self.constant_redraww, "Constant redraw");
         ui.checkbox(&mut self.splat_view.sync_render, "Sync post render");
 
@@ -491,8 +491,8 @@ impl eframe::App for Viewer {
                 }
             }
 
-            #[cfg(feature = "tracy")]
-            self.tracy_debug_ui(ui);
+            #[cfg(feature = "tracing")]
+            self.tracing_debug_ui(ui);
 
             if let Some(message) = self.last_message.as_ref() {
                 match message {

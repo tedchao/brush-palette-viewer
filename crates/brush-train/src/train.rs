@@ -170,12 +170,14 @@ where
             config.schedule_steps as usize,
         )
         .init();
+
         let sched_opac = LinearLrSchedulerConfig::new(
             config.lr_opac.max_lr,
             config.lr_opac.min_lr,
             config.schedule_steps as usize,
         )
         .init();
+
         let sched_rest = LinearLrSchedulerConfig::new(
             config.lr_rest.max_lr,
             config.lr_rest.min_lr,
@@ -428,16 +430,7 @@ where
         // There's an annoying issue in Burn where the scheduler step
         // is a trait function, which requires the backen to be known,
         // which is otherwise unconstrained, leading to needing this ugly call.
-        let lr_mean = LrScheduler::<B>::step(&mut self.sched_mean);
-        let lr_opac = LrScheduler::<B>::step(&mut self.sched_opac);
-        let lr_rest = LrScheduler::<B>::step(&mut self.sched_rest);
-
         let mut splats = info_span!("Optimizer step", sync_burn = true).in_scope(|| {
-            // Burn doesn't have a great way to use multiple different learning rates
-            // or different optimizers. The current best way seems to be to "distribute" the gradients
-            // to different GradientParams. Basically each optimizer step call only sees a
-            // a subset of parameter gradients.
-
             let mut grad_means = GradientsParams::new();
             grad_means.register(
                 splats.means.id.clone(),
@@ -463,9 +456,12 @@ where
             );
 
             let mut splats = splats;
-            splats = self.optim.step(lr_mean, splats, grad_means);
-            splats = self.optim.step(lr_opac, splats, grad_opac);
-            splats = self.optim.step(lr_rest, splats, grad_rest);
+            for (sched, grad) in [self.sched_mean, self.sched_opac, self.sched_rest]
+                .iter_mut()
+                .zip([grad_means, grad_opac, grad_rest])
+            {
+                splats = self.optim.step(sched.step(), splats, grad);
+            }
             splats
         });
 
@@ -536,9 +532,9 @@ where
             pred_images,
             auxes,
             loss,
-            lr_mean,
-            lr_opac,
-            lr_rest,
+            lr_mean: self.sched_mean.step(),
+            lr_opac: self.sched_opac.step(),
+            lr_rest: self.sched_rest.step(),
             iter: self.iter,
         };
 
