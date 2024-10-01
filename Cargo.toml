@@ -91,9 +91,9 @@ wasm-logger = "0.2.0"
 
 # Need egui/eframe at head to not duplicate dep with rerun
 [patch.crates-io]
-egui = { git = "https://github.com/emilk/egui" }
-egui_extras = { git = "https://github.com/emilk/egui" }
-eframe = { git = "https://github.com/emilk/egui" }
+# egui = { git = "https://github.com/emilk/egui" }
+# egui_extras = { git = "https://github.com/emilk/egui" }
+# eframe = { git = "https://github.com/emilk/egui" }
 
 # Overrides to use wgpu branch with float atomics.
 wgpu = { git = "https://github.com/ArthurBrussee/wgpu", branch = "flt-atom" }

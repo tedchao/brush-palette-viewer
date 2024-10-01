@@ -436,7 +436,7 @@ impl eframe::App for Viewer {
                                         for (i, view) in
                                             self.train_state.viewpoints.iter().enumerate()
                                         {
-                                            if ui.button(&format!("View {i}")).clicked() {
+                                            if ui.button(format!("View {i}")).clicked() {
                                                 self.splat_view.camera = view.camera.clone();
                                                 let color_img =
                                                     egui::ColorImage::from_rgba_unmultiplied(
