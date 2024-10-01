@@ -114,59 +114,29 @@ where
     xy_grad_counts: Tensor<B, 1, Int>,
 }
 
-pub(crate) fn quat_multiply<B: Backend>(q: Tensor<B, 2>, r: Tensor<B, 2>) -> Tensor<B, 2> {
-    let num = q.dims()[0];
-
-    let (qw, qx, qy, qz) = (
-        q.clone().slice([0..num, 0..1]),
-        q.clone().slice([0..num, 1..2]),
-        q.clone().slice([0..num, 2..3]),
-        q.clone().slice([0..num, 3..4]),
-    );
-    let (rw, rx, ry, rz) = (
-        r.clone().slice([0..num, 0..1]),
-        r.clone().slice([0..num, 1..2]),
-        r.clone().slice([0..num, 2..3]),
-        r.clone().slice([0..num, 3..4]),
-    );
-
-    // Slightly odd hack to make cloning easier.
-    let (qw, qx, qy, qz) = (|| qw.clone(), || qx.clone(), || qy.clone(), || qz.clone());
-    let (rw, rx, ry, rz) = (|| rw.clone(), || rx.clone(), || ry.clone(), || rz.clone());
-
-    let sw = qw() * rw() - qx() * rx() - qy() * ry() - qz() * rz();
-    let sx = qw() * rx() + qx() * rw() + qy() * rz() - qz() * ry();
-    let sy = qw() * ry() - qx() * rz() + qy() * rw() + qz() * rx();
-    let sz = qw() * rz() + qx() * ry() - qy() * rx() + qz() * rw();
-
-    Tensor::cat(vec![sw, sx, sy, sz], 1)
-}
-
 pub(crate) fn quaternion_rotation<B: Backend>(
-    vectors: Tensor<B, 2>,
     quaternions: Tensor<B, 2>,
+    vectors: Tensor<B, 2>,
 ) -> Tensor<B, 2> {
     let num = vectors.dims()[0];
-    // Convert vectors to quaternions with zero real part
-    let vector_quats = Tensor::cat(
+
+    let w = quaternions.clone().slice([0..num, 0..1]);
+    let x = quaternions.clone().slice([0..num, 1..2]);
+    let y = quaternions.clone().slice([0..num, 2..3]);
+    let z = quaternions.clone().slice([0..num, 3..4]);
+
+    let vx = vectors.clone().slice([0..num, 0..1]);
+    let vy = vectors.clone().slice([0..num, 1..2]);
+    let vz = vectors.clone().slice([0..num, 2..3]);
+
+    Tensor::cat(
         vec![
-            Tensor::zeros_like(&vectors.clone().slice([0..num, 0..1])),
-            vectors,
+            w.clone() * vx.clone() + y.clone() * vz.clone() - z.clone() * vy.clone(),
+            w.clone() * vy.clone() - x.clone() * vz.clone() + z.clone() * vx.clone(),
+            w.clone() * vz.clone() + x.clone() * vy.clone() - y.clone() * vx.clone(),
         ],
         1,
-    );
-
-    // Calculate the conjugate of quaternions
-    let quat_conj = quaternions.clone().slice_assign(
-        [0..num, 1..4],
-        quaternions.clone().slice([0..num, 1..4]) * -1,
-    );
-
-    // Rotate vectors: v' = q * v * q_conjugate
-    let rotated_vectors = quat_multiply(quat_conj, quat_multiply(vector_quats, quaternions));
-
-    // Return only the vector part (imaginary components)
-    rotated_vectors.slice([0..num, 1..4])
+    )
 }
 
 impl<B: AutodiffBackend> SplatTrainer<B>
@@ -232,6 +202,28 @@ where
         // TODO: if this prunes all points, burn panics.
         //
         // bool[n]. If True, delete these Gaussians.
+        let prune_count = prune.dims()[0];
+
+        if prune_count == 0 {
+            return;
+        }
+
+        let prune = if prune_count < splats.num_splats() {
+            Tensor::cat(
+                vec![
+                    prune,
+                    Tensor::<B, 1>::zeros(
+                        [splats.num_splats() - prune_count],
+                        &splats.means.device(),
+                    )
+                    .bool(),
+                ],
+                0,
+            )
+        } else {
+            prune
+        };
+
         let valid_inds = prune.bool_not().argwhere_async().await.squeeze(1);
 
         let start_splats = splats.num_splats();
@@ -448,47 +440,32 @@ where
                 let split_inds = split_where.squeeze(1);
                 let samps = split_inds.dims()[0];
 
-                let scales = splats
-                    .log_scales
-                    .val()
-                    .select(0, split_inds.clone())
-                    .exp()
-                    .repeat_dim(0, 2);
+                let cur_pos = splats.means.val().select(0, split_inds.clone());
+                let cur_rots = splats.rotation.val().select(0, split_inds.clone());
+                let cur_coeff = splats.sh_coeffs.val().select(0, split_inds.clone());
+                let cur_opac = splats.raw_opacity.val().select(0, split_inds.clone());
+                let cur_scale = splats.log_scales.val().select(0, split_inds.clone()).exp();
 
-                let new_rots = splats
-                    .rotation
-                    .val()
-                    .select(0, split_inds.clone())
-                    .repeat_dim(0, 2);
+                let samples = quaternion_rotation(
+                    cur_rots.clone(),
+                    Tensor::random([samps, 3], Distribution::Normal(0.0, 1.0), device)
+                        * cur_scale.clone(),
+                );
 
-                let rotated_scale = quaternion_rotation(scales, new_rots.clone());
+                let new_means = Tensor::cat(
+                    vec![cur_pos.clone() + samples.clone(), cur_pos - samples],
+                    0,
+                );
+                let new_rots = cur_rots.repeat_dim(0, 2);
+                let new_coeffs = cur_coeff.repeat_dim(0, 2);
+                let new_opac = cur_opac.repeat_dim(0, 2);
+                let new_scales = (cur_scale / 1.6).log().repeat_dim(0, 2);
 
-                let positions = splats
-                    .means
-                    .val()
-                    .select(0, split_inds.clone())
-                    .repeat_dim(0, 2);
-                let new_means = positions
-                    + rotated_scale
-                        * Tensor::random([samps * 2, 3], Distribution::Normal(0.0, 1.0), device);
-
-                let new_coeffs = splats
-                    .sh_coeffs
-                    .val()
-                    .select(0, split_inds.clone())
-                    .repeat_dim(0, 2);
-                let new_opac = splats
-                    .raw_opacity
-                    .val()
-                    .select(0, split_inds.clone())
-                    .repeat_dim(0, 2);
-                let new_scales = (splats.log_scales.val().select(0, split_inds.clone()).exp()
-                    / 1.6)
-                    .log()
-                    .repeat_dim(0, 2);
+                // Concat then prune, so that splat is nevery empty.
+                // TODO: Do this the other way around when Burn fixes tensors with 0 length.
+                splats.concat_splats(new_means, new_rots, new_coeffs, new_opac, new_scales);
 
                 self.prune_points(&mut splats, split_mask.clone()).await;
-                splats.concat_splats(new_means, new_rots, new_coeffs, new_opac, new_scales);
             }
 
             if self.iter % (self.config.refine_every * self.config.reset_alpha_every) == 0 {
