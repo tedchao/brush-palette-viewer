@@ -1,10 +1,10 @@
 use anyhow::Context;
 use async_channel::{Receiver, Sender, TryRecvError, TrySendError};
 use brush_dataset::scene_batch::SceneLoader;
-use brush_render::gaussian_splats::Splats;
+use brush_render::gaussian_splats::{RandomSplatsConfig, Splats};
 use burn::tensor::ElementConversion;
 use burn::{backend::Autodiff, module::AutodiffModule};
-use burn_wgpu::{JitBackend, RuntimeOptions, WgpuDevice, WgpuRuntime};
+use burn_wgpu::{RuntimeOptions, Wgpu, WgpuDevice};
 use egui::{Hyperlink, Slider, TextureOptions};
 use futures_lite::StreamExt;
 
@@ -21,15 +21,13 @@ use wasm_bindgen_futures::spawn_local;
 use crate::splat_import;
 use crate::splat_view::SplatView;
 
-type Backend = JitBackend<WgpuRuntime, f32, i32>;
-
 enum ViewerMessage {
     Initial,
     Error(anyhow::Error),
 
     // Initial splat cloud to be created.
     SplatLoad {
-        splats: Splats<Backend>,
+        splats: Splats<Wgpu>,
         total_count: usize,
     },
 
@@ -37,7 +35,7 @@ enum ViewerMessage {
     Viewpoints(Vec<SceneView>),
 
     TrainStep {
-        splats: Splats<Backend>,
+        splats: Splats<Wgpu>,
         loss: f32,
         iter: u32,
         timestamp: Instant,
@@ -101,7 +99,7 @@ async fn load_ply_loop(
 ) -> anyhow::Result<()> {
     let total_count = splat_import::ply_count(data).context("Invalid ply file")?;
 
-    let splat_stream = splat_import::load_splat_from_ply::<Backend>(data, device.clone());
+    let splat_stream = splat_import::load_splat_from_ply::<Wgpu>(data, device.clone());
 
     let mut splat_stream = std::pin::pin!(splat_stream);
     while let Some(splats) = splat_stream.next().await {
@@ -133,6 +131,7 @@ async fn train_loop(
         LrConfig::new().with_max_lr(4e-5).with_min_lr(2e-5),
         LrConfig::new().with_max_lr(8e-2).with_min_lr(2e-2),
         LrConfig::new().with_max_lr(2e-2).with_min_lr(1e-2),
+        RandomSplatsConfig::new(),
     );
 
     let views =
@@ -148,8 +147,7 @@ async fn train_loop(
         visualize.log_scene(&scene)?;
     }
 
-    let mut splats =
-        Splats::<Autodiff<Backend>>::init_random(config.init_splat_count, 2.0, &device);
+    let mut splats = config.initial_model_config.init::<Autodiff<Wgpu>>(&device);
 
     let mut dataloader = SceneLoader::new(scene, &device, 1);
     let mut trainer = SplatTrainer::new(splats.num_splats(), &config, &splats);
@@ -182,6 +180,7 @@ async fn train_loop(
 
         if trainer.iter % 5 == 0 {
             let _span = info_span!("Send batch").entered();
+
             let msg = ViewerMessage::TrainStep {
                 splats: splats.valid(),
                 loss: stats.loss.into_scalar_async().await.elem::<f32>(),
@@ -268,7 +267,7 @@ impl Viewer {
     }
 
     pub fn start_data_load(&mut self) {
-        <Backend as burn::prelude::Backend>::seed(42);
+        <Wgpu as burn::prelude::Backend>::seed(42);
 
         // create a channel for the train loop.
         let (sender, receiver) = async_channel::bounded(2);

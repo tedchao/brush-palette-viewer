@@ -1,6 +1,7 @@
 use crate::camera::Camera;
 use crate::safetensor_utils::safetensor_to_burn;
 use crate::{render::num_sh_coeffs, Backend};
+use burn::config::Config;
 use burn::tensor::Distribution;
 use burn::tensor::Tensor;
 use burn::{
@@ -8,6 +9,74 @@ use burn::{
     tensor::Device,
 };
 use safetensors::SafeTensors;
+
+#[derive(Config)]
+pub struct RandomSplatsConfig {
+    // period of steps where refinement is turned off
+    #[config(default = 500)]
+    init_count: usize,
+    #[config(default = 2.0)]
+    aabb_scale: f64,
+    #[config(default = -2.0)]
+    opacity_min: f64,
+    #[config(default = -1.0)]
+    opacity_max: f64,
+
+    #[config(default = 0.05)]
+    scale_min: f64,
+    #[config(default = 0.15)]
+    scale_max: f64,
+}
+
+impl RandomSplatsConfig {
+    /// Create a module on the given device.
+    pub fn init<B: Backend>(&self, device: &B::Device) -> Splats<B> {
+        let num_points = self.init_count;
+
+        let extent = self.aabb_scale / 2.0;
+        let means = Tensor::random(
+            [num_points, 3],
+            Distribution::Uniform(-extent, extent),
+            device,
+        );
+
+        let num_coeffs = num_sh_coeffs(0);
+
+        let sh_coeffs = Tensor::random(
+            [num_points, num_coeffs * 3],
+            Distribution::Uniform(-0.5, 0.5),
+            device,
+        );
+        let init_rotation = Tensor::<_, 1>::from_floats([1.0, 0.0, 0.0, 0.0], device)
+            .unsqueeze::<2>()
+            .repeat_dim(0, num_points);
+
+        let init_raw_opacity = Tensor::random(
+            [num_points],
+            Distribution::Uniform(self.opacity_min, self.opacity_max),
+            device,
+        );
+
+        // TODO: Fancy KNN init.
+        let scale_min = self.scale_min.ln();
+        let scale_max = self.scale_max.ln();
+
+        let init_scale = Tensor::random(
+            [num_points, 3],
+            Distribution::Uniform(scale_min, scale_max),
+            device,
+        );
+
+        Splats::from_data(
+            means,
+            sh_coeffs,
+            init_rotation,
+            init_raw_opacity,
+            init_scale,
+            device,
+        )
+    }
+}
 
 #[derive(Module, Debug)]
 pub struct Splats<B: Backend> {
@@ -27,41 +96,6 @@ impl<B: Backend> Splats<B> {
         f: impl Fn(Tensor<B, D>) -> Tensor<B, D>,
     ) {
         *tensor = tensor.clone().map(|x| f(x).detach().require_grad());
-    }
-
-    pub fn init_random(num_points: usize, aabb_scale: f32, device: &Device<B>) -> Splats<B> {
-        let extent = (aabb_scale as f64) / 2.0;
-        let means = Tensor::random(
-            [num_points, 3],
-            Distribution::Uniform(-extent, extent),
-            device,
-        );
-
-        let num_coeffs = num_sh_coeffs(0);
-
-        let sh_coeffs = Tensor::random(
-            [num_points, num_coeffs * 3],
-            Distribution::Uniform(-0.5, 0.5),
-            device,
-        );
-        let init_rotation = Tensor::<_, 1>::from_floats([1.0, 0.0, 0.0, 0.0], device)
-            .unsqueeze::<2>()
-            .repeat_dim(0, num_points);
-
-        let init_raw_opacity =
-            Tensor::random([num_points], Distribution::Uniform(-2.0, -1.0), device);
-
-        // TODO: Fancy KNN init.
-        let init_scale = Tensor::random([num_points, 3], Distribution::Uniform(-3.0, -2.0), device);
-
-        Self::from_data(
-            means,
-            sh_coeffs,
-            init_rotation,
-            init_raw_opacity,
-            init_scale,
-            device,
-        )
     }
 
     pub fn from_data(

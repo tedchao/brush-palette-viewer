@@ -1,5 +1,5 @@
 use anyhow::Result;
-use brush_render::gaussian_splats::Splats;
+use brush_render::gaussian_splats::{RandomSplatsConfig, Splats};
 use brush_render::{AutodiffBackend, Backend, RenderAux};
 use burn::lr_scheduler::linear::{LinearLrScheduler, LinearLrSchedulerConfig};
 use burn::lr_scheduler::LrScheduler;
@@ -54,6 +54,10 @@ pub struct TrainConfig {
     #[config(default = 0.01)]
     densify_size_thresh: f32,
 
+    // Whether to render images with a random background color.
+    #[config(default = false)]
+    pub(crate) random_bck_color: bool,
+
     #[config(default = 0.0)]
     ssim_weight: f32,
 
@@ -70,15 +74,13 @@ pub struct TrainConfig {
     #[config(default = 42)]
     seed: u64,
 
-    #[config(default = false)]
-    pub(crate) random_bck_color: bool,
     #[config(default = 100)]
-    pub visualize_every: u32,
-    #[config(default = 250)]
-    pub visualize_splats_every: u32,
+    visualize_every: u32,
 
-    #[config(default = 1000)]
-    pub init_splat_count: usize,
+    #[config(default = 250)]
+    visualize_splats_every: u32,
+
+    pub initial_model_config: RandomSplatsConfig,
 }
 
 pub struct TrainStepStats<B: AutodiffBackend> {
