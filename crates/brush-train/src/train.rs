@@ -3,7 +3,6 @@ use brush_render::gaussian_splats::Splats;
 use brush_render::{AutodiffBackend, Backend, RenderAux};
 use burn::lr_scheduler::linear::{LinearLrScheduler, LinearLrSchedulerConfig};
 use burn::lr_scheduler::LrScheduler;
-use burn::nn::loss::HuberLossConfig;
 use burn::optim::adaptor::OptimizerAdaptor;
 use burn::optim::Adam;
 use burn::tensor::{Bool, Distribution, Int};
@@ -47,7 +46,8 @@ pub struct TrainConfig {
     reset_alpha_every: u32,
 
     // threshold of positional gradient norm for densifying gaussians
-    #[config(default = 0.0002)]
+    // TODO: Abs grad.
+    #[config(default = 0.0004)]
     densify_grad_thresh: f32,
 
     // below this size, gaussians are *duplicated*, otherwise split.
@@ -301,16 +301,8 @@ where
 
             let _span = info_span!("Calculate losses", sync_burn = true).entered();
 
-            // There might be some marginal benefit to caching the "loss objects". I wish Burn had a more
-            // functional style for this.
-            let huber = HuberLossConfig::new(0.05).init();
-            let mut loss = huber.forward(
-                pred_images.clone(),
-                batch.gt_images.clone(),
-                burn::nn::loss::Reduction::Mean,
-            );
-
-            if self.config.ssim_weight > 0.0 {
+            let loss = (pred_images.clone() - batch.gt_images.clone()).abs().mean();
+            let loss = if self.config.ssim_weight > 0.0 {
                 let pred_rgb = pred_images
                     .clone()
                     .slice([0..batch_size, 0..img_h, 0..img_w, 0..3]);
@@ -324,9 +316,12 @@ where
                     gt_rgb.clone().permute([0, 3, 1, 2]),
                     11,
                 );
-                loss = loss * (1.0 - self.config.ssim_weight)
-                    + (-ssim_loss + 1.0) * self.config.ssim_weight;
-            }
+                loss * (1.0 - self.config.ssim_weight)
+                    + (-ssim_loss + 1.0) * self.config.ssim_weight
+            } else {
+                loss
+            };
+
             (pred_images, auxes, loss)
         };
 
@@ -432,7 +427,7 @@ where
                     .squeeze::<1>(1);
 
             let clone_where = clone_mask.clone().argwhere_async().await;
-            println!("Cloning {} gaussians", clone_where.dims()[0]);
+            tracing::info!("Cloning {} gaussians", clone_where.dims()[0]);
 
             if clone_where.dims()[0] > 0 {
                 let clone_inds = clone_where.squeeze(1);
@@ -445,7 +440,7 @@ where
             }
 
             let split_where = split_mask.clone().argwhere_async().await;
-            println!("Splitting {} gaussians", split_where.dims()[0]);
+            tracing::info!("Splitting {} gaussians", split_where.dims()[0]);
 
             if split_where.dims()[0] > 0 {
                 let split_inds = split_where.squeeze(1);

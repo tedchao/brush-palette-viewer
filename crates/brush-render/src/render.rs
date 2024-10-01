@@ -573,6 +573,7 @@ impl Backward<BurnBack, 6> for RenderBackwards {
                 ],
             );
         });
+        
         // Register gradients for parent nodes (This code is already skipped entirely
         // if no parent nodes require gradients).
         let [mean_parent, xys_parent, log_scales_parent, quats_parent, coeffs_parent, raw_opacity_parent] =

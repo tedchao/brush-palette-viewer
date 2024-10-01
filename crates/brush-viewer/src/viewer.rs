@@ -431,7 +431,6 @@ impl eframe::App for Viewer {
                             .collapsible(true)
                             .show(ctx, |ui| {
                                 ui.horizontal(|ui| {
-                                    // egui::ScrollArea::vertical().show(ui, |ui| {
                                     ui.vertical(|ui| {
                                         for (i, view) in
                                             self.train_state.viewpoints.iter().enumerate()
@@ -455,7 +454,6 @@ impl eframe::App for Viewer {
                                             }
                                         }
                                     });
-                                    // });
 
                                     if let Some(view) = &self.train_state.selected_view {
                                         ui.add(egui::Image::new(view));
