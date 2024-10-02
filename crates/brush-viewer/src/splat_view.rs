@@ -35,6 +35,7 @@ impl SplatView {
     pub(crate) fn draw_splats(
         &mut self,
         splats: &Splats<Backend>,
+        background: glam::Vec3,
         ui: &mut egui::Ui,
         ctx: &egui::Context,
         frame: &mut eframe::Frame,
@@ -86,8 +87,7 @@ impl SplatView {
                 // If there's actual rendering to do, not just an imgui update.
                 if ctx.has_requested_repaint() {
                     let _span = info_span!("Render splats").entered();
-                    let (img, _) =
-                        splats.render(&self.camera, size, glam::vec3(0.0, 0.0, 0.0), true);
+                    let (img, _) = splats.render(&self.camera, size, background, true);
 
                     let back = self
                         .backbuffer

@@ -7,7 +7,8 @@ use anyhow::Result;
 use brush_render::camera;
 use brush_render::camera::Camera;
 
-use brush_train::scene::SceneView;
+use crate::scene::Scene;
+use crate::scene::SceneView;
 
 use crate::clamp_img_to_max_size;
 use crate::normalized_path_string;
@@ -18,7 +19,7 @@ pub fn read_dataset(
     zip_data: &[u8],
     max_frames: Option<usize>,
     max_resolution: Option<u32>,
-) -> Result<Vec<SceneView>> {
+) -> Result<Scene> {
     let mut cameras = vec![];
 
     let mut archive = zip::ZipArchive::new(Cursor::new(zip_data))?;
@@ -101,6 +102,19 @@ pub fn read_dataset(
             image = clamp_img_to_max_size(image, max_resolution);
         }
 
+        // Blend in white background to image
+        let mut rgba_image = image.to_rgba8();
+        for pixel in rgba_image.pixels_mut() {
+            let alpha = pixel[3] as f32 / 255.0;
+            pixel[0] = (pixel[0] as f32 * alpha + 255.0 * (1.0 - alpha)) as u8;
+            pixel[1] = (pixel[1] as f32 * alpha + 255.0 * (1.0 - alpha)) as u8;
+            pixel[2] = (pixel[2] as f32 * alpha + 255.0 * (1.0 - alpha)) as u8;
+            pixel[3] = 255;
+        }
+        image = image::DynamicImage::ImageRgba8(rgba_image)
+            .to_rgb32f()
+            .into();
+
         let fovy = camera::focal_to_fov(camera::fov_to_focal(fovx, image.width()), image.height());
 
         cameras.push(SceneView {
@@ -120,7 +134,10 @@ pub fn read_dataset(
         }
     }
 
-    Ok(cameras)
+    // Assume nerf synthetic has a white background. Maybe add a custom json field to customize this
+    // or something.
+    let background = glam::Vec3::ONE;
+    Ok(Scene::new(cameras, background))
 }
 
 pub fn read_viewpoint_data(file: &str) -> Result<Vec<Camera>> {

@@ -1,8 +1,8 @@
-use burn::prelude::Backend;
+use brush_render::Backend;
 use burn::tensor::Tensor;
 
-use brush_train::scene::Scene;
-use brush_train::scene::SceneBatch;
+use crate::scene::Scene;
+use brush_train::train::SceneBatch;
 
 use crate::image_to_tensor;
 use std::sync::mpsc::sync_channel;

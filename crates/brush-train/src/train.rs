@@ -1,4 +1,5 @@
 use anyhow::Result;
+use brush_render::camera::Camera;
 use brush_render::gaussian_splats::{RandomSplatsConfig, Splats};
 use brush_render::{AutodiffBackend, Backend, RenderAux};
 use burn::lr_scheduler::exponential::{ExponentialLrScheduler, ExponentialLrSchedulerConfig};
@@ -12,8 +13,6 @@ use burn::{
     tensor::Tensor,
 };
 use tracing::info_span;
-
-use crate::scene::SceneBatch;
 
 #[derive(Config)]
 pub struct TrainConfig {
@@ -45,10 +44,6 @@ pub struct TrainConfig {
     // below this size, gaussians are *duplicated*, otherwise split.
     #[config(default = 0.01)]
     densify_size_thresh: f32,
-
-    // Whether to render images with a random background color.
-    #[config(default = false)]
-    pub(crate) random_bck_color: bool,
 
     #[config(default = 0.0)]
     ssim_weight: f32,
@@ -82,6 +77,12 @@ pub struct TrainConfig {
     pub visualize_splats_every: u32,
 
     pub initial_model_config: RandomSplatsConfig,
+}
+
+#[derive(Clone, Debug)]
+pub struct SceneBatch<B: Backend> {
+    pub gt_images: Tensor<B, 4>,
+    pub cameras: Vec<Camera>,
 }
 
 pub struct TrainStepStats<B: AutodiffBackend> {
@@ -242,16 +243,11 @@ where
     pub async fn step(
         &mut self,
         batch: SceneBatch<B>,
+        background_color: glam::Vec3,
         splats: Splats<B>,
     ) -> Result<(Splats<B>, TrainStepStats<B>), anyhow::Error> {
         let device = &splats.means.device();
         let _span = info_span!("Train step").entered();
-
-        let background_color = if self.config.random_bck_color {
-            glam::vec3(rand::random(), rand::random(), rand::random())
-        } else {
-            glam::Vec3::ZERO
-        };
 
         let [batch_size, img_h, img_w, _] = batch.gt_images.dims();
 

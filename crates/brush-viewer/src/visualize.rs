@@ -1,7 +1,8 @@
 use anyhow::Result;
+use brush_dataset::scene::Scene;
 use brush_render::{gaussian_splats::Splats, AutodiffBackend, Backend};
 use brush_rerun::{BurnToImage, BurnToRerun};
-use brush_train::{scene::Scene, train::TrainStepStats};
+use brush_train::train::TrainStepStats;
 use burn::tensor::{activation::sigmoid, ElementConversion, Tensor};
 use image::GenericImageView;
 use rerun::{Color, FillMode, RecordingStream};
@@ -83,6 +84,7 @@ impl VisualizeTools {
         for (i, data) in scene.views.iter().enumerate() {
             let path = format!("world/dataset/camera/{i}");
             let (width, height) = data.image.dimensions();
+
             let vis_size = glam::uvec2(width, height);
             let rerun_camera = rerun::Pinhole::from_focal_length_and_resolution(
                 data.camera.focal(vis_size),
@@ -128,8 +130,8 @@ impl VisualizeTools {
             .clone()
             .slice([0..batch_size, 0..img_h, 0..img_w, 0..3]);
 
-        let mse = (pred_rgb - gt_rgb).powf_scalar(2.0).mean();
-        let psnr = mse.clone().recip().log() * 10.0 / std::f32::consts::LN_10;
+        let mse = (pred_rgb.clone() - gt_rgb.clone()).powf_scalar(2.0).mean();
+        let psnr = mse.recip().log() * 10.0 / std::f32::consts::LN_10;
 
         rec.log(
             "losses/main",
@@ -143,8 +145,8 @@ impl VisualizeTools {
         // Not sure what's best here, atm let's just log the first batch render only.
         // Maybe could do an average instead?
         let main_aux = &stats.auxes[0];
-        let main_gt_image = gt_images.slice([0..1]).squeeze(0);
-        let main_pred_image = stats.pred_images.clone().slice([0..1]).squeeze(0);
+        let main_gt_image = gt_rgb.slice([0..1]).squeeze(0);
+        let main_pred_image = pred_rgb.slice([0..1]).squeeze(0);
 
         rec.log(
             "splats/num_intersects",

@@ -1,12 +1,13 @@
 pub mod colmap;
 pub mod colmap_read_model;
 pub mod nerf_synthetic;
+pub mod scene;
 pub mod scene_batch;
 
 use std::path::{Path, PathBuf};
 
+use crate::scene::Scene;
 use anyhow::Result;
-use brush_train::scene::SceneView;
 use burn::{
     prelude::Backend,
     tensor::{Tensor, TensorData},
@@ -43,12 +44,7 @@ fn image_to_tensor<B: Backend>(
 ) -> anyhow::Result<Tensor<B, 3>> {
     let (w, h) = image.dimensions();
     let num_channels = image.color().channel_count();
-    let data = if num_channels == 3 {
-        image.to_rgb32f().into_vec()
-    } else {
-        image.to_rgba32f().into_vec()
-    };
-
+    let data = image.to_rgb32f().into_vec();
     let tensor_data = TensorData::new(data, [h as usize, w as usize, num_channels as usize]);
     Ok(Tensor::from_data(tensor_data, device))
 }
@@ -57,7 +53,7 @@ pub fn read_dataset(
     zip_data: &[u8],
     max_frames: Option<usize>,
     max_resolution: Option<u32>,
-) -> Result<Vec<SceneView>> {
+) -> Result<Scene> {
     nerf_synthetic::read_dataset(zip_data, max_frames, max_resolution)
         .or_else(move |_| colmap::read_dataset(zip_data, max_frames, max_resolution))
 }

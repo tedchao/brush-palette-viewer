@@ -1,5 +1,4 @@
 use brush_render::camera::Camera;
-use burn::{prelude::Backend, tensor::Tensor};
 
 #[derive(Debug, Default, Clone)]
 pub struct SceneView {
@@ -9,14 +8,18 @@ pub struct SceneView {
 
 // Encapsulates a multi-view scene including cameras and the splats.
 // Also provides methods for checkpointing the training process.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Scene {
     pub views: Vec<SceneView>,
+    pub background_color: glam::Vec3,
 }
 
 impl Scene {
-    pub fn new(views: Vec<SceneView>) -> Self {
-        Scene { views }
+    pub fn new(views: Vec<SceneView>, background_color: glam::Vec3) -> Self {
+        Scene {
+            views,
+            background_color,
+        }
     }
 
     // Returns the extent of the cameras in the scene.
@@ -45,10 +48,4 @@ impl Scene {
     pub fn get_view(&self, index: usize) -> Option<SceneView> {
         self.views.get(index).cloned()
     }
-}
-
-#[derive(Clone, Debug)]
-pub struct SceneBatch<B: Backend> {
-    pub gt_images: Tensor<B, 4>,
-    pub cameras: Vec<Camera>,
 }

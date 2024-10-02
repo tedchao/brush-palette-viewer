@@ -13,7 +13,7 @@ use tracing::info_span;
 use web_time::Instant;
 
 use brush_dataset;
-use brush_train::scene::{Scene, SceneView};
+use brush_dataset::scene::Scene;
 use brush_train::train::{SplatTrainer, TrainConfig};
 
 #[cfg(target_arch = "wasm32")]
@@ -33,7 +33,7 @@ enum ViewerMessage {
     },
 
     // Loaded a bunch of viewpoints to train on.
-    Viewpoints(Vec<SceneView>),
+    Scene(Scene),
 
     TrainStep {
         splats: Splats<Wgpu>,
@@ -47,7 +47,7 @@ struct TrainState {
     last_train_step: (Instant, u32),
     train_iter_per_s: f32,
     paused: bool,
-    viewpoints: Vec<SceneView>,
+    scene: Scene,
     selected_view: Option<egui::TextureHandle>,
 }
 
@@ -57,7 +57,7 @@ impl TrainState {
             last_train_step: (Instant::now(), 0),
             train_iter_per_s: 0.0,
             paused: false,
-            viewpoints: Vec::new(),
+            scene: Scene::new(vec![], glam::Vec3::ZERO),
             selected_view: None,
         }
     }
@@ -133,12 +133,10 @@ async fn train_loop(
         RandomSplatsConfig::new(),
     );
 
-    let views =
+    let scene =
         brush_dataset::read_dataset(data, train_args.frame_count, train_args.target_resolution)?;
-    let msg = ViewerMessage::Viewpoints(views.clone());
+    let msg = ViewerMessage::Scene(scene.clone());
     sender.send(msg).await.unwrap();
-
-    let scene = Scene::new(views);
 
     #[cfg(feature = "rerun")]
     let visualize = crate::visualize::VisualizeTools::new();
@@ -147,7 +145,7 @@ async fn train_loop(
 
     let mut splats = config.initial_model_config.init::<Autodiff<Wgpu>>(&device);
 
-    let mut dataloader = SceneLoader::new(scene, 1, &device);
+    let mut dataloader = SceneLoader::new(scene.clone(), 1, &device);
     let mut trainer = SplatTrainer::new(splats.num_splats(), &config, &splats);
 
     loop {
@@ -159,7 +157,10 @@ async fn train_loop(
         #[cfg(feature = "rerun")]
         let gt_image = batch.gt_images.clone();
 
-        let (new_splats, stats) = trainer.step(batch, splats).await.unwrap();
+        let (new_splats, stats) = trainer
+            .step(batch, scene.background_color, splats)
+            .await
+            .unwrap();
 
         #[cfg(feature = "rerun")]
         {
@@ -415,9 +416,10 @@ impl eframe::App for Viewer {
                                 ));
                             }
                         });
-                        self.splat_view.draw_splats(splats, ui, ctx, frame);
+                        self.splat_view
+                            .draw_splats(splats, glam::Vec3::ZERO, ui, ctx, frame);
                     }
-                    ViewerMessage::Viewpoints(vec) => self.train_state.viewpoints = vec.clone(),
+                    ViewerMessage::Scene(vec) => self.train_state.scene = vec.clone(),
                     ViewerMessage::TrainStep {
                         splats,
                         loss,
@@ -429,9 +431,8 @@ impl eframe::App for Viewer {
                             .show(ctx, |ui| {
                                 ui.horizontal(|ui| {
                                     ui.vertical(|ui| {
-                                        for (i, view) in
-                                            self.train_state.viewpoints.iter().enumerate()
-                                        {
+                                        let views = &self.train_state.scene.views;
+                                        for (i, view) in views.iter().enumerate() {
                                             if ui.button(format!("View {i}")).clicked() {
                                                 self.splat_view.camera = view.camera.clone();
                                                 let color_img =
@@ -474,7 +475,13 @@ impl eframe::App for Viewer {
                             );
                         });
 
-                        self.splat_view.draw_splats(splats, ui, ctx, frame);
+                        self.splat_view.draw_splats(
+                            splats,
+                            self.train_state.scene.background_color,
+                            ui,
+                            ctx,
+                            frame,
+                        );
                     }
                 }
             } else if self.receiver.is_some() {
