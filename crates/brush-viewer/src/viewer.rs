@@ -1,3 +1,5 @@
+use std::sync::{Arc, RwLock};
+
 use anyhow::Context;
 use async_channel::{Receiver, Sender, TryRecvError, TrySendError};
 use brush_dataset::scene_batch::SceneLoader;
@@ -43,12 +45,16 @@ enum ViewerMessage {
     },
 }
 
+struct SharedTrainState {
+    paused: bool,
+}
+
 struct TrainState {
     last_train_step: (Instant, u32),
     train_iter_per_s: f32,
-    paused: bool,
     scene: Scene,
     selected_view: Option<egui::TextureHandle>,
+    shared: Arc<RwLock<SharedTrainState>>,
 }
 
 impl TrainState {
@@ -56,9 +62,9 @@ impl TrainState {
         Self {
             last_train_step: (Instant::now(), 0),
             train_iter_per_s: 0.0,
-            paused: false,
             scene: Scene::new(vec![], glam::Vec3::ZERO),
             selected_view: None,
+            shared: Arc::new(RwLock::new(SharedTrainState { paused: false })),
         }
     }
 
@@ -127,6 +133,7 @@ async fn train_loop(
     sender: Sender<ViewerMessage>,
     egui_ctx: egui::Context,
     train_args: TrainArgs,
+    shared_state: Arc<RwLock<SharedTrainState>>,
 ) -> anyhow::Result<()> {
     let total_steps = 30000;
     let config = TrainConfig::new(
@@ -146,11 +153,17 @@ async fn train_loop(
     visualize.log_scene(&scene)?;
 
     let mut splats = config.initial_model_config.init::<Autodiff<Wgpu>>(&device);
-
     let mut dataloader = SceneLoader::new(scene.clone(), 1, &device);
     let mut trainer = SplatTrainer::new(splats.num_splats(), &config, &splats);
 
     loop {
+        if shared_state.read().unwrap().paused {
+            std::thread::yield_now();
+            #[cfg(target_arch = "wasm32")]
+            gloo_timers::future::TimeoutFuture::new(0).await;
+            continue;
+        }
+
         let batch = {
             let _span = info_span!("Get batch").entered();
             dataloader.next_batch().await
@@ -212,12 +225,21 @@ async fn process_loop(
     sender: Sender<ViewerMessage>,
     egui_ctx: egui::Context,
     train_args: TrainArgs,
+    shared_state: Arc<RwLock<SharedTrainState>>,
 ) -> anyhow::Result<()> {
     let picked = rrfd::pick_file().await?;
     if picked.file_name.contains(".ply") {
         load_ply_loop(&picked.data, device, sender, egui_ctx).await
     } else if picked.file_name.contains(".zip") {
-        train_loop(&picked.data, device, sender, egui_ctx, train_args).await
+        train_loop(
+            &picked.data,
+            device,
+            sender,
+            egui_ctx,
+            train_args,
+            shared_state,
+        )
+        .await
     } else {
         anyhow::bail!("Only .ply and .zip files are supported.")
     }
@@ -285,8 +307,9 @@ impl Viewer {
             sender: Sender<ViewerMessage>,
             egui_ctx: egui::Context,
             train_args: TrainArgs,
+            shared_state: Arc<RwLock<SharedTrainState>>,
         ) {
-            match process_loop(device, sender.clone(), egui_ctx, train_args).await {
+            match process_loop(device, sender.clone(), egui_ctx, train_args, shared_state).await {
                 Ok(_) => (),
                 Err(e) => {
                     let _ = sender.send(ViewerMessage::Error(e)).await;
@@ -299,13 +322,27 @@ impl Viewer {
             target_resolution: self.target_train_resolution,
         };
 
+        let shared_state = self.train_state.shared.clone();
+
         #[cfg(not(target_arch = "wasm32"))]
         std::thread::spawn(move || {
-            pollster::block_on(inner_process_loop(device, sender, ctx, train_args))
+            pollster::block_on(inner_process_loop(
+                device,
+                sender,
+                ctx,
+                train_args,
+                shared_state,
+            ))
         });
 
         #[cfg(target_arch = "wasm32")]
-        spawn_local(inner_process_loop(device, sender, ctx, train_args));
+        spawn_local(inner_process_loop(
+            device,
+            sender,
+            ctx,
+            train_args,
+            shared_state,
+        ));
     }
 
     fn url_button(&mut self, label: &str, url: &str, ui: &mut egui::Ui) {
@@ -377,21 +414,19 @@ impl eframe::App for Viewer {
             ui.add_space(25.0);
 
             if let Some(rx) = self.receiver.as_mut() {
-                if !self.train_state.paused {
-                    match rx.try_recv() {
-                        Ok(message) => {
-                            if let ViewerMessage::TrainStep {
-                                iter, timestamp, ..
-                            } = message
-                            {
-                                self.train_state.on_iter(timestamp, iter);
-                            };
+                match rx.try_recv() {
+                    Ok(message) => {
+                        if let ViewerMessage::TrainStep {
+                            iter, timestamp, ..
+                        } = message
+                        {
+                            self.train_state.on_iter(timestamp, iter);
+                        };
 
-                            self.last_message = Some(message)
-                        }
-                        Err(TryRecvError::Empty) => (), // nothing to do.
-                        Err(TryRecvError::Closed) => self.receiver = None, // channel closed.
+                        self.last_message = Some(message)
                     }
+                    Err(TryRecvError::Empty) => (), // nothing to do.
+                    Err(TryRecvError::Closed) => self.receiver = None, // channel closed.
                 }
             }
 
@@ -434,6 +469,7 @@ impl eframe::App for Viewer {
                                 ui.horizontal(|ui| {
                                     ui.vertical(|ui| {
                                         let views = &self.train_state.scene.views;
+
                                         for (i, view) in views.iter().enumerate() {
                                             if ui.button(format!("View {i}")).clicked() {
                                                 self.splat_view.camera = view.camera.clone();
@@ -470,11 +506,9 @@ impl eframe::App for Viewer {
 
                             ui.label(format!("loss: {loss:.3e}"));
 
-                            let paused = self.train_state.paused;
-                            ui.toggle_value(
-                                &mut self.train_state.paused,
-                                if paused { "⏵" } else { "⏸" },
-                            );
+                            let mut shared = self.train_state.shared.write().unwrap();
+                            let paused = shared.paused;
+                            ui.toggle_value(&mut shared.paused, if paused { "⏵" } else { "⏸" });
                         });
 
                         self.splat_view.draw_splats(
