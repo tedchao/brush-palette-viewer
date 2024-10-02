@@ -128,10 +128,12 @@ async fn train_loop(
     egui_ctx: egui::Context,
     train_args: TrainArgs,
 ) -> anyhow::Result<()> {
+    let total_steps = 30000;
     let config = TrainConfig::new(
-        ExponentialLrSchedulerConfig::new(1.6e-4, 1e-2f64.powf(1.0 / 30000.0)),
+        ExponentialLrSchedulerConfig::new(1.6e-4, 1e-2f64.powf(1.0 / total_steps as f64)),
         RandomSplatsConfig::new(),
-    );
+    )
+    .with_total_steps(total_steps);
 
     let scene =
         brush_dataset::read_dataset(data, train_args.frame_count, train_args.target_resolution)?;
