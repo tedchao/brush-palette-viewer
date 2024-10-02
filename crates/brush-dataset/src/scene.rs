@@ -52,15 +52,9 @@ impl Scene {
     }
 
     fn camera_similarity_score(&self, cam: &Camera, reference: &Camera) -> f32 {
-        // Normalize distance by the scene extent
-        let max_distance = self.cameras_extent();
-        let distance = (cam.position - reference.position).length() / max_distance;
-
-        // Calculate orientation similarity
+        let distance = (cam.position - reference.position).length();
         let forward_ref = reference.rotation * glam::Vec3::Z;
         let forward_cam = cam.rotation * glam::Vec3::Z;
-
-        // Combine distance and orientation with equal weights
         distance * (1.0 - forward_ref.dot(forward_cam))
     }
 
