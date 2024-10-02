@@ -141,20 +141,19 @@ async fn train_loop(
     let scene = Scene::new(views);
 
     #[cfg(feature = "rerun")]
-    {
-        let visualize = crate::visualize::VisualizeTools::new();
-        visualize.log_scene(&scene)?;
-    }
+    let visualize = crate::visualize::VisualizeTools::new();
+    #[cfg(feature = "rerun")]
+    visualize.log_scene(&scene)?;
 
     let mut splats = config.initial_model_config.init::<Autodiff<Wgpu>>(&device);
 
-    let mut dataloader = SceneLoader::new(scene);
+    let mut dataloader = SceneLoader::new(scene, 1, &device);
     let mut trainer = SplatTrainer::new(splats.num_splats(), &config, &splats);
 
     loop {
         let batch = {
             let _span = info_span!("Get batch").entered();
-            dataloader.next_batch(1, &device)
+            dataloader.next_batch().await
         };
 
         #[cfg(feature = "rerun")]

@@ -1,4 +1,3 @@
-use brush_train::scene::SceneView;
 use burn::prelude::Backend;
 use burn::tensor::Tensor;
 
@@ -6,10 +5,65 @@ use brush_train::scene::Scene;
 use brush_train::scene::SceneBatch;
 
 use crate::image_to_tensor;
+use std::sync::mpsc::sync_channel;
+use std::sync::mpsc::Receiver;
+use std::thread;
 
-pub struct SceneLoader {
-    views: Vec<SceneView>,
-    index: usize,
+pub struct SceneLoader<B: Backend> {
+    receiver: Receiver<SceneBatch<B>>,
+}
+
+impl<B: Backend> SceneLoader<B> {
+    pub fn new(scene: Scene, batch_size: usize, device: &B::Device) -> Self {
+        // Bound == number of batches to prefix.
+        let (tx, rx) = sync_channel(5);
+
+        let len = scene.views.len();
+        let views = scene.views.clone();
+
+        let device = device.clone();
+
+        // TODO: On wasm, don't thread but async.
+        thread::spawn(move || {
+            let mut index = 0;
+
+            loop {
+                let indexes: Vec<_> = (0..batch_size)
+                    .map(|i| {
+                        let list_index = miller_shuffle((index + i) % len, (index + i) / len, len);
+                        list_index as i32
+                    })
+                    .collect();
+                let cameras = indexes
+                    .iter()
+                    .map(|&x| views[x as usize].camera.clone())
+                    .collect();
+                let selected_tensors = indexes
+                    .iter()
+                    .map(|&x| {
+                        image_to_tensor(&views[x as usize].image, &device)
+                            .expect("Failed to upload img")
+                    })
+                    .collect::<Vec<_>>();
+
+                let batch_tensor = Tensor::stack(selected_tensors, 0);
+
+                let scene_batch = SceneBatch {
+                    gt_images: batch_tensor,
+                    cameras,
+                };
+
+                tx.send(scene_batch).expect("Failed to send SceneBatch");
+                index += 1;
+            }
+        });
+
+        Self { receiver: rx }
+    }
+
+    pub async fn next_batch(&mut self) -> SceneBatch<B> {
+        self.receiver.recv().unwrap()
+    }
 }
 
 // Simple rust port of https://github.com/RondeSC/Miller_Shuffle_Algo/blob/main/MillerShuffle.c,
@@ -47,49 +101,4 @@ fn miller_shuffle(inx: usize, shuffle_id: usize, list_size: usize) -> usize {
         si ^= rx2;
     }
     si
-}
-
-impl SceneLoader {
-    pub fn new(scene: Scene) -> Self {
-        Self {
-            views: scene.views.clone(),
-            index: 0,
-        }
-    }
-
-    pub fn next_batch<B: Backend>(
-        &mut self,
-        batch_size: usize,
-        device: &B::Device,
-    ) -> SceneBatch<B> {
-        let len = self.views.len();
-
-        let indexes: Vec<_> = (0..batch_size)
-            .map(|_| {
-                let list_index = miller_shuffle(self.index % len, self.index / len, len);
-                self.index += 1;
-                list_index as i32
-            })
-            .collect();
-
-        let cameras = indexes
-            .iter()
-            .map(|&x| self.views[x as usize].camera.clone())
-            .collect();
-
-        let selected_tensors = indexes
-            .iter()
-            .map(|&x| {
-                image_to_tensor(&self.views[x as usize].image, device)
-                    .expect("Failed to upload img")
-            })
-            .collect::<Vec<_>>();
-
-        let batch_tensor = Tensor::stack(selected_tensors, 0);
-
-        SceneBatch {
-            gt_images: batch_tensor,
-            cameras,
-        }
-    }
 }
