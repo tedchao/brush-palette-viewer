@@ -1,13 +1,24 @@
-use brush_render::Backend;
-use burn::tensor::Tensor;
-
 use crate::scene::Scene;
+use brush_render::Backend;
 use brush_train::train::SceneBatch;
+use burn::tensor::{Tensor, TensorData};
+use image::DynamicImage;
+use image::GenericImageView;
 
-use crate::image_to_tensor;
 use std::sync::mpsc::sync_channel;
 use std::sync::mpsc::Receiver;
 use std::thread;
+
+fn image_to_tensor<B: Backend>(
+    image: &DynamicImage,
+    device: &B::Device,
+) -> anyhow::Result<Tensor<B, 3>> {
+    let (w, h) = image.dimensions();
+    let num_channels = image.color().channel_count();
+    let data = image.to_rgb32f().into_vec();
+    let tensor_data = TensorData::new(data, [h as usize, w as usize, num_channels as usize]);
+    Ok(Tensor::from_data(tensor_data, device))
+}
 
 pub struct SceneLoader<B: Backend> {
     receiver: Receiver<SceneBatch<B>>,
@@ -53,7 +64,10 @@ impl<B: Backend> SceneLoader<B> {
                     cameras,
                 };
 
-                tx.send(scene_batch).expect("Failed to send SceneBatch");
+                if tx.send(scene_batch).is_err() {
+                    break;
+                }
+
                 index += 1;
             }
         });

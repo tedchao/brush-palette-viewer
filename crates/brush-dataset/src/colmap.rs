@@ -71,6 +71,7 @@ pub fn read_dataset(
         let center_uv = center / glam::vec2(cam.width as f32, cam.height as f32);
 
         views.push(SceneView {
+            name: img_path.to_string(),
             camera: Camera::new(translation, quat, glam::vec2(fovx, fovy), center_uv),
             image: img,
         });

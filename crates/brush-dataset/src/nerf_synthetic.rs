@@ -118,6 +118,7 @@ pub fn read_dataset(
         let fovy = camera::focal_to_fov(camera::fov_to_focal(fovx, image.width()), image.height());
 
         cameras.push(SceneView {
+            name: image_path,
             camera: Camera::new(
                 translation,
                 rotation,

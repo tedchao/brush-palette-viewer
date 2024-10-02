@@ -21,13 +21,13 @@ impl SplatView {
     pub(crate) fn new() -> Self {
         SplatView {
             camera: Camera::new(
-                Vec3::ZERO,
+                -Vec3::Z * 5.0,
                 Quat::IDENTITY,
                 glam::vec2(0.5, 0.5),
                 glam::vec2(0.5, 0.5),
             ),
             backbuffer: None,
-            controls: OrbitControls::new(7.0),
+            controls: OrbitControls::new(),
             last_draw: Instant::now(),
         }
     }

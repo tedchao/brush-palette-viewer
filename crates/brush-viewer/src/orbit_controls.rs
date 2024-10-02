@@ -3,16 +3,14 @@ use glam::{Mat3, Quat, Vec2, Vec3};
 
 pub struct OrbitControls {
     pub focus: Vec3,
-    pub radius: f32,
     pan_momentum: Vec2,
     rotate_momentum: Vec2,
 }
 
 impl OrbitControls {
-    pub fn new(radius: f32) -> Self {
+    pub fn new() -> Self {
         Self {
             focus: Vec3::ZERO,
-            radius,
             pan_momentum: Vec2::ZERO,
             rotate_momentum: Vec2::ZERO,
         }
@@ -27,6 +25,7 @@ impl OrbitControls {
         window: Vec2,
         delta_time: f32,
     ) {
+        let mut radius = (camera.position - self.focus).length();
         // Adjust momentum with the new input
         self.pan_momentum += pan;
         self.rotate_momentum += rotate;
@@ -51,23 +50,23 @@ impl OrbitControls {
         let right = camera.rotation * Vec3::X * -scaled_pan.x;
         let up = camera.rotation * Vec3::Y * -scaled_pan.y;
 
-        let translation = (right + up) * self.radius;
+        let translation = (right + up) * radius;
         self.focus += translation;
-        self.radius -= scroll * self.radius * 0.2;
+        radius -= scroll * radius * 0.2;
 
         let min = 0.25;
         let max = 35.0;
         // smooth clamp to min/max radius.
-        if self.radius < min {
-            self.radius = self.radius * 0.5 + min * 0.5;
+        if radius < min {
+            radius = radius * 0.5 + min * 0.5;
         }
 
-        if self.radius > max {
-            self.radius = self.radius * 0.5 + max * 0.5;
+        if radius > max {
+            radius = radius * 0.5 + max * 0.5;
         }
 
         let rot_matrix = Mat3::from_quat(camera.rotation);
-        camera.position = self.focus + rot_matrix.mul_vec3(Vec3::new(0.0, 0.0, -self.radius));
+        camera.position = self.focus + rot_matrix.mul_vec3(Vec3::new(0.0, 0.0, -radius));
     }
 
     pub fn is_animating(&self) -> bool {

@@ -25,7 +25,6 @@ use crate::splat_import;
 use crate::splat_view::SplatView;
 
 enum ViewerMessage {
-    Initial,
     Error(anyhow::Error),
 
     // Initial splat cloud to be created.
@@ -53,7 +52,7 @@ struct TrainState {
     last_train_step: (Instant, u32),
     train_iter_per_s: f32,
     scene: Scene,
-    selected_view: Option<egui::TextureHandle>,
+    selected_view: Option<(usize, egui::TextureHandle)>,
     shared: Arc<RwLock<SharedTrainState>>,
 }
 
@@ -79,6 +78,7 @@ pub struct Viewer {
     device: WgpuDevice,
 
     receiver: Option<Receiver<ViewerMessage>>,
+
     last_message: Option<ViewerMessage>,
 
     ctx: egui::Context,
@@ -302,6 +302,8 @@ impl Viewer {
         self.splat_view = SplatView::new();
         self.train_state = TrainState::new();
 
+        self.last_message = None;
+
         async fn inner_process_loop(
             device: WgpuDevice,
             sender: Sender<ViewerMessage>,
@@ -354,6 +356,75 @@ impl Viewer {
         let mut checked = sync_span::is_enabled();
         ui.checkbox(&mut checked, "Sync scopes");
         sync_span::set_enabled(checked);
+    }
+
+    fn viewpoints_window(&mut self, ctx: &egui::Context) {
+        // Empty scene, nothing to show.
+        if self.train_state.scene.views.is_empty() {
+            return;
+        }
+
+        egui::Window::new("Viewpoints")
+            .collapsible(true)
+            .resizable(true)
+            .show(ctx, |ui| {
+                let views = &self.train_state.scene.views;
+
+                let mut nearest_view = self
+                    .train_state
+                    .scene
+                    .get_nearest_view(&self.splat_view.camera);
+
+                if let Some(nearest) = nearest_view.as_mut() {
+                    let mut buttoned = false;
+
+                    ui.horizontal(|ui| {
+                        if ui.button("⏪").clicked() {
+                            buttoned = true;
+                            *nearest -= 1;
+                        }
+                        buttoned |= ui.add(Slider::new(nearest, 0..=views.len() - 1)).dragged();
+                        if ui.button("⏩").clicked() {
+                            buttoned = true;
+                            *nearest += 1;
+                        }
+                    });
+
+                    if buttoned {
+                        let view = self.train_state.scene.views[*nearest].clone();
+                        self.splat_view.camera = view.camera.clone();
+                        self.splat_view.controls.focus =
+                            view.camera.position + view.camera.rotation * glam::Vec3::Z * 5.0;
+                    }
+
+                    // Update image if dirty.
+                    let mut dirty = self.train_state.selected_view.is_none();
+                    if let Some(view) = self.train_state.selected_view.as_ref() {
+                        dirty = view.0 != *nearest;
+                    }
+
+                    if dirty {
+                        let view = self.train_state.scene.views[*nearest].clone();
+                        let color_img = egui::ColorImage::from_rgb(
+                            [view.image.width() as usize, view.image.height() as usize],
+                            &view.image.to_rgb8().into_vec(),
+                        );
+                        self.train_state.selected_view = Some((
+                            *nearest,
+                            ctx.load_texture(
+                                "nearest_view_tex",
+                                color_img,
+                                TextureOptions::default(),
+                            ),
+                        ));
+                    }
+
+                    if let Some(view) = self.train_state.selected_view.as_ref() {
+                        ui.add(egui::Image::new(&view.1).shrink_to_fit());
+                        ui.label(&self.train_state.scene.views[*nearest].name);
+                    }
+                }
+            });
     }
 }
 
@@ -433,9 +504,10 @@ impl eframe::App for Viewer {
             #[cfg(feature = "tracing")]
             self.tracing_debug_ui(ui);
 
+            self.viewpoints_window(ctx);
+
             if let Some(message) = self.last_message.as_ref() {
                 match message {
-                    ViewerMessage::Initial => (),
                     ViewerMessage::Error(e) => {
                         ui.label("Error: ".to_owned() + &e.to_string());
                     }
@@ -463,40 +535,6 @@ impl eframe::App for Viewer {
                         iter,
                         timestamp: _,
                     } => {
-                        egui::Window::new("Viewpoints")
-                            .collapsible(true)
-                            .show(ctx, |ui| {
-                                ui.horizontal(|ui| {
-                                    ui.vertical(|ui| {
-                                        let views = &self.train_state.scene.views;
-
-                                        for (i, view) in views.iter().enumerate() {
-                                            if ui.button(format!("View {i}")).clicked() {
-                                                self.splat_view.camera = view.camera.clone();
-                                                let color_img =
-                                                    egui::ColorImage::from_rgba_unmultiplied(
-                                                        [
-                                                            view.image.width() as usize,
-                                                            view.image.height() as usize,
-                                                        ],
-                                                        view.image.as_bytes(),
-                                                    );
-                                                self.train_state.selected_view =
-                                                    Some(ctx.load_texture(
-                                                        "Debug",
-                                                        color_img,
-                                                        TextureOptions::default(),
-                                                    ));
-                                            }
-                                        }
-                                    });
-
-                                    if let Some(view) = &self.train_state.selected_view {
-                                        ui.add(egui::Image::new(view));
-                                    }
-                                });
-                            });
-
                         ui.horizontal(|ui| {
                             ui.label(format!("{} splats", splats.num_splats()));
                             ui.label(format!(
