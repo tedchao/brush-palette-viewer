@@ -39,7 +39,7 @@ pub struct TrainConfig {
 
     // threshold of positional gradient norm for densifying gaussians
     // TODO: Abs grad.
-    #[config(default = 0.0001)]
+    #[config(default = 0.00005)]
     densify_grad_thresh: f32,
 
     // below this size, gaussians are *duplicated*, otherwise split.
@@ -78,8 +78,8 @@ pub struct TrainConfig {
     #[config(default = 100)]
     visualize_every: u32,
 
-    #[config(default = 250)]
-    visualize_splats_every: u32,
+    #[config(default = 400)]
+    pub visualize_splats_every: u32,
 
     pub initial_model_config: RandomSplatsConfig,
 }
@@ -282,16 +282,16 @@ where
 
             let _span = info_span!("Calculate losses", sync_burn = true).entered();
 
-            let loss = (pred_images.clone() - batch.gt_images.clone()).abs().mean();
+            let pred_rgb = pred_images
+                .clone()
+                .slice([0..batch_size, 0..img_h, 0..img_w, 0..3]);
+            let gt_rgb = batch
+                .gt_images
+                .clone()
+                .slice([0..batch_size, 0..img_h, 0..img_w, 0..3]);
+
+            let loss = (pred_rgb.clone() - gt_rgb.clone()).abs().mean();
             let loss = if self.config.ssim_weight > 0.0 {
-                let pred_rgb = pred_images
-                    .clone()
-                    .slice([0..batch_size, 0..img_h, 0..img_w, 0..3]);
-                let gt_rgb =
-                    batch
-                        .gt_images
-                        .clone()
-                        .slice([0..batch_size, 0..img_h, 0..img_w, 0..3]);
                 let ssim_loss = crate::ssim::ssim(
                     pred_rgb.clone().permute([0, 3, 1, 2]),
                     gt_rgb.clone().permute([0, 3, 1, 2]),
