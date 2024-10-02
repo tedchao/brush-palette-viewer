@@ -13,7 +13,7 @@ use safetensors::SafeTensors;
 #[derive(Config)]
 pub struct RandomSplatsConfig {
     // period of steps where refinement is turned off
-    #[config(default = 500)]
+    #[config(default = 5000)]
     init_count: usize,
     #[config(default = 2.0)]
     aabb_scale: f64,
@@ -21,7 +21,6 @@ pub struct RandomSplatsConfig {
     opacity_min: f64,
     #[config(default = -1.0)]
     opacity_max: f64,
-
     #[config(default = 0.05)]
     scale_min: f64,
     #[config(default = 0.15)]

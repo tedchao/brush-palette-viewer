@@ -108,22 +108,27 @@ impl VisualizeTools {
         &self,
         splats: &Splats<B>,
         stats: &TrainStepStats<B>,
-        gt_image: Tensor<B, 4>,
+        gt_images: Tensor<B, 4>,
     ) -> Result<()> {
         let rec = &self.rec;
         rec.set_time_sequence("iterations", stats.iter);
         rec.log("lr/mean", &rerun::Scalar::new(stats.lr_mean))?;
-        rec.log("lr/opac", &rerun::Scalar::new(stats.lr_opac))?;
-        rec.log("lr/rest", &rerun::Scalar::new(stats.lr_rest))?;
 
         rec.log(
             "splats/num",
             &rerun::Scalar::new(splats.num_splats() as f64).clone(),
         )?;
 
-        let mse = (stats.pred_images.clone() - gt_image.clone())
-            .powf_scalar(2.0)
-            .mean();
+        let [batch_size, img_h, img_w, _] = stats.pred_images.dims();
+        let pred_rgb = stats
+            .pred_images
+            .clone()
+            .slice([0..batch_size, 0..img_h, 0..img_w, 0..3]);
+        let gt_rgb = gt_images
+            .clone()
+            .slice([0..batch_size, 0..img_h, 0..img_w, 0..3]);
+
+        let mse = (pred_rgb - gt_rgb).powf_scalar(2.0).mean();
         let psnr = mse.clone().recip().log() * 10.0 / std::f32::consts::LN_10;
 
         rec.log(
@@ -138,7 +143,7 @@ impl VisualizeTools {
         // Not sure what's best here, atm let's just log the first batch render only.
         // Maybe could do an average instead?
         let main_aux = &stats.auxes[0];
-        let main_gt_image = gt_image.slice([0..1]).squeeze(0);
+        let main_gt_image = gt_images.slice([0..1]).squeeze(0);
         let main_pred_image = stats.pred_images.clone().slice([0..1]).squeeze(0);
 
         rec.log(
