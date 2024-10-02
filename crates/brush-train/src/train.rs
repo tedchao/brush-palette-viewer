@@ -346,6 +346,8 @@ where
                 splats.log_scales.grad_remove(&mut grads).unwrap(),
             );
             splats = self.optim.step(self.config.lr_scale, splats, grad_scale);
+            // Make sure rotations are still valid after optimization step.
+            splats.norm_rotations();
             splats
         });
 
@@ -354,8 +356,6 @@ where
 
         if self.iter < max_refine_step {
             info_span!("Housekeeping", sync_burn = true).in_scope(|| {
-                splats.norm_rotations();
-
                 let xys_grad = Tensor::from_inner(
                     splats
                         .xys_dummy
