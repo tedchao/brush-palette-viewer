@@ -5,8 +5,6 @@
 mod burn_texture;
 mod orbit_controls;
 mod splat_import;
-
-#[cfg(feature = "rerun")]
 mod visualize;
 
 mod splat_view;

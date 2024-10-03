@@ -14,8 +14,8 @@ use futures_lite::StreamExt;
 use tracing::info_span;
 use web_time::Instant;
 
-use brush_dataset;
-use brush_dataset::scene::Scene;
+use brush_dataset::{self, Dataset};
+use brush_train::scene::Scene;
 use brush_train::train::{SplatTrainer, TrainConfig};
 
 use crate::splat_import;
@@ -31,7 +31,7 @@ enum ViewerMessage {
     },
 
     // Loaded a bunch of viewpoints to train on.
-    Scene(Scene),
+    Dataset(Dataset),
 
     TrainStep {
         splats: Splats<Wgpu>,
@@ -48,7 +48,7 @@ struct SharedTrainState {
 struct TrainState {
     last_train_step: (Instant, u32),
     train_iter_per_s: f32,
-    scene: Scene,
+    dataset: Dataset,
     selected_view: Option<(usize, egui::TextureHandle)>,
     shared: Arc<RwLock<SharedTrainState>>,
 }
@@ -58,7 +58,11 @@ impl TrainState {
         Self {
             last_train_step: (Instant::now(), 0),
             train_iter_per_s: 0.0,
-            scene: Scene::new(vec![], glam::Vec3::ZERO),
+            dataset: Dataset {
+                train: Scene::new(vec![], glam::Vec3::ZERO),
+                test: None,
+                eval: None,
+            },
             selected_view: None,
             shared: Arc::new(RwLock::new(SharedTrainState { paused: false })),
         }
@@ -139,18 +143,20 @@ async fn train_loop(
     )
     .with_total_steps(total_steps);
 
-    let scene =
+    let dataset =
         brush_dataset::read_dataset(data, train_args.frame_count, train_args.target_resolution)?;
-    let msg = ViewerMessage::Scene(scene.clone());
+    let train_scene = dataset.train.clone();
+    let eval_scene = dataset.eval.clone();
+
+    let msg = ViewerMessage::Dataset(dataset);
     sender.send(msg).await.unwrap();
 
-    #[cfg(feature = "rerun")]
     let visualize = crate::visualize::VisualizeTools::new();
-    #[cfg(feature = "rerun")]
-    visualize.log_scene(&scene)?;
+    visualize.log_scene(&train_scene)?;
 
     let mut splats = config.initial_model_config.init::<Autodiff<Wgpu>>(&device);
-    let mut dataloader = SceneLoader::new(scene.clone(), 1, &device);
+
+    let mut dataloader = SceneLoader::new(&train_scene, 1, &device);
     let mut trainer = SplatTrainer::new(splats.num_splats(), &config, &splats);
 
     loop {
@@ -167,28 +173,29 @@ async fn train_loop(
             dataloader.next_batch().await
         };
 
-        #[cfg(feature = "rerun")]
         let gt_image = batch.gt_images.clone();
 
         let (new_splats, stats) = trainer
-            .step(batch, scene.background_color, splats)
+            .step(batch, train_scene.background_color, splats)
             .await
             .unwrap();
+        splats = new_splats;
 
-        #[cfg(feature = "rerun")]
-        {
-            if trainer.iter % config.visualize_splats_every == 0 {
-                visualize
-                    .log_train_stats(&new_splats, &stats, gt_image)
-                    .await?;
-            }
+        if trainer.iter % config.visualize_splats_every == 0 {
+            visualize.log_train_stats(&splats, &stats, gt_image).await?;
+        }
 
-            if trainer.iter % config.visualize_splats_every == 0 {
-                visualize.log_splats(&new_splats).await?;
+        if let Some(eval_scene) = eval_scene.as_ref() {
+            if trainer.iter % config.eval_every == 0 {
+                let eval =
+                    brush_train::eval::eval_stats(&splats, eval_scene, Some(4), &device).await;
+                visualize.log_eval_stats(trainer.iter, &eval)?;
             }
         }
 
-        splats = new_splats;
+        if trainer.iter % config.visualize_splats_every == 0 {
+            visualize.log_splats(&splats).await?;
+        }
 
         if trainer.iter % 5 == 0 {
             let _span = info_span!("Send batch").entered();
@@ -357,8 +364,10 @@ impl Viewer {
     }
 
     fn viewpoints_window(&mut self, ctx: &egui::Context) {
+        let train_scene = &self.train_state.dataset.train;
+
         // Empty scene, nothing to show.
-        if self.train_state.scene.views.is_empty() {
+        if train_scene.views.is_empty() {
             return;
         }
 
@@ -366,12 +375,7 @@ impl Viewer {
             .collapsible(true)
             .resizable(true)
             .show(ctx, |ui| {
-                let views = &self.train_state.scene.views;
-
-                let mut nearest_view = self
-                    .train_state
-                    .scene
-                    .get_nearest_view(&self.splat_view.camera);
+                let mut nearest_view = train_scene.get_nearest_view(&self.splat_view.camera);
 
                 if let Some(nearest) = nearest_view.as_mut() {
                     let mut buttoned = false;
@@ -381,7 +385,9 @@ impl Viewer {
                             buttoned = true;
                             *nearest -= 1;
                         }
-                        buttoned |= ui.add(Slider::new(nearest, 0..=views.len() - 1)).dragged();
+                        buttoned |= ui
+                            .add(Slider::new(nearest, 0..=train_scene.views.len() - 1))
+                            .dragged();
                         if ui.button("⏩").clicked() {
                             buttoned = true;
                             *nearest += 1;
@@ -389,7 +395,7 @@ impl Viewer {
                     });
 
                     if buttoned {
-                        let view = self.train_state.scene.views[*nearest].clone();
+                        let view = train_scene.views[*nearest].clone();
                         self.splat_view.camera = view.camera.clone();
                         self.splat_view.controls.focus =
                             view.camera.position + view.camera.rotation * glam::Vec3::Z * 5.0;
@@ -402,7 +408,7 @@ impl Viewer {
                     }
 
                     if dirty {
-                        let view = self.train_state.scene.views[*nearest].clone();
+                        let view = train_scene.views[*nearest].clone();
                         let color_img = egui::ColorImage::from_rgb(
                             [view.image.width() as usize, view.image.height() as usize],
                             &view.image.to_rgb8().into_vec(),
@@ -419,7 +425,7 @@ impl Viewer {
 
                     if let Some(view) = self.train_state.selected_view.as_ref() {
                         ui.add(egui::Image::new(&view.1).shrink_to_fit());
-                        ui.label(&self.train_state.scene.views[*nearest].name);
+                        ui.label(&train_scene.views[*nearest].name);
                     }
                 }
             });
@@ -504,6 +510,15 @@ impl eframe::App for Viewer {
 
             self.viewpoints_window(ctx);
 
+            // Move the dataset if received. This is just to prevent it from having to be
+            // cloned in the match below.
+            let message = self.last_message.take();
+            if let Some(ViewerMessage::Dataset(d)) = message {
+                self.train_state.dataset = d;
+            } else {
+                self.last_message = message;
+            }
+
             if let Some(message) = self.last_message.as_ref() {
                 match message {
                     ViewerMessage::Error(e) => {
@@ -526,7 +541,6 @@ impl eframe::App for Viewer {
                         self.splat_view
                             .draw_splats(splats, glam::Vec3::ZERO, ui, ctx, frame);
                     }
-                    ViewerMessage::Scene(vec) => self.train_state.scene = vec.clone(),
                     ViewerMessage::TrainStep {
                         splats,
                         loss,
@@ -549,12 +563,13 @@ impl eframe::App for Viewer {
 
                         self.splat_view.draw_splats(
                             splats,
-                            self.train_state.scene.background_color,
+                            self.train_state.dataset.train.background_color,
                             ui,
                             ctx,
                             frame,
                         );
                     }
+                    _ => {}
                 }
             } else if self.receiver.is_some() {
                 ui.label("Loading...");

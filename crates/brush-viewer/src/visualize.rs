@@ -1,14 +1,14 @@
 use anyhow::Result;
-use brush_dataset::scene::Scene;
 use brush_render::{gaussian_splats::Splats, AutodiffBackend, Backend};
-use brush_rerun::{BurnToImage, BurnToRerun};
+use brush_rerun::BurnToRerun;
+use brush_train::scene::Scene;
 use brush_train::train::TrainStepStats;
 use burn::tensor::{activation::sigmoid, ElementConversion, Tensor};
 use image::GenericImageView;
 use rerun::{Color, FillMode, RecordingStream};
 
 pub struct VisualizeTools {
-    rec: RecordingStream,
+    rec: Option<RecordingStream>,
 }
 
 // TODO: Not all these reads are async, and also, are still being done sequential?
@@ -17,12 +17,15 @@ impl VisualizeTools {
     pub fn new() -> Self {
         let rec = rerun::RecordingStreamBuilder::new("brush_visualize")
             .spawn()
-            .expect("Failed to start rerun");
-
+            .ok();
         Self { rec }
     }
 
     pub(crate) async fn log_splats<B: Backend>(&self, splats: &Splats<B>) -> Result<()> {
+        let Some(rec) = self.rec.as_ref() else {
+            return Ok(());
+        };
+
         let means = splats
             .means
             .val()
@@ -66,7 +69,7 @@ impl VisualizeTools {
 
         let radii = radii.chunks(3).map(|r| glam::vec3(r[0], r[1], r[2]));
 
-        self.rec.log(
+        rec.log(
             "world/splat/points",
             &rerun::Ellipsoids3D::from_centers_and_half_sizes(means, radii)
                 .with_quaternions(rotations)
@@ -78,7 +81,10 @@ impl VisualizeTools {
     }
 
     pub(crate) fn log_scene(&self, scene: &Scene) -> Result<()> {
-        let rec = &self.rec;
+        let Some(rec) = self.rec.as_ref() else {
+            return Ok(());
+        };
+
         rec.log_static("world", &rerun::ViewCoordinates::RIGHT_HAND_Y_DOWN)?;
 
         for (i, data) in scene.views.iter().enumerate() {
@@ -106,21 +112,49 @@ impl VisualizeTools {
         Ok(())
     }
 
+    pub fn log_eval_stats(&self, iter: u32, stats: &brush_train::eval::EvalStats) -> Result<()> {
+        let Some(rec) = self.rec.as_ref() else {
+            return Ok(());
+        };
+
+        rec.set_time_sequence("iterations", iter);
+
+        let avg_psnr =
+            stats.samples.iter().map(|s| s.psnr).sum::<f32>() / (stats.samples.len() as f32);
+        rec.log("stats/Eval PSNR", &rerun::Scalar::new(avg_psnr as f64))?;
+
+        for (i, samp) in stats.samples.iter().enumerate() {
+            let render = samp.rendered.clone();
+            let [w, h] = [render.width(), render.height()];
+            rec.log(
+                format!("eval/render {i}"),
+                &rerun::Image::from_rgb24(render.into_bytes(), [w, h]),
+            )?;
+            rec.log(
+                format!("eval/render {i}"),
+                &rerun::Image::from_rgb24(samp.ground_truth.clone().into_bytes(), [w, h]),
+            )?;
+        }
+
+        Ok(())
+    }
+
     pub async fn log_train_stats<B: AutodiffBackend>(
         &self,
         splats: &Splats<B>,
         stats: &TrainStepStats<B>,
         gt_images: Tensor<B, 4>,
     ) -> Result<()> {
-        let rec = &self.rec;
+        let Some(rec) = self.rec.as_ref() else {
+            return Ok(());
+        };
+
         rec.set_time_sequence("iterations", stats.iter);
         rec.log("lr/mean", &rerun::Scalar::new(stats.lr_mean))?;
-
         rec.log(
             "splats/num",
             &rerun::Scalar::new(splats.num_splats() as f64).clone(),
         )?;
-
         let [batch_size, img_h, img_w, _] = stats.pred_images.dims();
         let pred_rgb = stats
             .pred_images
@@ -129,24 +163,19 @@ impl VisualizeTools {
         let gt_rgb = gt_images
             .clone()
             .slice([0..batch_size, 0..img_h, 0..img_w, 0..3]);
-
         let mse = (pred_rgb.clone() - gt_rgb.clone()).powf_scalar(2.0).mean();
         let psnr = mse.recip().log() * 10.0 / std::f32::consts::LN_10;
-
         rec.log(
             "losses/main",
             &rerun::Scalar::new(stats.loss.clone().into_scalar_async().await.elem::<f64>()),
         )?;
         rec.log(
-            "stats/PSNR",
+            "stats/Train PSNR",
             &rerun::Scalar::new(psnr.into_scalar_async().await.elem::<f64>()),
         )?;
-
         // Not sure what's best here, atm let's just log the first batch render only.
         // Maybe could do an average instead?
         let main_aux = &stats.auxes[0];
-        let main_gt_image = gt_rgb.slice([0..1]).squeeze(0);
-        let main_pred_image = pred_rgb.slice([0..1]).squeeze(0);
 
         rec.log(
             "splats/num_intersects",
@@ -160,8 +189,6 @@ impl VisualizeTools {
             "images/tile depth",
             &main_aux.read_tile_depth().into_rerun(),
         )?;
-        rec.log("images/ground truth", &main_gt_image.into_rerun_image())?;
-        rec.log("images/predicted", &main_pred_image.into_rerun_image())?;
         Ok(())
     }
 }

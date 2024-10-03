@@ -1,14 +1,18 @@
 pub mod colmap;
 pub mod colmap_read_model;
 pub mod nerf_synthetic;
-pub mod scene;
 pub mod scene_batch;
 
+use anyhow::Result;
+use brush_train::scene::Scene;
+use image::DynamicImage;
 use std::path::{Path, PathBuf};
 
-use crate::scene::Scene;
-use anyhow::Result;
-use image::DynamicImage;
+pub struct Dataset {
+    pub train: Scene,
+    pub test: Option<Scene>,
+    pub eval: Option<Scene>,
+}
 
 pub(crate) fn normalized_path_string(path: &Path) -> String {
     Path::new(path)
@@ -38,7 +42,7 @@ pub fn read_dataset(
     zip_data: &[u8],
     max_frames: Option<usize>,
     max_resolution: Option<u32>,
-) -> Result<Scene> {
+) -> Result<Dataset> {
     nerf_synthetic::read_dataset(zip_data, max_frames, max_resolution)
         .or_else(move |_| colmap::read_dataset(zip_data, max_frames, max_resolution))
 }

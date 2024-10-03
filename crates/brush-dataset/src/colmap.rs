@@ -1,5 +1,6 @@
-use crate::scene::{Scene, SceneView};
+use crate::Dataset;
 use brush_render::camera::{self, Camera};
+use brush_train::scene::{Scene, SceneView};
 use std::io::{Cursor, Read};
 
 use crate::colmap_read_model;
@@ -9,7 +10,7 @@ pub fn read_dataset(
     zip_data: &[u8],
     max_frames: Option<usize>,
     max_resolution: Option<u32>,
-) -> anyhow::Result<Scene> {
+) -> anyhow::Result<Dataset> {
     let mut archive = zip::ZipArchive::new(Cursor::new(zip_data))?;
     let files: Vec<_> = archive.file_names().collect();
 
@@ -86,5 +87,12 @@ pub fn read_dataset(
     // Colmap data should be real images, with no transparency, which means background should't
     // matter. Most viewers assume that means a black background.
     let background = glam::vec3(0.0, 0.0, 0.0);
-    Ok(Scene::new(views, background))
+
+    // TODO: Figure out some policy for generating train/test/eval splits if necessary.
+    let dataset = Dataset {
+        train: Scene::new(views, background),
+        test: None,
+        eval: None,
+    };
+    Ok(dataset)
 }

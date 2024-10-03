@@ -15,31 +15,9 @@
     "shell": "system"
   },
   {
-    "label": "debug + rerun",
-    "command": "cargo run --features=rerun",
-    "env": {
-      "RUST_BACKTRACE": "1"
-    },
-    "use_new_terminal": false,
-    "allow_concurrent_runs": false,
-    "reveal": "always",
-    "hide": "never",
-    "shell": "system"
-  },
-  {
     "label": "release",
     "command": "cargo run",
     "args": ["--release"],
-    "use_new_terminal": false,
-    "allow_concurrent_runs": false,
-    "reveal": "always",
-    "hide": "never",
-    "shell": "system"
-  },
-  {
-    "label": "release + rerun",
-    "command": "cargo run",
-    "args": ["--release", "--features=rerun"],
     "use_new_terminal": false,
     "allow_concurrent_runs": false,
     "reveal": "always",

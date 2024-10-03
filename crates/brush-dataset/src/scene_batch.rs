@@ -1,37 +1,25 @@
-use crate::scene::Scene;
 use brush_render::Backend;
+use brush_train::image::image_to_tensor;
+use brush_train::scene::Scene;
 use brush_train::train::SceneBatch;
-use burn::tensor::{Tensor, TensorData};
-use image::DynamicImage;
-use image::GenericImageView;
+use burn::tensor::Tensor;
 
 use async_channel::Receiver;
-
-fn image_to_tensor<B: Backend>(
-    image: &DynamicImage,
-    device: &B::Device,
-) -> anyhow::Result<Tensor<B, 3>> {
-    let (w, h) = image.dimensions();
-    let num_channels = image.color().channel_count();
-    let data = image.to_rgb32f().into_vec();
-    let tensor_data = TensorData::new(data, [h as usize, w as usize, num_channels as usize]);
-    Ok(Tensor::from_data(tensor_data, device))
-}
 
 pub struct SceneLoader<B: Backend> {
     receiver: Receiver<SceneBatch<B>>,
 }
 
 impl<B: Backend> SceneLoader<B> {
-    pub fn new(scene: Scene, batch_size: usize, device: &B::Device) -> Self {
+    pub fn new(scene: &Scene, batch_size: usize, device: &B::Device) -> Self {
         // Bound == number of batches to prefix.
         let (tx, rx) = async_channel::bounded(5);
         let device = device.clone();
+        let len = scene.views.len();
+        let views = scene.views.clone();
 
         let fut = async move {
             let mut index = 0;
-            let len = scene.views.len();
-            let views = scene.views.clone();
 
             loop {
                 let indexes: Vec<_> = (0..batch_size)
@@ -46,10 +34,7 @@ impl<B: Backend> SceneLoader<B> {
                     .collect();
                 let selected_tensors = indexes
                     .iter()
-                    .map(|&x| {
-                        image_to_tensor(&views[x as usize].image, &device)
-                            .expect("Failed to upload img")
-                    })
+                    .map(|&x| image_to_tensor(&views[x as usize].image, &device))
                     .collect::<Vec<_>>();
 
                 let batch_tensor = Tensor::stack(selected_tensors, 0);

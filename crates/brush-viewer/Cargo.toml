@@ -25,8 +25,8 @@ tracing.workspace = true
 wgpu.workspace = true
 ply-rs.workspace = true
 tracing-subscriber.workspace = true
-rerun = { workspace = true, optional = true }
-brush-rerun = { path = "../brush-rerun", optional = true }
+rerun.workspace = true
+brush-rerun.path = "../brush-rerun"
 
 web-time.workspace = true
 futures-lite.workspace = true
@@ -49,7 +49,6 @@ web-sys.workspace = true
 gloo-timers.workspace = true
 
 [features]
-rerun = ["dep:rerun", "dep:brush-rerun"]
 tracy = ["dep:tracing-tracy", "tracing"]
 tracing = []
 

@@ -26,4 +26,3 @@ wasm-bindgen-futures.workspace = true
 
 [features]
 tracy = ["brush-viewer/tracy"]
-rerun = ["brush-viewer/rerun"]
