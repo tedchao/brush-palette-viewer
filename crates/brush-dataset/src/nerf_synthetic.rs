@@ -111,9 +111,7 @@ pub fn read_dataset(
             pixel[2] = (pixel[2] as f32 * alpha + 255.0 * (1.0 - alpha)) as u8;
             pixel[3] = 255;
         }
-        image = image::DynamicImage::ImageRgba8(rgba_image)
-            .to_rgb32f()
-            .into();
+        image = image::DynamicImage::ImageRgba8(rgba_image).to_rgb8().into();
 
         let fovy = camera::focal_to_fov(camera::fov_to_focal(fovx, image.width()), image.height());
 

@@ -5,9 +5,7 @@ use burn::tensor::{Tensor, TensorData};
 use image::DynamicImage;
 use image::GenericImageView;
 
-use std::sync::mpsc::sync_channel;
-use std::sync::mpsc::Receiver;
-use std::thread;
+use async_channel::Receiver;
 
 fn image_to_tensor<B: Backend>(
     image: &DynamicImage,
@@ -27,16 +25,13 @@ pub struct SceneLoader<B: Backend> {
 impl<B: Backend> SceneLoader<B> {
     pub fn new(scene: Scene, batch_size: usize, device: &B::Device) -> Self {
         // Bound == number of batches to prefix.
-        let (tx, rx) = sync_channel(5);
-
-        let len = scene.views.len();
-        let views = scene.views.clone();
-
+        let (tx, rx) = async_channel::bounded(5);
         let device = device.clone();
 
-        // TODO: On wasm, don't thread but async.
-        thread::spawn(move || {
+        let fut = async move {
             let mut index = 0;
+            let len = scene.views.len();
+            let views = scene.views.clone();
 
             loop {
                 let indexes: Vec<_> = (0..batch_size)
@@ -64,19 +59,29 @@ impl<B: Backend> SceneLoader<B> {
                     cameras,
                 };
 
-                if tx.send(scene_batch).is_err() {
+                if tx.send(scene_batch).await.is_err() {
                     break;
                 }
 
                 index += 1;
             }
-        });
+        };
+
+        // TODO: On wasm, don't thread but async.
+        #[cfg(not(target_arch = "wasm32"))]
+        std::thread::spawn(|| pollster::block_on(fut));
+
+        #[cfg(target_arch = "wasm32")]
+        wasm_bindgen_futures::spawn_local(fut);
 
         Self { receiver: rx }
     }
 
     pub async fn next_batch(&mut self) -> SceneBatch<B> {
-        self.receiver.recv().unwrap()
+        self.receiver
+            .recv()
+            .await
+            .expect("Somehow lost data loading channel!")
     }
 }
 

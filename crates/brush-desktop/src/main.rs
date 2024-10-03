@@ -1,4 +1,3 @@
-
 fn main() -> anyhow::Result<()> {
     let wgpu_options = brush_viewer::wgpu_config::get_config();
 
@@ -27,7 +26,7 @@ fn main() -> anyhow::Result<()> {
 
         console_error_panic_hook::set_once();
 
-        wasm_logger::init(wasm_logger::Config::default());
+        wasm_logger::init(wasm_logger::Config::new(log::Level::Info));
 
         let web_options = eframe::WebOptions {
             wgpu_options,
@@ -35,7 +34,11 @@ fn main() -> anyhow::Result<()> {
         };
 
         let document = web_sys::window().unwrap().document().unwrap();
-        let canvas = document.get_element_by_id("main_canvas").unwrap().dyn_into::<web_sys::HtmlCanvasElement>().unwrap();
+        let canvas = document
+            .get_element_by_id("main_canvas")
+            .unwrap()
+            .dyn_into::<web_sys::HtmlCanvasElement>()
+            .unwrap();
 
         wasm_bindgen_futures::spawn_local(async {
             eframe::WebRunner::new()

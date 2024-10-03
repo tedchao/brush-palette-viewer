@@ -612,13 +612,16 @@ name = "brush-dataset"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-channel",
  "brush-render",
  "brush-train",
  "burn",
  "byteorder",
  "glam",
  "image",
+ "pollster",
  "serde_json",
+ "wasm-bindgen-futures",
  "zip 2.2.0",
 ]
 
@@ -631,6 +634,7 @@ dependencies = [
  "console_error_panic_hook",
  "eframe",
  "egui",
+ "log",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "wasm-logger",

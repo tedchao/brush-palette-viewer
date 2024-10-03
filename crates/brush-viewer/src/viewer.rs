@@ -18,9 +18,6 @@ use brush_dataset;
 use brush_dataset::scene::Scene;
 use brush_train::train::{SplatTrainer, TrainConfig};
 
-#[cfg(target_arch = "wasm32")]
-use wasm_bindgen_futures::spawn_local;
-
 use crate::splat_import;
 use crate::splat_view::SplatView;
 
@@ -158,6 +155,7 @@ async fn train_loop(
 
     loop {
         if shared_state.read().unwrap().paused {
+            #[cfg(not(target_arch = "wasm32"))]
             std::thread::yield_now();
             #[cfg(target_arch = "wasm32")]
             gloo_timers::future::TimeoutFuture::new(0).await;
@@ -338,7 +336,7 @@ impl Viewer {
         });
 
         #[cfg(target_arch = "wasm32")]
-        spawn_local(inner_process_loop(
+        wasm_bindgen_futures::spawn_local(inner_process_loop(
             device,
             sender,
             ctx,
