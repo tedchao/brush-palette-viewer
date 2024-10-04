@@ -381,16 +381,18 @@ impl Viewer {
                     let mut buttoned = false;
 
                     ui.horizontal(|ui| {
+                        let view_count = train_scene.views.len();
+
                         if ui.button("⏪").clicked() {
                             buttoned = true;
-                            *nearest -= 1;
+                            *nearest = (*nearest + view_count - 1) % view_count;
                         }
                         buttoned |= ui
                             .add(Slider::new(nearest, 0..=train_scene.views.len() - 1))
                             .dragged();
                         if ui.button("⏩").clicked() {
                             buttoned = true;
-                            *nearest += 1;
+                            *nearest = (*nearest + 1) % view_count;
                         }
                     });
 
