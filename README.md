@@ -14,7 +14,8 @@ This project is a proof of concept - it currently only does basic training with 
 
 ## Getting started
 
-Install rust 1.78+ and run `cargo run` or `cargo run --release`. You can run tests with `cargo test --all`. To run with `rerun` enabled you can use `cargo run --features=rerun`.
+Install rust 1.78+ and run `cargo run` or `cargo run --release`. You can run tests with `cargo test --all`. Brush uses the wonderful [rerun](rerun.io) for additional visualizations while training.
+It currently requires rerun 0.19 however, which isn't released yet.
 
 ### Desktop
 
