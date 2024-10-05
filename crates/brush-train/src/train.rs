@@ -76,7 +76,7 @@ pub struct TrainConfig {
     #[config(default = 42)]
     seed: u64,
 
-    #[config(default = 25)]
+    #[config(default = 1000)]
     pub eval_every: u32,
 
     #[config(default = 400)]
