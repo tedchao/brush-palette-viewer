@@ -76,7 +76,7 @@ pub struct TrainConfig {
     #[config(default = 42)]
     seed: u64,
 
-    #[config(default = 25)]
+    #[config(default = 1000)]
     pub eval_every: u32,
 
     #[config(default = 400)]
@@ -312,40 +312,24 @@ where
 
         let mut splats = info_span!("Optimizer step", sync_burn = true).in_scope(|| {
             let mut splats = splats;
-            let mut grad_means = GradientsParams::new();
-            grad_means.register(
-                splats.means.id.clone(),
-                splats.means.grad_remove(&mut grads).unwrap(),
-            );
+            let grad_means = GradientsParams::from_params(&mut grads, &splats, &[splats.means.id]);
             splats = self.optim.step(self.sched_mean.step(), splats, grad_means);
 
-            let mut grad_opac = GradientsParams::new();
-            grad_opac.register(
-                splats.raw_opacity.id.clone(),
-                splats.raw_opacity.grad_remove(&mut grads).unwrap(),
-            );
+            let grad_opac =
+                GradientsParams::from_params(&mut grads, &splats, &[splats.raw_opacity.id]);
             splats = self.optim.step(self.config.lr_opac, splats, grad_opac);
 
-            let mut grad_coeff = GradientsParams::new();
-            grad_coeff.register(
-                splats.sh_coeffs.id.clone(),
-                splats.sh_coeffs.grad_remove(&mut grads).unwrap(),
-            );
+            let grad_coeff =
+                GradientsParams::from_params(&mut grads, &splats, &[splats.sh_coeffs.id]);
             splats = self.optim.step(self.config.lr_coeffs, splats, grad_coeff);
 
-            let mut grad_rot = GradientsParams::new();
-            grad_rot.register(
-                splats.rotation.id.clone(),
-                splats.rotation.grad_remove(&mut grads).unwrap(),
-            );
+            let grad_rot = GradientsParams::from_params(&mut grads, &splats, &[splats.rotation.id]);
             splats = self.optim.step(self.config.lr_rotation, splats, grad_rot);
 
-            let mut grad_scale = GradientsParams::new();
-            grad_scale.register(
-                splats.log_scales.id.clone(),
-                splats.log_scales.grad_remove(&mut grads).unwrap(),
-            );
+            let grad_scale =
+                GradientsParams::from_params(&mut grads, &splats, &[splats.log_scales.id]);
             splats = self.optim.step(self.config.lr_scale, splats, grad_scale);
+
             // Make sure rotations are still valid after optimization step.
             splats.norm_rotations();
             splats

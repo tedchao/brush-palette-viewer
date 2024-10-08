@@ -233,7 +233,7 @@ mod tests {
         let mut rng = rand::thread_rng();
         let mut keys_inp = Vec::new();
         for i in 0..10000 {
-            let start = rng.gen_range(i.. i + 150);
+            let start = rng.gen_range(i..i + 150);
             let end = rng.gen_range(start..start + 250);
 
             for j in start..end {
@@ -262,7 +262,7 @@ mod tests {
             Tensor::<Backend, 1, Int>::from_primitive(bitcast_tensor(ret_keys)).to_data();
         let ret_values =
             Tensor::<Backend, 1, Int>::from_primitive(bitcast_tensor(ret_values)).to_data();
-        
+
         let inds = argsort(&keys_inp);
         let ref_keys: Vec<u32> = inds.iter().map(|&i| keys_inp[i]).collect();
         let ref_values: Vec<u32> = inds.iter().map(|&i| values_inp[i]).collect();

@@ -1,8 +1,9 @@
 #import helpers;
 
-@group(0) @binding(0) var<storage, read_write> uniforms: helpers::RenderUniforms;
-@group(0) @binding(1) var<storage, read_write> projected_splats: array<helpers::ProjectedSplat>;
-@group(0) @binding(2) var<storage, read_write> cum_tiles_hit: array<u32>;
+@group(0) @binding(0) var<storage, read> uniforms: helpers::RenderUniforms;
+@group(0) @binding(1) var<storage, read> projected_splats: array<helpers::ProjectedSplat>;
+@group(0) @binding(2) var<storage, read> cum_tiles_hit: array<u32>;
+
 @group(0) @binding(3) var<storage, read_write> tile_id_from_isect: array<u32>;
 @group(0) @binding(4) var<storage, read_write> compact_gid_from_isect: array<u32>;
 
@@ -17,9 +18,9 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
 
     let projected = projected_splats[compact_gid];
     // get the tile bbox for gaussian
-    let xy = vec2f(projected.x, projected.y);
+    let xy = vec2f(projected.xy_x, projected.xy_y);
     let conic = vec3f(projected.conic_x, projected.conic_y, projected.conic_z);
-    let opac = projected.a;
+    let opac = projected.color_a;
 
     let radius = helpers::radius_from_conic(conic, opac);
     let tile_bounds = uniforms.tile_bounds;

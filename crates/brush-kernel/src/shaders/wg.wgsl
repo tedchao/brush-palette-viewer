@@ -4,8 +4,8 @@ struct Uniforms {
     wg_size_z: u32,
 }
 
-@group(0) @binding(0) var<storage, read_write> uniforms: Uniforms;
-@group(0) @binding(1) var<storage, read_write> thread_counts: array<u32>;
+@group(0) @binding(0) var<storage, read> uniforms: Uniforms;
+@group(0) @binding(1) var<storage, read> thread_counts: array<u32>;
 @group(0) @binding(2) var<storage, read_write> wg_count: array<u32>;
 
 fn ceil_div(a: u32, b: u32) -> u32 {

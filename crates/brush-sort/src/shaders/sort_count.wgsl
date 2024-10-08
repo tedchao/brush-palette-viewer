@@ -4,14 +4,12 @@ struct Uniforms {
     shift: u32,
 }
 
-@group(0) @binding(0) var<storage, read_write> config: Uniforms;
-@group(0) @binding(1) var<storage, read_write> num_keys_arr: array<u32>;
-@group(0) @binding(2) var<storage, read_write> src: array<u32>;
+@group(0) @binding(0) var<storage, read> config: Uniforms;
+@group(0) @binding(1) var<storage, read> num_keys_arr: array<u32>;
+@group(0) @binding(2) var<storage, read> src: array<u32>;
 @group(0) @binding(3) var<storage, read_write> counts: array<u32>;
 
 var<workgroup> histogram: array<atomic<u32>, sorting::BIN_COUNT>;
-
-var<workgroup> num_keys_wg: u32;
 
 @compute
 @workgroup_size(sorting::WG, 1, 1)
@@ -19,10 +17,7 @@ fn main(
     @builtin(local_invocation_id) local_id: vec3<u32>,
     @builtin(workgroup_id) gid: vec3<u32>,
 ) {
-    if local_id.x == 0u {
-        num_keys_wg = num_keys_arr[0];
-    }
-    let num_keys = workgroupUniformLoad(&num_keys_wg);
+    let num_keys = num_keys_arr[0];
 
     // let num_keys = num_keys_arr[0];
     let num_wgs = sorting::div_ceil(num_keys, sorting::BLOCK_SIZE);

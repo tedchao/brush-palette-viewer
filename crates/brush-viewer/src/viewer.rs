@@ -7,7 +7,7 @@ use brush_render::gaussian_splats::{RandomSplatsConfig, Splats};
 use burn::lr_scheduler::exponential::ExponentialLrSchedulerConfig;
 use burn::tensor::ElementConversion;
 use burn::{backend::Autodiff, module::AutodiffModule};
-use burn_wgpu::{RuntimeOptions, Wgpu, WgpuDevice};
+use burn_wgpu::{ RuntimeOptions, Wgpu, WgpuDevice};
 use egui::{Hyperlink, Slider, TextureOptions};
 use futures_lite::StreamExt;
 
@@ -77,6 +77,7 @@ impl TrainState {
 
 pub struct Viewer {
     device: WgpuDevice,
+    adapeter_info: wgpu::AdapterInfo,
 
     receiver: Option<Receiver<ViewerMessage>>,
 
@@ -217,6 +218,11 @@ async fn train_loop(
             egui_ctx.request_repaint();
         }
 
+        if trainer.iter == 100 {
+            let mem = splats.means.val().into_primitive().tensor().into_primitive().client.memory_usage();
+            println!("Memory usage: {}", mem);
+        }
+
         // On wasm, yield to the browser.
         #[cfg(target_arch = "wasm32")]
         gloo_timers::future::TimeoutFuture::new(0).await;
@@ -254,13 +260,18 @@ impl Viewer {
     pub fn new(cc: &eframe::CreationContext) -> Self {
         let state = cc.wgpu_render_state.as_ref().unwrap();
 
+        let adapeter_info = state.adapter.get_info();
+
         // Run the burn backend on the egui WGPU device.
         let device = burn::backend::wgpu::init_existing_device(
             state.adapter.clone(),
             state.device.clone(),
             state.queue.clone(),
             // Splatting workload is much more granular, so don't want to flush as often.
-            RuntimeOptions { tasks_max: 64 },
+            RuntimeOptions {
+                tasks_max: 64,
+                memory_config: burn_wgpu::MemoryConfiguration::ExclusivePages,
+            },
         );
 
         cfg_if::cfg_if! {
@@ -283,6 +294,7 @@ impl Viewer {
         Viewer {
             receiver: None,
             last_message: None,
+            adapeter_info,
             train_state: TrainState::new(),
             target_train_resolution: None,
             max_frames: None,
@@ -488,6 +500,8 @@ impl eframe::App for Viewer {
             });
 
         egui::CentralPanel::default().show(ctx, |ui| {
+            ui.label(format!("{}, {:?}", self.adapeter_info.name, self.adapeter_info.device_type));
+
             ui.add_space(25.0);
 
             if let Some(rx) = self.receiver.as_mut() {

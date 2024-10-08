@@ -10,13 +10,13 @@ pub use burn_jit::cubecl::{
 
 use burn::tensor::Shape;
 
-use burn_jit::{tensor::JitTensor, JitElement, JitRuntime};
+use burn_jit::{cubecl::Compiler, tensor::JitTensor, JitElement, JitRuntime};
 use bytemuck::Pod;
 
-pub fn calc_cube_count<const D: usize, S: ComputeServer>(
+pub fn calc_cube_count<const D: usize>(
     sizes: [u32; D],
     workgroup_size: [u32; 3],
-) -> CubeCount<S> {
+) -> CubeCount {
     let execs = [
         sizes.first().unwrap_or(&1).div_ceil(workgroup_size[0]),
         sizes.get(1).unwrap_or(&1).div_ceil(workgroup_size[1]),
@@ -25,11 +25,11 @@ pub fn calc_cube_count<const D: usize, S: ComputeServer>(
     CubeCount::Static(execs[0], execs[1], execs[2])
 }
 
-pub fn module_to_compiled(
+pub fn module_to_compiled<C: Compiler>(
     name: &'static str,
     module: naga::Module,
     workgroup_size: [u32; 3],
-) -> CompiledKernel {
+) -> CompiledKernel<C> {
     let info = naga::valid::Validator::new(
         naga::valid::ValidationFlags::empty(),
         naga::valid::Capabilities::all(),
@@ -53,6 +53,7 @@ pub fn module_to_compiled(
     CompiledKernel {
         name: Some(name),
         source: shader_string,
+        repr: None,
         cube_dim: CubeDim::new(workgroup_size[0], workgroup_size[1], workgroup_size[2]),
         // This is just a compiler hint for burn, but doesn't have to be set.
         shared_mem_bytes: 0,
@@ -111,12 +112,12 @@ macro_rules! kernel_source_gen {
             }
         }
 
-        impl brush_kernel::CubeTask for $struct_name {
+        impl<C: burn_jit::cubecl::Compiler> brush_kernel::CubeTask<C> for $struct_name {
             fn id(&self) -> brush_kernel::KernelId {
                 brush_kernel::calc_kernel_id::<Self>(&[$(self.$field_name),*])
             }
 
-            fn compile(&self, _mode: brush_kernel::ExecutionMode) -> brush_kernel::CompiledKernel {
+            fn compile(&self, _mode: brush_kernel::ExecutionMode) -> brush_kernel::CompiledKernel<C> {
                 let module = self.source();
                 brush_kernel::module_to_compiled(stringify!($struct_name), module, Self::WORKGROUP_SIZE)
             }
@@ -183,12 +184,12 @@ use shaders::wg;
 #[derive(Debug, Copy, Clone)]
 pub(crate) struct CreateDispatchBuffer {}
 
-impl CubeTask for CreateDispatchBuffer {
+impl<C: Compiler> CubeTask<C> for CreateDispatchBuffer {
     fn id(&self) -> KernelId {
         KernelId::new::<Self>()
     }
 
-    fn compile(&self, _mode: ExecutionMode) -> CompiledKernel {
+    fn compile(&self, _mode: ExecutionMode) -> CompiledKernel<C> {
         module_to_compiled(
             "CreateDispatchBuffer",
             wg::create_shader_source(Default::default()),

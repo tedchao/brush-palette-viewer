@@ -29,19 +29,43 @@ const HIGH_RES: glam::UVec2 = glam::uvec2(1024, 1024);
 const TARGET_SAMPLE_COUNT: u32 = 5;
 const INTERNAL_ITERS: u32 = 4;
 
-
 fn generate_bench_data() -> anyhow::Result<()> {
     <DiffBack as burn::prelude::Backend>::seed(4);
     let num_points = 2usize.pow(21); //  Maxmimum number of splats to bench.
 
     let device = WgpuDevice::BestAvailable;
-    let means = Tensor::<DiffBack, 2>::random([num_points, 3], burn::tensor::Distribution::Uniform(-0.5, 0.5), &device) * 10000.0;
-    let log_scales = Tensor::<DiffBack, 2>::random([num_points, 3], burn::tensor::Distribution::Uniform(0.05, 15.0), &device).log();
-    let coeffs = Tensor::<DiffBack, 3>::random([num_points, 1, 3], burn::tensor::Distribution::Uniform(-1.0, 1.0), &device);
+    let means = Tensor::<DiffBack, 2>::random(
+        [num_points, 3],
+        burn::tensor::Distribution::Uniform(-0.5, 0.5),
+        &device,
+    ) * 10000.0;
+    let log_scales = Tensor::<DiffBack, 2>::random(
+        [num_points, 3],
+        burn::tensor::Distribution::Uniform(0.05, 15.0),
+        &device,
+    )
+    .log();
+    let coeffs = Tensor::<DiffBack, 3>::random(
+        [num_points, 1, 3],
+        burn::tensor::Distribution::Uniform(-1.0, 1.0),
+        &device,
+    );
 
-    let u = Tensor::<DiffBack, 2>::random([num_points, 1], burn::tensor::Distribution::Uniform(0.0, 1.0), &device);
-    let v = Tensor::<DiffBack, 2>::random([num_points, 1], burn::tensor::Distribution::Uniform(0.0, 1.0), &device);
-    let w = Tensor::<DiffBack, 2>::random([num_points, 1], burn::tensor::Distribution::Uniform(0.0, 1.0), &device);
+    let u = Tensor::<DiffBack, 2>::random(
+        [num_points, 1],
+        burn::tensor::Distribution::Uniform(0.0, 1.0),
+        &device,
+    );
+    let v = Tensor::<DiffBack, 2>::random(
+        [num_points, 1],
+        burn::tensor::Distribution::Uniform(0.0, 1.0),
+        &device,
+    );
+    let w = Tensor::<DiffBack, 2>::random(
+        [num_points, 1],
+        burn::tensor::Distribution::Uniform(0.0, 1.0),
+        &device,
+    );
 
     let v = v * 2.0 * std::f32::consts::PI;
     let w = w * 2.0 * std::f32::consts::PI;
@@ -55,18 +79,42 @@ fn generate_bench_data() -> anyhow::Result<()> {
         ],
         1,
     );
-    let opacities = Tensor::<DiffBack, 1>::random([num_points], burn::tensor::Distribution::Uniform(0.0, 1.0), &device);
+    let opacities = Tensor::<DiffBack, 1>::random(
+        [num_points],
+        burn::tensor::Distribution::Uniform(0.0, 1.0),
+        &device,
+    );
 
     let bytes = means.to_data().bytes;
-    let means =  safetensors::tensor::TensorView::new(safetensors::Dtype::F32, means.shape().dims.to_vec(), &bytes)?;
+    let means = safetensors::tensor::TensorView::new(
+        safetensors::Dtype::F32,
+        means.shape().dims.to_vec(),
+        &bytes,
+    )?;
     let bytes = log_scales.to_data().bytes;
-    let log_scales =  safetensors::tensor::TensorView::new(safetensors::Dtype::F32, log_scales.shape().dims.to_vec(), &bytes)?;
+    let log_scales = safetensors::tensor::TensorView::new(
+        safetensors::Dtype::F32,
+        log_scales.shape().dims.to_vec(),
+        &bytes,
+    )?;
     let bytes = quats.to_data().bytes;
-    let quats =  safetensors::tensor::TensorView::new(safetensors::Dtype::F32, quats.shape().dims.to_vec(), &bytes)?;
+    let quats = safetensors::tensor::TensorView::new(
+        safetensors::Dtype::F32,
+        quats.shape().dims.to_vec(),
+        &bytes,
+    )?;
     let bytes = coeffs.to_data().bytes;
-    let coeffs =  safetensors::tensor::TensorView::new(safetensors::Dtype::F32, coeffs.shape().dims.to_vec(), &bytes)?;
+    let coeffs = safetensors::tensor::TensorView::new(
+        safetensors::Dtype::F32,
+        coeffs.shape().dims.to_vec(),
+        &bytes,
+    )?;
     let bytes = opacities.to_data().bytes;
-    let opacities =  safetensors::tensor::TensorView::new(safetensors::Dtype::F32, opacities.shape().dims.to_vec(), &bytes)?;
+    let opacities = safetensors::tensor::TensorView::new(
+        safetensors::Dtype::F32,
+        opacities.shape().dims.to_vec(),
+        &bytes,
+    )?;
 
     let tensors = HashMap::from([
         ("means", means),
@@ -76,10 +124,13 @@ fn generate_bench_data() -> anyhow::Result<()> {
         ("opacities", opacities),
     ]);
 
-    safetensors::serialize_to_file(&tensors, &None, Path::new("./test_cases/bench_data.safetensors"))?;
+    safetensors::serialize_to_file(
+        &tensors,
+        &None,
+        Path::new("./test_cases/bench_data.safetensors"),
+    )?;
     Ok(())
 }
-
 
 fn bench_general(
     bencher: divan::Bencher,

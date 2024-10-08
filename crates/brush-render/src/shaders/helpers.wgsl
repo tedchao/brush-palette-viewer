@@ -43,15 +43,19 @@ struct RenderUniforms {
 
 // nb: this struct has a bunch of padding but that's probably fine.
 struct ProjectedSplat {
-    x: f32,
-    y: f32,
+    xy_x: f32,
+    xy_y: f32,
     conic_x: f32,
     conic_y: f32,
     conic_z: f32,
-    r: f32,
-    g: f32,
-    b: f32,
-    a: f32,
+    color_r: f32,
+    color_g: f32,
+    color_b: f32,
+    color_a: f32,
+}
+
+fn create_projected_splat(xy: vec2f, conic: vec3f, color: vec4f) -> ProjectedSplat {
+    return ProjectedSplat(xy.x, xy.y, conic.x, conic.y, conic.z, color.r, color.g, color.b, color.a);
 }
 
 struct PackedVec3 {

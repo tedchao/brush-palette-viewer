@@ -21,8 +21,12 @@ pub fn jni_initialize(vm: Arc<jni::JavaVM>) {
     let method = env
         .get_static_method_id(&class, "startFilePicker", "()V")
         .unwrap();
-    *FILE_PICKER_CLASS.write().expect("Failed to write JNI data.") = Some(env.new_global_ref(class).unwrap());
-    *START_FILE_PICKER.write().expect("Failed to write JNI data.") = Some(method);
+    *FILE_PICKER_CLASS
+        .write()
+        .expect("Failed to write JNI data.") = Some(env.new_global_ref(class).unwrap());
+    *START_FILE_PICKER
+        .write()
+        .expect("Failed to write JNI data.") = Some(method);
     *VM.write().unwrap() = Some(vm);
 }
 
@@ -39,12 +43,20 @@ pub(crate) async fn pick_file() -> Result<PickedFile> {
 
     // Call method. Be sure this is scoped so we drop all guards before waiting.
     {
-        let java_vm = VM.read().unwrap().clone().expect("Failed to initialize Java VM");
+        let java_vm = VM
+            .read()
+            .unwrap()
+            .clone()
+            .expect("Failed to initialize Java VM");
         let mut env = java_vm.attach_current_thread()?;
 
-        let class = FILE_PICKER_CLASS.read().expect("Failed to initialize FilePicker class");
-        let method = START_FILE_PICKER.read().expect("Failed to initialize FilePicker method");
-        
+        let class = FILE_PICKER_CLASS
+            .read()
+            .expect("Failed to initialize FilePicker class");
+        let method = START_FILE_PICKER
+            .read()
+            .expect("Failed to initialize FilePicker method");
+
         // SAFETY: This is safe as long as we cached the method in the right way, and
         // this matches the Java side. Not much more we can do here.
         let _ = unsafe {
@@ -78,7 +90,8 @@ extern "system" fn Java_com_splats_app_FilePicker_onFilePickerResult<'local>(
                     Ok(PickedFile { data, file_name })
                 })
             };
-            ch.try_send(picked_file.map_err(|err| err.into())).expect("Failed to send file picking result");
+            ch.try_send(picked_file.map_err(|err| err.into()))
+                .expect("Failed to send file picking result");
         }
     }
 }

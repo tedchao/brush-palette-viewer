@@ -135,13 +135,12 @@ pub fn build_modules(
         "fn create_composer() -> naga_oil::compose::Composer {",
         "let mut composer = naga_oil::compose::Composer::default().with_capabilities(
             naga::valid::Capabilities::SUBGROUP |
-            naga::valid::Capabilities::SUBGROUP_BARRIER |
             naga::valid::Capabilities::SHADER_FLT32_ATOMIC
         );",
     ]);
 
     let mut composer = Composer::default().with_capabilities(
-        Capabilities::SUBGROUP | Capabilities::SUBGROUP_BARRIER | Capabilities::SHADER_FLT32_ATOMIC,
+        Capabilities::SUBGROUP | Capabilities::SHADER_FLT32_ATOMIC,
     );
     let mut modules = HashMap::new();
 

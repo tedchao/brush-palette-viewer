@@ -1,19 +1,20 @@
-#![allow(unused_variables)]
+#![allow(unused_imports, unused_variables)]
+
 use anyhow::Result;
 use brush_render::{gaussian_splats::Splats, AutodiffBackend, Backend};
 use brush_train::scene::Scene;
 use brush_train::train::TrainStepStats;
-use burn::tensor::Tensor;
+use burn::tensor::{activation::sigmoid, ElementConversion, Tensor};
+use image::GenericImageView;
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(target_family = "wasm"))]
 use brush_rerun::BurnToRerun;
-#[cfg(not(target_arch = "wasm32"))]
-use burn::tensor::ElementConversion;
-#[cfg(not(target_arch = "wasm32"))]
+
+#[cfg(not(target_family = "wasm"))]
 use rerun::{Color, FillMode, RecordingStream};
 
 pub struct VisualizeTools {
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(target_family = "wasm"))]
     rec: Option<RecordingStream>,
 }
 
@@ -21,12 +22,12 @@ pub struct VisualizeTools {
 // Can we not run the readbacks concurrently?
 impl VisualizeTools {
     pub fn new() -> Self {
-        #[cfg(target_arch = "wasm32")]
+        #[cfg(target_family = "wasm")]
         {
             Self {}
         }
 
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(not(target_family = "wasm"))]
         {
             let rec = rerun::RecordingStreamBuilder::new("brush_visualize")
                 .spawn()
@@ -36,7 +37,7 @@ impl VisualizeTools {
     }
 
     pub(crate) async fn log_splats<B: Backend>(&self, splats: &Splats<B>) -> Result<()> {
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(not(target_family = "wasm"))]
         {
             let Some(rec) = self.rec.as_ref() else {
                 return Ok(());
@@ -55,7 +56,7 @@ impl VisualizeTools {
             let base_rgb =
                 splats.sh_coeffs.val().slice([0..splats.num_splats(), 0..3]) * sh_c0 + 0.5;
 
-            let transparency = burn::tensor::activation::sigmoid(splats.raw_opacity.val());
+            let transparency = sigmoid(splats.raw_opacity.val());
 
             let colors = base_rgb.into_data_async().await.to_vec::<f32>().unwrap();
             let colors = colors.chunks(3).map(|c| {
@@ -100,7 +101,7 @@ impl VisualizeTools {
     }
 
     pub(crate) fn log_scene(&self, scene: &Scene) -> Result<()> {
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(not(target_family = "wasm"))]
         {
             let Some(rec) = self.rec.as_ref() else {
                 return Ok(());
@@ -131,11 +132,12 @@ impl VisualizeTools {
                 )?;
             }
         }
+
         Ok(())
     }
 
     pub fn log_eval_stats(&self, iter: u32, stats: &brush_train::eval::EvalStats) -> Result<()> {
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(not(target_family = "wasm"))]
         {
             let Some(rec) = self.rec.as_ref() else {
                 return Ok(());
@@ -169,7 +171,7 @@ impl VisualizeTools {
         stats: &TrainStepStats<B>,
         gt_images: Tensor<B, 4>,
     ) -> Result<()> {
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(not(target_family = "wasm"))]
         {
             let Some(rec) = self.rec.as_ref() else {
                 return Ok(());
