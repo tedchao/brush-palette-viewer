@@ -23,9 +23,9 @@ fn copy_buffer_to_texture(
     // Now copy the buffer to the texture.
     encoder.copy_buffer_to_texture(
         wgpu::ImageCopyBuffer {
-            buffer: img_res.buffer.as_ref(),
+            buffer: img_res.resource().buffer.as_ref(),
             layout: ImageDataLayout {
-                offset: img_res.offset(),
+                offset: img_res.resource().offset(),
                 bytes_per_row,
                 rows_per_image: None,
             },

@@ -2,11 +2,12 @@
 
 #import helpers;
 
+// Unfiroms contains the splat count which we're writing to.
 @group(0) @binding(0) var<storage, read_write> uniforms: helpers::RenderUniforms;
 
-@group(0) @binding(1) var<storage, read_write> means: array<helpers::PackedVec3>;
-@group(0) @binding(2) var<storage, read_write> log_scales: array<helpers::PackedVec3>;
-@group(0) @binding(3) var<storage, read_write> quats: array<vec4f>;
+@group(0) @binding(1) var<storage, read> means: array<helpers::PackedVec3>;
+@group(0) @binding(2) var<storage, read> log_scales: array<helpers::PackedVec3>;
+@group(0) @binding(3) var<storage, read> quats: array<vec4f>;
 
 @group(0) @binding(4) var<storage, read_write> global_from_compact_gid: array<u32>;
 @group(0) @binding(5) var<storage, read_write> depths: array<f32>;

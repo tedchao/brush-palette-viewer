@@ -11,6 +11,7 @@ pub fn get_config() -> WgpuConfiguration {
             memory_hints: wgpu::MemoryHints::MemoryUsage,
         }),
         supported_backends: wgpu::Backends::PRIMARY,
+        power_preference: wgpu::PowerPreference::HighPerformance,
         ..Default::default()
     }
 }

@@ -1,9 +1,9 @@
 #import helpers
 
-@group(0) @binding(0) var<storage, read_write> uniforms: helpers::RenderUniforms;
-@group(0) @binding(1) var<storage, read_write> compact_gid_from_isect: array<u32>;
-@group(0) @binding(2) var<storage, read_write> tile_bins: array<vec2u>;
-@group(0) @binding(3) var<storage, read_write> projected_splats: array<helpers::ProjectedSplat>;
+@group(0) @binding(0) var<storage, read> uniforms: helpers::RenderUniforms;
+@group(0) @binding(1) var<storage, read> compact_gid_from_isect: array<u32>;
+@group(0) @binding(2) var<storage, read> tile_bins: array<vec2u>;
+@group(0) @binding(3) var<storage, read> projected_splats: array<helpers::ProjectedSplat>;
 
 #ifdef RASTER_U32
     @group(0) @binding(4) var<storage, read_write> out_img: array<u32>;
@@ -13,7 +13,6 @@
 #endif
 
 var<workgroup> local_batch: array<helpers::ProjectedSplat, helpers::TILE_SIZE>;
-var<workgroup> tile_bins_wg: vec2u;
 
 // kernel function for rasterizing each tile
 // each thread treats a single pixel
@@ -29,10 +28,8 @@ fn main(
     let img_size = uniforms.img_size;
 
     // Get index of tile being drawn.
-    //let tile_id = workgroup_id.x + workgroup_id.y * uniforms.tile_bounds.x;
     let pix_id = global_id.x + global_id.y * img_size.x;
-
-    let tile_id = global_id.x / helpers::TILE_WIDTH + global_id.y / helpers::TILE_WIDTH * uniforms.tile_bounds.x;
+    let tile_id = workgroup_id.x + workgroup_id.y * uniforms.tile_bounds.x;
     let pixel_coord = vec2f(global_id.xy) + 0.5;
 
     // return if out of bounds
@@ -42,12 +39,7 @@ fn main(
 
     // have all threads in tile process the same gaussians in batches
     // first collect gaussians between range.x and range.y in batches
-    if local_idx == 0u {
-        tile_bins_wg = tile_bins[tile_id];
-    }
-    // Hack to work around issues with non-uniform data.
-    // See https://github.com/tracel-ai/burn/issues/1996
-    let range = workgroupUniformLoad(&tile_bins_wg);
+    let range = tile_bins[tile_id];
 
     let num_batches = helpers::ceil_div(range.y - range.x, helpers::TILE_SIZE);
     // current visibility left to render
@@ -82,13 +74,14 @@ fn main(
         for (var t = 0u; t < remaining && !done; t++) {
             let projected = local_batch[t];
 
-            let xy = vec2f(projected.x, projected.y);
+            let xy = vec2f(projected.xy_x, projected.xy_y);
             let conic = vec3f(projected.conic_x, projected.conic_y, projected.conic_z);
+            let color = vec4f(projected.color_r, projected.color_g, projected.color_b, projected.color_a);
 
             let delta = xy - pixel_coord;
             let sigma = 0.5f * (conic.x * delta.x * delta.x + conic.z * delta.y * delta.y) + conic.y * delta.x * delta.y;
             let vis = exp(-sigma);
-            let alpha = min(0.999f, projected.a * vis);
+            let alpha = min(0.999f, color.a * vis);
 
             if sigma >= 0.0 && alpha >= 1.0 / 255.0 {
                 let next_T = T * (1.0 - alpha);
@@ -99,7 +92,7 @@ fn main(
                 }
 
                 let fac = alpha * T;
-                pix_out += vec3f(projected.r, projected.g, projected.b) * fac;
+                pix_out += vec3f(color.r, color.g, color.b) * fac;
                 T = next_T;
 
                 let isect_id = batch_start + t;
