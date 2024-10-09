@@ -113,7 +113,7 @@ impl VisualizeTools {
                 let view = scene.get_view(i).unwrap();
 
                 let path = format!("world/dataset/camera/{i}");
-                let (width, height) = view.image.dimensions();
+                let (width, height) = (view.image.width(), view.image.height());
 
                 let vis_size = glam::uvec2(width, height);
                 let rerun_camera = rerun::Pinhole::from_focal_length_and_resolution(
@@ -164,7 +164,6 @@ impl VisualizeTools {
                 )?;
             }
         }
-
         Ok(())
     }
 
