@@ -54,8 +54,6 @@ pub struct TrainConfig {
     #[config(default = 0.0)]
     ssim_weight: f32,
 
-    // TODO: Add a resolution schedule.
-
     // Learning rates.
     lr_mean: ExponentialLrSchedulerConfig,
     #[config(default = 0.0025)]
@@ -193,8 +191,6 @@ where
     // Args:
     //   mask: bool[n]. If True, prune this Gaussian.
     pub async fn prune_points(&mut self, splats: &mut Splats<B>, prune: Tensor<B, 1, Bool>) {
-        // TODO: if this prunes all points, burn panics.
-        //
         // bool[n]. If True, delete these Gaussians.
         let prune_count = prune.dims()[0];
 
@@ -275,12 +271,7 @@ where
                 auxes.push(aux);
             }
 
-            // TODO: Could probably handle this in Burn.
-            let pred_images = if renders.len() == 1 {
-                renders[0].clone().reshape([1, img_h, img_w, 4])
-            } else {
-                Tensor::stack(renders, 0)
-            };
+            let pred_images = Tensor::stack(renders, 0);
 
             let _span = info_span!("Calculate losses", sync_burn = true).entered();
 
@@ -354,7 +345,6 @@ where
 
                 let grad_mag = xys_grad.powf_scalar(2.0).sum_dim(1).squeeze(1).sqrt();
 
-                // TODO: Is max of grad better?
                 // TODO: Add += to Burn.
                 if self.iter > self.config.warmup_steps {
                     self.grad_2d_accum = self.grad_2d_accum.clone() + grad_mag.clone();

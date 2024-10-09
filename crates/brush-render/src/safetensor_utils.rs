@@ -1,4 +1,3 @@
-// TODO: This is rather gnarly, must be an easier way to do this.
 use burn::{
     prelude::Backend,
     tensor::{Float, Tensor, TensorData},

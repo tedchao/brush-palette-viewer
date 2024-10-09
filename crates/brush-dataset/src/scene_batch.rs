@@ -48,7 +48,6 @@ impl<B: Backend> SceneLoader<B> {
             }
         };
 
-        // TODO: On wasm, don't thread but async.
         #[cfg(not(target_arch = "wasm32"))]
         std::thread::spawn(|| futures_lite::future::block_on(fut));
 

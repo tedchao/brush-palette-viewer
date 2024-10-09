@@ -18,8 +18,6 @@ pub struct VisualizeTools {
     rec: Option<RecordingStream>,
 }
 
-// TODO: Not all these reads are async, and also, are still being done sequential?
-// Can we not run the readbacks concurrently?
 impl VisualizeTools {
     pub fn new() -> Self {
         #[cfg(target_family = "wasm")]

@@ -130,18 +130,11 @@ fn read_transforms_file<T: Read + Seek>(
     }))
 }
 
-// TODO: This could be simplified with some serde-fu by creating a struct
-// we deserialize into.
-//
-
 pub fn read_dataset<T: Read + Seek + Clone>(
     archive: ZipArchive<T>,
     max_frames: Option<usize>,
     max_resolution: Option<u32>,
 ) -> Result<impl Stream<Item = Result<Dataset>>> {
-    // TODO: ERror handdling
-    // TODO: Awful clone performance...
-    //
     // Assume nerf synthetic has a white background. Maybe add a custom json field to customize this
     // or something.
     let background = glam::Vec3::ONE;
