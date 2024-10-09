@@ -1,6 +1,15 @@
+use std::sync::{Arc, RwLock};
+
 use brush_render::camera::Camera;
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
+pub enum ViewType {
+    Train,
+    Eval,
+    Test,
+}
+
+#[derive(Debug, Clone)]
 pub struct SceneView {
     pub name: String,
     pub camera: Camera,
@@ -11,15 +20,15 @@ pub struct SceneView {
 // Also provides methods for checkpointing the training process.
 #[derive(Debug, Clone)]
 pub struct Scene {
-    pub views: Vec<SceneView>,
-    pub background_color: glam::Vec3,
+    views: Arc<RwLock<Vec<SceneView>>>,
+    pub background: glam::Vec3,
 }
 
 impl Scene {
-    pub fn new(views: Vec<SceneView>, background_color: glam::Vec3) -> Self {
+    pub fn new(views: Vec<SceneView>, background: glam::Vec3) -> Self {
         Scene {
-            views,
-            background_color,
+            views: Arc::new(RwLock::new(views)),
+            background,
         }
     }
 
@@ -28,6 +37,8 @@ impl Scene {
     pub fn cameras_extent(&self) -> f32 {
         let camera_centers = &self
             .views
+            .read()
+            .expect("Lock got poisoned somehow")
             .iter()
             .map(|x| x.camera.position)
             .collect::<Vec<_>>();
@@ -47,8 +58,16 @@ impl Scene {
             * 1.1
     }
 
+    pub fn add_view(&mut self, view: SceneView) {
+        self.views.write().expect("lock was poisoned").push(view);
+    }
+
     pub fn get_view(&self, index: usize) -> Option<SceneView> {
-        self.views.get(index).cloned()
+        self.views
+            .read()
+            .expect("Poisoned lock")
+            .get(index)
+            .cloned()
     }
 
     fn camera_similarity_score(&self, cam: &Camera, reference: &Camera) -> f32 {
@@ -60,6 +79,8 @@ impl Scene {
 
     pub fn get_nearest_view(&self, reference: &Camera) -> Option<usize> {
         self.views
+            .read()
+            .expect("Lock was poisoned somehow.")
             .iter()
             .enumerate() // This will give us (index, view) pairs
             .min_by(|(_, a), (_, b)| {
@@ -70,5 +91,9 @@ impl Scene {
                     .unwrap_or(std::cmp::Ordering::Equal)
             })
             .map(|(index, _)| index) // We return the index instead of the camera
+    }
+
+    pub fn view_count(&self) -> usize {
+        self.views.read().unwrap().len()
     }
 }

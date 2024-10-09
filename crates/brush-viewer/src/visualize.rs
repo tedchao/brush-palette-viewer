@@ -109,26 +109,28 @@ impl VisualizeTools {
 
             rec.log_static("world", &rerun::ViewCoordinates::RIGHT_HAND_Y_DOWN)?;
 
-            for (i, data) in scene.views.iter().enumerate() {
+            for i in 0..scene.view_count() {
+                let view = scene.get_view(i).unwrap();
+
                 let path = format!("world/dataset/camera/{i}");
-                let (width, height) = data.image.dimensions();
+                let (width, height) = view.image.dimensions();
 
                 let vis_size = glam::uvec2(width, height);
                 let rerun_camera = rerun::Pinhole::from_focal_length_and_resolution(
-                    data.camera.focal(vis_size),
+                    view.camera.focal(vis_size),
                     glam::vec2(vis_size.x as f32, vis_size.y as f32),
                 );
                 rec.log_static(path.clone(), &rerun_camera)?;
                 rec.log_static(
                     path.clone(),
                     &rerun::Transform3D::from_translation_rotation(
-                        data.camera.position,
-                        data.camera.rotation,
+                        view.camera.position,
+                        view.camera.rotation,
                     ),
                 )?;
                 rec.log_static(
                     path + "/image",
-                    &rerun::Image::from_dynamic_image(data.image.clone())?,
+                    &rerun::Image::from_dynamic_image(view.image.clone())?,
                 )?;
             }
         }

@@ -139,9 +139,8 @@ pub fn build_modules(
         );",
     ]);
 
-    let mut composer = Composer::default().with_capabilities(
-        Capabilities::SUBGROUP | Capabilities::SHADER_FLT32_ATOMIC,
-    );
+    let mut composer = Composer::default()
+        .with_capabilities(Capabilities::SUBGROUP | Capabilities::SHADER_FLT32_ATOMIC);
     let mut modules = HashMap::new();
 
     for include in includes {

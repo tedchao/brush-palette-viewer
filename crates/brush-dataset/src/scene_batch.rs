@@ -1,10 +1,11 @@
+use async_channel::Receiver;
 use brush_render::Backend;
 use brush_train::image::image_to_tensor;
 use brush_train::scene::Scene;
 use brush_train::train::SceneBatch;
 use burn::tensor::Tensor;
 
-use async_channel::Receiver;
+use futures_lite::future;
 
 pub struct SceneLoader<B: Backend> {
     receiver: Receiver<SceneBatch<B>>,
@@ -12,29 +13,26 @@ pub struct SceneLoader<B: Backend> {
 
 impl<B: Backend> SceneLoader<B> {
     pub fn new(scene: &Scene, batch_size: usize, device: &B::Device) -> Self {
+        let scene = scene.clone();
         // Bound == number of batches to prefix.
         let (tx, rx) = async_channel::bounded(5);
         let device = device.clone();
-        let len = scene.views.len();
-        let views = scene.views.clone();
+        let len = scene.view_count();
 
         let fut = async move {
             let mut index = 0;
 
             loop {
                 let indexes: Vec<_> = (0..batch_size)
-                    .map(|i| {
-                        let list_index = miller_shuffle((index + i) % len, (index + i) / len, len);
-                        list_index as i32
-                    })
+                    .map(|i| miller_shuffle((index + i) % len, (index + i) / len, len))
                     .collect();
                 let cameras = indexes
                     .iter()
-                    .map(|&x| views[x as usize].camera.clone())
+                    .map(|&x| scene.get_view(x).unwrap().camera.clone())
                     .collect();
                 let selected_tensors = indexes
                     .iter()
-                    .map(|&x| image_to_tensor(&views[x as usize].image, &device))
+                    .map(|&x| image_to_tensor(&scene.get_view(x).unwrap().image, &device))
                     .collect::<Vec<_>>();
 
                 let batch_tensor = Tensor::stack(selected_tensors, 0);
@@ -54,7 +52,7 @@ impl<B: Backend> SceneLoader<B> {
 
         // TODO: On wasm, don't thread but async.
         #[cfg(not(target_arch = "wasm32"))]
-        std::thread::spawn(|| pollster::block_on(fut));
+        std::thread::spawn(|| future::block_on(fut));
 
         #[cfg(target_arch = "wasm32")]
         wasm_bindgen_futures::spawn_local(fut);

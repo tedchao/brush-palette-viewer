@@ -1,27 +1,22 @@
 use std::sync::{Arc, RwLock};
 
 use anyhow::Context;
-use async_channel::{Receiver, Sender, TryRecvError, TrySendError};
-use brush_dataset::scene_batch::SceneLoader;
-use brush_render::gaussian_splats::{RandomSplatsConfig, Splats};
-use burn::lr_scheduler::exponential::ExponentialLrSchedulerConfig;
-use burn::tensor::ElementConversion;
-use burn::{backend::Autodiff, module::AutodiffModule};
-use burn_wgpu::{ RuntimeOptions, Wgpu, WgpuDevice};
+use async_channel::{Receiver, Sender, TryRecvError};
+use brush_render::gaussian_splats::Splats;
+use burn_wgpu::{RuntimeOptions, Wgpu, WgpuDevice};
 use egui::{Hyperlink, Slider, TextureOptions};
-use futures_lite::StreamExt;
+use futures_lite::{future, StreamExt};
 
 use tracing::info_span;
 use web_time::Instant;
 
 use brush_dataset::{self, Dataset};
-use brush_train::scene::Scene;
-use brush_train::train::{SplatTrainer, TrainConfig};
 
-use crate::splat_import;
 use crate::splat_view::SplatView;
+use crate::train_loop::{SharedTrainState, TrainArgs, TrainState};
+use crate::{splat_import, train_loop};
 
-enum ViewerMessage {
+pub(crate) enum ViewerMessage {
     Error(anyhow::Error),
 
     // Initial splat cloud to be created.
@@ -39,40 +34,6 @@ enum ViewerMessage {
         iter: u32,
         timestamp: Instant,
     },
-}
-
-struct SharedTrainState {
-    paused: bool,
-}
-
-struct TrainState {
-    last_train_step: (Instant, u32),
-    train_iter_per_s: f32,
-    dataset: Dataset,
-    selected_view: Option<(usize, egui::TextureHandle)>,
-    shared: Arc<RwLock<SharedTrainState>>,
-}
-
-impl TrainState {
-    fn new() -> Self {
-        Self {
-            last_train_step: (Instant::now(), 0),
-            train_iter_per_s: 0.0,
-            dataset: Dataset {
-                train: Scene::new(vec![], glam::Vec3::ZERO),
-                test: None,
-                eval: None,
-            },
-            selected_view: None,
-            shared: Arc::new(RwLock::new(SharedTrainState { paused: false })),
-        }
-    }
-
-    fn on_iter(&mut self, stamp: Instant, iter: u32) {
-        self.train_iter_per_s =
-            (iter - self.last_train_step.1) as f32 / (stamp - self.last_train_step.0).as_secs_f32();
-        self.last_train_step = (stamp, iter);
-    }
 }
 
 pub struct Viewer {
@@ -93,11 +54,6 @@ pub struct Viewer {
     train_state: TrainState,
 
     constant_redraww: bool,
-}
-
-struct TrainArgs {
-    frame_count: Option<usize>,
-    target_resolution: Option<u32>,
 }
 
 async fn load_ply_loop(
@@ -129,108 +85,6 @@ async fn load_ply_loop(
     Ok(())
 }
 
-async fn train_loop(
-    data: &[u8],
-    device: WgpuDevice,
-    sender: Sender<ViewerMessage>,
-    egui_ctx: egui::Context,
-    train_args: TrainArgs,
-    shared_state: Arc<RwLock<SharedTrainState>>,
-) -> anyhow::Result<()> {
-    let total_steps = 30000;
-    let config = TrainConfig::new(
-        ExponentialLrSchedulerConfig::new(1.6e-4, 1e-2f64.powf(1.0 / total_steps as f64)),
-        RandomSplatsConfig::new(),
-    )
-    .with_total_steps(total_steps);
-
-    let dataset =
-        brush_dataset::read_dataset(data, train_args.frame_count, train_args.target_resolution)?;
-    let train_scene = dataset.train.clone();
-    let eval_scene = dataset.eval.clone();
-
-    let msg = ViewerMessage::Dataset(dataset);
-    sender.send(msg).await.unwrap();
-
-    let visualize = crate::visualize::VisualizeTools::new();
-    visualize.log_scene(&train_scene)?;
-
-    let mut splats = config.initial_model_config.init::<Autodiff<Wgpu>>(&device);
-
-    let mut dataloader = SceneLoader::new(&train_scene, 1, &device);
-    let mut trainer = SplatTrainer::new(splats.num_splats(), &config, &splats);
-
-    loop {
-        if shared_state.read().unwrap().paused {
-            #[cfg(not(target_arch = "wasm32"))]
-            std::thread::yield_now();
-            #[cfg(target_arch = "wasm32")]
-            gloo_timers::future::TimeoutFuture::new(0).await;
-            continue;
-        }
-
-        let batch = {
-            let _span = info_span!("Get batch").entered();
-            dataloader.next_batch().await
-        };
-
-        let gt_image = batch.gt_images.clone();
-
-        let (new_splats, stats) = trainer
-            .step(batch, train_scene.background_color, splats)
-            .await
-            .unwrap();
-        splats = new_splats;
-
-        if trainer.iter % config.visualize_splats_every == 0 {
-            visualize.log_train_stats(&splats, &stats, gt_image).await?;
-        }
-
-        if let Some(eval_scene) = eval_scene.as_ref() {
-            if trainer.iter % config.eval_every == 0 {
-                let eval =
-                    brush_train::eval::eval_stats(&splats, eval_scene, Some(4), &device).await;
-                visualize.log_eval_stats(trainer.iter, &eval)?;
-            }
-        }
-
-        if trainer.iter % config.visualize_splats_every == 0 {
-            visualize.log_splats(&splats).await?;
-        }
-
-        if trainer.iter % 5 == 0 {
-            let _span = info_span!("Send batch").entered();
-
-            let msg = ViewerMessage::TrainStep {
-                splats: splats.valid(),
-                loss: stats.loss.into_scalar_async().await.elem::<f32>(),
-                iter: trainer.iter,
-                timestamp: Instant::now(),
-            };
-
-            match sender.try_send(msg) {
-                Ok(_) => (),
-                Err(TrySendError::Full(_)) => (),
-                Err(_) => {
-                    break; // channel closed, bail.
-                }
-            }
-            egui_ctx.request_repaint();
-        }
-
-        if trainer.iter == 100 {
-            let mem = splats.means.val().into_primitive().tensor().into_primitive().client.memory_usage();
-            println!("Memory usage: {}", mem);
-        }
-
-        // On wasm, yield to the browser.
-        #[cfg(target_arch = "wasm32")]
-        gloo_timers::future::TimeoutFuture::new(0).await;
-    }
-
-    Ok(())
-}
-
 async fn process_loop(
     device: WgpuDevice,
     sender: Sender<ViewerMessage>,
@@ -242,7 +96,7 @@ async fn process_loop(
     if picked.file_name.contains(".ply") {
         load_ply_loop(&picked.data, device, sender, egui_ctx).await
     } else if picked.file_name.contains(".zip") {
-        train_loop(
+        train_loop::train_loop(
             &picked.data,
             device,
             sender,
@@ -345,7 +199,7 @@ impl Viewer {
 
         #[cfg(not(target_arch = "wasm32"))]
         std::thread::spawn(move || {
-            pollster::block_on(inner_process_loop(
+            future::block_on(inner_process_loop(
                 device,
                 sender,
                 ctx,
@@ -376,10 +230,10 @@ impl Viewer {
     }
 
     fn viewpoints_window(&mut self, ctx: &egui::Context) {
-        let train_scene = &self.train_state.dataset.train;
+        let train_scene = self.train_state.dataset.train_scene();
 
         // Empty scene, nothing to show.
-        if train_scene.views.is_empty() {
+        if train_scene.view_count() == 0 {
             return;
         }
 
@@ -391,6 +245,8 @@ impl Viewer {
 
                 if let Some(nearest) = nearest_view.as_mut() {
                     let mut buttoned = false;
+                    let view_count = train_scene.view_count();
+                    let out_of = format!("/ {view_count}");
 
                     ui.horizontal(|ui| {
                         if ui.button("⏪").clicked() {
@@ -398,7 +254,10 @@ impl Viewer {
                             *nearest -= 1;
                         }
                         buttoned |= ui
-                            .add(Slider::new(nearest, 0..=train_scene.views.len() - 1))
+                            .add(
+                                Slider::new(nearest, 0..=train_scene.view_count() - 1)
+                                    .suffix(out_of),
+                            )
                             .dragged();
                         if ui.button("⏩").clicked() {
                             buttoned = true;
@@ -407,7 +266,7 @@ impl Viewer {
                     });
 
                     if buttoned {
-                        let view = train_scene.views[*nearest].clone();
+                        let view = train_scene.get_view(*nearest).unwrap().clone();
                         self.splat_view.camera = view.camera.clone();
                         self.splat_view.controls.focus =
                             view.camera.position + view.camera.rotation * glam::Vec3::Z * 5.0;
@@ -420,7 +279,7 @@ impl Viewer {
                     }
 
                     if dirty {
-                        let view = train_scene.views[*nearest].clone();
+                        let view = train_scene.get_view(*nearest).unwrap().clone();
                         let color_img = egui::ColorImage::from_rgb(
                             [view.image.width() as usize, view.image.height() as usize],
                             &view.image.to_rgb8().into_vec(),
@@ -437,7 +296,7 @@ impl Viewer {
 
                     if let Some(view) = self.train_state.selected_view.as_ref() {
                         ui.add(egui::Image::new(&view.1).shrink_to_fit());
-                        ui.label(&train_scene.views[*nearest].name);
+                        ui.label(&train_scene.get_view(*nearest).unwrap().name);
                     }
                 }
             });
@@ -498,7 +357,10 @@ impl eframe::App for Viewer {
             });
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.label(format!("{}, {:?}", self.adapeter_info.name, self.adapeter_info.device_type));
+            ui.label(format!(
+                "{}, {:?}",
+                self.adapeter_info.name, self.adapeter_info.device_type
+            ));
 
             ui.add_space(25.0);
 
@@ -577,7 +439,7 @@ impl eframe::App for Viewer {
 
                         self.splat_view.draw_splats(
                             splats,
-                            self.train_state.dataset.train.background_color,
+                            self.train_state.dataset.train_scene().background,
                             ui,
                             ctx,
                             frame,

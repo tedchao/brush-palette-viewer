@@ -492,7 +492,7 @@ impl Backward<BurnBack, 6> for RenderBackwards {
 
             // let hard_float = !cfg!(target_arch = "wasm32");
             let hard_float = false;
-            
+
             tracing::info_span!("RasterizeBackwards", sync_burn = true).in_scope(|| unsafe {
                 client.execute_unchecked(
                     RasterizeBackwards::task(hard_float),
@@ -574,7 +574,7 @@ impl Backward<BurnBack, 6> for RenderBackwards {
                 ],
             );
         });
-        
+
         // Register gradients for parent nodes (This code is already skipped entirely
         // if no parent nodes require gradients).
         let [mean_parent, xys_parent, log_scales_parent, quats_parent, coeffs_parent, raw_opacity_parent] =

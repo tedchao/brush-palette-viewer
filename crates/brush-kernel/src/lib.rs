@@ -13,10 +13,7 @@ use burn::tensor::Shape;
 use burn_jit::{cubecl::Compiler, tensor::JitTensor, JitElement, JitRuntime};
 use bytemuck::Pod;
 
-pub fn calc_cube_count<const D: usize>(
-    sizes: [u32; D],
-    workgroup_size: [u32; 3],
-) -> CubeCount {
+pub fn calc_cube_count<const D: usize>(sizes: [u32; D], workgroup_size: [u32; 3]) -> CubeCount {
     let execs = [
         sizes.first().unwrap_or(&1).div_ceil(workgroup_size[0]),
         sizes.get(1).unwrap_or(&1).div_ceil(workgroup_size[1]),

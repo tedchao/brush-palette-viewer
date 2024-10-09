@@ -5,13 +5,44 @@ pub mod scene_batch;
 
 use anyhow::Result;
 use brush_train::scene::Scene;
+use futures_lite::{Stream, StreamExt};
+use glam::Vec3;
 use image::DynamicImage;
-use std::path::{Path, PathBuf};
+use std::{
+    io::{Read, Seek},
+    path::{Path, PathBuf},
+    pin::Pin,
+};
+use zip::ZipArchive;
 
+#[derive(Clone)]
 pub struct Dataset {
-    pub train: Scene,
-    pub test: Option<Scene>,
-    pub eval: Option<Scene>,
+    train: Scene,
+    #[allow(unused)]
+    test: Option<Scene>,
+    eval: Option<Scene>,
+}
+
+impl Dataset {
+    pub fn empty() -> Self {
+        Dataset {
+            train: Scene::new(vec![], Vec3::ZERO),
+            test: None,
+            eval: None,
+        }
+    }
+
+    pub fn train_scene(&self) -> &Scene {
+        &self.train
+    }
+
+    pub fn eval_scene(&self) -> Option<&Scene> {
+        self.eval.as_ref()
+    }
+
+    fn new(train: Scene, test: Option<Scene>, eval: Option<Scene>) -> Self {
+        Self { train, test, eval }
+    }
 }
 
 pub(crate) fn normalized_path_string(path: &Path) -> String {
@@ -38,11 +69,19 @@ pub(crate) fn clamp_img_to_max_size(image: DynamicImage, max_size: u32) -> Dynam
     image.resize(new_width, new_height, image::imageops::FilterType::Lanczos3)
 }
 
-pub fn read_dataset(
-    zip_data: &[u8],
+pub fn read_dataset<'a, T: Read + Seek + Clone + 'a>(
+    archive: ZipArchive<T>,
     max_frames: Option<usize>,
     max_resolution: Option<u32>,
-) -> Result<Dataset> {
-    nerf_synthetic::read_dataset(zip_data, max_frames, max_resolution)
-        .or_else(move |_| colmap::read_dataset(zip_data, max_frames, max_resolution))
+) -> Result<Pin<Box<dyn Stream<Item = Result<Dataset>> + 'a>>> {
+    let nerf = nerf_synthetic::read_dataset(archive.clone(), max_frames, max_resolution);
+    if let Ok(stream) = nerf {
+        return Ok(stream.boxed_local::<'a>());
+    }
+    let colmap = colmap::read_dataset(archive.clone(), max_frames, max_resolution);
+    if let Ok(stream) = colmap {
+        return Ok(stream.boxed_local::<'a>());
+    }
+
+    anyhow::bail!("Couldn't parse dataset as any format. Only some formats are supported.")
 }

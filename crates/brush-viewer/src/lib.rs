@@ -8,6 +8,7 @@ mod splat_import;
 mod visualize;
 
 mod splat_view;
+mod train_loop;
 
 pub mod viewer;
 pub mod wgpu_config;

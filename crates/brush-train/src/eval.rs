@@ -2,6 +2,7 @@ use brush_render::RenderAux;
 use brush_render::{gaussian_splats::Splats, Backend};
 use burn::tensor::ElementConversion;
 use image::DynamicImage;
+use rand::seq::IteratorRandom;
 
 use crate::image::{image_to_tensor, tensor_into_image};
 use crate::scene::Scene;
@@ -24,11 +25,17 @@ pub async fn eval_stats<B: Backend>(
     num_frames: Option<usize>,
     device: &B::Device,
 ) -> EvalStats {
-    let eval_views = if let Some(num) = num_frames {
-        eval_scene.views.iter().take(num).cloned().collect()
+    let indices = if let Some(num) = num_frames {
+        let mut rng = rand::thread_rng();
+        (0..eval_scene.view_count()).choose_multiple(&mut rng, num)
     } else {
-        eval_scene.views.clone()
+        (0..eval_scene.view_count()).collect()
     };
+
+    let eval_views: Vec<_> = indices
+        .into_iter()
+        .map(|i| eval_scene.get_view(i).unwrap().clone())
+        .collect();
 
     let mut ret = vec![];
 
@@ -37,7 +44,7 @@ pub async fn eval_stats<B: Backend>(
         let res = glam::uvec2(ground_truth.width(), ground_truth.height());
 
         let gt_tensor = image_to_tensor::<B>(&ground_truth, device);
-        let (rendered, aux) = splats.render(&view.camera, res, eval_scene.background_color, false);
+        let (rendered, aux) = splats.render(&view.camera, res, eval_scene.background, false);
 
         let render_rgb = rendered.slice([0..res.y as usize, 0..res.x as usize, 0..3]);
         let mse = (render_rgb.clone() - gt_tensor).powf_scalar(2.0).mean();

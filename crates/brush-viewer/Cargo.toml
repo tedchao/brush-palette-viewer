@@ -28,8 +28,6 @@ tracing-subscriber.workspace = true
 
 web-time.workspace = true
 futures-lite.workspace = true
-pollster.workspace = true
-async-stream.workspace = true
 async-channel.workspace = true
 
 log.workspace = true
@@ -39,6 +37,9 @@ cfg-if.workspace = true
 
 rrfd.path = "../rrfd"
 sync-span.path = "../sync-span"
+
+zip.workspace = true
+async-fn-stream.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 rerun.workspace = true
