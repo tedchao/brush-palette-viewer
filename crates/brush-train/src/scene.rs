@@ -2,7 +2,7 @@ use std::sync::{Arc, RwLock};
 
 use brush_render::camera::Camera;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum ViewType {
     Train,
     Eval,

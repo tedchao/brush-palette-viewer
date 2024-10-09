@@ -3,6 +3,7 @@ use std::sync::{Arc, RwLock};
 use anyhow::Context;
 use async_channel::{Receiver, Sender, TryRecvError};
 use brush_render::gaussian_splats::Splats;
+use brush_train::scene::ViewType;
 use burn_wgpu::{RuntimeOptions, Wgpu, WgpuDevice};
 use egui::{Hyperlink, Slider, TextureOptions};
 use futures_lite::{future, StreamExt};
@@ -47,12 +48,10 @@ pub struct Viewer {
     ctx: egui::Context,
     splat_view: SplatView,
 
-    file_path: String,
-
     target_train_resolution: Option<u32>,
     max_frames: Option<usize>,
     train_state: TrainState,
-
+    viewpoints_view_type: ViewType,
     constant_redraww: bool,
 }
 
@@ -155,8 +154,8 @@ impl Viewer {
             ctx: cc.egui_ctx.clone(),
             splat_view: SplatView::new(),
             device,
-            file_path: "/path/to/file".to_string(),
             constant_redraww: false,
+            viewpoints_view_type: ViewType::Train,
         }
     }
 
@@ -230,10 +229,10 @@ impl Viewer {
     }
 
     fn viewpoints_window(&mut self, ctx: &egui::Context) {
-        let train_scene = self.train_state.dataset.train_scene();
+        let dataset = &self.train_state.dataset;
 
         // Empty scene, nothing to show.
-        if train_scene.view_count() == 0 {
+        if dataset.train_scene().view_count() == 0 {
             return;
         }
 
@@ -241,63 +240,85 @@ impl Viewer {
             .collapsible(true)
             .resizable(true)
             .show(ctx, |ui| {
-                let mut nearest_view = train_scene.get_nearest_view(&self.splat_view.camera);
+                let scene = if let Some(eval_scene) = dataset.eval_scene() {
+                    match self.viewpoints_view_type {
+                        ViewType::Train => dataset.train_scene(),
+                        _ => eval_scene,
+                    }
+                } else {
+                    dataset.train_scene()
+                };
 
-                if let Some(nearest) = nearest_view.as_mut() {
-                    let mut buttoned = false;
-                    let view_count = train_scene.view_count();
-                    let out_of = format!("/ {view_count}");
+                let mut nearest_view = scene.get_nearest_view(&self.splat_view.camera);
 
-                    ui.horizontal(|ui| {
-                        if ui.button("⏪").clicked() {
-                            buttoned = true;
-                            *nearest -= 1;
+                let Some(nearest) = nearest_view.as_mut() else {
+                    return;
+                };
+
+                // Update image if dirty.
+                let mut dirty = self.train_state.selected_view.is_none();
+
+                if let Some(view) = self.train_state.selected_view.as_ref() {
+                    dirty |= view.0 != *nearest;
+                }
+
+                let mut buttoned = false;
+                let view_count = scene.view_count();
+                let out_of = format!("/ {view_count}");
+
+                ui.horizontal(|ui| {
+                    if ui.button("⏪").clicked() {
+                        buttoned = true;
+                        *nearest -= 1;
+                    }
+                    buttoned |= ui
+                        .add(Slider::new(nearest, 0..=scene.view_count() - 1).suffix(out_of))
+                        .dragged();
+                    if ui.button("⏩").clicked() {
+                        buttoned = true;
+                        *nearest += 1;
+                    }
+
+                    ui.add_space(10.0);
+
+                    if dataset.eval_scene().is_some() {
+                        for (t, l) in [ViewType::Train, ViewType::Eval]
+                            .into_iter()
+                            .zip(["train", "eval"])
+                        {
+                            if ui
+                                .selectable_label(self.viewpoints_view_type == t, l)
+                                .clicked()
+                            {
+                                self.viewpoints_view_type = t;
+                                dirty = true;
+                            };
                         }
-                        buttoned |= ui
-                            .add(
-                                Slider::new(nearest, 0..=train_scene.view_count() - 1)
-                                    .suffix(out_of),
-                            )
-                            .dragged();
-                        if ui.button("⏩").clicked() {
-                            buttoned = true;
-                            *nearest += 1;
-                        }
-                    });
-
-                    if buttoned {
-                        let view = train_scene.get_view(*nearest).unwrap().clone();
-                        self.splat_view.camera = view.camera.clone();
-                        self.splat_view.controls.focus =
-                            view.camera.position + view.camera.rotation * glam::Vec3::Z * 5.0;
                     }
+                });
 
-                    // Update image if dirty.
-                    let mut dirty = self.train_state.selected_view.is_none();
-                    if let Some(view) = self.train_state.selected_view.as_ref() {
-                        dirty = view.0 != *nearest;
-                    }
+                if buttoned {
+                    let view = scene.get_view(*nearest).unwrap().clone();
+                    self.splat_view.camera = view.camera.clone();
+                    self.splat_view.controls.focus =
+                        view.camera.position + view.camera.rotation * glam::Vec3::Z * 5.0;
+                }
 
-                    if dirty {
-                        let view = train_scene.get_view(*nearest).unwrap().clone();
-                        let color_img = egui::ColorImage::from_rgb(
-                            [view.image.width() as usize, view.image.height() as usize],
-                            &view.image.to_rgb8().into_vec(),
-                        );
-                        self.train_state.selected_view = Some((
-                            *nearest,
-                            ctx.load_texture(
-                                "nearest_view_tex",
-                                color_img,
-                                TextureOptions::default(),
-                            ),
-                        ));
-                    }
+                if dirty {
+                    let view = scene.get_view(*nearest).unwrap().clone();
+                    let color_img = egui::ColorImage::from_rgb(
+                        [view.image.width() as usize, view.image.height() as usize],
+                        &view.image.to_rgb8().into_vec(),
+                    );
+                    self.train_state.selected_view = Some((
+                        *nearest,
+                        ctx.load_texture("nearest_view_tex", color_img, TextureOptions::default()),
+                    ));
+                }
 
-                    if let Some(view) = self.train_state.selected_view.as_ref() {
-                        ui.add(egui::Image::new(&view.1).shrink_to_fit());
-                        ui.label(&train_scene.get_view(*nearest).unwrap().name);
-                    }
+                if let Some(view) = self.train_state.selected_view.as_ref() {
+                    ui.add(egui::Image::new(&view.1).shrink_to_fit());
+                    ui.label(&scene.get_view(*nearest).unwrap().name);
                 }
             });
     }

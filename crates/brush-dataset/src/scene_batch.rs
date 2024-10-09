@@ -5,8 +5,6 @@ use brush_train::scene::Scene;
 use brush_train::train::SceneBatch;
 use burn::tensor::Tensor;
 
-use futures_lite::future;
-
 pub struct SceneLoader<B: Backend> {
     receiver: Receiver<SceneBatch<B>>,
 }
@@ -52,7 +50,7 @@ impl<B: Backend> SceneLoader<B> {
 
         // TODO: On wasm, don't thread but async.
         #[cfg(not(target_arch = "wasm32"))]
-        std::thread::spawn(|| future::block_on(fut));
+        std::thread::spawn(|| futures_lite::future::block_on(fut));
 
         #[cfg(target_arch = "wasm32")]
         wasm_bindgen_futures::spawn_local(fut);
