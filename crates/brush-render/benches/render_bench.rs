@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::{fs::File, io::Read};
 
-use brush_render::BurnBack;
+use brush_render::PrimaryBackend;
 use brush_render::{
     camera::{focal_to_fov, fov_to_focal, Camera},
     gaussian_splats::Splats,
@@ -18,7 +18,7 @@ fn main() {
     divan::main();
 }
 
-type DiffBack = Autodiff<brush_render::BurnBack>;
+type DiffBack = Autodiff<brush_render::PrimaryBackend>;
 
 const BENCH_DENSITIES: [f32; 10] = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0];
 const DENSE_MULT: f32 = 0.25;
@@ -179,7 +179,7 @@ fn bench_general(
                 let _ = out.0.mean().backward();
             }
             // Wait for GPU work.
-            <BurnBack as burn::prelude::Backend>::sync(
+            <PrimaryBackend as burn::prelude::Backend>::sync(
                 &WgpuDevice::BestAvailable,
                 burn::tensor::backend::SyncType::Wait,
             );
@@ -193,7 +193,7 @@ fn bench_general(
                 let _ = splats.render(&camera, resolution, glam::vec3(0.0, 0.0, 0.0), true);
             }
             // Wait for GPU work.
-            <BurnBack as burn::prelude::Backend>::sync(
+            <PrimaryBackend as burn::prelude::Backend>::sync(
                 &WgpuDevice::BestAvailable,
                 burn::tensor::backend::SyncType::Wait,
             );

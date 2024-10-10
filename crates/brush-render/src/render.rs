@@ -6,7 +6,7 @@ use crate::kernels::{
     GatherGrads, GetTileBinEdges, MapGaussiansToIntersect, ProjectBackwards, ProjectSplats,
     ProjectVisible, Rasterize, RasterizeBackwards,
 };
-use crate::BurnBack;
+use crate::PrimaryBackend;
 
 use brush_kernel::{
     bitcast_tensor, calc_cube_count, create_dispatch_buffer, create_tensor, create_uniform_buffer,
@@ -141,7 +141,7 @@ fn render_forward(
 
         // Get just the number of visible splats from the uniforms buffer.
         let num_vis_field_offset = offset_of!(shaders::helpers::RenderUniforms, num_visible) / 4;
-        let num_visible = bitcast_tensor(BurnBack::int_slice(
+        let num_visible = bitcast_tensor(PrimaryBackend::int_slice(
             bitcast_tensor(uniforms_buffer.clone()),
             &[num_vis_field_offset..num_vis_field_offset + 1],
         ));
@@ -165,7 +165,7 @@ fn render_forward(
     let projected_splats = create_tensor::<f32, 2, _>([num_points, projected_size], device, client);
 
     // Number of tiles hit per splat. Has to be zerod as we later sum over this.
-    let num_tiles_hit = bitcast_tensor(BurnBack::int_zeros([num_points].into(), device));
+    let num_tiles_hit = bitcast_tensor(PrimaryBackend::int_zeros([num_points].into(), device));
     let num_vis_wg = create_dispatch_buffer(num_visible.clone(), [shaders::helpers::MAIN_WG, 1, 1]);
 
     tracing::info_span!("ProjectVisibile", sync_burn = true).in_scope(|| unsafe {
@@ -191,7 +191,7 @@ fn render_forward(
         prefix_sum(num_tiles_hit)
     });
 
-    let num_intersections = bitcast_tensor(BurnBack::int_slice(
+    let num_intersections = bitcast_tensor(PrimaryBackend::int_slice(
         bitcast_tensor(cum_tiles_hit.clone()),
         &[num_points - 1..num_points],
     ));
@@ -243,7 +243,7 @@ fn render_forward(
 
         let _span = tracing::info_span!("GetTileBinEdges", sync_burn = true).entered();
 
-        let tile_bins = bitcast_tensor(BurnBack::int_zeros(
+        let tile_bins = bitcast_tensor(PrimaryBackend::int_zeros(
             [tile_bounds.y as usize, tile_bounds.x as usize, 2].into(),
             device,
         ));
@@ -327,7 +327,7 @@ fn render_forward(
     )
 }
 
-impl Backend for BurnBack {
+impl Backend for PrimaryBackend {
     fn render_splats(
         camera: &Camera,
         img_size: glam::UVec2,
@@ -370,7 +370,7 @@ struct GaussianBackwardState {
 #[derive(Debug)]
 struct RenderBackwards;
 
-impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
+impl<C: CheckpointStrategy> Backend for Autodiff<PrimaryBackend, C> {
     fn render_splats(
         camera: &Camera,
         img_size: glam::UVec2,
@@ -450,7 +450,7 @@ impl<C: CheckpointStrategy> Backend for Autodiff<BurnBack, C> {
     }
 }
 
-impl Backward<BurnBack, 6> for RenderBackwards {
+impl Backward<PrimaryBackend, 6> for RenderBackwards {
     type State = GaussianBackwardState;
 
     fn backward(
@@ -467,15 +467,16 @@ impl Backward<BurnBack, 6> for RenderBackwards {
         let img_dimgs = state.out_img.shape.dims;
         let img_size = glam::uvec2(img_dimgs[1] as u32, img_dimgs[0] as u32);
 
-        let v_output = grads.consume::<BurnBack>(&ops.node);
+        let v_output = grads.consume::<PrimaryBackend>(&ops.node);
         let client = &v_output.client;
         let device = &v_output.device;
 
-        let means = checkpointer.retrieve_node_output::<FloatTensor<BurnBack>>(state.means);
-        let quats = checkpointer.retrieve_node_output::<FloatTensor<BurnBack>>(state.quats);
+        let means = checkpointer.retrieve_node_output::<FloatTensor<PrimaryBackend>>(state.means);
+        let quats = checkpointer.retrieve_node_output::<FloatTensor<PrimaryBackend>>(state.quats);
         let log_scales =
-            checkpointer.retrieve_node_output::<FloatTensor<BurnBack>>(state.log_scales);
-        let raw_opac = checkpointer.retrieve_node_output::<FloatTensor<BurnBack>>(state.raw_opac);
+            checkpointer.retrieve_node_output::<FloatTensor<PrimaryBackend>>(state.log_scales);
+        let raw_opac =
+            checkpointer.retrieve_node_output::<FloatTensor<PrimaryBackend>>(state.raw_opac);
 
         let num_points = means.shape.dims[0];
 
@@ -488,9 +489,9 @@ impl Backward<BurnBack, 6> for RenderBackwards {
             let invocations = tile_bounds.x * tile_bounds.y;
 
             // These gradients are atomically added to so important to zero them.
-            let v_xys_local = BurnBack::float_zeros([num_points, 2].into(), device);
-            let v_conics = BurnBack::float_zeros([num_points, 3].into(), device);
-            let v_colors = BurnBack::float_zeros([num_points, 4].into(), device);
+            let v_xys_local = PrimaryBackend::float_zeros([num_points, 2].into(), device);
+            let v_conics = PrimaryBackend::float_zeros([num_points, 3].into(), device);
+            let v_colors = PrimaryBackend::float_zeros([num_points, 4].into(), device);
 
             // let hard_float = !cfg!(target_arch = "wasm32");
             let hard_float = false;
@@ -514,11 +515,11 @@ impl Backward<BurnBack, 6> for RenderBackwards {
                 );
             });
 
-            let v_coeffs = BurnBack::float_zeros(
+            let v_coeffs = PrimaryBackend::float_zeros(
                 [num_points, num_sh_coeffs(state.sh_degree) * 3].into(),
                 device,
             );
-            let v_opacities = BurnBack::float_zeros([num_points].into(), device);
+            let v_opacities = PrimaryBackend::float_zeros([num_points].into(), device);
 
             let _span = tracing::info_span!("GatherGrads", sync_burn = true).entered();
 
@@ -527,7 +528,7 @@ impl Backward<BurnBack, 6> for RenderBackwards {
                 GatherGrads::WORKGROUP_SIZE,
             );
 
-            let v_xys_global = BurnBack::float_zeros([num_points, 2].into(), device);
+            let v_xys_global = PrimaryBackend::float_zeros([num_points, 2].into(), device);
 
             unsafe {
                 client.execute_unchecked(
@@ -554,9 +555,9 @@ impl Backward<BurnBack, 6> for RenderBackwards {
 
         // Nb: these are packed vec3 values, special care is taken in the kernel to respect alignment.
         // Nb: These have to be zerod out - as we only write to visible splats.
-        let v_means = BurnBack::float_zeros([num_points, 3].into(), device);
-        let v_scales = BurnBack::float_zeros([num_points, 3].into(), device);
-        let v_quats = BurnBack::float_zeros([num_points, 4].into(), device);
+        let v_means = PrimaryBackend::float_zeros([num_points, 3].into(), device);
+        let v_scales = PrimaryBackend::float_zeros([num_points, 3].into(), device);
+        let v_quats = PrimaryBackend::float_zeros([num_points, 4].into(), device);
 
         tracing::info_span!("ProjectBackwards", sync_burn = true).in_scope(|| unsafe {
             client.execute_unchecked(
@@ -583,28 +584,28 @@ impl Backward<BurnBack, 6> for RenderBackwards {
             ops.parents;
 
         if let Some(node) = mean_parent {
-            grads.register::<BurnBack>(node.id, v_means);
+            grads.register::<PrimaryBackend>(node.id, v_means);
         }
 
         // Register the gradients for the dummy xy input.
         if let Some(node) = xys_parent {
-            grads.register::<BurnBack>(node.id, v_xys_global);
+            grads.register::<PrimaryBackend>(node.id, v_xys_global);
         }
 
         if let Some(node) = log_scales_parent {
-            grads.register::<BurnBack>(node.id, v_scales);
+            grads.register::<PrimaryBackend>(node.id, v_scales);
         }
 
         if let Some(node) = quats_parent {
-            grads.register::<BurnBack>(node.id, v_quats);
+            grads.register::<PrimaryBackend>(node.id, v_quats);
         }
 
         if let Some(node) = coeffs_parent {
-            grads.register::<BurnBack>(node.id, v_coeffs);
+            grads.register::<PrimaryBackend>(node.id, v_coeffs);
         }
 
         if let Some(node) = raw_opacity_parent {
-            grads.register::<BurnBack>(node.id, v_opacities);
+            grads.register::<PrimaryBackend>(node.id, v_opacities);
         }
     }
 }
@@ -626,7 +627,7 @@ mod tests {
     use burn::tensor::{Float, Int};
     use burn_wgpu::WgpuDevice;
 
-    type DiffBack = Autodiff<BurnBack>;
+    type DiffBack = Autodiff<PrimaryBackend>;
     use anyhow::{Context, Result};
     use safetensors::SafeTensors;
 

@@ -88,4 +88,4 @@ pub trait Backend: burn::tensor::backend::Backend {
 pub trait AutodiffBackend: burn::tensor::backend::AutodiffBackend + Backend {}
 impl<B: Backend> AutodiffBackend for Autodiff<B> where burn::backend::Autodiff<B>: Backend {}
 
-pub type BurnBack = JitBackend<WgpuRuntime, f32, i32>;
+pub type PrimaryBackend = JitBackend<WgpuRuntime, f32, i32>;

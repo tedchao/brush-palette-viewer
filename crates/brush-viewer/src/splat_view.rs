@@ -7,8 +7,6 @@ use wgpu::CommandEncoderDescriptor;
 
 use crate::{burn_texture::BurnTexture, orbit_controls::OrbitControls};
 
-type Backend = burn_wgpu::Wgpu;
-
 // A simple window that can draw some splats.
 pub(crate) struct SplatView {
     pub(crate) camera: Camera,
@@ -34,7 +32,7 @@ impl SplatView {
 
     pub(crate) fn draw_splats(
         &mut self,
-        splats: &Splats<Backend>,
+        splats: &Splats<brush_render::PrimaryBackend>,
         background: glam::Vec3,
         ui: &mut egui::Ui,
         ctx: &egui::Context,

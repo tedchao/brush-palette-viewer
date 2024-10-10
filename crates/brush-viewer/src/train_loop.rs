@@ -8,7 +8,7 @@ use burn::{
     backend::Autodiff, lr_scheduler::exponential::ExponentialLrSchedulerConfig,
     module::AutodiffModule, tensor::ElementConversion,
 };
-use burn_wgpu::{Wgpu, WgpuDevice};
+use burn_wgpu::WgpuDevice;
 use futures_lite::StreamExt;
 use tracing::info_span;
 use web_time::Instant;
@@ -93,7 +93,9 @@ pub(crate) async fn train_loop(
     let visualize = crate::visualize::VisualizeTools::new();
     visualize.log_scene(&train_scene)?;
 
-    let mut splats = config.initial_model_config.init::<Autodiff<Wgpu>>(&device);
+    let mut splats = config
+        .initial_model_config
+        .init::<Autodiff<brush_render::PrimaryBackend>>(&device);
     let mut dataloader = SceneLoader::new(&train_scene, 1, &device);
     let mut trainer = SplatTrainer::new(splats.num_splats(), &config, &splats);
 

@@ -15,6 +15,7 @@ brush-dataset.path = "../brush-dataset"
 glam.workspace = true
 burn.workspace = true
 burn-wgpu.workspace = true
+burn-jit.workspace = true
 
 image.workspace = true
 anyhow.workspace = true

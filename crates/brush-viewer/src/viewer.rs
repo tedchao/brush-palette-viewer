@@ -3,10 +3,11 @@ use std::sync::{Arc, RwLock};
 use anyhow::Context;
 use async_channel::{Receiver, Sender, TryRecvError};
 use brush_render::gaussian_splats::Splats;
+use brush_render::PrimaryBackend;
 use brush_train::scene::ViewType;
 use burn_wgpu::{RuntimeOptions, Wgpu, WgpuDevice};
 use egui::{Hyperlink, Slider, TextureOptions};
-use futures_lite::{future, StreamExt};
+use futures_lite::StreamExt;
 
 use tracing::info_span;
 use web_time::Instant;
@@ -22,7 +23,7 @@ pub(crate) enum ViewerMessage {
 
     // Initial splat cloud to be created.
     SplatLoad {
-        splats: Splats<Wgpu>,
+        splats: Splats<PrimaryBackend>,
         total_count: usize,
     },
 
@@ -30,7 +31,7 @@ pub(crate) enum ViewerMessage {
     Dataset(Dataset),
 
     TrainStep {
-        splats: Splats<Wgpu>,
+        splats: Splats<PrimaryBackend>,
         loss: f32,
         iter: u32,
         timestamp: Instant,
@@ -63,7 +64,7 @@ async fn load_ply_loop(
 ) -> anyhow::Result<()> {
     let total_count = splat_import::ply_count(data).context("Invalid ply file")?;
 
-    let splat_stream = splat_import::load_splat_from_ply::<Wgpu>(data, device.clone());
+    let splat_stream = splat_import::load_splat_from_ply::<PrimaryBackend>(data, device.clone());
 
     let mut splat_stream = std::pin::pin!(splat_stream);
     while let Some(splats) = splat_stream.next().await {
@@ -198,7 +199,7 @@ impl Viewer {
 
         #[cfg(not(target_arch = "wasm32"))]
         std::thread::spawn(move || {
-            future::block_on(inner_process_loop(
+            futures_lite::future::block_on(inner_process_loop(
                 device,
                 sender,
                 ctx,
