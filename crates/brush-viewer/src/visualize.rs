@@ -27,9 +27,7 @@ impl VisualizeTools {
 
         #[cfg(not(target_family = "wasm"))]
         {
-            let rec = rerun::RecordingStreamBuilder::new("brush_visualize")
-                .spawn()
-                .ok();
+            let rec = rerun::RecordingStreamBuilder::new("Brush").connect().ok();
             Self { rec }
         }
     }

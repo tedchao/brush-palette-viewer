@@ -690,7 +690,7 @@ mod tests {
         )
         .reshape([crab_img.height() as usize, crab_img.width() as usize, 3]);
 
-        let rec = rerun::RecordingStreamBuilder::new("render test").spawn();
+        let rec = rerun::RecordingStreamBuilder::new("render test").connect();
 
         for (i, path) in ["tiny_case", "basic_case", "mix_case"].iter().enumerate() {
             println!("path {path}");

@@ -138,10 +138,53 @@ dependencies = [
 ]
 
 [[package]]
+name = "anstream"
+version = "0.6.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "64e15c1ab1f89faffbf04a634d5e1962e9074f2741eef6d97f3c4e322426d526"
+dependencies = [
+ "anstyle",
+ "anstyle-parse",
+ "anstyle-query",
+ "anstyle-wincon",
+ "colorchoice",
+ "is_terminal_polyfill",
+ "utf8parse",
+]
+
+[[package]]
 name = "anstyle"
 version = "1.0.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1bec1de6f59aedf83baf9ff929c98f2ad654b97c9510f4e70cf6f661d49fd5b1"
+
+[[package]]
+name = "anstyle-parse"
+version = "0.2.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eb47de1e80c2b463c735db5b217a0ddc39d612e7ac9e2e96a5aed1f57616c1cb"
+dependencies = [
+ "utf8parse",
+]
+
+[[package]]
+name = "anstyle-query"
+version = "1.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6d36fc52c7f6c869915e99412912f22093507da8d9e942ceaf66fe4b7c14422a"
+dependencies = [
+ "windows-sys 0.52.0",
+]
+
+[[package]]
+name = "anstyle-wincon"
+version = "3.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5bf74e1b6e971609db8ca7a9ce79fd5768ab6ae46441c572e46cf596f59e57f8"
+dependencies = [
+ "anstyle",
+ "windows-sys 0.52.0",
+]
 
 [[package]]
 name = "anyhow"
@@ -706,6 +749,7 @@ dependencies = [
  "console_error_panic_hook",
  "eframe",
  "egui",
+ "env_logger 0.11.5",
  "log",
  "wasm-bindgen",
  "wasm-bindgen-futures",
@@ -758,6 +802,7 @@ dependencies = [
  "divan",
  "glam",
  "image",
+ "log",
  "miette",
  "naga",
  "naga_oil",
@@ -883,7 +928,7 @@ checksum = "79296716171880943b8470b5f8d03aa55eb2e645a4874bdbb28adb49162e012c"
 [[package]]
 name = "burn"
 version = "0.15.0"
-source = "git+https://github.com/tracel-ai/burn#ce7d866b5d6492b69c1ae90800b21491dfc72aea"
+source = "git+https://github.com/tracel-ai/burn#6fe3ff5ac8691e4bfabdff020abdfba0c23a9f14"
 dependencies = [
  "burn-core",
  "burn-train",
@@ -892,7 +937,7 @@ dependencies = [
 [[package]]
 name = "burn-autodiff"
 version = "0.15.0"
-source = "git+https://github.com/tracel-ai/burn#ce7d866b5d6492b69c1ae90800b21491dfc72aea"
+source = "git+https://github.com/tracel-ai/burn#6fe3ff5ac8691e4bfabdff020abdfba0c23a9f14"
 dependencies = [
  "burn-common",
  "burn-tensor",
@@ -904,7 +949,7 @@ dependencies = [
 [[package]]
 name = "burn-candle"
 version = "0.15.0"
-source = "git+https://github.com/tracel-ai/burn#ce7d866b5d6492b69c1ae90800b21491dfc72aea"
+source = "git+https://github.com/tracel-ai/burn#6fe3ff5ac8691e4bfabdff020abdfba0c23a9f14"
 dependencies = [
  "burn-tensor",
  "candle-core",
@@ -915,7 +960,7 @@ dependencies = [
 [[package]]
 name = "burn-common"
 version = "0.15.0"
-source = "git+https://github.com/tracel-ai/burn#ce7d866b5d6492b69c1ae90800b21491dfc72aea"
+source = "git+https://github.com/tracel-ai/burn#6fe3ff5ac8691e4bfabdff020abdfba0c23a9f14"
 dependencies = [
  "cubecl-common",
  "getrandom",
@@ -926,7 +971,7 @@ dependencies = [
 [[package]]
 name = "burn-core"
 version = "0.15.0"
-source = "git+https://github.com/tracel-ai/burn#ce7d866b5d6492b69c1ae90800b21491dfc72aea"
+source = "git+https://github.com/tracel-ai/burn#6fe3ff5ac8691e4bfabdff020abdfba0c23a9f14"
 dependencies = [
  "bincode 2.0.0-rc.3",
  "burn-autodiff",
@@ -958,7 +1003,7 @@ dependencies = [
 [[package]]
 name = "burn-cuda"
 version = "0.15.0"
-source = "git+https://github.com/tracel-ai/burn#ce7d866b5d6492b69c1ae90800b21491dfc72aea"
+source = "git+https://github.com/tracel-ai/burn#6fe3ff5ac8691e4bfabdff020abdfba0c23a9f14"
 dependencies = [
  "burn-fusion",
  "burn-jit",
@@ -973,7 +1018,7 @@ dependencies = [
 [[package]]
 name = "burn-dataset"
 version = "0.15.0"
-source = "git+https://github.com/tracel-ai/burn#ce7d866b5d6492b69c1ae90800b21491dfc72aea"
+source = "git+https://github.com/tracel-ai/burn#6fe3ff5ac8691e4bfabdff020abdfba0c23a9f14"
 dependencies = [
  "csv",
  "derive-new",
@@ -998,7 +1043,7 @@ dependencies = [
 [[package]]
 name = "burn-derive"
 version = "0.15.0"
-source = "git+https://github.com/tracel-ai/burn#ce7d866b5d6492b69c1ae90800b21491dfc72aea"
+source = "git+https://github.com/tracel-ai/burn#6fe3ff5ac8691e4bfabdff020abdfba0c23a9f14"
 dependencies = [
  "derive-new",
  "proc-macro2",
@@ -1009,7 +1054,7 @@ dependencies = [
 [[package]]
 name = "burn-fusion"
 version = "0.15.0"
-source = "git+https://github.com/tracel-ai/burn#ce7d866b5d6492b69c1ae90800b21491dfc72aea"
+source = "git+https://github.com/tracel-ai/burn#6fe3ff5ac8691e4bfabdff020abdfba0c23a9f14"
 dependencies = [
  "burn-common",
  "burn-tensor",
@@ -1024,7 +1069,7 @@ dependencies = [
 [[package]]
 name = "burn-jit"
 version = "0.15.0"
-source = "git+https://github.com/tracel-ai/burn#ce7d866b5d6492b69c1ae90800b21491dfc72aea"
+source = "git+https://github.com/tracel-ai/burn#6fe3ff5ac8691e4bfabdff020abdfba0c23a9f14"
 dependencies = [
  "burn-common",
  "burn-fusion",
@@ -1045,7 +1090,7 @@ dependencies = [
 [[package]]
 name = "burn-ndarray"
 version = "0.15.0"
-source = "git+https://github.com/tracel-ai/burn#ce7d866b5d6492b69c1ae90800b21491dfc72aea"
+source = "git+https://github.com/tracel-ai/burn#6fe3ff5ac8691e4bfabdff020abdfba0c23a9f14"
 dependencies = [
  "atomic_float",
  "burn-autodiff",
@@ -1064,7 +1109,7 @@ dependencies = [
 [[package]]
 name = "burn-tch"
 version = "0.15.0"
-source = "git+https://github.com/tracel-ai/burn#ce7d866b5d6492b69c1ae90800b21491dfc72aea"
+source = "git+https://github.com/tracel-ai/burn#6fe3ff5ac8691e4bfabdff020abdfba0c23a9f14"
 dependencies = [
  "burn-tensor",
  "half",
@@ -1077,7 +1122,7 @@ dependencies = [
 [[package]]
 name = "burn-tensor"
 version = "0.15.0"
-source = "git+https://github.com/tracel-ai/burn#ce7d866b5d6492b69c1ae90800b21491dfc72aea"
+source = "git+https://github.com/tracel-ai/burn#6fe3ff5ac8691e4bfabdff020abdfba0c23a9f14"
 dependencies = [
  "burn-common",
  "bytemuck",
@@ -1096,7 +1141,7 @@ dependencies = [
 [[package]]
 name = "burn-train"
 version = "0.15.0"
-source = "git+https://github.com/tracel-ai/burn#ce7d866b5d6492b69c1ae90800b21491dfc72aea"
+source = "git+https://github.com/tracel-ai/burn#6fe3ff5ac8691e4bfabdff020abdfba0c23a9f14"
 dependencies = [
  "burn-core",
  "crossterm",
@@ -1115,7 +1160,7 @@ dependencies = [
 [[package]]
 name = "burn-wgpu"
 version = "0.15.0"
-source = "git+https://github.com/tracel-ai/burn#ce7d866b5d6492b69c1ae90800b21491dfc72aea"
+source = "git+https://github.com/tracel-ai/burn#6fe3ff5ac8691e4bfabdff020abdfba0c23a9f14"
 dependencies = [
  "burn-fusion",
  "burn-jit",
@@ -1313,9 +1358,9 @@ dependencies = [
 
 [[package]]
 name = "cc"
-version = "1.1.28"
+version = "1.1.30"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2e80e3b6a3ab07840e1cae9b0666a63970dc28e8ed5ffbcdacbfc760c281bfc1"
+checksum = "b16803a61b81d9eabb7eae2588776c4c1e584b738ede45fdbb4c972cec1e9945"
 dependencies = [
  "jobserver",
  "libc",
@@ -1451,6 +1496,12 @@ name = "color_quant"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3d7b894f5411737b7867f4827955924d7c254fc9f4d91a6aad6b097804b1018b"
+
+[[package]]
+name = "colorchoice"
+version = "1.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d3fd119d74b830634cea2a0f58bbd0d54540518a14397557951e79340abc28c0"
 
 [[package]]
 name = "colored"
@@ -2337,6 +2388,19 @@ dependencies = [
  "is-terminal",
  "log",
  "termcolor",
+]
+
+[[package]]
+name = "env_logger"
+version = "0.11.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e13fa619b91fb2381732789fc5de83b45675e882f66623b7d8cb4f643017018d"
+dependencies = [
+ "anstream",
+ "anstyle",
+ "env_filter",
+ "humantime",
+ "log",
 ]
 
 [[package]]
@@ -3383,6 +3447,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7655c9839580ee829dfacba1d1278c2b7883e50a277ff7541299489d6bdfdc45"
 
 [[package]]
+name = "is_terminal_polyfill"
+version = "1.70.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7943c866cc5cd64cbc25b2e01621d07fa8eb2a1a23160ee81ce38704e97b8ecf"
+
+[[package]]
 name = "itertools"
 version = "0.10.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3454,9 +3524,9 @@ checksum = "f5d4a7da358eff58addd2877a45865158f0d78c911d43a5784ceb7bbf52833b0"
 
 [[package]]
 name = "js-sys"
-version = "0.3.71"
+version = "0.3.72"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0cb94a0ffd3f3ee755c20f7d8752f45cac88605a4dcf808abcff72873296ec7b"
+checksum = "6a88f1bda2bd75b0452a14784937d796722fdebfe50df998aeb3f0b7603019a9"
 dependencies = [
  "wasm-bindgen",
 ]
@@ -5095,16 +5165,16 @@ dependencies = [
 
 [[package]]
 name = "re_build_info"
-version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#14590bed39cae6d574628f3187da0d764ee6c032"
+version = "0.19.0-alpha.3"
+source = "git+https://github.com/rerun-io/rerun#424b9dca55c63da7c53eba25dd18ce213b549971"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "re_build_tools"
-version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#14590bed39cae6d574628f3187da0d764ee6c032"
+version = "0.19.0-alpha.3"
+source = "git+https://github.com/rerun-io/rerun#424b9dca55c63da7c53eba25dd18ce213b549971"
 dependencies = [
  "anyhow",
  "cargo_metadata 0.18.1",
@@ -5117,16 +5187,16 @@ dependencies = [
 
 [[package]]
 name = "re_case"
-version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#14590bed39cae6d574628f3187da0d764ee6c032"
+version = "0.19.0-alpha.3"
+source = "git+https://github.com/rerun-io/rerun#424b9dca55c63da7c53eba25dd18ce213b549971"
 dependencies = [
  "convert_case",
 ]
 
 [[package]]
 name = "re_chunk"
-version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#14590bed39cae6d574628f3187da0d764ee6c032"
+version = "0.19.0-alpha.3"
+source = "git+https://github.com/rerun-io/rerun#424b9dca55c63da7c53eba25dd18ce213b549971"
 dependencies = [
  "ahash",
  "anyhow",
@@ -5152,8 +5222,8 @@ dependencies = [
 
 [[package]]
 name = "re_chunk_store"
-version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#14590bed39cae6d574628f3187da0d764ee6c032"
+version = "0.19.0-alpha.3"
+source = "git+https://github.com/rerun-io/rerun#424b9dca55c63da7c53eba25dd18ce213b549971"
 dependencies = [
  "ahash",
  "anyhow",
@@ -5177,8 +5247,8 @@ dependencies = [
 
 [[package]]
 name = "re_crash_handler"
-version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#14590bed39cae6d574628f3187da0d764ee6c032"
+version = "0.19.0-alpha.3"
+source = "git+https://github.com/rerun-io/rerun#424b9dca55c63da7c53eba25dd18ce213b549971"
 dependencies = [
  "backtrace",
  "econtext",
@@ -5190,14 +5260,12 @@ dependencies = [
 
 [[package]]
 name = "re_dataframe"
-version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#14590bed39cae6d574628f3187da0d764ee6c032"
+version = "0.19.0-alpha.3"
+source = "git+https://github.com/rerun-io/rerun#424b9dca55c63da7c53eba25dd18ce213b549971"
 dependencies = [
- "ahash",
  "anyhow",
  "itertools 0.13.0",
  "nohash-hasher",
- "parking_lot",
  "re_arrow2",
  "re_chunk",
  "re_chunk_store",
@@ -5210,8 +5278,8 @@ dependencies = [
 
 [[package]]
 name = "re_entity_db"
-version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#14590bed39cae6d574628f3187da0d764ee6c032"
+version = "0.19.0-alpha.3"
+source = "git+https://github.com/rerun-io/rerun#424b9dca55c63da7c53eba25dd18ce213b549971"
 dependencies = [
  "ahash",
  "document-features",
@@ -5238,21 +5306,21 @@ dependencies = [
 
 [[package]]
 name = "re_error"
-version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#14590bed39cae6d574628f3187da0d764ee6c032"
+version = "0.19.0-alpha.3"
+source = "git+https://github.com/rerun-io/rerun#424b9dca55c63da7c53eba25dd18ce213b549971"
 
 [[package]]
 name = "re_format"
-version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#14590bed39cae6d574628f3187da0d764ee6c032"
+version = "0.19.0-alpha.3"
+source = "git+https://github.com/rerun-io/rerun#424b9dca55c63da7c53eba25dd18ce213b549971"
 dependencies = [
  "num-traits",
 ]
 
 [[package]]
 name = "re_format_arrow"
-version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#14590bed39cae6d574628f3187da0d764ee6c032"
+version = "0.19.0-alpha.3"
+source = "git+https://github.com/rerun-io/rerun#424b9dca55c63da7c53eba25dd18ce213b549971"
 dependencies = [
  "comfy-table",
  "re_arrow2",
@@ -5262,8 +5330,8 @@ dependencies = [
 
 [[package]]
 name = "re_int_histogram"
-version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#14590bed39cae6d574628f3187da0d764ee6c032"
+version = "0.19.0-alpha.3"
+source = "git+https://github.com/rerun-io/rerun#424b9dca55c63da7c53eba25dd18ce213b549971"
 dependencies = [
  "smallvec",
  "static_assertions",
@@ -5271,10 +5339,10 @@ dependencies = [
 
 [[package]]
 name = "re_log"
-version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#14590bed39cae6d574628f3187da0d764ee6c032"
+version = "0.19.0-alpha.3"
+source = "git+https://github.com/rerun-io/rerun#424b9dca55c63da7c53eba25dd18ce213b549971"
 dependencies = [
- "env_logger",
+ "env_logger 0.10.2",
  "js-sys",
  "log",
  "log-once",
@@ -5285,8 +5353,8 @@ dependencies = [
 
 [[package]]
 name = "re_log_encoding"
-version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#14590bed39cae6d574628f3187da0d764ee6c032"
+version = "0.19.0-alpha.3"
+source = "git+https://github.com/rerun-io/rerun#424b9dca55c63da7c53eba25dd18ce213b549971"
 dependencies = [
  "lz4_flex",
  "parking_lot",
@@ -5302,8 +5370,8 @@ dependencies = [
 
 [[package]]
 name = "re_log_types"
-version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#14590bed39cae6d574628f3187da0d764ee6c032"
+version = "0.19.0-alpha.3"
+source = "git+https://github.com/rerun-io/rerun#424b9dca55c63da7c53eba25dd18ce213b549971"
 dependencies = [
  "ahash",
  "anyhow",
@@ -5340,8 +5408,8 @@ dependencies = [
 
 [[package]]
 name = "re_memory"
-version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#14590bed39cae6d574628f3187da0d764ee6c032"
+version = "0.19.0-alpha.3"
+source = "git+https://github.com/rerun-io/rerun#424b9dca55c63da7c53eba25dd18ce213b549971"
 dependencies = [
  "ahash",
  "backtrace",
@@ -5376,8 +5444,8 @@ dependencies = [
 
 [[package]]
 name = "re_query"
-version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#14590bed39cae6d574628f3187da0d764ee6c032"
+version = "0.19.0-alpha.3"
+source = "git+https://github.com/rerun-io/rerun#424b9dca55c63da7c53eba25dd18ce213b549971"
 dependencies = [
  "ahash",
  "anyhow",
@@ -5402,8 +5470,8 @@ dependencies = [
 
 [[package]]
 name = "re_sdk"
-version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#14590bed39cae6d574628f3187da0d764ee6c032"
+version = "0.19.0-alpha.3"
+source = "git+https://github.com/rerun-io/rerun#424b9dca55c63da7c53eba25dd18ce213b549971"
 dependencies = [
  "ahash",
  "crossbeam",
@@ -5427,8 +5495,8 @@ dependencies = [
 
 [[package]]
 name = "re_sdk_comms"
-version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#14590bed39cae6d574628f3187da0d764ee6c032"
+version = "0.19.0-alpha.3"
+source = "git+https://github.com/rerun-io/rerun#424b9dca55c63da7c53eba25dd18ce213b549971"
 dependencies = [
  "ahash",
  "crossbeam",
@@ -5443,8 +5511,8 @@ dependencies = [
 
 [[package]]
 name = "re_smart_channel"
-version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#14590bed39cae6d574628f3187da0d764ee6c032"
+version = "0.19.0-alpha.3"
+source = "git+https://github.com/rerun-io/rerun#424b9dca55c63da7c53eba25dd18ce213b549971"
 dependencies = [
  "crossbeam",
  "parking_lot",
@@ -5455,8 +5523,8 @@ dependencies = [
 
 [[package]]
 name = "re_string_interner"
-version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#14590bed39cae6d574628f3187da0d764ee6c032"
+version = "0.19.0-alpha.3"
+source = "git+https://github.com/rerun-io/rerun#424b9dca55c63da7c53eba25dd18ce213b549971"
 dependencies = [
  "ahash",
  "nohash-hasher",
@@ -5468,8 +5536,8 @@ dependencies = [
 
 [[package]]
 name = "re_tracing"
-version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#14590bed39cae6d574628f3187da0d764ee6c032"
+version = "0.19.0-alpha.3"
+source = "git+https://github.com/rerun-io/rerun#424b9dca55c63da7c53eba25dd18ce213b549971"
 dependencies = [
  "puffin",
  "puffin_http",
@@ -5479,8 +5547,8 @@ dependencies = [
 
 [[package]]
 name = "re_tuid"
-version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#14590bed39cae6d574628f3187da0d764ee6c032"
+version = "0.19.0-alpha.3"
+source = "git+https://github.com/rerun-io/rerun#424b9dca55c63da7c53eba25dd18ce213b549971"
 dependencies = [
  "document-features",
  "getrandom",
@@ -5491,8 +5559,8 @@ dependencies = [
 
 [[package]]
 name = "re_types"
-version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#14590bed39cae6d574628f3187da0d764ee6c032"
+version = "0.19.0-alpha.3"
+source = "git+https://github.com/rerun-io/rerun#424b9dca55c63da7c53eba25dd18ce213b549971"
 dependencies = [
  "anyhow",
  "array-init",
@@ -5527,8 +5595,8 @@ dependencies = [
 
 [[package]]
 name = "re_types_builder"
-version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#14590bed39cae6d574628f3187da0d764ee6c032"
+version = "0.19.0-alpha.3"
+source = "git+https://github.com/rerun-io/rerun#424b9dca55c63da7c53eba25dd18ce213b549971"
 dependencies = [
  "anyhow",
  "camino",
@@ -5555,8 +5623,8 @@ dependencies = [
 
 [[package]]
 name = "re_types_core"
-version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#14590bed39cae6d574628f3187da0d764ee6c032"
+version = "0.19.0-alpha.3"
+source = "git+https://github.com/rerun-io/rerun#424b9dca55c63da7c53eba25dd18ce213b549971"
 dependencies = [
  "anyhow",
  "backtrace",
@@ -5578,8 +5646,8 @@ dependencies = [
 
 [[package]]
 name = "re_video"
-version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#14590bed39cae6d574628f3187da0d764ee6c032"
+version = "0.19.0-alpha.3"
+source = "git+https://github.com/rerun-io/rerun#424b9dca55c63da7c53eba25dd18ce213b549971"
 dependencies = [
  "crossbeam",
  "econtext",
@@ -5684,8 +5752,8 @@ checksum = "19b30a45b0cd0bcca8037f3d0dc3421eaf95327a17cad11964fb8179b4fc4832"
 
 [[package]]
 name = "rerun"
-version = "0.19.0-alpha.1+dev"
-source = "git+https://github.com/rerun-io/rerun#14590bed39cae6d574628f3187da0d764ee6c032"
+version = "0.19.0-alpha.3"
+source = "git+https://github.com/rerun-io/rerun#424b9dca55c63da7c53eba25dd18ce213b549971"
 dependencies = [
  "anyhow",
  "document-features",
@@ -7018,6 +7086,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "daf8dba3b7eb870caf1ddeed7bc9d2a049f3cfdfae7cb521b087cc33ae4c49da"
 
 [[package]]
+name = "utf8parse"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
+
+[[package]]
 name = "uuid"
 version = "1.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7088,9 +7162,9 @@ checksum = "9c8d87e72b64a3b4db28d11ce29237c246188f4f51057d65a7eab63b7987e423"
 
 [[package]]
 name = "wasm-bindgen"
-version = "0.2.94"
+version = "0.2.95"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ef073ced962d62984fb38a36e5fdc1a2b23c9e0e1fa0689bb97afa4202ef6887"
+checksum = "128d1e363af62632b8eb57219c8fd7877144af57558fb2ef0368d0087bddeb2e"
 dependencies = [
  "cfg-if",
  "once_cell",
@@ -7099,9 +7173,9 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen-backend"
-version = "0.2.94"
+version = "0.2.95"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c4bfab14ef75323f4eb75fa52ee0a3fb59611977fd3240da19b2cf36ff85030e"
+checksum = "cb6dd4d3ca0ddffd1dd1c9c04f94b868c37ff5fac97c30b97cff2d74fce3a358"
 dependencies = [
  "bumpalo",
  "log",
@@ -7114,9 +7188,9 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen-futures"
-version = "0.4.44"
+version = "0.4.45"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "65471f79c1022ffa5291d33520cbbb53b7687b01c2f8e83b57d102eed7ed479d"
+checksum = "cc7ec4f8827a71586374db3e87abdb5a2bb3a15afed140221307c3ec06b1f63b"
 dependencies = [
  "cfg-if",
  "js-sys",
@@ -7126,9 +7200,9 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen-macro"
-version = "0.2.94"
+version = "0.2.95"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a7bec9830f60924d9ceb3ef99d55c155be8afa76954edffbb5936ff4509474e7"
+checksum = "e79384be7f8f5a9dd5d7167216f022090cf1f9ec128e6e6a482a2cb5c5422c56"
 dependencies = [
  "quote",
  "wasm-bindgen-macro-support",
@@ -7136,9 +7210,9 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen-macro-support"
-version = "0.2.94"
+version = "0.2.95"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4c74f6e152a76a2ad448e223b0fc0b6b5747649c3d769cc6bf45737bf97d0ed6"
+checksum = "26c6ab57572f7a24a4985830b120de1594465e5d500f24afe89e16b4e833ef68"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -7149,9 +7223,9 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen-shared"
-version = "0.2.94"
+version = "0.2.95"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a42f6c679374623f295a8623adfe63d9284091245c3504bde47c17a3ce2777d9"
+checksum = "65fc09f10666a9f147042251e0dda9c18f166ff7de300607007e96bdebc1068d"
 
 [[package]]
 name = "wasm-logger"
@@ -7275,9 +7349,9 @@ dependencies = [
 
 [[package]]
 name = "web-sys"
-version = "0.3.71"
+version = "0.3.72"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "44188d185b5bdcae1052d08bcbcf9091a5524038d4572cc4f4f2bb9d5554ddd9"
+checksum = "f6488b90108c040df0fe62fa815cbdee25124641df01814dd7282749234c6112"
 dependencies = [
  "js-sys",
  "wasm-bindgen",
