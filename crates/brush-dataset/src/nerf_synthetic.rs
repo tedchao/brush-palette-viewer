@@ -141,22 +141,20 @@ pub fn read_dataset<T: Read + Seek + Clone>(
 
     let mut dataset = Dataset::empty();
 
-    let stream = try_fn_stream(|emitter| async move {
-        {
-            let train_stream = read_transforms_file(
-                archive.clone(),
-                "transforms_train.json",
-                max_frames,
-                max_resolution,
-            )?;
+    let train_stream = read_transforms_file(
+        archive.clone(),
+        "transforms_train.json",
+        max_frames,
+        max_resolution,
+    )?;
 
-            let mut train_scene = Scene::new(vec![], background);
-            let mut train_stream = std::pin::pin!(train_stream);
-            while let Some(view) = train_stream.next().await {
-                train_scene.add_view(view?);
-                dataset.train = train_scene.clone();
-                emitter.emit(dataset.clone()).await;
-            }
+    let stream = try_fn_stream(|emitter| async move {
+        let mut train_scene = Scene::new(vec![], background);
+        let mut train_stream = std::pin::pin!(train_stream);
+        while let Some(view) = train_stream.next().await {
+            train_scene.add_view(view?);
+            dataset.train = train_scene.clone();
+            emitter.emit(dataset.clone()).await;
         }
 
         // Not entirely sure yet if we want to report stats on both test
