@@ -22,6 +22,7 @@ naga_oil.workspace = true
 safetensors.workspace = true
 tracing.workspace = true
 naga.workspace = true
+log.workspace = true
 
 [build-dependencies]
 brush-wgsl.path = "../brush-wgsl"

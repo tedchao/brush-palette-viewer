@@ -10,7 +10,10 @@ use ply_rs::{
     ply::{Property, PropertyAccess},
 };
 use std::io::BufRead;
-use tracing::info_span;
+use tracing::trace_span;
+
+#[cfg(target_arch = "wasm32")]
+use web_time::Instant;
 
 use anyhow::{Context, Result};
 use brush_render::gaussian_splats::Splats;
@@ -145,7 +148,7 @@ pub fn load_splat_from_ply<B: Backend>(
     let mut splats: Option<Splats<B>> = None;
 
     let update_every = 50000;
-    let _span = info_span!("Read splats").entered();
+    let _span = trace_span!("Read splats").entered();
     let gaussian_parser = Parser::<GaussianData>::new();
 
     try_fn_stream(|emitter| async move {
@@ -182,6 +185,9 @@ pub fn load_splat_from_ply<B: Backend>(
                 let mut rotation = Vec::with_capacity(update_every * 4);
                 let mut opacity = Vec::with_capacity(update_every);
                 let mut scales = Vec::with_capacity(update_every * 3);
+
+                #[cfg(target_arch = "wasm32")]
+                let mut last_yield_time = Instant::now();
 
                 for i in 0..element.count {
                     let splat = match header.encoding {
@@ -233,6 +239,16 @@ pub fn load_splat_from_ply<B: Backend>(
                         emitter
                             .emit(splats.clone().context("Failed to update splats")?)
                             .await;
+                    }
+
+                    // On wasm, yield to the browser occsionally
+                    #[cfg(target_arch = "wasm32")]
+                    if i % 100 == 0
+                        && web_time::Instant::now() - last_yield_time
+                            > web_time::Duration::from_millis(5)
+                    {
+                        last_yield_time = Instant::now();
+                        gloo_timers::future::TimeoutFuture::new(0).await;
                     }
                 }
 
