@@ -12,7 +12,7 @@ use burn::{
     optim::{AdamConfig, GradientsParams, Optimizer},
     tensor::Tensor,
 };
-use tracing::info_span;
+use tracing::trace_span;
 
 #[derive(Config)]
 pub struct TrainConfig {
@@ -249,7 +249,7 @@ where
         splats: Splats<B>,
     ) -> Result<(Splats<B>, TrainStepStats<B>), anyhow::Error> {
         let device = &splats.means.device();
-        let _span = info_span!("Train step").entered();
+        let _span = trace_span!("Train step").entered();
 
         let [batch_size, img_h, img_w, _] = batch.gt_images.dims();
 
@@ -273,7 +273,7 @@ where
 
             let pred_images = Tensor::stack(renders, 0);
 
-            let _span = info_span!("Calculate losses", sync_burn = true).entered();
+            let _span = trace_span!("Calculate losses", sync_burn = true).entered();
 
             let pred_rgb = pred_images
                 .clone()
@@ -299,9 +299,9 @@ where
             (pred_images, auxes, loss)
         };
 
-        let mut grads = info_span!("Backward pass", sync_burn = true).in_scope(|| loss.backward());
+        let mut grads = trace_span!("Backward pass", sync_burn = true).in_scope(|| loss.backward());
 
-        let mut splats = info_span!("Optimizer step", sync_burn = true).in_scope(|| {
+        let mut splats = trace_span!("Optimizer step", sync_burn = true).in_scope(|| {
             let mut splats = splats;
             let grad_means = GradientsParams::from_params(&mut grads, &splats, &[splats.means.id]);
             splats = self.optim.step(self.sched_mean.step(), splats, grad_means);
@@ -330,7 +330,7 @@ where
             (self.config.stop_refine_percent * self.config.total_steps as f32) as u32;
 
         if self.iter < max_refine_step {
-            info_span!("Housekeeping", sync_burn = true).in_scope(|| {
+            trace_span!("Housekeeping", sync_burn = true).in_scope(|| {
                 let xys_grad = Tensor::from_inner(
                     splats
                         .xys_dummy

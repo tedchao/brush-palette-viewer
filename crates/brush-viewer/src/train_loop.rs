@@ -10,7 +10,7 @@ use burn::{
 };
 use burn_wgpu::WgpuDevice;
 use futures_lite::StreamExt;
-use tracing::info_span;
+use tracing::trace_span;
 use web_time::Instant;
 use zip::ZipArchive;
 
@@ -109,7 +109,7 @@ pub(crate) async fn train_loop(
         }
 
         let batch = {
-            let _span = info_span!("Get batch").entered();
+            let _span = trace_span!("Get batch").entered();
             dataloader.next_batch().await
         };
 
@@ -135,7 +135,7 @@ pub(crate) async fn train_loop(
         }
 
         if trainer.iter % 5 == 0 {
-            let _span = info_span!("Send batch").entered();
+            let _span = trace_span!("Send batch").entered();
 
             let msg = ViewerMessage::TrainStep {
                 splats: splats.valid(),

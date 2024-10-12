@@ -1,7 +1,7 @@
 use brush_render::{camera::Camera, gaussian_splats::Splats};
 use egui::{pos2, CollapsingHeader, Color32, Rect};
 use glam::{Quat, Vec2, Vec3};
-use tracing::info_span;
+use tracing::trace_span;
 use web_time::Instant;
 use wgpu::CommandEncoderDescriptor;
 
@@ -84,7 +84,7 @@ impl SplatView {
 
                 // If there's actual rendering to do, not just an imgui update.
                 if ctx.has_requested_repaint() {
-                    let _span = info_span!("Render splats").entered();
+                    let _span = trace_span!("Render splats").entered();
                     let (img, _) = splats.render(&self.camera, size, background, true);
 
                     let back = self

@@ -19,7 +19,6 @@ use burn::tensor::ops::IntTensorOps;
 use burn::tensor::ops::{FloatTensor, FloatTensorOps};
 use burn::tensor::{Tensor, TensorPrimitive};
 use burn_wgpu::{JitTensor, WgpuRuntime};
-use tracing::info_span;
 
 use super::{shaders, Backend, RenderAux};
 use burn::backend::{
@@ -62,9 +61,9 @@ fn render_forward(
     let client = means.client.clone();
 
     // Check whether any work needs to be flushed.
-    tracing::info_span!("pre setup", sync_burn = true).in_scope(|| {});
+    tracing::trace_span!("pre setup", sync_burn = true).in_scope(|| {});
 
-    let _span = tracing::info_span!("render_forward", sync_burn = true).entered();
+    let _span = tracing::trace_span!("render_forward", sync_burn = true).entered();
 
     // Check whether dimesions are valid.
     DimCheck::new()
@@ -122,7 +121,7 @@ fn render_forward(
         let global_from_presort_gid = create_tensor([num_points], device, client);
         let depths = create_tensor::<f32, 1, _>([num_points], device, client);
 
-        tracing::info_span!("ProjectSplats", sync_burn = true).in_scope(||
+        tracing::trace_span!("ProjectSplats", sync_burn = true).in_scope(||
             // SAFETY: wgsl FFI, kernel checked to have no OOB.
             unsafe {
             client.execute_unchecked(
@@ -146,7 +145,7 @@ fn render_forward(
             &[num_vis_field_offset..num_vis_field_offset + 1],
         ));
 
-        let (_, global_from_compact_gid) = tracing::info_span!("DepthSort", sync_burn = true)
+        let (_, global_from_compact_gid) = tracing::trace_span!("DepthSort", sync_burn = true)
             .in_scope(|| {
                 // Interpret the depth as a u32. This is fine for a radix sort, as long as the depth > 0.0,
                 // which we know to be the case given how we cull splats.
@@ -168,7 +167,7 @@ fn render_forward(
     let num_tiles_hit = bitcast_tensor(PrimaryBackend::int_zeros([num_points].into(), device));
     let num_vis_wg = create_dispatch_buffer(num_visible.clone(), [shaders::helpers::MAIN_WG, 1, 1]);
 
-    tracing::info_span!("ProjectVisibile", sync_burn = true).in_scope(|| unsafe {
+    tracing::trace_span!("ProjectVisibile", sync_burn = true).in_scope(|| unsafe {
         client.execute_unchecked(
             ProjectVisible::task(),
             CubeCount::Dynamic(num_vis_wg.clone().handle.binding()),
@@ -186,7 +185,7 @@ fn render_forward(
         );
     });
 
-    let cum_tiles_hit = tracing::info_span!("PrefixSum", sync_burn = true).in_scope(|| {
+    let cum_tiles_hit = tracing::trace_span!("PrefixSum", sync_burn = true).in_scope(|| {
         // TODO: Only need to do this up to num_visible gaussians really.
         prefix_sum(num_tiles_hit)
     });
@@ -213,7 +212,7 @@ fn render_forward(
         let tile_id_from_isect = create_tensor::<u32, 1, _>([max_intersects], device, client);
         let compact_gid_from_isect = create_tensor::<u32, 1, _>([max_intersects], device, client);
 
-        tracing::info_span!("MapGaussiansToIntersect", sync_burn = true).in_scope(|| unsafe {
+        tracing::trace_span!("MapGaussiansToIntersect", sync_burn = true).in_scope(|| unsafe {
             client.execute_unchecked(
                 MapGaussiansToIntersect::task(),
                 CubeCount::Dynamic(num_vis_wg.handle.binding()),
@@ -232,7 +231,7 @@ fn render_forward(
         let bits = u32::BITS - num_tiles.leading_zeros();
 
         let (tile_id_from_isect, compact_gid_from_isect) =
-            tracing::info_span!("Tile sort", sync_burn = true).in_scope(|| {
+            tracing::trace_span!("Tile sort", sync_burn = true).in_scope(|| {
                 radix_argsort(
                     tile_id_from_isect,
                     compact_gid_from_isect,
@@ -241,7 +240,7 @@ fn render_forward(
                 )
             });
 
-        let _span = tracing::info_span!("GetTileBinEdges", sync_burn = true).entered();
+        let _span = tracing::trace_span!("GetTileBinEdges", sync_burn = true).entered();
 
         let tile_bins = bitcast_tensor(PrimaryBackend::int_zeros(
             [tile_bounds.y as usize, tile_bounds.x as usize, 2].into(),
@@ -269,7 +268,7 @@ fn render_forward(
         (tile_bins, compact_gid_from_isect)
     };
 
-    let _span = tracing::info_span!("Rasterize", sync_burn = true).entered();
+    let _span = tracing::trace_span!("Rasterize", sync_burn = true).entered();
 
     let out_dim = if raster_u32 {
         // Channels are packed into 4 bytes aka one float.
@@ -459,7 +458,7 @@ impl Backward<PrimaryBackend, 6> for RenderBackwards {
         grads: &mut Gradients,
         checkpointer: &mut Checkpointer,
     ) {
-        let _span = info_span!("render_gaussians backwards").entered();
+        let _span = tracing::trace_span!("render_gaussians backwards").entered();
 
         let state = ops.state;
         let aux = state.aux;
@@ -496,7 +495,7 @@ impl Backward<PrimaryBackend, 6> for RenderBackwards {
             // let hard_float = !cfg!(target_arch = "wasm32");
             let hard_float = false;
 
-            tracing::info_span!("RasterizeBackwards", sync_burn = true).in_scope(|| unsafe {
+            tracing::trace_span!("RasterizeBackwards", sync_burn = true).in_scope(|| unsafe {
                 client.execute_unchecked(
                     RasterizeBackwards::task(hard_float),
                     CubeCount::Static(invocations, 1, 1),
@@ -521,7 +520,7 @@ impl Backward<PrimaryBackend, 6> for RenderBackwards {
             );
             let v_opacities = PrimaryBackend::float_zeros([num_points].into(), device);
 
-            let _span = tracing::info_span!("GatherGrads", sync_burn = true).entered();
+            let _span = tracing::trace_span!("GatherGrads", sync_burn = true).entered();
 
             let num_vis_wg = create_dispatch_buffer(
                 bitcast_tensor(aux.num_visible.clone()),
@@ -559,7 +558,7 @@ impl Backward<PrimaryBackend, 6> for RenderBackwards {
         let v_scales = PrimaryBackend::float_zeros([num_points, 3].into(), device);
         let v_quats = PrimaryBackend::float_zeros([num_points, 4].into(), device);
 
-        tracing::info_span!("ProjectBackwards", sync_burn = true).in_scope(|| unsafe {
+        tracing::trace_span!("ProjectBackwards", sync_burn = true).in_scope(|| unsafe {
             client.execute_unchecked(
                 ProjectBackwards::task(),
                 calc_cube_count([num_points as u32], ProjectBackwards::WORKGROUP_SIZE),

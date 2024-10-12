@@ -13,7 +13,6 @@ use shaders::sort_reduce;
 use shaders::sort_scan;
 use shaders::sort_scan_add;
 use shaders::sort_scatter;
-use tracing::info_span;
 
 use brush_kernel::kernel_source_gen;
 
@@ -39,7 +38,7 @@ pub fn radix_argsort(
     assert_eq!(input_keys.shape.dims[0], input_values.shape.dims[0]);
     assert!(sorting_bits <= 32);
 
-    let _span = info_span!("Radix sort").entered();
+    let _span = tracing::trace_span!("Radix sort").entered();
 
     let client = &input_keys.client.clone();
     let max_n = input_keys.shape.dims[0] as u32;

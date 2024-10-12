@@ -9,7 +9,7 @@ use burn_wgpu::{RuntimeOptions, Wgpu, WgpuDevice};
 use egui::{Hyperlink, Slider, TextureOptions};
 use futures_lite::StreamExt;
 
-use tracing::info_span;
+use tracing::trace_span;
 use web_time::Instant;
 
 use brush_dataset::{self, Dataset};
@@ -331,7 +331,7 @@ impl eframe::App for Viewer {
             ctx.request_repaint();
         }
 
-        let _span = info_span!("Draw UI").entered();
+        let _span = trace_span!("Draw UI").entered();
 
         egui::Window::new("Load data")
             .anchor(egui::Align2::RIGHT_TOP, (0.0, 0.0))

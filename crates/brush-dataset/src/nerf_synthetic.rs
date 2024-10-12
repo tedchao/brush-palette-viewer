@@ -55,7 +55,7 @@ fn read_transforms_file<T: Read + Seek>(
         let fovx = scene_train.camera_angle_x;
 
         for (i, frame) in scene_train.frames.iter().enumerate() {
-            let _span = tracing::info_span!("Dataset image").entered();
+            let _span = tracing::trace_span!("Dataset image").entered();
 
             // NeRF 'transform_matrix' is a camera-to-world transform
             let transform_matrix: Vec<f32> =
@@ -74,7 +74,7 @@ fn read_transforms_file<T: Read + Seek>(
             let image_path =
                 normalized_path_string(&base_path.join(frame.file_path.to_owned() + ".png"));
 
-            let comp_span = tracing::info_span!("Decompress image").entered();
+            let comp_span = tracing::trace_span!("Decompress image").entered();
             let img_buffer = archive
                 .by_name(&image_path)?
                 .bytes()
@@ -82,7 +82,7 @@ fn read_transforms_file<T: Read + Seek>(
             drop(comp_span);
 
             // Create a cursor from the buffer
-            let mut image = tracing::info_span!("Decode image")
+            let mut image = tracing::trace_span!("Decode image")
                 .in_scope(|| image::load_from_memory(&img_buffer))?;
 
             if let Some(max_resolution) = max_resolution {
@@ -91,7 +91,7 @@ fn read_transforms_file<T: Read + Seek>(
 
             // Blend in white background to image
             if image.color().has_alpha() {
-                let _span = tracing::info_span!("Blend image").entered();
+                let _span = tracing::trace_span!("Blend image").entered();
                 let rgba_image = image.as_rgba8().context("Unsupported image")?;
                 let mut rgb_image = image::RgbImage::new(image.width(), image.height());
                 for (rgb, rgba) in rgb_image.pixels_mut().zip(rgba_image.pixels()) {
