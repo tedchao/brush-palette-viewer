@@ -3,6 +3,8 @@ fn main() -> anyhow::Result<()> {
 
     #[cfg(not(target_arch = "wasm32"))]
     {
+        env_logger::init();
+
         // Build app display.
         let native_options = eframe::NativeOptions {
             viewport: egui::ViewportBuilder::default()
