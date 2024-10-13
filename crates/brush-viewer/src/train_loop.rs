@@ -60,11 +60,6 @@ pub(crate) async fn train_loop(
     shared_state: Arc<RwLock<SharedTrainState>>,
 ) -> anyhow::Result<()> {
     let total_steps = 30000;
-    let config = TrainConfig::new(
-        ExponentialLrSchedulerConfig::new(1.6e-4, 1e-2f64.powf(1.0 / total_steps as f64)),
-        RandomSplatsConfig::new(),
-    )
-    .with_total_steps(total_steps);
 
     let archive = ZipArchive::new(std::io::Cursor::new(zip_data))?;
     let data_stream = brush_dataset::read_dataset(
@@ -88,7 +83,20 @@ pub(crate) async fn train_loop(
         egui_ctx.request_repaint();
     }
 
-    let train_scene = dataset.train_scene().clone();
+    let mut train_scene = dataset.train_scene().clone();
+    train_scene.center_cameras();
+
+    // Some extra distance to add to camera extents.
+    let bounds = train_scene.bounds(0.0);
+    let bounds_extent = bounds.extent.length();
+    let adjusted_bounds = train_scene.bounds(bounds_extent);
+    let splat_config = RandomSplatsConfig::new(adjusted_bounds);
+
+    let config = TrainConfig::new(
+        ExponentialLrSchedulerConfig::new(1.6e-4, 1e-2f64.powf(1.0 / total_steps as f64)),
+        splat_config,
+    )
+    .with_total_steps(total_steps);
 
     let visualize = crate::visualize::VisualizeTools::new();
     visualize.log_scene(&train_scene)?;
@@ -108,20 +116,6 @@ pub(crate) async fn train_loop(
             continue;
         }
 
-        let batch = {
-            let _span = trace_span!("Get batch").entered();
-            dataloader.next_batch().await
-        };
-
-        let gt_image = batch.gt_images.clone();
-
-        let (new_splats, stats) = trainer.step(batch, train_scene.background, splats).await?;
-        splats = new_splats;
-
-        if trainer.iter % config.visualize_splats_every == 0 {
-            visualize.log_train_stats(&splats, &stats, gt_image).await?;
-        }
-
         if let Some(eval_scene) = dataset.eval_scene() {
             if trainer.iter % config.eval_every == 0 {
                 let eval =
@@ -134,6 +128,16 @@ pub(crate) async fn train_loop(
             visualize.log_splats(&splats).await?;
         }
 
+        let batch = {
+            let _span = trace_span!("Get batch").entered();
+            dataloader.next_batch().await
+        };
+        let gt_image = batch.gt_images.clone();
+        let (new_splats, stats) = trainer.step(batch, train_scene.background, splats).await?;
+        splats = new_splats;
+        if trainer.iter % config.visualize_splats_every == 0 {
+            visualize.log_train_stats(&splats, &stats, gt_image).await?;
+        }
         if trainer.iter % 5 == 0 {
             let _span = trace_span!("Send batch").entered();
 

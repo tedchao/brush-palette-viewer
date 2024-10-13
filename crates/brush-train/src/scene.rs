@@ -1,6 +1,7 @@
 use std::sync::{Arc, RwLock};
 
-use brush_render::camera::Camera;
+use brush_render::{bounding_box::BoundingBox, camera::Camera};
+use glam::Vec3;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum ViewType {
@@ -21,11 +22,18 @@ pub struct SceneView {
 #[derive(Debug, Clone)]
 pub struct Scene {
     views: Arc<RwLock<Vec<SceneView>>>,
-    pub background: glam::Vec3,
+    pub background: Vec3,
+}
+
+fn camera_similarity_score(cam: &Camera, reference: &Camera) -> f32 {
+    let distance = (cam.position - reference.position).length();
+    let forward_ref = reference.rotation * Vec3::Z;
+    let forward_cam = cam.rotation * Vec3::Z;
+    distance * (1.0 - forward_ref.dot(forward_cam))
 }
 
 impl Scene {
-    pub fn new(views: Vec<SceneView>, background: glam::Vec3) -> Self {
+    pub fn new(views: Vec<SceneView>, background: Vec3) -> Self {
         Scene {
             views: Arc::new(RwLock::new(views)),
             background,
@@ -33,29 +41,27 @@ impl Scene {
     }
 
     // Returns the extent of the cameras in the scene.
-    // TODO: Cache this?
-    pub fn cameras_extent(&self) -> f32 {
-        let camera_centers = &self
-            .views
-            .read()
-            .expect("Lock got poisoned somehow")
-            .iter()
-            .map(|x| x.camera.position)
-            .collect::<Vec<_>>();
+    pub fn bounds(&self, cam_far: f32) -> BoundingBox {
+        let views = self.views.read().expect("Lock got poisoned somehow");
+        let (min, max) = views.iter().fold(
+            (Vec3::splat(f32::INFINITY), Vec3::splat(f32::NEG_INFINITY)),
+            |(min, max), view| {
+                let cam = &view.camera;
+                let pos1 = cam.position;
+                let pos2 = cam.position + cam.rotation * Vec3::Z * cam_far;
+                (min.min(pos1).min(pos2), max.max(pos1).max(pos2))
+            },
+        );
+        BoundingBox::from_min_max(min, max)
+    }
 
-        let scene_center: glam::Vec3 = camera_centers
-            .iter()
-            .copied()
-            .fold(glam::Vec3::ZERO, |x, y| x + y)
-            / (camera_centers.len() as f32);
-
-        camera_centers
-            .iter()
-            .copied()
-            .map(|x| (scene_center - x).length())
-            .max_by(|x, y| x.partial_cmp(y).unwrap())
-            .unwrap()
-            * 1.1
+    pub fn center_cameras(&mut self) {
+        let scene_center = self.bounds(0.0).center;
+        let mut views = self.views.write().unwrap();
+        // Adjust camera positions
+        for view in views.iter_mut() {
+            view.camera.position -= scene_center;
+        }
     }
 
     pub fn add_view(&mut self, view: SceneView) {
@@ -70,13 +76,6 @@ impl Scene {
             .cloned()
     }
 
-    fn camera_similarity_score(&self, cam: &Camera, reference: &Camera) -> f32 {
-        let distance = (cam.position - reference.position).length();
-        let forward_ref = reference.rotation * glam::Vec3::Z;
-        let forward_cam = cam.rotation * glam::Vec3::Z;
-        distance * (1.0 - forward_ref.dot(forward_cam))
-    }
-
     pub fn get_nearest_view(&self, reference: &Camera) -> Option<usize> {
         self.views
             .read()
@@ -84,8 +83,8 @@ impl Scene {
             .iter()
             .enumerate() // This will give us (index, view) pairs
             .min_by(|(_, a), (_, b)| {
-                let score_a = self.camera_similarity_score(&a.camera, reference);
-                let score_b = self.camera_similarity_score(&b.camera, reference);
+                let score_a = camera_similarity_score(&a.camera, reference);
+                let score_b = camera_similarity_score(&b.camera, reference);
                 score_a
                     .partial_cmp(&score_b)
                     .unwrap_or(std::cmp::Ordering::Equal)
