@@ -12,6 +12,7 @@ mod kernels;
 mod safetensor_utils;
 mod shaders;
 
+pub mod bounding_box;
 pub mod camera;
 pub mod gaussian_splats;
 pub mod render;

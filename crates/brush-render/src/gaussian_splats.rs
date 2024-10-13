@@ -1,3 +1,4 @@
+use crate::bounding_box::BoundingBox;
 use crate::camera::Camera;
 use crate::safetensor_utils::safetensor_to_burn;
 use crate::{render::num_sh_coeffs, Backend};
@@ -15,8 +16,9 @@ pub struct RandomSplatsConfig {
     // period of steps where refinement is turned off
     #[config(default = 5000)]
     init_count: usize,
-    #[config(default = 2.0)]
-    aabb_scale: f64,
+
+    bounds: BoundingBox,
+
     #[config(default = -2.0)]
     opacity_min: f64,
     #[config(default = -1.0)]
@@ -32,12 +34,25 @@ impl RandomSplatsConfig {
     pub fn init<B: Backend>(&self, device: &B::Device) -> Splats<B> {
         let num_points = self.init_count;
 
-        let extent = self.aabb_scale / 2.0;
-        let means = Tensor::random(
-            [num_points, 3],
-            Distribution::Uniform(-extent, extent),
+        let min = self.bounds.min();
+        let max = self.bounds.max();
+
+        let xx: Tensor<_, 1> = Tensor::random(
+            [num_points],
+            Distribution::Uniform(min.x as f64, max.x as f64),
             device,
         );
+        let yy: Tensor<_, 1> = Tensor::random(
+            [num_points],
+            Distribution::Uniform(min.y as f64, max.y as f64),
+            device,
+        );
+        let zz: Tensor<_, 1> = Tensor::random(
+            [num_points],
+            Distribution::Uniform(min.z as f64, max.z as f64),
+            device,
+        );
+        let means = Tensor::stack(vec![xx, yy, zz], 1);
 
         let num_coeffs = num_sh_coeffs(0);
 
