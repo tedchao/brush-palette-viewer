@@ -1,4 +1,4 @@
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, RwLock, RwLockReadGuard};
 
 use brush_render::{bounding_box::BoundingBox, camera::Camera};
 use glam::Vec3;
@@ -68,12 +68,8 @@ impl Scene {
         self.views.write().expect("lock was poisoned").push(view);
     }
 
-    pub fn get_view(&self, index: usize) -> Option<SceneView> {
-        self.views
-            .read()
-            .expect("Poisoned lock")
-            .get(index)
-            .cloned()
+    pub fn views(&self) -> RwLockReadGuard<'_, Vec<SceneView>> {
+        self.views.read().expect("Poisoned lock")
     }
 
     pub fn get_nearest_view(&self, reference: &Camera) -> Option<usize> {
@@ -90,9 +86,5 @@ impl Scene {
                     .unwrap_or(std::cmp::Ordering::Equal)
             })
             .map(|(index, _)| index) // We return the index instead of the camera
-    }
-
-    pub fn view_count(&self) -> usize {
-        self.views.read().unwrap().len()
     }
 }

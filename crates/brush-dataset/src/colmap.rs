@@ -90,7 +90,7 @@ pub fn read_dataset<T: Read + Seek + Clone>(
                 .await;
 
             if let Some(max) = max_frames {
-                if train_scene.view_count() >= max {
+                if train_scene.views().len() >= max {
                     break;
                 }
             }

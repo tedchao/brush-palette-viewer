@@ -73,6 +73,7 @@ pub(crate) async fn train_loop(
     let mut data_stream = std::pin::pin!(data_stream);
     while let Some(d) = data_stream.next().await {
         dataset = d?;
+
         if sender
             .send(ViewerMessage::Dataset(dataset.clone()))
             .await
@@ -83,8 +84,7 @@ pub(crate) async fn train_loop(
         egui_ctx.request_repaint();
     }
 
-    let mut train_scene = dataset.train_scene().clone();
-    train_scene.center_cameras();
+    let train_scene = dataset.train.clone();
 
     // Some extra distance to add to camera extents.
     let bounds = train_scene.bounds(0.0);
@@ -116,7 +116,7 @@ pub(crate) async fn train_loop(
             continue;
         }
 
-        if let Some(eval_scene) = dataset.eval_scene() {
+        if let Some(eval_scene) = dataset.eval.as_ref() {
             if trainer.iter % config.eval_every == 0 {
                 let eval =
                     brush_train::eval::eval_stats(&splats, eval_scene, Some(4), &device).await;

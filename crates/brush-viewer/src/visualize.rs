@@ -105,9 +105,7 @@ impl VisualizeTools {
 
             rec.log_static("world", &rerun::ViewCoordinates::RIGHT_HAND_Y_DOWN)?;
 
-            for i in 0..scene.view_count() {
-                let view = scene.get_view(i).unwrap();
-
+            for (i, view) in scene.views().iter().enumerate() {
                 let path = format!("world/dataset/camera/{i}");
                 let (width, height) = (view.image.width(), view.image.height());
 

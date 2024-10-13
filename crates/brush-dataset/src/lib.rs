@@ -17,10 +17,10 @@ use zip::ZipArchive;
 
 #[derive(Clone)]
 pub struct Dataset {
-    train: Scene,
+    pub train: Scene,
     #[allow(unused)]
-    test: Option<Scene>,
-    eval: Option<Scene>,
+    pub test: Option<Scene>,
+    pub eval: Option<Scene>,
 }
 
 impl Dataset {
@@ -30,14 +30,6 @@ impl Dataset {
             test: None,
             eval: None,
         }
-    }
-
-    pub fn train_scene(&self) -> &Scene {
-        &self.train
-    }
-
-    pub fn eval_scene(&self) -> Option<&Scene> {
-        self.eval.as_ref()
     }
 
     fn new(train: Scene, test: Option<Scene>, eval: Option<Scene>) -> Self {

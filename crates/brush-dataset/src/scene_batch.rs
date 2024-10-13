@@ -15,7 +15,7 @@ impl<B: Backend> SceneLoader<B> {
         // Bound == number of batches to prefix.
         let (tx, rx) = async_channel::bounded(5);
         let device = device.clone();
-        let len = scene.view_count();
+        let len = scene.views().len();
 
         let fut = async move {
             let mut index = 0;
@@ -26,11 +26,11 @@ impl<B: Backend> SceneLoader<B> {
                     .collect();
                 let cameras = indexes
                     .iter()
-                    .map(|&x| scene.get_view(x).unwrap().camera.clone())
+                    .map(|&x| scene.views()[x].camera.clone())
                     .collect();
                 let selected_tensors = indexes
                     .iter()
-                    .map(|&x| image_to_tensor(&scene.get_view(x).unwrap().image, &device))
+                    .map(|&x| image_to_tensor(&scene.views()[x].image, &device))
                     .collect::<Vec<_>>();
 
                 let batch_tensor = Tensor::stack(selected_tensors, 0);

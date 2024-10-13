@@ -27,14 +27,14 @@ pub async fn eval_stats<B: Backend>(
 ) -> EvalStats {
     let indices = if let Some(num) = num_frames {
         let mut rng = rand::thread_rng();
-        (0..eval_scene.view_count()).choose_multiple(&mut rng, num)
+        (0..eval_scene.views().len()).choose_multiple(&mut rng, num)
     } else {
-        (0..eval_scene.view_count()).collect()
+        (0..eval_scene.views().len()).collect()
     };
 
     let eval_views: Vec<_> = indices
         .into_iter()
-        .map(|i| eval_scene.get_view(i).unwrap().clone())
+        .map(|i| eval_scene.views()[i].clone())
         .collect();
 
     let mut ret = vec![];

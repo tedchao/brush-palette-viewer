@@ -171,51 +171,30 @@ impl Viewer {
 
         // Reset view and train state.
         self.splat_view = SplatView::new();
+
         self.train_state = TrainState::new();
 
         self.last_message = None;
-
-        async fn inner_process_loop(
-            device: WgpuDevice,
-            sender: Sender<ViewerMessage>,
-            egui_ctx: egui::Context,
-            train_args: TrainArgs,
-            shared_state: Arc<RwLock<SharedTrainState>>,
-        ) {
-            match process_loop(device, sender.clone(), egui_ctx, train_args, shared_state).await {
-                Ok(_) => (),
-                Err(e) => {
-                    let _ = sender.send(ViewerMessage::Error(e)).await;
-                }
-            }
-        }
 
         let train_args = TrainArgs {
             frame_count: self.max_frames,
             target_resolution: self.target_train_resolution,
         };
-
         let shared_state = self.train_state.shared.clone();
 
+        let inner_process_loop = || async move {
+            if let Err(e) =
+                process_loop(device, sender.clone(), ctx, train_args, shared_state).await
+            {
+                let _ = sender.send(ViewerMessage::Error(e)).await;
+            }
+        };
+
         #[cfg(not(target_arch = "wasm32"))]
-        std::thread::spawn(move || {
-            futures_lite::future::block_on(inner_process_loop(
-                device,
-                sender,
-                ctx,
-                train_args,
-                shared_state,
-            ))
-        });
+        std::thread::spawn(move || futures_lite::future::block_on(inner_process_loop()));
 
         #[cfg(target_arch = "wasm32")]
-        wasm_bindgen_futures::spawn_local(inner_process_loop(
-            device,
-            sender,
-            ctx,
-            train_args,
-            shared_state,
-        ));
+        wasm_bindgen_futures::spawn_local(inner_process_loop());
     }
 
     fn url_button(&mut self, label: &str, url: &str, ui: &mut egui::Ui) {
@@ -233,7 +212,7 @@ impl Viewer {
         let dataset = &self.train_state.dataset;
 
         // Empty scene, nothing to show.
-        if dataset.train_scene().view_count() == 0 {
+        if dataset.train.views().len() == 0 {
             return;
         }
 
@@ -241,13 +220,13 @@ impl Viewer {
             .collapsible(true)
             .resizable(true)
             .show(ctx, |ui| {
-                let scene = if let Some(eval_scene) = dataset.eval_scene() {
+                let scene = if let Some(eval_scene) = dataset.eval.as_ref() {
                     match self.viewpoints_view_type {
-                        ViewType::Train => dataset.train_scene(),
+                        ViewType::Train => &dataset.train,
                         _ => eval_scene,
                     }
                 } else {
-                    dataset.train_scene()
+                    &dataset.train
                 };
 
                 let mut nearest_view = scene.get_nearest_view(&self.splat_view.camera);
@@ -263,26 +242,40 @@ impl Viewer {
                     dirty |= view.0 != *nearest;
                 }
 
-                let mut buttoned = false;
-                let view_count = scene.view_count();
-                let out_of = format!("/ {view_count}");
+                let view_count = scene.views().len();
 
                 ui.horizontal(|ui| {
+                    let mut sel_view = false;
+
                     if ui.button("⏪").clicked() {
-                        buttoned = true;
-                        *nearest -= 1;
+                        sel_view = true;
+                        *nearest = (*nearest + view_count - 1) % view_count;
                     }
-                    buttoned |= ui
-                        .add(Slider::new(nearest, 0..=scene.view_count() - 1).suffix(out_of))
+                    sel_view |= ui
+                        .add(
+                            Slider::new(nearest, 0..=view_count - 1)
+                                .suffix(format!("/ {view_count}"))
+                                .custom_formatter(|num, _| format!("{}", num as usize + 1))
+                                .custom_parser(|s| s.parse::<usize>().ok().map(|n| n as f64 - 1.0)),
+                        )
                         .dragged();
                     if ui.button("⏩").clicked() {
-                        buttoned = true;
-                        *nearest += 1;
+                        sel_view = true;
+                        *nearest = (*nearest + 1) % view_count;
+                    }
+
+                    if sel_view {
+                        println!("Set view sel view!");
+                        let view = &scene.views()[*nearest];
+                        self.splat_view.camera = view.camera.clone();
+                        // TODO: Figure out a better focus.
+                        self.splat_view.controls.focus =
+                            view.camera.position + view.camera.rotation * glam::Vec3::Z * 5.0;
                     }
 
                     ui.add_space(10.0);
 
-                    if dataset.eval_scene().is_some() {
+                    if dataset.eval.is_some() {
                         for (t, l) in [ViewType::Train, ViewType::Eval]
                             .into_iter()
                             .zip(["train", "eval"])
@@ -298,15 +291,8 @@ impl Viewer {
                     }
                 });
 
-                if buttoned {
-                    let view = scene.get_view(*nearest).unwrap().clone();
-                    self.splat_view.camera = view.camera.clone();
-                    self.splat_view.controls.focus =
-                        view.camera.position + view.camera.rotation * glam::Vec3::Z * 5.0;
-                }
-
                 if dirty {
-                    let view = scene.get_view(*nearest).unwrap().clone();
+                    let view = &scene.views()[*nearest];
                     let color_img = egui::ColorImage::from_rgb(
                         [view.image.width() as usize, view.image.height() as usize],
                         &view.image.to_rgb8().into_vec(),
@@ -319,7 +305,7 @@ impl Viewer {
 
                 if let Some(view) = self.train_state.selected_view.as_ref() {
                     ui.add(egui::Image::new(&view.1).shrink_to_fit());
-                    ui.label(&scene.get_view(*nearest).unwrap().name);
+                    ui.label(&scene.views()[*nearest].name);
                 }
             });
     }
@@ -412,6 +398,15 @@ impl eframe::App for Viewer {
             // cloned in the match below.
             let message = self.last_message.take();
             if let Some(ViewerMessage::Dataset(d)) = message {
+                // If this is the firs train scene, copy the initial view as a starting point.
+                if self.train_state.dataset.train.views().is_empty() && !d.train.views().is_empty()
+                {
+                    let view = &d.train.views()[0];
+                    self.splat_view.camera = view.camera.clone();
+                    // TODO: Figure out a better focus.
+                    self.splat_view.controls.focus =
+                        view.camera.position + view.camera.rotation * glam::Vec3::Z * 5.0;
+                }
                 self.train_state.dataset = d;
             } else {
                 self.last_message = message;
@@ -436,6 +431,7 @@ impl eframe::App for Viewer {
                                 ));
                             }
                         });
+
                         self.splat_view
                             .draw_splats(splats, glam::Vec3::ZERO, ui, ctx, frame);
                     }
@@ -461,7 +457,7 @@ impl eframe::App for Viewer {
 
                         self.splat_view.draw_splats(
                             splats,
-                            self.train_state.dataset.train_scene().background,
+                            self.train_state.dataset.train.background,
                             ui,
                             ctx,
                             frame,
