@@ -210,11 +210,18 @@ impl Viewer {
             #[cfg(feature = "tracing")]
             tiles.insert_pane(Box::new(TracingPanel::default())),
         ];
+
         let side_panel = tiles.insert_vertical_tile(sides);
 
         let scene_pane_id = tiles.insert_pane(Box::new(scene_pane));
 
-        let root = tiles.insert_horizontal_tile(vec![side_panel, scene_pane_id]);
+        let mut lin = egui_tiles::Linear::new(
+            egui_tiles::LinearDir::Horizontal,
+            vec![side_panel, scene_pane_id],
+        );
+        lin.shares.set_share(side_panel, 0.25);
+
+        let root = tiles.insert_container(lin);
         let tree = egui_tiles::Tree::new("my_tree", root, tiles);
 
         let tree_ctx = ViewerTree { context };
