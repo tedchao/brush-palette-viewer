@@ -63,8 +63,12 @@ pub(crate) async fn train_loop(
     let adjusted_bounds = train_scene.bounds(bounds_extent);
     let splat_config = RandomSplatsConfig::new(adjusted_bounds);
 
+    let lr_scale = train_scene.bounds(0.0).extent.length() as f64;
+    let lr_max = 1.6e-4 * lr_scale;
+    let decay = 1e-2f64.powf(1.0 / total_steps as f64);
+
     let config = TrainConfig::new(
-        ExponentialLrSchedulerConfig::new(1.6e-4, 1e-2f64.powf(1.0 / total_steps as f64)),
+        ExponentialLrSchedulerConfig::new(lr_max, decay),
         splat_config,
     )
     .with_total_steps(total_steps);
