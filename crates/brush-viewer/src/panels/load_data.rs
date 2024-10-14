@@ -9,7 +9,7 @@ pub(crate) struct LoadDataPanel {
 impl LoadDataPanel {
     pub(crate) fn new() -> Self {
         Self {
-            target_train_resolution: None,
+            target_train_resolution: Some(1200),
             max_frames: None,
         }
     }
