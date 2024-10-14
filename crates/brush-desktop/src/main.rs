@@ -1,3 +1,5 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
+
 fn main() -> anyhow::Result<()> {
     let wgpu_options = brush_viewer::wgpu_config::get_config();
 

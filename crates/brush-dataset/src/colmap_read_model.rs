@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::collections::HashMap;
 use std::io::{self, BufRead, Read};
@@ -5,7 +7,7 @@ use std::io::{self, BufRead, Read};
 // TODO: Really these should each hold their respective params but bit of an annoying refactor. We just need
 // basic params.
 #[derive(Debug, Clone)]
-pub enum CameraModel {
+pub(crate) enum CameraModel {
     SimplePinhole,
     Pinhole,
     SimpleRadial,
@@ -55,7 +57,7 @@ impl CameraModel {
 }
 
 #[derive(Debug)]
-pub struct Camera {
+pub(crate) struct Camera {
     pub id: i32,
     pub model: CameraModel,
     pub width: u64,
@@ -64,7 +66,7 @@ pub struct Camera {
 }
 
 #[derive(Debug)]
-pub struct Image {
+pub(crate) struct Image {
     pub tvec: glam::Vec3,
     pub quat: glam::Quat,
     pub camera_id: i32,
@@ -74,7 +76,7 @@ pub struct Image {
 }
 
 #[derive(Debug)]
-pub struct Point3D {
+pub(crate) struct Point3D {
     pub xyz: glam::Vec3,
     pub rgb: [u8; 3],
     pub error: f64,
@@ -83,7 +85,7 @@ pub struct Point3D {
 }
 
 impl Camera {
-    pub fn focal(&self) -> glam::Vec2 {
+    pub(crate) fn focal(&self) -> glam::Vec2 {
         let x = self.params[0] as f32;
         let y = self.params[match self.model {
             CameraModel::SimplePinhole => 0,
@@ -101,7 +103,7 @@ impl Camera {
         glam::vec2(x, y)
     }
 
-    pub fn center(&self) -> glam::Vec2 {
+    pub(crate) fn center(&self) -> glam::Vec2 {
         let x = self.params[match self.model {
             CameraModel::SimplePinhole => 1,
             CameraModel::Pinhole => 2,
@@ -438,7 +440,10 @@ pub(crate) fn read_points3d_binary<R: Read>(reader: &mut R) -> io::Result<HashMa
     Ok(points3d)
 }
 
-pub fn read_cameras<R: Read>(reader: &mut R, binary: bool) -> io::Result<HashMap<i32, Camera>> {
+pub(crate) fn read_cameras<R: Read>(
+    reader: &mut R,
+    binary: bool,
+) -> io::Result<HashMap<i32, Camera>> {
     if binary {
         read_cameras_binary(reader)
     } else {
@@ -446,7 +451,10 @@ pub fn read_cameras<R: Read>(reader: &mut R, binary: bool) -> io::Result<HashMap
     }
 }
 
-pub fn read_images<R: BufRead>(reader: &mut R, binary: bool) -> io::Result<HashMap<i32, Image>> {
+pub(crate) fn read_images<R: BufRead>(
+    reader: &mut R,
+    binary: bool,
+) -> io::Result<HashMap<i32, Image>> {
     if binary {
         read_images_binary(reader)
     } else {
@@ -454,7 +462,10 @@ pub fn read_images<R: BufRead>(reader: &mut R, binary: bool) -> io::Result<HashM
     }
 }
 
-pub fn read_points3d<R: Read>(reader: &mut R, binary: bool) -> io::Result<HashMap<i64, Point3D>> {
+pub(crate) fn read_points3d<R: Read>(
+    reader: &mut R,
+    binary: bool,
+) -> io::Result<HashMap<i64, Point3D>> {
     if binary {
         read_points3d_binary(reader)
     } else {

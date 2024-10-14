@@ -1,35 +1,42 @@
-use std::sync::{Arc, RwLock};
+use brush_render::camera::Camera;
+use glam::{Quat, Vec3};
+use std::sync::Arc;
 
 use anyhow::Context;
-use async_channel::{Receiver, Sender, TryRecvError};
+use async_channel::{Receiver, Sender};
 use brush_render::gaussian_splats::Splats;
 use brush_render::PrimaryBackend;
-use brush_train::scene::ViewType;
 use burn_wgpu::{RuntimeOptions, Wgpu, WgpuDevice};
-use egui::{Hyperlink, Slider, TextureOptions};
+use egui::Hyperlink;
+use egui_tiles::Tiles;
 use futures_lite::StreamExt;
-
-use tracing::trace_span;
 use web_time::Instant;
 
 use brush_dataset::{self, Dataset};
 
-use crate::splat_view::SplatView;
-use crate::train_loop::{SharedTrainState, TrainArgs, TrainState};
-use crate::{splat_import, train_loop};
+use crate::orbit_controls::OrbitControls;
+use crate::panels::{LoadDataPanel, ScenePanel, ViewpointsPane};
+use crate::train_loop::TrainArgs;
+use crate::{splat_import, train_loop, PaneType, ViewerTree};
 
+use eframe::egui;
+
+#[derive(Clone)]
 pub(crate) enum ViewerMessage {
-    Error(anyhow::Error),
-
-    // Initial splat cloud to be created.
+    StartLoading,
+    /// Some process errored out, and want to display this error
+    /// to the user.
+    Error(Arc<anyhow::Error>),
+    /// Loaded a splat from a ply file.
+    ///
+    /// Nb: This includes all the intermediately loaded splats.
     SplatLoad {
         splats: Splats<PrimaryBackend>,
         total_count: usize,
     },
-
-    // Loaded a bunch of viewpoints to train on.
+    /// Loaded a bunch of viewpoints to train on.
     Dataset(Dataset),
-
+    /// Some number of training steps are done.
     TrainStep {
         splats: Splats<PrimaryBackend>,
         loss: f32,
@@ -39,21 +46,38 @@ pub(crate) enum ViewerMessage {
 }
 
 pub struct Viewer {
+    tree: egui_tiles::Tree<PaneType>,
+    tree_ctx: ViewerTree,
+}
+
+// TODO: Bit too much random shared state here...
+pub(crate) struct ViewerContext {
+    pub dataset: Dataset,
+    pub camera: Camera,
+    pub controls: OrbitControls,
+
     device: WgpuDevice,
-    adapeter_info: wgpu::AdapterInfo,
-
-    receiver: Option<Receiver<ViewerMessage>>,
-
-    last_message: Option<ViewerMessage>,
-
     ctx: egui::Context,
-    splat_view: SplatView,
+    receiver: Option<Receiver<ViewerMessage>>,
+}
 
-    target_train_resolution: Option<u32>,
-    max_frames: Option<usize>,
-    train_state: TrainState,
-    viewpoints_view_type: ViewType,
-    constant_redraww: bool,
+async fn process_loop(
+    device: WgpuDevice,
+    sender: Sender<ViewerMessage>,
+    egui_ctx: egui::Context,
+    train_args: TrainArgs,
+) -> anyhow::Result<()> {
+    let picked = rrfd::pick_file().await?;
+
+    let _ = sender.send(ViewerMessage::StartLoading).await;
+
+    if picked.file_name.contains(".ply") {
+        load_ply_loop(&picked.data, device, sender, egui_ctx).await
+    } else if picked.file_name.contains(".zip") {
+        train_loop::train_loop(&picked.data, device, sender, egui_ctx, train_args).await
+    } else {
+        anyhow::bail!("Only .ply and .zip files are supported.")
+    }
 }
 
 async fn load_ply_loop(
@@ -85,36 +109,58 @@ async fn load_ply_loop(
     Ok(())
 }
 
-async fn process_loop(
-    device: WgpuDevice,
-    sender: Sender<ViewerMessage>,
-    egui_ctx: egui::Context,
-    train_args: TrainArgs,
-    shared_state: Arc<RwLock<SharedTrainState>>,
-) -> anyhow::Result<()> {
-    let picked = rrfd::pick_file().await?;
-    if picked.file_name.contains(".ply") {
-        load_ply_loop(&picked.data, device, sender, egui_ctx).await
-    } else if picked.file_name.contains(".zip") {
-        train_loop::train_loop(
-            &picked.data,
+impl ViewerContext {
+    fn new(device: WgpuDevice, ctx: egui::Context) -> Self {
+        Self {
+            camera: Camera::new(
+                -Vec3::Z * 5.0,
+                Quat::IDENTITY,
+                glam::vec2(0.5, 0.5),
+                glam::vec2(0.5, 0.5),
+            ),
+            controls: OrbitControls::new(),
             device,
-            sender,
-            egui_ctx,
-            train_args,
-            shared_state,
-        )
-        .await
-    } else {
-        anyhow::bail!("Only .ply and .zip files are supported.")
+            ctx,
+            dataset: Dataset::empty(),
+            receiver: None,
+        }
+    }
+
+    pub fn focus_view(&mut self, cam: &Camera) {
+        // TODO: How to control scene view.... ?
+        self.camera = cam.clone();
+        // TODO: Figure out a better focus.
+        self.controls.focus = cam.position + cam.rotation * glam::Vec3::Z * 5.0;
+    }
+
+    pub(crate) fn start_data_load(&mut self, args: TrainArgs) {
+        <Wgpu as burn::prelude::Backend>::seed(42);
+
+        let device = self.device.clone();
+        let ctx = self.ctx.clone();
+
+        // create a channel for the train loop.
+        let (sender, receiver) = async_channel::bounded(2);
+        self.receiver = Some(receiver);
+        self.dataset = Dataset::empty();
+
+        let inner_process_loop = move || async move {
+            if let Err(e) = process_loop(device, sender.clone(), ctx, args).await {
+                let _ = sender.send(ViewerMessage::Error(Arc::new(e))).await;
+            }
+        };
+
+        #[cfg(not(target_arch = "wasm32"))]
+        std::thread::spawn(move || futures_lite::future::block_on(inner_process_loop()));
+
+        #[cfg(target_arch = "wasm32")]
+        wasm_bindgen_futures::spawn_local(inner_process_loop());
     }
 }
 
 impl Viewer {
     pub fn new(cc: &eframe::CreationContext) -> Self {
         let state = cc.wgpu_render_state.as_ref().unwrap();
-
-        let adapeter_info = state.adapter.get_info();
 
         // Run the burn backend on the egui WGPU device.
         let device = burn::backend::wgpu::init_existing_device(
@@ -145,337 +191,62 @@ impl Viewer {
             }
         }
 
-        Viewer {
-            receiver: None,
-            last_message: None,
-            adapeter_info,
-            train_state: TrainState::new(),
-            target_train_resolution: None,
-            max_frames: None,
-            ctx: cc.egui_ctx.clone(),
-            splat_view: SplatView::new(),
-            device,
-            constant_redraww: false,
-            viewpoints_view_type: ViewType::Train,
-        }
-    }
+        let mut tiles: Tiles<PaneType> = egui_tiles::Tiles::default();
 
-    pub fn start_data_load(&mut self) {
-        <Wgpu as burn::prelude::Backend>::seed(42);
+        let context = ViewerContext::new(device, cc.egui_ctx.clone());
 
-        // create a channel for the train loop.
-        let (sender, receiver) = async_channel::bounded(2);
-        let device = self.device.clone();
-        self.receiver = Some(receiver);
-        let ctx = self.ctx.clone();
+        let data_pane = LoadDataPanel::new();
+        let viewpoints_pane = ViewpointsPane::new();
 
-        // Reset view and train state.
-        self.splat_view = SplatView::new();
+        let scene_pane = ScenePanel::new(
+            state.queue.clone(),
+            state.device.clone(),
+            state.renderer.clone(),
+        );
 
-        self.train_state = TrainState::new();
+        let sides = vec![
+            tiles.insert_pane(Box::new(data_pane)),
+            tiles.insert_pane(Box::new(viewpoints_pane)),
+            #[cfg(feature = "tracing")]
+            tiles.insert_pane(Box::new(TracingPanel::default())),
+        ];
+        let side_panel = tiles.insert_vertical_tile(sides);
 
-        self.last_message = None;
+        let scene_pane_id = tiles.insert_pane(Box::new(scene_pane));
 
-        let train_args = TrainArgs {
-            frame_count: self.max_frames,
-            target_resolution: self.target_train_resolution,
-        };
-        let shared_state = self.train_state.shared.clone();
+        let root = tiles.insert_horizontal_tile(vec![side_panel, scene_pane_id]);
+        let tree = egui_tiles::Tree::new("my_tree", root, tiles);
 
-        let inner_process_loop = || async move {
-            if let Err(e) =
-                process_loop(device, sender.clone(), ctx, train_args, shared_state).await
-            {
-                let _ = sender.send(ViewerMessage::Error(e)).await;
-            }
-        };
-
-        #[cfg(not(target_arch = "wasm32"))]
-        std::thread::spawn(move || futures_lite::future::block_on(inner_process_loop()));
-
-        #[cfg(target_arch = "wasm32")]
-        wasm_bindgen_futures::spawn_local(inner_process_loop());
+        let tree_ctx = ViewerTree { context };
+        Viewer { tree, tree_ctx }
     }
 
     fn url_button(&mut self, label: &str, url: &str, ui: &mut egui::Ui) {
         ui.add(Hyperlink::from_label_and_url(label, url).open_in_new_tab(true));
     }
-
-    fn tracing_debug_ui(&mut self, ui: &mut egui::Ui) {
-        ui.checkbox(&mut self.constant_redraww, "Constant redraw");
-        let mut checked = sync_span::is_enabled();
-        ui.checkbox(&mut checked, "Sync scopes");
-        sync_span::set_enabled(checked);
-    }
-
-    fn viewpoints_window(&mut self, ctx: &egui::Context) {
-        let dataset = &self.train_state.dataset;
-
-        // Empty scene, nothing to show.
-        if dataset.train.views().len() == 0 {
-            return;
-        }
-
-        egui::Window::new("Viewpoints")
-            .collapsible(true)
-            .resizable(true)
-            .show(ctx, |ui| {
-                let scene = if let Some(eval_scene) = dataset.eval.as_ref() {
-                    match self.viewpoints_view_type {
-                        ViewType::Train => &dataset.train,
-                        _ => eval_scene,
-                    }
-                } else {
-                    &dataset.train
-                };
-
-                let mut nearest_view = scene.get_nearest_view(&self.splat_view.camera);
-
-                let Some(nearest) = nearest_view.as_mut() else {
-                    return;
-                };
-
-                // Update image if dirty.
-                let mut dirty = self.train_state.selected_view.is_none();
-
-                if let Some(view) = self.train_state.selected_view.as_ref() {
-                    dirty |= view.0 != *nearest;
-                }
-
-                let view_count = scene.views().len();
-
-                ui.horizontal(|ui| {
-                    let mut sel_view = false;
-
-                    if ui.button("⏪").clicked() {
-                        sel_view = true;
-                        *nearest = (*nearest + view_count - 1) % view_count;
-                    }
-                    sel_view |= ui
-                        .add(
-                            Slider::new(nearest, 0..=view_count - 1)
-                                .suffix(format!("/ {view_count}"))
-                                .custom_formatter(|num, _| format!("{}", num as usize + 1))
-                                .custom_parser(|s| s.parse::<usize>().ok().map(|n| n as f64 - 1.0)),
-                        )
-                        .dragged();
-                    if ui.button("⏩").clicked() {
-                        sel_view = true;
-                        *nearest = (*nearest + 1) % view_count;
-                    }
-
-                    if sel_view {
-                        println!("Set view sel view!");
-                        let view = &scene.views()[*nearest];
-                        self.splat_view.camera = view.camera.clone();
-                        // TODO: Figure out a better focus.
-                        self.splat_view.controls.focus =
-                            view.camera.position + view.camera.rotation * glam::Vec3::Z * 5.0;
-                    }
-
-                    ui.add_space(10.0);
-
-                    if dataset.eval.is_some() {
-                        for (t, l) in [ViewType::Train, ViewType::Eval]
-                            .into_iter()
-                            .zip(["train", "eval"])
-                        {
-                            if ui
-                                .selectable_label(self.viewpoints_view_type == t, l)
-                                .clicked()
-                            {
-                                self.viewpoints_view_type = t;
-                                dirty = true;
-                            };
-                        }
-                    }
-                });
-
-                if dirty {
-                    let view = &scene.views()[*nearest];
-                    let color_img = egui::ColorImage::from_rgb(
-                        [view.image.width() as usize, view.image.height() as usize],
-                        &view.image.to_rgb8().into_vec(),
-                    );
-                    self.train_state.selected_view = Some((
-                        *nearest,
-                        ctx.load_texture("nearest_view_tex", color_img, TextureOptions::default()),
-                    ));
-                }
-
-                if let Some(view) = self.train_state.selected_view.as_ref() {
-                    ui.add(egui::Image::new(&view.1).shrink_to_fit());
-                    ui.label(&scene.views()[*nearest].name);
-                }
-            });
-    }
 }
 
 impl eframe::App for Viewer {
-    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
-        if self.constant_redraww {
-            ctx.request_repaint();
-        }
-
-        let _span = trace_span!("Draw UI").entered();
-
-        egui::Window::new("Load data")
-            .anchor(egui::Align2::RIGHT_TOP, (0.0, 0.0))
-            .show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label("Select a .ply to visualize, or a .zip with training data.");
-
-                    ui.add_space(15.0);
-
-                    if ui.button("Pick a file").clicked() {
-                        self.start_data_load();
+    fn update(&mut self, ctx: &egui::Context, _: &mut eframe::Frame) {
+        if let Some(rec) = self.tree_ctx.context.receiver.clone() {
+            while let Ok(message) = rec.try_recv() {
+                for (_, pane) in self.tree.tiles.iter_mut() {
+                    match pane {
+                        egui_tiles::Tile::Pane(pane) => {
+                            pane.on_message(message.clone(), &mut self.tree_ctx.context);
+                        }
+                        egui_tiles::Tile::Container(_) => {}
                     }
-                });
-
-                ui.add_space(10.0);
-
-                ui.heading("Train settings");
-
-                let mut limit_res = self.target_train_resolution.is_some();
-                if ui
-                    .checkbox(&mut limit_res, "Limit training resolution")
-                    .clicked()
-                {
-                    self.target_train_resolution = if limit_res { Some(800) } else { None };
                 }
-
-                if let Some(target_res) = self.target_train_resolution.as_mut() {
-                    ui.add(Slider::new(target_res, 32..=2048));
-                }
-
-                let mut limit_frames = self.max_frames.is_some();
-                if ui.checkbox(&mut limit_frames, "Limit max frames").clicked() {
-                    self.max_frames = if limit_frames { Some(32) } else { None };
-                }
-
-                if let Some(max_frames) = self.max_frames.as_mut() {
-                    ui.add(Slider::new(max_frames, 1..=256));
-                }
-
-                ui.add_space(15.0);
-
-                if ui.input(|r| r.key_pressed(egui::Key::Escape)) {
-                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
-                }
-            });
+            }
+        }
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.label(format!(
-                "{}, {:?}",
-                self.adapeter_info.name, self.adapeter_info.device_type
-            ));
-
-            ui.add_space(25.0);
-
-            if let Some(rx) = self.receiver.as_mut() {
-                match rx.try_recv() {
-                    Ok(message) => {
-                        if let ViewerMessage::TrainStep {
-                            iter, timestamp, ..
-                        } = message
-                        {
-                            self.train_state.on_iter(timestamp, iter);
-                        };
-
-                        self.last_message = Some(message)
-                    }
-                    Err(TryRecvError::Empty) => (), // nothing to do.
-                    Err(TryRecvError::Closed) => self.receiver = None, // channel closed.
-                }
+            // Close when pressing escape (in a native viewer anyway).
+            if ui.input(|r| r.key_pressed(egui::Key::Escape)) {
+                ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
             }
-
-            #[cfg(feature = "tracing")]
-            self.tracing_debug_ui(ui);
-
-            self.viewpoints_window(ctx);
-
-            // Move the dataset if received. This is just to prevent it from having to be
-            // cloned in the match below.
-            let message = self.last_message.take();
-            if let Some(ViewerMessage::Dataset(d)) = message {
-                // If this is the firs train scene, copy the initial view as a starting point.
-                if self.train_state.dataset.train.views().is_empty() && !d.train.views().is_empty()
-                {
-                    let view = &d.train.views()[0];
-                    self.splat_view.camera = view.camera.clone();
-                    // TODO: Figure out a better focus.
-                    self.splat_view.controls.focus =
-                        view.camera.position + view.camera.rotation * glam::Vec3::Z * 5.0;
-                }
-                self.train_state.dataset = d;
-            } else {
-                self.last_message = message;
-            }
-
-            if let Some(message) = self.last_message.as_ref() {
-                match message {
-                    ViewerMessage::Error(e) => {
-                        ui.label("Error: ".to_owned() + &e.to_string());
-                    }
-                    ViewerMessage::SplatLoad {
-                        splats,
-                        total_count,
-                    } => {
-                        ui.horizontal(|ui| {
-                            ui.label(format!("{} splats", splats.num_splats()));
-
-                            if splats.num_splats() < *total_count {
-                                ui.label(format!(
-                                    "Loading... ({}%)",
-                                    splats.num_splats() as f32 / *total_count as f32 * 100.0
-                                ));
-                            }
-                        });
-
-                        self.splat_view
-                            .draw_splats(splats, glam::Vec3::ZERO, ui, ctx, frame);
-                    }
-                    ViewerMessage::TrainStep {
-                        splats,
-                        loss,
-                        iter,
-                        timestamp: _,
-                    } => {
-                        ui.horizontal(|ui| {
-                            ui.label(format!("{} splats", splats.num_splats()));
-                            ui.label(format!(
-                                "Train step {iter}, {:.1} steps/s",
-                                self.train_state.train_iter_per_s
-                            ));
-
-                            ui.label(format!("loss: {loss:.3e}"));
-
-                            let mut shared = self.train_state.shared.write().unwrap();
-                            let paused = shared.paused;
-                            ui.toggle_value(&mut shared.paused, if paused { "⏵" } else { "⏸" });
-                        });
-
-                        self.splat_view.draw_splats(
-                            splats,
-                            self.train_state.dataset.train.background,
-                            ui,
-                            ctx,
-                            frame,
-                        );
-                    }
-                    _ => {}
-                }
-            } else if self.receiver.is_some() {
-                ui.label("Loading...");
-            }
+            self.tree.ui(&mut self.tree_ctx, ui);
         });
-
-        if self.splat_view.is_animating() {
-            ctx.request_repaint();
-        }
-    }
-
-    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
-        [0.0, 0.0, 0.0, 1.0]
     }
 }

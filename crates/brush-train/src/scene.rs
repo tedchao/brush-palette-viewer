@@ -1,4 +1,5 @@
-use std::sync::{Arc, RwLock, RwLockReadGuard};
+use parking_lot::{ArcRwLockReadGuard, RawRwLock, RwLock};
+use std::sync::Arc;
 
 use brush_render::{bounding_box::BoundingBox, camera::Camera};
 use glam::Vec3;
@@ -42,7 +43,7 @@ impl Scene {
 
     // Returns the extent of the cameras in the scene.
     pub fn bounds(&self, cam_far: f32) -> BoundingBox {
-        let views = self.views.read().expect("Lock got poisoned somehow");
+        let views = self.views.read();
         let (min, max) = views.iter().fold(
             (Vec3::splat(f32::INFINITY), Vec3::splat(f32::NEG_INFINITY)),
             |(min, max), view| {
@@ -57,7 +58,7 @@ impl Scene {
 
     pub fn center_cameras(&mut self) {
         let scene_center = self.bounds(0.0).center;
-        let mut views = self.views.write().unwrap();
+        let mut views = self.views.write();
         // Adjust camera positions
         for view in views.iter_mut() {
             view.camera.position -= scene_center;
@@ -65,17 +66,16 @@ impl Scene {
     }
 
     pub fn add_view(&mut self, view: SceneView) {
-        self.views.write().expect("lock was poisoned").push(view);
+        self.views.write().push(view);
     }
 
-    pub fn views(&self) -> RwLockReadGuard<'_, Vec<SceneView>> {
-        self.views.read().expect("Poisoned lock")
+    pub fn views(&self) -> ArcRwLockReadGuard<RawRwLock, Vec<SceneView>> {
+        self.views.read_arc()
     }
 
     pub fn get_nearest_view(&self, reference: &Camera) -> Option<usize> {
         self.views
             .read()
-            .expect("Lock was poisoned somehow.")
             .iter()
             .enumerate() // This will give us (index, view) pairs
             .min_by(|(_, a), (_, b)| {
