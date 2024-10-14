@@ -13,6 +13,7 @@ glam.workspace = true
 burn.workspace = true
 rand.workspace = true
 tracing.workspace = true
+parking_lot.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 gloo-timers.workspace = true

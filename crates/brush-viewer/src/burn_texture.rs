@@ -3,6 +3,8 @@ use std::sync::Arc;
 use brush_render::Backend;
 use burn::tensor::Tensor;
 use burn_wgpu::{JitTensor, WgpuRuntime};
+use eframe::egui_wgpu::Renderer;
+use egui::epaint::mutex::RwLock as EguiRwLock;
 use egui::TextureId;
 use wgpu::ImageDataLayout;
 
@@ -49,7 +51,7 @@ pub struct BurnTexture {
     pub id: TextureId,
 }
 
-fn create_texture(size: glam::UVec2, device: Arc<wgpu::Device>) -> wgpu::Texture {
+fn create_texture(size: glam::UVec2, device: &wgpu::Device) -> wgpu::Texture {
     device.create_texture(&wgpu::TextureDescriptor {
         label: Some("Splat backbuffer"),
         size: wgpu::Extent3d {
@@ -67,37 +69,37 @@ fn create_texture(size: glam::UVec2, device: Arc<wgpu::Device>) -> wgpu::Texture
 }
 
 impl BurnTexture {
-    pub fn new<B: Backend>(tensor: Tensor<B, 3>, frame: &eframe::Frame) -> Self {
-        let render_state = frame.wgpu_render_state().unwrap();
-        let device = render_state.device.clone();
+    pub fn new<B: Backend>(
+        tensor: Tensor<B, 3>,
+        device: &wgpu::Device,
+        renderer: Arc<EguiRwLock<Renderer>>,
+    ) -> Self {
         let [h, w, _] = tensor.shape().dims();
-        let texture = create_texture(glam::uvec2(w as u32, h as u32), device.clone());
+        let texture = create_texture(glam::uvec2(w as u32, h as u32), device);
         let view = texture.create_view(&Default::default());
-        let mut renderer = render_state.renderer.write();
-        let id = renderer.register_native_texture(&device, &view, wgpu::FilterMode::Linear);
+        let id = renderer
+            .write()
+            .register_native_texture(device, &view, wgpu::FilterMode::Linear);
         Self { texture, id }
     }
 
     pub fn update_texture<B: Backend<FloatTensorPrimitive = JitTensor<WgpuRuntime, f32>>>(
         &mut self,
         tensor: Tensor<B, 3>,
-        frame: &eframe::Frame,
+        device: &wgpu::Device,
+        renderer: Arc<EguiRwLock<Renderer>>,
         encoder: &mut wgpu::CommandEncoder,
     ) {
         let [h, w, _] = tensor.shape().dims();
         let size = glam::uvec2(w as u32, h as u32);
 
-        let render_state = frame.wgpu_render_state().unwrap();
-        let device = render_state.device.clone();
-
         let dirty = self.texture.width() != size.x || self.texture.height() != size.y;
 
         if dirty {
-            self.texture = create_texture(glam::uvec2(w as u32, h as u32), device.clone());
-            let mut renderer = render_state.renderer.write();
+            self.texture = create_texture(glam::uvec2(w as u32, h as u32), device);
 
-            renderer.update_egui_texture_from_wgpu_texture(
-                &device,
+            renderer.write().update_egui_texture_from_wgpu_texture(
+                device,
                 &self.texture.create_view(&Default::default()),
                 wgpu::FilterMode::Linear,
                 self.id,

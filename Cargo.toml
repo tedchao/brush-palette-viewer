@@ -52,6 +52,9 @@ wgpu = "22.1.0"
 naga = "22.1.0"
 naga_oil = "0.15"
 
+env_logger = "0.11.5"
+parking_lot = { version = "0.12.3", features = ["arc_lock"] }
+
 # Various burn packages.
 burn = { git = "https://github.com/tracel-ai/burn", features = [
     'wgpu',
@@ -68,11 +71,11 @@ burn-wgpu = { git = "https://github.com/tracel-ai/burn", features = [
 # Rerun currently has to be at head to be compatible with other egui/eframe. Once version 0.19
 # is released this requirement should go away.
 egui = { version = "0.29.0" }
-egui_extras = { version = "0.29.0" }
 eframe = { version = "0.29.0", default-features = false, features = [
     "wgpu",
     "android-game-activity",
 ] }
+egui_tiles.version = "0.10.1"
 
 # Need rerun at head as it unlocks some dependencies for the SDK. Once 0.19 is out just use that.
 rerun = { git = "https://github.com/rerun-io/rerun", default-features = false, features = [

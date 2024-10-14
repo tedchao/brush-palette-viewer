@@ -1,5 +1,3 @@
-use std::sync::{Arc, RwLock};
-
 use async_channel::{Sender, TrySendError};
 use brush_dataset::{scene_batch::SceneLoader, Dataset};
 use brush_render::gaussian_splats::RandomSplatsConfig;
@@ -16,32 +14,6 @@ use zip::ZipArchive;
 
 use crate::viewer::ViewerMessage;
 
-pub(crate) struct TrainState {
-    pub last_train_step: (Instant, u32),
-    pub train_iter_per_s: f32,
-    pub dataset: Dataset,
-    pub selected_view: Option<(usize, egui::TextureHandle)>,
-    pub shared: Arc<RwLock<SharedTrainState>>,
-}
-
-impl TrainState {
-    pub fn new() -> Self {
-        Self {
-            last_train_step: (Instant::now(), 0),
-            train_iter_per_s: 0.0,
-            dataset: Dataset::empty(),
-            selected_view: None,
-            shared: Arc::new(RwLock::new(SharedTrainState { paused: false })),
-        }
-    }
-
-    pub fn on_iter(&mut self, stamp: Instant, iter: u32) {
-        self.train_iter_per_s =
-            (iter - self.last_train_step.1) as f32 / (stamp - self.last_train_step.0).as_secs_f32();
-        self.last_train_step = (stamp, iter);
-    }
-}
-
 pub(crate) struct TrainArgs {
     pub frame_count: Option<usize>,
     pub target_resolution: Option<u32>,
@@ -57,7 +29,6 @@ pub(crate) async fn train_loop(
     sender: Sender<ViewerMessage>,
     egui_ctx: egui::Context,
     train_args: TrainArgs,
-    shared_state: Arc<RwLock<SharedTrainState>>,
 ) -> anyhow::Result<()> {
     let total_steps = 30000;
 
@@ -108,13 +79,14 @@ pub(crate) async fn train_loop(
     let mut trainer = SplatTrainer::new(splats.num_splats(), &config, &splats);
 
     loop {
-        if shared_state.read().unwrap().paused {
-            #[cfg(not(target_arch = "wasm32"))]
-            std::thread::yield_now();
-            #[cfg(target_arch = "wasm32")]
-            gloo_timers::future::TimeoutFuture::new(0).await;
-            continue;
-        }
+        // TODO: Restore the pause button but better.
+        // if shared_state.read().paused {
+        //     #[cfg(not(target_arch = "wasm32"))]
+        //     std::thread::yield_now();
+        //     #[cfg(target_arch = "wasm32")]
+        //     gloo_timers::future::TimeoutFuture::new(0).await;
+        //     continue;
+        // }
 
         if let Some(eval_scene) = dataset.eval.as_ref() {
             if trainer.iter % config.eval_every == 0 {
