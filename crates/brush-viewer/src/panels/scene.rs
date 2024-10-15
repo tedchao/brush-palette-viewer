@@ -54,7 +54,12 @@ impl ScenePanel {
         background: glam::Vec3,
     ) {
         let mut size = ui.available_size();
-        size.x = size.y * context.camera.fov.x / context.camera.fov.y;
+        let aspect_ratio = context.camera.fov.x / context.camera.fov.y;
+        if size.x / size.y > aspect_ratio {
+            size.x = size.y * aspect_ratio;
+        } else {
+            size.y = size.x / aspect_ratio;
+        }
 
         // Round to 64 pixels. Necesarry for buffer sizes to align.
         let size = glam::uvec2(size.x.round() as u32, size.y.round() as u32);

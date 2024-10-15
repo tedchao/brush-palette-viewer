@@ -1,5 +1,5 @@
 use async_channel::{Sender, TrySendError};
-use brush_dataset::{scene_batch::SceneLoader, Dataset};
+use brush_dataset::{scene_batch::SceneLoader, Dataset, ZipData};
 use brush_render::gaussian_splats::RandomSplatsConfig;
 use brush_train::train::{SplatTrainer, TrainConfig};
 use burn::{
@@ -24,7 +24,7 @@ pub(crate) struct SharedTrainState {
 }
 
 pub(crate) async fn train_loop(
-    zip_data: &[u8],
+    zip_data: ZipData,
     device: WgpuDevice,
     sender: Sender<ViewerMessage>,
     egui_ctx: egui::Context,
@@ -32,7 +32,7 @@ pub(crate) async fn train_loop(
 ) -> anyhow::Result<()> {
     let total_steps = 30000;
 
-    let archive = ZipArchive::new(std::io::Cursor::new(zip_data))?;
+    let archive = ZipArchive::new(zip_data.open_for_read())?;
     let data_stream = brush_dataset::read_dataset(
         archive,
         train_args.frame_count,

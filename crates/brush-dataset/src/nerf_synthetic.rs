@@ -7,14 +7,16 @@ use brush_train::scene::Scene;
 use brush_train::scene::SceneView;
 use futures_lite::Stream;
 use futures_lite::StreamExt;
+
+use std::io::Cursor;
 use std::io::Read;
-use std::io::Seek;
 use std::path::Path;
 use zip::ZipArchive;
 
 use crate::clamp_img_to_max_size;
 use crate::normalized_path_string;
 use crate::Dataset;
+use crate::ZipData;
 
 #[derive(serde::Deserialize)]
 struct SyntheticScene {
@@ -28,8 +30,8 @@ struct FrameData {
     file_path: String,
 }
 
-fn read_transforms_file<T: Read + Seek>(
-    mut archive: ZipArchive<T>,
+fn read_transforms_file(
+    mut archive: ZipArchive<Cursor<ZipData>>,
     name: &'static str,
     max_frames: Option<usize>,
     max_resolution: Option<u32>,
@@ -130,8 +132,8 @@ fn read_transforms_file<T: Read + Seek>(
     }))
 }
 
-pub fn read_dataset<T: Read + Seek + Clone>(
-    archive: ZipArchive<T>,
+pub fn read_dataset(
+    archive: ZipArchive<Cursor<ZipData>>,
     max_frames: Option<usize>,
     max_resolution: Option<u32>,
 ) -> Result<impl Stream<Item = Result<Dataset>>> {

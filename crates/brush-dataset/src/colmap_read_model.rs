@@ -56,7 +56,7 @@ impl CameraModel {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct Camera {
     pub id: i32,
     pub model: CameraModel,
@@ -103,7 +103,7 @@ impl Camera {
         glam::vec2(x, y)
     }
 
-    pub(crate) fn center(&self) -> glam::Vec2 {
+    pub(crate) fn principal_point(&self) -> glam::Vec2 {
         let x = self.params[match self.model {
             CameraModel::SimplePinhole => 1,
             CameraModel::Pinhole => 2,

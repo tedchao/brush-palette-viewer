@@ -12,7 +12,7 @@ use egui_tiles::Tiles;
 use futures_lite::StreamExt;
 use web_time::Instant;
 
-use brush_dataset::{self, Dataset};
+use brush_dataset::{self, Dataset, ZipData};
 
 use crate::orbit_controls::OrbitControls;
 use crate::panels::{LoadDataPanel, ScenePanel, ViewpointsPane};
@@ -74,7 +74,14 @@ async fn process_loop(
     if picked.file_name.contains(".ply") {
         load_ply_loop(&picked.data, device, sender, egui_ctx).await
     } else if picked.file_name.contains(".zip") {
-        train_loop::train_loop(&picked.data, device, sender, egui_ctx, train_args).await
+        train_loop::train_loop(
+            ZipData::from(picked.data),
+            device,
+            sender,
+            egui_ctx,
+            train_args,
+        )
+        .await
     } else {
         anyhow::bail!("Only .ply and .zip files are supported.")
     }
@@ -129,8 +136,12 @@ impl ViewerContext {
     pub fn focus_view(&mut self, cam: &Camera) {
         // TODO: How to control scene view.... ?
         self.camera = cam.clone();
+
+        let scale = 0.5 / (2.0f32.sqrt());
+
         // TODO: Figure out a better focus.
-        self.controls.focus = cam.position + cam.rotation * glam::Vec3::Z * 5.0;
+        self.controls.focus = cam.position
+            + cam.rotation * glam::Vec3::Z * self.dataset.train.bounds(0.0).extent.length() * scale;
     }
 
     pub(crate) fn start_data_load(&mut self, args: TrainArgs) {

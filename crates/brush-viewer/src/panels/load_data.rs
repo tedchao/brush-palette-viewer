@@ -9,7 +9,8 @@ pub(crate) struct LoadDataPanel {
 impl LoadDataPanel {
     pub(crate) fn new() -> Self {
         Self {
-            target_train_resolution: Some(1200),
+            // High resolution performance just isn't great at the moment... limit this for now by default.
+            target_train_resolution: Some(800),
             max_frames: None,
         }
     }
@@ -21,19 +22,15 @@ impl ViewerPane for LoadDataPanel {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, context: &mut ViewerContext) -> egui_tiles::UiResponse {
-        ui.horizontal(|ui| {
-            ui.label("Select a .ply to visualize, or a .zip with training data.");
+        ui.label("Select a .ply to visualize, or a .zip with training data.");
 
-            ui.add_space(15.0);
-
-            if ui.button("Pick a file").clicked() {
-                let train_args = TrainArgs {
-                    frame_count: self.max_frames,
-                    target_resolution: self.target_train_resolution,
-                };
-                context.start_data_load(train_args);
-            }
-        });
+        if ui.button("Pick a file").clicked() {
+            let train_args = TrainArgs {
+                frame_count: self.max_frames,
+                target_resolution: self.target_train_resolution,
+            };
+            context.start_data_load(train_args);
+        }
 
         ui.add_space(10.0);
         ui.heading("Train settings");

@@ -9,11 +9,37 @@ use futures_lite::{Stream, StreamExt};
 use glam::Vec3;
 use image::DynamicImage;
 use std::{
-    io::{Read, Seek},
+    io::Cursor,
     path::{Path, PathBuf},
     pin::Pin,
+    sync::Arc,
 };
 use zip::ZipArchive;
+
+#[derive(Clone)]
+pub struct ZipData {
+    data: Arc<Vec<u8>>,
+}
+
+impl AsRef<[u8]> for ZipData {
+    fn as_ref(&self) -> &[u8] {
+        &self.data
+    }
+}
+
+impl ZipData {
+    pub fn open_for_read(&self) -> Cursor<ZipData> {
+        Cursor::new(self.clone())
+    }
+}
+
+impl From<Vec<u8>> for ZipData {
+    fn from(value: Vec<u8>) -> Self {
+        Self {
+            data: Arc::new(value),
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct Dataset {
@@ -61,18 +87,18 @@ pub(crate) fn clamp_img_to_max_size(image: DynamicImage, max_size: u32) -> Dynam
     image.resize(new_width, new_height, image::imageops::FilterType::Lanczos3)
 }
 
-pub fn read_dataset<'a, T: Read + Seek + Clone + 'a>(
-    archive: ZipArchive<T>,
+pub fn read_dataset(
+    archive: ZipArchive<Cursor<ZipData>>,
     max_frames: Option<usize>,
     max_resolution: Option<u32>,
-) -> Result<Pin<Box<dyn Stream<Item = Result<Dataset>> + 'a>>> {
+) -> Result<Pin<Box<dyn Stream<Item = Result<Dataset>> + 'static>>> {
     let nerf = nerf_synthetic::read_dataset(archive.clone(), max_frames, max_resolution);
     if let Ok(stream) = nerf {
-        return Ok(stream.boxed_local::<'a>());
+        return Ok(stream.boxed_local::<'static>());
     }
     let colmap = colmap::read_dataset(archive.clone(), max_frames, max_resolution);
     if let Ok(stream) = colmap {
-        return Ok(stream.boxed_local::<'a>());
+        return Ok(stream.boxed_local::<'static>());
     }
 
     anyhow::bail!("Couldn't parse dataset as any format. Only some formats are supported.")
