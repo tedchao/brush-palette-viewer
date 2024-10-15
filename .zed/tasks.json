@@ -6,7 +6,8 @@
     "label": "debug",
     "command": "cargo run",
     "env": {
-      "RUST_BACKTRACE": "1"
+      "RUST_BACKTRACE": "1",
+      "RUST_LOG": "info,wgpu_core=off"
     },
     "use_new_terminal": false,
     "allow_concurrent_runs": false,
@@ -22,7 +23,10 @@
     "allow_concurrent_runs": false,
     "reveal": "always",
     "hide": "never",
-    "shell": "system"
+    "shell": "system",
+    "env": {
+      "RUST_LOG": "warn"
+    }
   },
   {
     "label": "test rendering",
