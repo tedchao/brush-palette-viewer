@@ -53,7 +53,12 @@ pub fn read_dataset(
         // to capture order.
         img_info_list.sort_by_key(|(id, info)| *id);
 
-        for chunk in img_info_list.chunks(16) {
+        for chunk in img_info_list
+            .iter()
+            .take(max_frames.unwrap_or(usize::MAX))
+            .collect::<Vec<_>>()
+            .chunks(16)
+        {
             let mut receivers = Vec::new();
 
             for (_, img_info) in chunk.iter() {
@@ -82,7 +87,8 @@ pub fn read_dataset(
                         img = crate::clamp_img_to_max_size(img, max);
                     }
                     // Convert w2c to c2w.
-                    let world_to_cam = glam::Mat4::from_rotation_translation(quat, translation);
+                    let world_to_cam = glam::Affine3A::from_rotation_translation(quat, translation);
+
                     let cam_to_world = world_to_cam.inverse();
 
                     let (_, quat, translation) = cam_to_world.to_scale_rotation_translation();
@@ -114,12 +120,6 @@ pub fn read_dataset(
                 emitter
                     .emit(Dataset::new(train_scene.clone(), None, None))
                     .await;
-
-                if let Some(max) = max_frames {
-                    if train_scene.views().len() >= max {
-                        break;
-                    }
-                }
             }
         }
 
