@@ -1,7 +1,6 @@
 use anyhow::Context;
 use anyhow::Result;
 use async_fn_stream::try_fn_stream;
-use async_std::stream::Stream;
 use async_std::task;
 use async_std::task::JoinHandle;
 use brush_render::camera;
@@ -16,6 +15,7 @@ use zip::ZipArchive;
 
 use crate::clamp_img_to_max_size;
 use crate::normalized_path_string;
+use crate::DataStream;
 use crate::Dataset;
 use crate::ZipData;
 
@@ -135,7 +135,7 @@ pub fn read_dataset(
     archive: ZipArchive<Cursor<ZipData>>,
     max_frames: Option<usize>,
     max_resolution: Option<u32>,
-) -> Result<impl Stream<Item = Result<Dataset>>> {
+) -> Result<DataStream> {
     // Assume nerf synthetic has a white background. Maybe add a custom json field to customize this
     // or something.
     let background = glam::Vec3::ONE;
@@ -176,5 +176,5 @@ pub fn read_dataset(
         Ok(())
     });
 
-    Ok(stream)
+    Ok(Box::pin(stream))
 }

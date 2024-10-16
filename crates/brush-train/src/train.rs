@@ -1,6 +1,6 @@
 use anyhow::Result;
 use brush_render::camera::Camera;
-use brush_render::gaussian_splats::{RandomSplatsConfig, Splats};
+use brush_render::gaussian_splats::Splats;
 use brush_render::{AutodiffBackend, Backend, RenderAux};
 use burn::lr_scheduler::exponential::{ExponentialLrScheduler, ExponentialLrSchedulerConfig};
 use burn::lr_scheduler::LrScheduler;
@@ -79,8 +79,6 @@ pub struct TrainConfig {
 
     #[config(default = 400)]
     pub visualize_splats_every: u32,
-
-    pub initial_model_config: RandomSplatsConfig,
 }
 
 #[derive(Clone, Debug)]
@@ -376,20 +374,22 @@ where
                     append_scales.push((cur_scale.exp() / 1.6).log());
                 }
 
-                let append_means = Tensor::cat(append_means, 0);
-                let append_rots = Tensor::cat(append_rots, 0);
-                let append_coeffs = Tensor::cat(append_coeffs, 0);
-                let append_opac = Tensor::cat(append_opac, 0);
-                let append_scales = Tensor::cat(append_scales, 0);
+                if !append_means.is_empty() {
+                    let append_means = Tensor::cat(append_means, 0);
+                    let append_rots = Tensor::cat(append_rots, 0);
+                    let append_coeffs = Tensor::cat(append_coeffs, 0);
+                    let append_opac = Tensor::cat(append_opac, 0);
+                    let append_scales = Tensor::cat(append_scales, 0);
 
-                concat_splats(
-                    &mut splats,
-                    append_means,
-                    append_rots,
-                    append_coeffs,
-                    append_opac,
-                    append_scales,
-                );
+                    concat_splats(
+                        &mut splats,
+                        append_means,
+                        append_rots,
+                        append_coeffs,
+                        append_opac,
+                        append_scales,
+                    );
+                }
 
                 // Do some more processing. Important to do this last as otherwise you might mess up the correspondence
                 // of gradient <-> splat.

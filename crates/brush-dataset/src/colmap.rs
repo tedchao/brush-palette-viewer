@@ -3,13 +3,10 @@ use std::{
     sync::Arc,
 };
 
-use crate::{Dataset, ZipData};
+use crate::{DataStream, Dataset, ZipData};
 use anyhow::Result;
 use async_fn_stream::try_fn_stream;
-use async_std::{
-    stream::Stream,
-    task::{self, JoinHandle},
-};
+use async_std::task::{self, JoinHandle};
 use brush_render::camera::{self, Camera};
 use brush_train::scene::{Scene, SceneView};
 use glam::Vec3;
@@ -90,11 +87,11 @@ fn read_views(
     Ok(handles)
 }
 
-pub fn read_dataset(
+pub(crate) fn read_dataset(
     archive: ZipArchive<Cursor<ZipData>>,
     max_frames: Option<usize>,
     max_resolution: Option<u32>,
-) -> Result<impl Stream<Item = Result<Dataset>> + Send + 'static> {
+) -> Result<DataStream> {
     let handles = read_views(archive, max_frames, max_resolution)?;
 
     let stream = try_fn_stream(|emitter| async move {
@@ -110,5 +107,5 @@ pub fn read_dataset(
         Ok(())
     });
 
-    Ok(stream)
+    Ok(Box::pin(stream))
 }

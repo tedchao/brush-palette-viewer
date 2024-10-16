@@ -14,3 +14,4 @@ burn.workspace = true
 rand.workspace = true
 tracing.workspace = true
 parking_lot.workspace = true
+log.workspace = true

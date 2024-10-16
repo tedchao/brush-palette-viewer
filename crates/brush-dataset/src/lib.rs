@@ -5,6 +5,7 @@ pub mod scene_batch;
 
 use anyhow::Result;
 use async_std::stream::Stream;
+use brush_render::Backend;
 use brush_train::scene::Scene;
 use glam::Vec3;
 use image::DynamicImage;
@@ -83,18 +84,20 @@ pub(crate) fn clamp_img_to_max_size(image: DynamicImage, max_size: u32) -> Dynam
     image.resize(new_width, new_height, image::imageops::FilterType::Lanczos3)
 }
 
-pub fn read_dataset(
+type DataStream = Pin<Box<dyn Stream<Item = Result<Dataset>> + Send + 'static>>;
+
+pub fn read_dataset<B: Backend>(
     archive: ZipArchive<Cursor<ZipData>>,
     max_frames: Option<usize>,
     max_resolution: Option<u32>,
-) -> Result<Pin<Box<dyn Stream<Item = Result<Dataset>> + Send + 'static>>> {
+) -> Result<DataStream> {
     let nerf = nerf_synthetic::read_dataset(archive.clone(), max_frames, max_resolution);
     if let Ok(stream) = nerf {
-        return Ok(Box::pin(stream));
+        return Ok(stream);
     }
     let colmap = colmap::read_dataset(archive.clone(), max_frames, max_resolution);
     if let Ok(stream) = colmap {
-        return Ok(Box::pin(stream));
+        return Ok(stream);
     }
     anyhow::bail!("Couldn't parse dataset as any format. Only some formats are supported.")
 }

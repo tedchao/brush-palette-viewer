@@ -88,11 +88,15 @@ fn update_splats<B: Backend>(
     let n_splats = means.len() / 3;
     let n_coeffs = sh_coeffs.len() / n_splats;
 
-    let means = Tensor::from_data(TensorData::new(means, [n_splats, 3]), device);
-    let sh_coeffs = Tensor::from_data(TensorData::new(sh_coeffs, [n_splats, n_coeffs]), device);
-    let rotations = Tensor::from_data(TensorData::new(rotation, [n_splats, 4]), device);
-    let raw_opacities = Tensor::from_data(TensorData::new(raw_opacities, [n_splats]), device);
-    let log_scales = Tensor::from_data(TensorData::new(log_scales, [n_splats, 3]), device);
+    let means = Tensor::from_data(TensorData::new(means, [n_splats, 3]), device).require_grad();
+    let sh_coeffs =
+        Tensor::from_data(TensorData::new(sh_coeffs, [n_splats, n_coeffs]), device).require_grad();
+    let rotations =
+        Tensor::from_data(TensorData::new(rotation, [n_splats, 4]), device).require_grad();
+    let raw_opacities =
+        Tensor::from_data(TensorData::new(raw_opacities, [n_splats]), device).require_grad();
+    let log_scales =
+        Tensor::from_data(TensorData::new(log_scales, [n_splats, 3]), device).require_grad();
 
     if let Some(splats) = splats.as_mut() {
         Splats::map_param(&mut splats.means, |x| {
@@ -118,7 +122,7 @@ fn update_splats<B: Backend>(
             rotation: Param::initialized(ParamId::new(), rotations),
             raw_opacity: Param::initialized(ParamId::new(), raw_opacities),
             log_scales: Param::initialized(ParamId::new(), log_scales),
-            xys_dummy: Tensor::zeros([n_splats, 2], device),
+            xys_dummy: Tensor::zeros([n_splats, 2], device).require_grad(),
         };
         init.norm_rotations();
         // Create a new splat instance if it hasn't been initialzized yet.
