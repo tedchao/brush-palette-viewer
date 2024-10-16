@@ -494,6 +494,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "async-process"
+version = "2.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "63255f1dc2381611000436537bbedfe83183faa303a5a0edaf191edef06526bb"
+dependencies = [
+ "async-channel 2.3.1",
+ "async-io 2.3.4",
+ "async-lock 3.4.0",
+ "async-signal",
+ "async-task",
+ "blocking",
+ "cfg-if",
+ "event-listener 5.3.1",
+ "futures-lite 2.3.0",
+ "rustix 0.38.37",
+ "tracing",
+]
+
+[[package]]
 name = "async-recursion"
 version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -532,6 +551,7 @@ dependencies = [
  "async-global-executor",
  "async-io 2.3.4",
  "async-lock 3.4.0",
+ "async-process 2.3.0",
  "crossbeam-utils",
  "futures-channel",
  "futures-core",
@@ -807,6 +827,7 @@ name = "brush-desktop"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-std",
  "brush-viewer",
  "console_error_panic_hook",
  "eframe",
@@ -905,6 +926,7 @@ name = "brush-train"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-std",
  "brush-render",
  "burn",
  "glam",
@@ -8136,7 +8158,7 @@ dependencies = [
  "async-fs 1.6.0",
  "async-io 1.13.0",
  "async-lock 2.8.0",
- "async-process",
+ "async-process 1.8.1",
  "async-recursion",
  "async-task",
  "async-trait",

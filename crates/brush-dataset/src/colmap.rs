@@ -6,9 +6,12 @@ use std::{
 use crate::{DataStream, Dataset, ZipData};
 use anyhow::Result;
 use async_fn_stream::try_fn_stream;
-use async_std::task::{self, JoinHandle};
+use async_std::task::JoinHandle;
 use brush_render::camera::{self, Camera};
-use brush_train::scene::{Scene, SceneView};
+use brush_train::{
+    scene::{Scene, SceneView},
+    spawn_future,
+};
 use glam::Vec3;
 use zip::ZipArchive;
 
@@ -52,7 +55,7 @@ fn read_views(
             let quat = img_info.quat;
             let img_path = img_info.name.clone();
 
-            task::spawn(async move {
+            spawn_future(async move {
                 let focal = cam.focal();
 
                 let fovx = camera::focal_to_fov(focal.x, cam.width as u32);

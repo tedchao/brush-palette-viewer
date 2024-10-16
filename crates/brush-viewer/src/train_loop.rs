@@ -173,10 +173,6 @@ pub(crate) async fn train_loop(
             }
             egui_ctx.request_repaint();
         }
-
-        // On wasm, yield to the browser.
-        #[cfg(target_arch = "wasm32")]
-        gloo_timers::future::TimeoutFuture::new(0).await;
     }
 
     Ok(())

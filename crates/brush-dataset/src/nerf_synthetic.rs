@@ -1,12 +1,12 @@
 use anyhow::Context;
 use anyhow::Result;
 use async_fn_stream::try_fn_stream;
-use async_std::task;
 use async_std::task::JoinHandle;
 use brush_render::camera;
 use brush_render::camera::Camera;
 use brush_train::scene::Scene;
 use brush_train::scene::SceneView;
+use brush_train::spawn_future;
 use std::io::Cursor;
 use std::io::Read;
 use std::path::Path;
@@ -63,7 +63,7 @@ fn read_transforms_file(
             let base_path = base_path.clone();
             let mut archive = archive.clone();
 
-            task::spawn(async move {
+            spawn_future(async move {
                 // NeRF 'transform_matrix' is a camera-to-world transform
                 let transform_matrix: Vec<f32> =
                     frame.transform_matrix.iter().flatten().copied().collect();

@@ -12,8 +12,8 @@ use ply_rs::{
 use std::io::BufRead;
 use tracing::trace_span;
 
-#[cfg(target_arch = "wasm32")]
-use web_time::Instant;
+#[allow(unused)]
+use web_time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use brush_render::gaussian_splats::Splats;
@@ -261,12 +261,15 @@ pub fn load_splat_from_ply<B: Backend>(
 
                     // On wasm, yield to the browser occsionally
                     #[cfg(target_arch = "wasm32")]
-                    if i % 100 == 0
-                        && web_time::Instant::now() - last_yield_time
-                            > web_time::Duration::from_millis(5)
-                    {
+                    if i % 100 == 0 && Instant::now() - last_yield_time > Duration::from_millis(5) {
+                        // You'd think yield_now() should work but that doesn't actually hand back control to the browser.
+                        // async_std::task::yield_now();
                         last_yield_time = Instant::now();
-                        gloo_timers::future::TimeoutFuture::new(0).await;
+
+                        // Timeout future actually yield back to browser.
+                        let never = async_std::future::pending::<()>();
+                        let dur = Duration::from_millis(0);
+                        let _ = async_std::future::timeout(dur, never).await;
                     }
                 }
 

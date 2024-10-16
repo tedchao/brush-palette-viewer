@@ -1,7 +1,7 @@
 use async_std::channel::{Receiver, Sender};
 use async_std::stream::StreamExt;
-use async_std::task;
 use brush_render::camera::Camera;
+use brush_train::spawn_future;
 use glam::{Quat, Vec3};
 use std::sync::Arc;
 
@@ -153,7 +153,7 @@ impl ViewerContext {
         self.receiver = Some(receiver);
         self.dataset = Dataset::empty();
 
-        task::spawn(async move {
+        spawn_future(async move {
             if let Err(e) = process_loop(device, sender.clone(), ctx, args).await {
                 let _ = sender.send(ViewerMessage::Error(Arc::new(e))).await;
             }

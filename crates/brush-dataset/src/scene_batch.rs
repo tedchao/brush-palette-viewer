@@ -1,8 +1,8 @@
 use async_std::channel::Receiver;
-use async_std::task;
 use brush_render::Backend;
 use brush_train::image::image_to_tensor;
 use brush_train::scene::Scene;
+use brush_train::spawn_future;
 use brush_train::train::SceneBatch;
 use burn::tensor::Tensor;
 
@@ -49,7 +49,7 @@ impl<B: Backend> SceneLoader<B> {
             }
         };
 
-        task::spawn(fut);
+        spawn_future(fut);
         Self { receiver: rx }
     }
 

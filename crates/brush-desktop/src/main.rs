@@ -6,7 +6,6 @@ fn main() -> anyhow::Result<()> {
     #[cfg(not(target_arch = "wasm32"))]
     {
         env_logger::init();
-
         // Build app display.
         let native_options = eframe::NativeOptions {
             viewport: egui::ViewportBuilder::default()
@@ -44,7 +43,7 @@ fn main() -> anyhow::Result<()> {
             .dyn_into::<web_sys::HtmlCanvasElement>()
             .unwrap();
 
-        wasm_bindgen_futures::spawn_local(async {
+        spawn_future(async {
             eframe::WebRunner::new()
                 .start(
                     canvas,
