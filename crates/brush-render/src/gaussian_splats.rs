@@ -156,29 +156,6 @@ impl<B: Backend> Splats<B> {
         self.means.dims()[0]
     }
 
-    pub fn concat_splats(
-        &mut self,
-        means: Tensor<B, 2>,
-        rotations: Tensor<B, 2>,
-        sh_coeffs: Tensor<B, 2>,
-        raw_opacities: Tensor<B, 1>,
-        log_scales: Tensor<B, 2>,
-    ) {
-        Self::map_param(&mut self.means, |x| Tensor::cat(vec![x, means.clone()], 0));
-        Self::map_param(&mut self.rotation, |x| {
-            Tensor::cat(vec![x, rotations.clone()], 0)
-        });
-        Self::map_param(&mut self.sh_coeffs, |x| {
-            Tensor::cat(vec![x, sh_coeffs.clone()], 0)
-        });
-        Self::map_param(&mut self.raw_opacity, |x| {
-            Tensor::cat(vec![x, raw_opacities.clone()], 0)
-        });
-        Self::map_param(&mut self.log_scales, |x| {
-            Tensor::cat(vec![x, log_scales.clone()], 0)
-        });
-    }
-
     pub fn norm_rotations(&mut self) {
         Self::map_param(&mut self.rotation, |x| {
             x.clone() / Tensor::clamp_min(Tensor::sum_dim(x.powf_scalar(2.0), 1).sqrt(), 1e-6)

@@ -1,14 +1,16 @@
-use async_channel::{Sender, TrySendError};
+use async_std::{
+    channel::{Sender, TrySendError},
+    stream::StreamExt,
+};
 use brush_dataset::{scene_batch::SceneLoader, Dataset, ZipData};
 use brush_render::gaussian_splats::RandomSplatsConfig;
+use brush_render::PrimaryBackend;
 use brush_train::train::{SplatTrainer, TrainConfig};
 use burn::{
     backend::Autodiff, lr_scheduler::exponential::ExponentialLrSchedulerConfig,
     module::AutodiffModule, tensor::ElementConversion,
 };
 use burn_wgpu::WgpuDevice;
-use futures_lite::StreamExt;
-use tracing::trace_span;
 use web_time::Instant;
 use zip::ZipArchive;
 
@@ -91,31 +93,33 @@ pub(crate) async fn train_loop(
         //     gloo_timers::future::TimeoutFuture::new(0).await;
         //     continue;
         // }
-
         if let Some(eval_scene) = dataset.eval.as_ref() {
             if trainer.iter % config.eval_every == 0 {
                 let eval =
-                    brush_train::eval::eval_stats(&splats, eval_scene, Some(4), &device).await;
+                    brush_train::eval::eval_stats(splats.clone(), eval_scene, Some(4), &device)
+                        .await;
                 visualize.log_eval_stats(trainer.iter, &eval)?;
             }
         }
 
         if trainer.iter % config.visualize_splats_every == 0 {
-            visualize.log_splats(&splats).await?;
+            visualize.log_splats(splats.clone()).await?;
         }
 
         let batch = {
-            let _span = trace_span!("Get batch").entered();
+            // let _span = trace_span!("Get batch").entered();
             dataloader.next_batch().await
         };
         let gt_image = batch.gt_images.clone();
         let (new_splats, stats) = trainer.step(batch, train_scene.background, splats).await?;
         splats = new_splats;
         if trainer.iter % config.visualize_splats_every == 0 {
-            visualize.log_train_stats(&splats, &stats, gt_image).await?;
+            visualize
+                .log_train_stats(splats.clone(), &stats, gt_image)
+                .await?;
         }
         if trainer.iter % 5 == 0 {
-            let _span = trace_span!("Send batch").entered();
+            // let _span = trace_span!("Send batch").entered();
 
             let msg = ViewerMessage::TrainStep {
                 splats: splats.valid(),

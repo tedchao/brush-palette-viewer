@@ -1,4 +1,3 @@
-use parking_lot::{ArcRwLockReadGuard, RawRwLock, RwLock};
 use std::sync::Arc;
 
 use brush_render::{bounding_box::BoundingBox, camera::Camera};
@@ -15,14 +14,14 @@ pub enum ViewType {
 pub struct SceneView {
     pub name: String,
     pub camera: Camera,
-    pub image: image::DynamicImage,
+    pub image: Arc<image::DynamicImage>,
 }
 
 // Encapsulates a multi-view scene including cameras and the splats.
 // Also provides methods for checkpointing the training process.
 #[derive(Debug, Clone)]
 pub struct Scene {
-    views: Arc<RwLock<Vec<SceneView>>>,
+    pub views: Arc<Vec<SceneView>>,
     pub background: Vec3,
 }
 
@@ -36,15 +35,14 @@ fn camera_similarity_score(cam: &Camera, reference: &Camera) -> f32 {
 impl Scene {
     pub fn new(views: Vec<SceneView>, background: Vec3) -> Self {
         Scene {
-            views: Arc::new(RwLock::new(views)),
+            views: Arc::new(views),
             background,
         }
     }
 
     // Returns the extent of the cameras in the scene.
     pub fn bounds(&self, cam_far: f32) -> BoundingBox {
-        let views = self.views.read();
-        let (min, max) = views.iter().fold(
+        let (min, max) = self.views.iter().fold(
             (Vec3::splat(f32::INFINITY), Vec3::splat(f32::NEG_INFINITY)),
             |(min, max), view| {
                 let cam = &view.camera;
@@ -56,26 +54,8 @@ impl Scene {
         BoundingBox::from_min_max(min, max)
     }
 
-    pub fn center_cameras(&mut self) {
-        let scene_center = self.bounds(0.0).center;
-        let mut views = self.views.write();
-        // Adjust camera positions
-        for view in views.iter_mut() {
-            view.camera.position -= scene_center;
-        }
-    }
-
-    pub fn add_view(&mut self, view: SceneView) {
-        self.views.write().push(view);
-    }
-
-    pub fn views(&self) -> ArcRwLockReadGuard<RawRwLock, Vec<SceneView>> {
-        self.views.read_arc()
-    }
-
     pub fn get_nearest_view(&self, reference: &Camera) -> Option<usize> {
         self.views
-            .read()
             .iter()
             .enumerate() // This will give us (index, view) pairs
             .min_by(|(_, a), (_, b)| {

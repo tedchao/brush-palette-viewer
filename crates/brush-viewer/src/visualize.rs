@@ -1,5 +1,7 @@
 #![allow(unused_imports, unused_variables)]
 
+use std::borrow::Borrow;
+
 use anyhow::Result;
 use brush_render::{gaussian_splats::Splats, AutodiffBackend, Backend};
 use brush_train::scene::Scene;
@@ -32,7 +34,7 @@ impl VisualizeTools {
         }
     }
 
-    pub(crate) async fn log_splats<B: Backend>(&self, splats: &Splats<B>) -> Result<()> {
+    pub(crate) async fn log_splats<B: Backend>(&self, splats: Splats<B>) -> Result<()> {
         #[cfg(not(target_family = "wasm"))]
         {
             let Some(rec) = self.rec.as_ref() else {
@@ -105,7 +107,7 @@ impl VisualizeTools {
 
             rec.log_static("world", &rerun::ViewCoordinates::RIGHT_HAND_Y_DOWN)?;
 
-            for (i, view) in scene.views().iter().enumerate() {
+            for (i, view) in scene.views.iter().enumerate() {
                 let path = format!("world/dataset/camera/{i}");
                 let (width, height) = (view.image.width(), view.image.height());
 
@@ -124,7 +126,7 @@ impl VisualizeTools {
                 )?;
                 rec.log_static(
                     path + "/image",
-                    &rerun::Image::from_dynamic_image(view.image.clone())?,
+                    &rerun::Image::from_dynamic_image(view.image.as_ref().clone())?,
                 )?;
             }
         }
@@ -154,7 +156,7 @@ impl VisualizeTools {
                 )?;
                 rec.log(
                     format!("eval/render {i}"),
-                    &rerun::Image::from_rgb24(samp.ground_truth.clone().into_bytes(), [w, h]),
+                    &rerun::Image::from_rgb24(samp.ground_truth.as_bytes().to_vec(), [w, h]),
                 )?;
             }
         }
@@ -163,7 +165,7 @@ impl VisualizeTools {
 
     pub async fn log_train_stats<B: AutodiffBackend>(
         &self,
-        splats: &Splats<B>,
+        splats: Splats<B>,
         stats: &TrainStepStats<B>,
         gt_images: Tensor<B, 4>,
     ) -> Result<()> {

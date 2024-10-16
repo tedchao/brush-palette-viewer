@@ -17,7 +17,7 @@ use crate::{
 
 pub(crate) struct ScenePanel {
     pub(crate) backbuffer: BurnTexture,
-    pub(crate) last_draw: Instant,
+    pub(crate) last_draw: Option<Instant>,
     pub(crate) last_message: Option<ViewerMessage>,
 
     queue: Arc<wgpu::Queue>,
@@ -36,7 +36,7 @@ impl ScenePanel {
     ) -> Self {
         Self {
             backbuffer: BurnTexture::new(),
-            last_draw: Instant::now(),
+            last_draw: None,
             last_message: None,
             queue,
             device,
@@ -83,17 +83,20 @@ impl ScenePanel {
 
         let scrolled = ui.input(|r| r.smooth_scroll_delta).y;
         let cur_time = Instant::now();
-        let delta_time = cur_time - self.last_draw;
-        self.last_draw = cur_time;
 
-        context.controls.pan_orbit_camera(
-            &mut context.camera,
-            pan * 5.0,
-            rotate * 5.0,
-            scrolled * 0.01,
-            glam::vec2(rect.size().x, rect.size().y),
-            delta_time.as_secs_f32(),
-        );
+        if let Some(last_draw) = self.last_draw {
+            let delta_time = cur_time - last_draw;
+
+            context.controls.pan_orbit_camera(
+                &mut context.camera,
+                pan * 5.0,
+                rotate * 5.0,
+                scrolled * 0.01,
+                glam::vec2(rect.size().x, rect.size().y),
+                delta_time.as_secs_f32(),
+            );
+        }
+        self.last_draw = Some(cur_time);
 
         // If this viewport is re-rendering.
         if ui.ctx().has_requested_repaint() {
@@ -137,9 +140,8 @@ impl ViewerPane for ScenePanel {
                 self.last_message = None;
             }
             ViewerMessage::Dataset(d) => {
-                // If this is the firs train scene, copy the initial view as a starting point.
-                if context.dataset.train.views().is_empty() && !d.train.views().is_empty() {
-                    let view = &d.train.views()[0];
+                // Set train view to last loaded camera.
+                if let Some(view) = d.train.views.last() {
                     context.focus_view(&view.camera);
                 }
                 context.dataset = d;
@@ -165,8 +167,6 @@ impl ViewerPane for ScenePanel {
         if let Some(message) = self.last_message.clone() {
             match message {
                 ViewerMessage::StartLoading => {
-                    // TODO: Reset the state.
-                    // self.splat_view = SplatView::new();
                     ui.label("Loading...");
                 }
                 ViewerMessage::Error(e) => {

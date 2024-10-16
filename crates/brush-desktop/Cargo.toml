@@ -24,7 +24,6 @@ wasm-bindgen.workspace = true
 console_error_panic_hook.workspace = true
 web-sys.workspace = true
 wasm-logger.workspace = true
-wasm-bindgen-futures.workspace = true
 
 [features]
 tracy = ["brush-viewer/tracy"]

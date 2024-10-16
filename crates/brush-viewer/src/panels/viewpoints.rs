@@ -23,7 +23,7 @@ impl ViewerPane for ViewpointsPane {
 
     fn ui(&mut self, ui: &mut egui::Ui, context: &mut ViewerContext) -> egui_tiles::UiResponse {
         // Empty scene, nothing to show.
-        if context.dataset.train.views().len() == 0 {
+        if context.dataset.train.views.len() == 0 {
             ui.label("Load a dataset to get started");
             return egui_tiles::UiResponse::None;
         }
@@ -52,7 +52,7 @@ impl ViewerPane for ViewpointsPane {
             dirty |= view.0 != *nearest;
         }
 
-        let view_count = scene.views().len();
+        let view_count = scene.views.len();
 
         ui.horizontal(|ui| {
             let mut sel_view = false;
@@ -75,8 +75,8 @@ impl ViewerPane for ViewpointsPane {
             }
 
             if sel_view {
-                let view = &context.dataset.train.views()[*nearest];
-                context.focus_view(&view.camera);
+                let camera = &context.dataset.train.views[*nearest].camera.clone();
+                context.focus_view(camera);
             }
 
             ui.add_space(10.0);
@@ -95,7 +95,7 @@ impl ViewerPane for ViewpointsPane {
         });
 
         if dirty {
-            let view = &scene.views()[*nearest];
+            let view = &scene.views[*nearest];
             let color_img = egui::ColorImage::from_rgb(
                 [view.image.width() as usize, view.image.height() as usize],
                 &view.image.to_rgb8().into_vec(),
@@ -109,7 +109,7 @@ impl ViewerPane for ViewpointsPane {
 
         if let Some(view) = self.selected_view.as_ref() {
             ui.add(egui::Image::new(&view.1).shrink_to_fit());
-            ui.label(&scene.views()[*nearest].name);
+            ui.label(&scene.views[*nearest].name);
         }
 
         egui_tiles::UiResponse::None

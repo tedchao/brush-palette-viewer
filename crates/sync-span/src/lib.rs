@@ -32,10 +32,7 @@ where
             if metadata.is_span() && metadata.fields().field("sync_burn").is_some() {
                 let _span = info_span!("GPU Wait", name = metadata.name()).entered();
 
-                <Wgpu as burn::prelude::Backend>::sync(
-                    &self.device,
-                    burn::tensor::backend::SyncType::Wait,
-                );
+                <Wgpu as burn::prelude::Backend>::sync(&self.device);
             }
         }
     }

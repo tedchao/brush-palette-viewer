@@ -29,8 +29,6 @@ ply-rs.workspace = true
 tracing-subscriber.workspace = true
 
 web-time.workspace = true
-futures-lite.workspace = true
-async-channel.workspace = true
 
 log.workspace = true
 
@@ -42,6 +40,7 @@ sync-span.path = "../sync-span"
 
 zip.workspace = true
 async-fn-stream.workspace = true
+async-std.workspace = true
 
 parking_lot.workspace = true
 
@@ -50,10 +49,8 @@ rerun.workspace = true
 brush-rerun.path = "../brush-rerun"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-wasm-bindgen-futures.workspace = true
 tracing-wasm.workspace = true
 web-sys.workspace = true
-gloo-timers.workspace = true
 
 [features]
 tracy = ["dep:tracing-tracy", "tracing"]

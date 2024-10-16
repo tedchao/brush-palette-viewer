@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use brush_render::RenderAux;
 use brush_render::{gaussian_splats::Splats, Backend};
 use burn::tensor::ElementConversion;
@@ -11,7 +13,7 @@ use crate::scene::Scene;
 pub struct EvalView {
     pub psnr: f32,
     pub rendered: DynamicImage,
-    pub ground_truth: DynamicImage,
+    pub ground_truth: Arc<DynamicImage>,
     pub aux: RenderAux,
 }
 
@@ -20,21 +22,21 @@ pub struct EvalStats {
 }
 
 pub async fn eval_stats<B: Backend>(
-    splats: &Splats<B>,
+    splats: Splats<B>,
     eval_scene: &Scene,
     num_frames: Option<usize>,
     device: &B::Device,
 ) -> EvalStats {
     let indices = if let Some(num) = num_frames {
         let mut rng = rand::thread_rng();
-        (0..eval_scene.views().len()).choose_multiple(&mut rng, num)
+        (0..eval_scene.views.len()).choose_multiple(&mut rng, num)
     } else {
-        (0..eval_scene.views().len()).collect()
+        (0..eval_scene.views.len()).collect()
     };
 
     let eval_views: Vec<_> = indices
         .into_iter()
-        .map(|i| eval_scene.views()[i].clone())
+        .map(|i| eval_scene.views[i].clone())
         .collect();
 
     let mut ret = vec![];

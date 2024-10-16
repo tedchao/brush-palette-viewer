@@ -1,4 +1,5 @@
-use async_channel::Receiver;
+use async_std::channel::Receiver;
+use async_std::task;
 use brush_render::Backend;
 use brush_train::image::image_to_tensor;
 use brush_train::scene::Scene;
@@ -13,9 +14,9 @@ impl<B: Backend> SceneLoader<B> {
     pub fn new(scene: &Scene, batch_size: usize, device: &B::Device) -> Self {
         let scene = scene.clone();
         // Bound == number of batches to prefix.
-        let (tx, rx) = async_channel::bounded(5);
+        let (tx, rx) = async_std::channel::bounded(5);
         let device = device.clone();
-        let len = scene.views().len();
+        let len = scene.views.len();
 
         let fut = async move {
             let mut index = 0;
@@ -26,11 +27,11 @@ impl<B: Backend> SceneLoader<B> {
                     .collect();
                 let cameras = indexes
                     .iter()
-                    .map(|&x| scene.views()[x].camera.clone())
+                    .map(|&x| scene.views[x].camera.clone())
                     .collect();
                 let selected_tensors = indexes
                     .iter()
-                    .map(|&x| image_to_tensor(&scene.views()[x].image, &device))
+                    .map(|&x| image_to_tensor(&scene.views[x].image, &device))
                     .collect::<Vec<_>>();
 
                 let batch_tensor = Tensor::stack(selected_tensors, 0);
@@ -48,12 +49,7 @@ impl<B: Backend> SceneLoader<B> {
             }
         };
 
-        #[cfg(not(target_arch = "wasm32"))]
-        std::thread::spawn(|| futures_lite::future::block_on(fut));
-
-        #[cfg(target_arch = "wasm32")]
-        wasm_bindgen_futures::spawn_local(fut);
-
+        task::spawn(fut);
         Self { receiver: rx }
     }
 

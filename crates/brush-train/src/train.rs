@@ -181,65 +181,9 @@ where
     }
 
     pub(crate) fn reset_opacity(&self, splats: &mut Splats<B>) {
-        Splats::map_param(&mut splats.raw_opacity, |op| {
-            Tensor::zeros_like(&op) + self.config.cull_alpha_thresh * 2.0
-        });
-    }
-
-    // Prunes points based on the given mask.
-    //
-    // Args:
-    //   mask: bool[n]. If True, prune this Gaussian.
-    pub async fn prune_points(&mut self, splats: &mut Splats<B>, prune: Tensor<B, 1, Bool>) {
-        // bool[n]. If True, delete these Gaussians.
-        let prune_count = prune.dims()[0];
-
-        if prune_count == 0 {
-            return;
-        }
-
-        let prune = if prune_count < splats.num_splats() {
-            Tensor::cat(
-                vec![
-                    prune,
-                    Tensor::<B, 1>::zeros(
-                        [splats.num_splats() - prune_count],
-                        &splats.means.device(),
-                    )
-                    .bool(),
-                ],
-                0,
-            )
-        } else {
-            prune
-        };
-
-        let valid_inds = prune.bool_not().argwhere_async().await.squeeze(1);
-
-        let start_splats = splats.num_splats();
-        let new_points = valid_inds.dims()[0];
-
-        if new_points < start_splats {
-            self.grad_2d_accum = self.grad_2d_accum.clone().select(0, valid_inds.clone());
-
-            self.xy_grad_counts = self.xy_grad_counts.clone().select(0, valid_inds.clone());
-
-            splats.means = splats.means.clone().map(|x| {
-                Tensor::from_inner(x.select(0, valid_inds.clone()).inner()).require_grad()
-            });
-            splats.sh_coeffs = splats.sh_coeffs.clone().map(|x| {
-                Tensor::from_inner(x.select(0, valid_inds.clone()).inner()).require_grad()
-            });
-            splats.rotation = splats.rotation.clone().map(|x| {
-                Tensor::from_inner(x.select(0, valid_inds.clone()).inner()).require_grad()
-            });
-            splats.raw_opacity = splats.raw_opacity.clone().map(|x| {
-                Tensor::from_inner(x.select(0, valid_inds.clone()).inner()).require_grad()
-            });
-            splats.log_scales = splats.log_scales.clone().map(|x| {
-                Tensor::from_inner(x.select(0, valid_inds.clone()).inner()).require_grad()
-            });
-        }
+        let inv_sigmoid = |x: f32| (x / (1.0 - x)).ln();
+        let base = inv_sigmoid(self.config.cull_alpha_thresh * 0.5);
+        Splats::map_param(&mut splats.raw_opacity, |op| Tensor::zeros_like(&op) + base);
     }
 
     pub async fn step(
@@ -248,8 +192,10 @@ where
         background_color: glam::Vec3,
         splats: Splats<B>,
     ) -> Result<(Splats<B>, TrainStepStats<B>), anyhow::Error> {
+        let mut splats = splats;
+
         let device = &splats.means.device();
-        let _span = trace_span!("Train step").entered();
+        // let _span = trace_span!("Train step").entered();
 
         let [batch_size, img_h, img_w, _] = batch.gt_images.dims();
 
@@ -299,35 +245,10 @@ where
             (pred_images, auxes, loss)
         };
 
-        let mut grads = trace_span!("Backward pass", sync_burn = true).in_scope(|| loss.backward());
-
-        let mut splats = trace_span!("Optimizer step", sync_burn = true).in_scope(|| {
-            let mut splats = splats;
-            let grad_means = GradientsParams::from_params(&mut grads, &splats, &[splats.means.id]);
-            splats = self.optim.step(self.sched_mean.step(), splats, grad_means);
-
-            let grad_opac =
-                GradientsParams::from_params(&mut grads, &splats, &[splats.raw_opacity.id]);
-            splats = self.optim.step(self.config.lr_opac, splats, grad_opac);
-
-            let grad_coeff =
-                GradientsParams::from_params(&mut grads, &splats, &[splats.sh_coeffs.id]);
-            splats = self.optim.step(self.config.lr_coeffs, splats, grad_coeff);
-
-            let grad_rot = GradientsParams::from_params(&mut grads, &splats, &[splats.rotation.id]);
-            splats = self.optim.step(self.config.lr_rotation, splats, grad_rot);
-
-            let grad_scale =
-                GradientsParams::from_params(&mut grads, &splats, &[splats.log_scales.id]);
-            splats = self.optim.step(self.config.lr_scale, splats, grad_scale);
-
-            // Make sure rotations are still valid after optimization step.
-            splats.norm_rotations();
-            splats
-        });
-
         let max_refine_step =
             (self.config.stop_refine_percent * self.config.total_steps as f32) as u32;
+
+        let mut grads = trace_span!("Backward pass", sync_burn = true).in_scope(|| loss.backward());
 
         if self.iter < max_refine_step {
             trace_span!("Housekeeping", sync_burn = true).in_scope(|| {
@@ -353,26 +274,43 @@ where
                 }
             });
 
-            if self.iter > self.config.warmup_steps && self.iter % self.config.refine_every == 0 {
-                // Remove barely visible gaussians.
-                let alpha_mask = burn::tensor::activation::sigmoid(splats.raw_opacity.val())
-                    .lower_elem(self.config.cull_alpha_thresh);
-                self.prune_points(&mut splats, alpha_mask).await;
+            splats = trace_span!("Optimizer step", sync_burn = true).in_scope(|| {
+                let mut splats = splats;
+                let grad_means =
+                    GradientsParams::from_params(&mut grads, &splats, &[splats.means.id]);
+                splats = self.optim.step(self.sched_mean.step(), splats, grad_means);
 
-                // Delete Gaussians with too large of a radius in world-units.
-                let scale_mask = splats
-                    .log_scales
-                    .val()
-                    .exp()
-                    .max_dim(1)
-                    .squeeze(1)
-                    .greater_elem(self.config.cull_scale_thresh);
-                self.prune_points(&mut splats, scale_mask).await;
+                let grad_opac =
+                    GradientsParams::from_params(&mut grads, &splats, &[splats.raw_opacity.id]);
+                splats = self.optim.step(self.config.lr_opac, splats, grad_opac);
 
-                let grads =
-                    self.grad_2d_accum.clone() / self.xy_grad_counts.clone().clamp_min(1).float();
+                let grad_coeff =
+                    GradientsParams::from_params(&mut grads, &splats, &[splats.sh_coeffs.id]);
+                splats = self.optim.step(self.config.lr_coeffs, splats, grad_coeff);
+
+                let grad_rot =
+                    GradientsParams::from_params(&mut grads, &splats, &[splats.rotation.id]);
+                splats = self.optim.step(self.config.lr_rotation, splats, grad_rot);
+
+                let grad_scale =
+                    GradientsParams::from_params(&mut grads, &splats, &[splats.log_scales.id]);
+                splats = self.optim.step(self.config.lr_scale, splats, grad_scale);
+
+                // Make sure rotations are still valid after optimization step.
+                splats.norm_rotations();
+                splats
+            });
+
+            if self.iter >= self.config.warmup_steps && self.iter % self.config.refine_every == 0 {
+                let grads = self.grad_2d_accum.clone()
+                    / self.xy_grad_counts.clone().clamp(1, i32::MAX).float();
 
                 let big_grad_mask = grads.greater_equal_elem(self.config.densify_grad_thresh);
+
+                // TODO: Carry adam state.
+                // let optim_record = self.optim.to_record();
+                // let means = splats.means.val();
+                // let means_state = optim_record[&splats.means.id].into_state();
 
                 let split_clone_size_mask = splats
                     .log_scales
@@ -382,68 +320,105 @@ where
                     .squeeze(1)
                     .lower_elem(self.config.densify_size_thresh);
 
-                let clone_mask = Tensor::stack::<2>(
+                let mut append_means = vec![];
+                let mut append_rots = vec![];
+                let mut append_coeffs = vec![];
+                let mut append_opac = vec![];
+                let mut append_scales = vec![];
+
+                let clone_inds = Tensor::stack::<2>(
                     vec![split_clone_size_mask.clone(), big_grad_mask.clone()],
                     1,
                 )
                 .all_dim(1)
-                .squeeze::<1>(1);
+                .squeeze::<1>(1)
+                .argwhere_async()
+                .await;
 
-                let clone_where = clone_mask.clone().argwhere_async().await;
-                tracing::info!("Cloning {} gaussians", clone_where.dims()[0]);
-
-                if clone_where.dims()[0] > 0 {
-                    let clone_inds = clone_where.squeeze(1);
-                    let new_means = splats.means.val().select(0, clone_inds.clone());
-                    let new_rots = splats.rotation.val().select(0, clone_inds.clone());
-                    let new_coeffs = splats.sh_coeffs.val().select(0, clone_inds.clone());
-                    let new_opac = splats.raw_opacity.val().select(0, clone_inds.clone());
-                    let new_scales = splats.log_scales.val().select(0, clone_inds.clone());
-                    splats.concat_splats(new_means, new_rots, new_coeffs, new_opac, new_scales);
+                let clone_count = clone_inds.dims()[0];
+                if clone_count > 0 {
+                    let clone_inds = clone_inds.squeeze(1);
+                    append_means.push(splats.means.val().select(0, clone_inds.clone()));
+                    append_rots.push(splats.rotation.val().select(0, clone_inds.clone()));
+                    append_coeffs.push(splats.sh_coeffs.val().select(0, clone_inds.clone()));
+                    append_opac.push(splats.raw_opacity.val().select(0, clone_inds.clone()));
+                    append_scales.push(splats.log_scales.val().select(0, clone_inds.clone()));
                 }
 
-                let split_mask =
+                let split_inds =
                     Tensor::stack::<2>(vec![split_clone_size_mask.bool_not(), big_grad_mask], 1)
                         .all_dim(1)
-                        .squeeze::<1>(1);
-                let split_where = split_mask.clone().argwhere_async().await;
-                tracing::info!("Splitting {} gaussians", split_where.dims()[0]);
+                        .squeeze::<1>(1)
+                        .argwhere_async()
+                        .await;
 
-                if split_where.dims()[0] > 0 {
-                    let split_inds = split_where.squeeze(1);
-                    let samps = split_inds.dims()[0];
-
+                let split_count = split_inds.dims()[0];
+                if split_count > 0 {
+                    let split_inds = split_inds.squeeze(1);
                     let cur_means = splats.means.val().select(0, split_inds.clone());
-                    let cur_rots = splats.rotation.val().select(0, split_inds.clone());
                     let cur_coeff = splats.sh_coeffs.val().select(0, split_inds.clone());
                     let cur_opac = splats.raw_opacity.val().select(0, split_inds.clone());
-                    let cur_scale = splats.log_scales.val().select(0, split_inds.clone()).exp();
-
-                    let new_rots = cur_rots.repeat_dim(0, 2);
+                    let cur_scale = splats.log_scales.val().select(0, split_inds.clone());
+                    let cur_rots = splats.rotation.val().select(0, split_inds.clone());
 
                     let samples = quaternion_vec_multiply(
-                        new_rots.clone(),
-                        Tensor::random([samps * 2, 3], Distribution::Normal(0.0, 1.0), device)
-                            * cur_scale.clone().repeat_dim(0, 2).clone(),
+                        cur_rots.clone(),
+                        Tensor::random([split_count, 3], Distribution::Normal(0.0, 1.0), device)
+                            * cur_scale.clone().exp(),
                     );
 
-                    let new_means = cur_means.repeat_dim(0, 2) + samples;
-                    let new_coeffs = cur_coeff.repeat_dim(0, 2);
-                    let new_opac = cur_opac.repeat_dim(0, 2);
-                    let new_scales = (cur_scale / 1.6).log().repeat_dim(0, 2);
+                    // TODO: Should also modify the old splat to be smaller & shifted.
 
-                    splats.concat_splats(new_means, new_rots, new_coeffs, new_opac, new_scales);
-
-                    // Nb: these indices still line up as so far we've only concatenated data.
-                    self.prune_points(&mut splats, split_mask.clone()).await;
+                    append_means.push(cur_means.clone() + samples);
+                    append_rots.push(cur_rots.clone());
+                    append_coeffs.push(cur_coeff.clone());
+                    append_opac.push(cur_opac);
+                    append_scales.push((cur_scale.exp() / 1.6).log());
                 }
 
+                let append_means = Tensor::cat(append_means, 0);
+                let append_rots = Tensor::cat(append_rots, 0);
+                let append_coeffs = Tensor::cat(append_coeffs, 0);
+                let append_opac = Tensor::cat(append_opac, 0);
+                let append_scales = Tensor::cat(append_scales, 0);
+
+                concat_splats(
+                    &mut splats,
+                    append_means,
+                    append_rots,
+                    append_coeffs,
+                    append_opac,
+                    append_scales,
+                );
+
+                // Do some more processing. Important to do this last as otherwise you might mess up the correspondence
+                // of gradient <-> splat.
+
+                // Remove barely visible gaussians.
+                let alpha_mask = burn::tensor::activation::sigmoid(splats.raw_opacity.val())
+                    .lower_elem(self.config.cull_alpha_thresh);
+                prune_points(&mut splats, alpha_mask).await;
+
+                // Delete Gaussians with too large of a radius in world-units.
+                let scale_mask = splats
+                    .log_scales
+                    .val()
+                    .exp()
+                    .max_dim(1)
+                    .squeeze(1)
+                    .greater_elem(self.config.cull_scale_thresh);
+                prune_points(&mut splats, scale_mask).await;
+
+                // Stats don't line up anymore so have to reset them.
+                self.reset_stats(splats.num_splats(), device);
+
+                // TODO: Want to do state surgery and keep momenta for splats.
+                self.optim = self.opt_config.init();
+
+                // Nb: th
                 if self.iter % (self.config.refine_every * self.config.reset_alpha_every) == 0 {
                     self.reset_opacity(&mut splats);
                 }
-
-                self.reset_stats(splats.num_splats(), device);
-                self.optim = self.opt_config.init::<B, Splats<B>>();
             }
         }
 
@@ -459,4 +434,69 @@ where
 
         Ok((splats, stats))
     }
+}
+
+// Prunes points based on the given mask.
+//
+// Args:
+//   mask: bool[n]. If True, prune this Gaussian.
+pub async fn prune_points<B: AutodiffBackend>(splats: &mut Splats<B>, prune: Tensor<B, 1, Bool>) {
+    // bool[n]. If True, delete these Gaussians.
+    let prune_count = prune.dims()[0];
+
+    if prune_count == 0 {
+        return;
+    }
+
+    let valid_inds = prune.bool_not().argwhere_async().await.squeeze(1);
+    let start_splats = splats.num_splats();
+    let new_points = valid_inds.dims()[0];
+
+    if new_points < start_splats {
+        splats.means = splats
+            .means
+            .clone()
+            .map(|x| Tensor::from_inner(x.select(0, valid_inds.clone()).inner()).require_grad());
+        splats.sh_coeffs = splats
+            .sh_coeffs
+            .clone()
+            .map(|x| Tensor::from_inner(x.select(0, valid_inds.clone()).inner()).require_grad());
+        splats.rotation = splats
+            .rotation
+            .clone()
+            .map(|x| Tensor::from_inner(x.select(0, valid_inds.clone()).inner()).require_grad());
+        splats.raw_opacity = splats
+            .raw_opacity
+            .clone()
+            .map(|x| Tensor::from_inner(x.select(0, valid_inds.clone()).inner()).require_grad());
+        splats.log_scales = splats
+            .log_scales
+            .clone()
+            .map(|x| Tensor::from_inner(x.select(0, valid_inds.clone()).inner()).require_grad());
+    }
+}
+
+pub fn concat_splats<B: AutodiffBackend>(
+    splats: &mut Splats<B>,
+    means: Tensor<B, 2>,
+    rotations: Tensor<B, 2>,
+    sh_coeffs: Tensor<B, 2>,
+    raw_opacities: Tensor<B, 1>,
+    log_scales: Tensor<B, 2>,
+) {
+    Splats::map_param(&mut splats.means, |x| {
+        Tensor::cat(vec![x, means.clone()], 0)
+    });
+    Splats::map_param(&mut splats.rotation, |x| {
+        Tensor::cat(vec![x, rotations.clone()], 0)
+    });
+    Splats::map_param(&mut splats.sh_coeffs, |x| {
+        Tensor::cat(vec![x, sh_coeffs.clone()], 0)
+    });
+    Splats::map_param(&mut splats.raw_opacity, |x| {
+        Tensor::cat(vec![x, raw_opacities.clone()], 0)
+    });
+    Splats::map_param(&mut splats.log_scales, |x| {
+        Tensor::cat(vec![x, log_scales.clone()], 0)
+    });
 }

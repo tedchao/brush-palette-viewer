@@ -27,7 +27,7 @@ fn copy_buffer_to_texture(
         img
     };
 
-    padded.client.sync(burn::tensor::backend::SyncType::Flush);
+    padded.client.flush();
     let img_res = padded.client.get_resource(padded.handle.clone().binding());
 
     // Put compute passes in encoder before copying the buffer.

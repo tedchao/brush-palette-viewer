@@ -15,7 +15,7 @@ pub async fn pick_file_rfd() -> Result<PickedFile> {
     let file = rfd::AsyncFileDialog::new()
         .pick_file()
         .await
-        .context("Failed to pick file")?;
+        .context("No file selected")?;
 
     let file_data = file.read().await;
 

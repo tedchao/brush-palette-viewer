@@ -179,10 +179,7 @@ fn bench_general(
                 let _ = out.0.mean().backward();
             }
             // Wait for GPU work.
-            <PrimaryBackend as burn::prelude::Backend>::sync(
-                &WgpuDevice::BestAvailable,
-                burn::tensor::backend::SyncType::Wait,
-            );
+            <PrimaryBackend as burn::prelude::Backend>::sync(&WgpuDevice::BestAvailable);
         });
     } else {
         // Run with no autodiff graph.
@@ -193,10 +190,7 @@ fn bench_general(
                 let _ = splats.render(&camera, resolution, glam::vec3(0.0, 0.0, 0.0), true);
             }
             // Wait for GPU work.
-            <PrimaryBackend as burn::prelude::Backend>::sync(
-                &WgpuDevice::BestAvailable,
-                burn::tensor::backend::SyncType::Wait,
-            );
+            <PrimaryBackend as burn::prelude::Backend>::sync(&WgpuDevice::BestAvailable);
         });
     }
 }

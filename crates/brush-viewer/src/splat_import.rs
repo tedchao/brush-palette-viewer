@@ -1,10 +1,10 @@
 use async_fn_stream::try_fn_stream;
+use async_std::stream::Stream;
 use brush_render::{render::num_sh_coeffs, Backend};
 use burn::{
     module::{Param, ParamId},
     tensor::{Tensor, TensorData},
 };
-use futures_lite::Stream;
 use ply_rs::{
     parser::Parser,
     ply::{Property, PropertyAccess},
@@ -81,29 +81,43 @@ fn update_splats<B: Backend>(
     means: Vec<f32>,
     sh_coeffs: Vec<f32>,
     rotation: Vec<f32>,
-    opacity: Vec<f32>,
-    scales: Vec<f32>,
+    raw_opacities: Vec<f32>,
+    log_scales: Vec<f32>,
     device: &B::Device,
 ) {
     let n_splats = means.len() / 3;
     let n_coeffs = sh_coeffs.len() / n_splats;
 
-    let new_means = Tensor::from_data(TensorData::new(means, [n_splats, 3]), device);
-    let new_coeffs = Tensor::from_data(TensorData::new(sh_coeffs, [n_splats, n_coeffs]), device);
-    let new_rots = Tensor::from_data(TensorData::new(rotation, [n_splats, 4]), device);
-    let new_opac = Tensor::from_data(TensorData::new(opacity, [n_splats]), device);
-    let new_scales = Tensor::from_data(TensorData::new(scales, [n_splats, 3]), device);
+    let means = Tensor::from_data(TensorData::new(means, [n_splats, 3]), device);
+    let sh_coeffs = Tensor::from_data(TensorData::new(sh_coeffs, [n_splats, n_coeffs]), device);
+    let rotations = Tensor::from_data(TensorData::new(rotation, [n_splats, 4]), device);
+    let raw_opacities = Tensor::from_data(TensorData::new(raw_opacities, [n_splats]), device);
+    let log_scales = Tensor::from_data(TensorData::new(log_scales, [n_splats, 3]), device);
 
     if let Some(splats) = splats.as_mut() {
-        splats.concat_splats(new_means, new_rots, new_coeffs, new_opac, new_scales);
+        Splats::map_param(&mut splats.means, |x| {
+            Tensor::cat(vec![x, means.clone()], 0)
+        });
+        Splats::map_param(&mut splats.rotation, |x| {
+            Tensor::cat(vec![x, rotations.clone()], 0)
+        });
+        Splats::map_param(&mut splats.sh_coeffs, |x| {
+            Tensor::cat(vec![x, sh_coeffs.clone()], 0)
+        });
+        Splats::map_param(&mut splats.raw_opacity, |x| {
+            Tensor::cat(vec![x, raw_opacities.clone()], 0)
+        });
+        Splats::map_param(&mut splats.log_scales, |x| {
+            Tensor::cat(vec![x, log_scales.clone()], 0)
+        });
         splats.norm_rotations();
     } else {
         let mut init = Splats {
-            means: Param::initialized(ParamId::new(), new_means),
-            sh_coeffs: Param::initialized(ParamId::new(), new_coeffs),
-            rotation: Param::initialized(ParamId::new(), new_rots),
-            raw_opacity: Param::initialized(ParamId::new(), new_opac),
-            log_scales: Param::initialized(ParamId::new(), new_scales),
+            means: Param::initialized(ParamId::new(), means),
+            sh_coeffs: Param::initialized(ParamId::new(), sh_coeffs),
+            rotation: Param::initialized(ParamId::new(), rotations),
+            raw_opacity: Param::initialized(ParamId::new(), raw_opacities),
+            log_scales: Param::initialized(ParamId::new(), log_scales),
             xys_dummy: Tensor::zeros([n_splats, 2], device),
         };
         init.norm_rotations();

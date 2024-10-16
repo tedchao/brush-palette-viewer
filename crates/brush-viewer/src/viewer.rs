@@ -1,15 +1,16 @@
+use async_std::channel::{Receiver, Sender};
+use async_std::stream::StreamExt;
+use async_std::task;
 use brush_render::camera::Camera;
 use glam::{Quat, Vec3};
 use std::sync::Arc;
 
 use anyhow::Context;
-use async_channel::{Receiver, Sender};
 use brush_render::gaussian_splats::Splats;
 use brush_render::PrimaryBackend;
 use burn_wgpu::{RuntimeOptions, Wgpu, WgpuDevice};
 use egui::Hyperlink;
 use egui_tiles::Tiles;
-use futures_lite::StreamExt;
 use web_time::Instant;
 
 use brush_dataset::{self, Dataset, ZipData};
@@ -67,9 +68,8 @@ async fn process_loop(
     egui_ctx: egui::Context,
     train_args: TrainArgs,
 ) -> anyhow::Result<()> {
-    let picked = rrfd::pick_file().await?;
-
     let _ = sender.send(ViewerMessage::StartLoading).await;
+    let picked = rrfd::pick_file().await?;
 
     if picked.file_name.contains(".ply") {
         load_ply_loop(&picked.data, device, sender, egui_ctx).await
@@ -134,14 +134,12 @@ impl ViewerContext {
     }
 
     pub fn focus_view(&mut self, cam: &Camera) {
-        // TODO: How to control scene view.... ?
         self.camera = cam.clone();
-
-        let scale = 0.5 / (2.0f32.sqrt());
-
-        // TODO: Figure out a better focus.
-        self.controls.focus = cam.position
-            + cam.rotation * glam::Vec3::Z * self.dataset.train.bounds(0.0).extent.length() * scale;
+        self.controls.focus = self.camera.position
+            + self.camera.rotation
+                * glam::Vec3::Z
+                * self.dataset.train.bounds(0.0).extent.length()
+                * 0.5;
     }
 
     pub(crate) fn start_data_load(&mut self, args: TrainArgs) {
@@ -151,21 +149,15 @@ impl ViewerContext {
         let ctx = self.ctx.clone();
 
         // create a channel for the train loop.
-        let (sender, receiver) = async_channel::bounded(2);
+        let (sender, receiver) = async_std::channel::bounded(2);
         self.receiver = Some(receiver);
         self.dataset = Dataset::empty();
 
-        let inner_process_loop = move || async move {
+        task::spawn(async move {
             if let Err(e) = process_loop(device, sender.clone(), ctx, args).await {
                 let _ = sender.send(ViewerMessage::Error(Arc::new(e))).await;
             }
-        };
-
-        #[cfg(not(target_arch = "wasm32"))]
-        std::thread::spawn(move || futures_lite::future::block_on(inner_process_loop()));
-
-        #[cfg(target_arch = "wasm32")]
-        wasm_bindgen_futures::spawn_local(inner_process_loop());
+        });
     }
 }
 
