@@ -2,6 +2,8 @@ use async_std::channel::{Receiver, Sender};
 use async_std::stream::StreamExt;
 use brush_render::camera::Camera;
 use brush_train::spawn_future;
+use brush_train::train::TrainStepStats;
+use burn::backend::Autodiff;
 use glam::{Quat, Vec3};
 use std::sync::Arc;
 
@@ -16,11 +18,16 @@ use web_time::Instant;
 use brush_dataset::{self, Dataset, ZipData};
 
 use crate::orbit_controls::OrbitControls;
-use crate::panels::{LoadDataPanel, ScenePanel, StatsPanel, ViewpointsPane};
+use crate::panels::{DatasetPanel, LoadDataPanel, RerunPanel, ScenePanel, StatsPanel};
 use crate::train_loop::TrainArgs;
 use crate::{splat_import, train_loop, PaneType, ViewerTree};
 
 use eframe::egui;
+
+struct TrainStats {
+    loss: f32,
+    train_image_index: usize,
+}
 
 #[derive(Clone)]
 pub(crate) enum ViewerMessage {
@@ -36,11 +43,14 @@ pub(crate) enum ViewerMessage {
         total_count: usize,
     },
     /// Loaded a bunch of viewpoints to train on.
-    Dataset(Dataset),
+    Dataset {
+        data: Dataset,
+        final_data: bool,
+    },
     /// Some number of training steps are done.
     TrainStep {
-        splats: Splats<PrimaryBackend>,
-        loss: f32,
+        splats: Splats<Autodiff<PrimaryBackend>>,
+        stats: TrainStepStats<Autodiff<PrimaryBackend>>,
         iter: u32,
         timestamp: Instant,
     },
@@ -199,7 +209,9 @@ impl Viewer {
         let context = ViewerContext::new(device.clone(), cc.egui_ctx.clone());
 
         let data_pane = LoadDataPanel::new();
-        let viewpoints_pane = ViewpointsPane::new();
+        let dataset_panel = DatasetPanel::new();
+
+        let dataset_panel = tiles.insert_pane(Box::new(dataset_panel));
 
         let scene_pane = ScenePanel::new(
             state.queue.clone(),
@@ -207,12 +219,14 @@ impl Viewer {
             state.renderer.clone(),
         );
 
-        let stats_panel = StatsPanel::new(device);
+        let stats_panel = StatsPanel::new(device.clone());
+        let rerun_panel = RerunPanel::new(device.clone());
 
         let sides = vec![
             tiles.insert_pane(Box::new(data_pane)),
-            tiles.insert_pane(Box::new(viewpoints_pane)),
             tiles.insert_pane(Box::new(stats_panel)),
+            #[cfg(not(target_family = "wasm"))]
+            tiles.insert_pane(Box::new(rerun_panel)),
             #[cfg(feature = "tracing")]
             tiles.insert_pane(Box::new(TracingPanel::default())),
         ];
@@ -223,7 +237,7 @@ impl Viewer {
 
         let mut lin = egui_tiles::Linear::new(
             egui_tiles::LinearDir::Horizontal,
-            vec![side_panel, scene_pane_id],
+            vec![side_panel, scene_pane_id, dataset_panel],
         );
         lin.shares.set_share(side_panel, 0.25);
 

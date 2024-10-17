@@ -16,9 +16,9 @@ mod train_loop;
 pub mod viewer;
 pub mod wgpu_config;
 
-trait ViewerPane {
+trait ViewerPanel {
     fn title(&self) -> String;
-    fn ui(&mut self, ui: &mut egui::Ui, controls: &mut ViewerContext) -> egui_tiles::UiResponse;
+    fn ui(&mut self, ui: &mut egui::Ui, controls: &mut ViewerContext);
     fn on_message(&mut self, message: ViewerMessage, context: &mut ViewerContext) {
         let _ = message;
         let _ = context;
@@ -29,7 +29,7 @@ struct ViewerTree {
     context: ViewerContext,
 }
 
-type PaneType = Box<dyn ViewerPane>;
+type PaneType = Box<dyn ViewerPanel>;
 
 impl egui_tiles::Behavior<PaneType> for ViewerTree {
     fn tab_title_for_pane(&mut self, pane: &PaneType) -> egui::WidgetText {
@@ -42,7 +42,8 @@ impl egui_tiles::Behavior<PaneType> for ViewerTree {
         _tile_id: egui_tiles::TileId,
         pane: &mut PaneType,
     ) -> egui_tiles::UiResponse {
-        pane.ui(ui, &mut self.context)
+        pane.ui(ui, &mut self.context);
+        egui_tiles::UiResponse::None
     }
 
     /// What are the rules for simplifying the tree?

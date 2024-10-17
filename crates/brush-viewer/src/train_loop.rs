@@ -10,7 +10,7 @@ use brush_render::{gaussian_splats::RandomSplatsConfig, PrimaryBackend};
 use brush_train::train::{SplatTrainer, TrainConfig};
 use burn::{
     backend::Autodiff, lr_scheduler::exponential::ExponentialLrSchedulerConfig,
-    module::AutodiffModule, tensor::ElementConversion,
+    module::AutodiffModule,
 };
 use burn_wgpu::WgpuDevice;
 use web_time::Instant;
@@ -82,15 +82,32 @@ pub(crate) async fn train_loop(
         dataset = d?;
 
         if sender
-            .send(ViewerMessage::Dataset(dataset.clone()))
+            .send(ViewerMessage::Dataset {
+                data: dataset.clone(),
+                final_data: false,
+            })
             .await
             .is_err()
         {
-            anyhow::bail!("Failed to send dataset")
+            anyhow::bail!("Channel closed");
         }
 
         egui_ctx.request_repaint();
     }
+
+    // Resend last dataset now that we know it's final one.
+    if sender
+        .send(ViewerMessage::Dataset {
+            data: dataset.clone(),
+            final_data: true,
+        })
+        .await
+        .is_err()
+    {
+        anyhow::bail!("Channel closed");
+    }
+
+    egui_ctx.request_repaint();
 
     let mut splats = if let Some(splats) = initial_splats {
         splats
@@ -112,9 +129,6 @@ pub(crate) async fn train_loop(
     let config = TrainConfig::new(ExponentialLrSchedulerConfig::new(lr_max, decay))
         .with_total_steps(total_steps);
 
-    let visualize = crate::visualize::VisualizeTools::new();
-    visualize.log_scene(&train_scene)?;
-
     let mut dataloader = SceneLoader::new(&train_scene, 1, &device);
     let mut trainer = SplatTrainer::new(splats.num_splats(), &config, &splats);
 
@@ -128,38 +142,19 @@ pub(crate) async fn train_loop(
         //     continue;
         // }
         //
-        if let Some(eval_scene) = dataset.eval.as_ref() {
-            if trainer.iter % config.eval_every == 0 {
-                let eval =
-                    brush_train::eval::eval_stats(splats.clone(), eval_scene, Some(4), &device)
-                        .await;
-                visualize.log_eval_stats(trainer.iter, &eval)?;
-            }
-        }
-
-        if trainer.iter % config.visualize_splats_every == 0 {
-            visualize.log_splats(splats.clone()).await?;
-        }
 
         let batch = {
             // let _span = trace_span!("Get batch").entered();
             dataloader.next_batch().await
         };
-        let gt_image = batch.gt_images.clone();
         let (new_splats, stats) = trainer.step(batch, train_scene.background, splats).await?;
 
         splats = new_splats;
-        if trainer.iter % config.visualize_splats_every == 0 {
-            visualize
-                .log_train_stats(splats.clone(), &stats, gt_image)
-                .await?;
-        }
-        if trainer.iter % 5 == 0 {
-            // let _span = trace_span!("Send batch").entered();
 
+        if trainer.iter % 5 == 0 {
             let msg = ViewerMessage::TrainStep {
-                splats: splats.valid(),
-                loss: stats.loss.into_scalar_async().await.elem::<f32>(),
+                splats: splats.clone(),
+                stats,
                 iter: trainer.iter,
                 timestamp: Instant::now(),
             };

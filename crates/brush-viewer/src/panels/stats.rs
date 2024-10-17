@@ -1,4 +1,4 @@
-use crate::{viewer::ViewerContext, ViewerPane};
+use crate::{viewer::ViewerContext, ViewerPanel};
 use burn_jit::cubecl::Runtime;
 use burn_wgpu::{WgpuDevice, WgpuRuntime};
 
@@ -12,15 +12,14 @@ impl StatsPanel {
     }
 }
 
-impl ViewerPane for StatsPanel {
+impl ViewerPanel for StatsPanel {
     fn title(&self) -> String {
         "Stats".to_owned()
     }
 
-    fn ui(&mut self, ui: &mut egui::Ui, _: &mut ViewerContext) -> egui_tiles::UiResponse {
+    fn ui(&mut self, ui: &mut egui::Ui, _: &mut ViewerContext) {
         let client = WgpuRuntime::client(&self.device);
         let memory = client.memory_usage();
         ui.label(format!("Memory usage: {}", memory));
-        egui_tiles::UiResponse::None
     }
 }

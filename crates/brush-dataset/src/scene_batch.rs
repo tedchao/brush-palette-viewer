@@ -25,20 +25,17 @@ impl<B: Backend> SceneLoader<B> {
                 let indexes: Vec<_> = (0..batch_size)
                     .map(|i| miller_shuffle((index + i) % len, (index + i) / len, len))
                     .collect();
-                let cameras = indexes
+                let gt_views: Vec<_> = indexes.iter().map(|&x| scene.views[x].clone()).collect();
+                let selected_tensors: Vec<_> = gt_views
                     .iter()
-                    .map(|&x| scene.views[x].camera.clone())
+                    .map(|view| image_to_tensor(&view.image, &device))
                     .collect();
-                let selected_tensors = indexes
-                    .iter()
-                    .map(|&x| image_to_tensor(&scene.views[x].image, &device))
-                    .collect::<Vec<_>>();
 
                 let batch_tensor = Tensor::stack(selected_tensors, 0);
 
                 let scene_batch = SceneBatch {
                     gt_images: batch_tensor,
-                    cameras,
+                    gt_views,
                 };
 
                 if tx.send(scene_batch).await.is_err() {

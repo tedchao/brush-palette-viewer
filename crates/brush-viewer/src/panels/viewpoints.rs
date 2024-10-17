@@ -1,13 +1,13 @@
-use crate::{viewer::ViewerContext, ViewerPane};
+use crate::{viewer::ViewerContext, ViewerPanel};
 use brush_train::scene::ViewType;
 use egui::{Slider, TextureHandle, TextureOptions};
 
-pub(crate) struct ViewpointsPane {
+pub(crate) struct DatasetPanel {
     view_type: ViewType,
     selected_view: Option<(usize, TextureHandle)>,
 }
 
-impl ViewpointsPane {
+impl DatasetPanel {
     pub(crate) fn new() -> Self {
         Self {
             view_type: ViewType::Train,
@@ -16,16 +16,16 @@ impl ViewpointsPane {
     }
 }
 
-impl ViewerPane for ViewpointsPane {
+impl ViewerPanel for DatasetPanel {
     fn title(&self) -> String {
         "Dataset".to_owned()
     }
 
-    fn ui(&mut self, ui: &mut egui::Ui, context: &mut ViewerContext) -> egui_tiles::UiResponse {
+    fn ui(&mut self, ui: &mut egui::Ui, context: &mut ViewerContext) {
         // Empty scene, nothing to show.
         if context.dataset.train.views.len() == 0 {
             ui.label("Load a dataset to get started");
-            return egui_tiles::UiResponse::None;
+            return;
         }
 
         let scene = if let Some(eval_scene) = context.dataset.eval.as_ref() {
@@ -42,7 +42,7 @@ impl ViewerPane for ViewpointsPane {
         let mut nearest_view = scene.get_nearest_view(&context.camera);
 
         let Some(nearest) = nearest_view.as_mut() else {
-            return egui_tiles::UiResponse::None;
+            return;
         };
 
         // Update image if dirty.
@@ -119,7 +119,5 @@ impl ViewerPane for ViewpointsPane {
             );
             ui.label(info);
         }
-
-        egui_tiles::UiResponse::None
     }
 }

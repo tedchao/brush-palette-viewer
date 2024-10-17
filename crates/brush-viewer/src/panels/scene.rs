@@ -1,3 +1,4 @@
+use burn::module::AutodiffModule;
 use egui::epaint::mutex::RwLock as EguiRwLock;
 use std::sync::Arc;
 
@@ -12,7 +13,7 @@ use wgpu::CommandEncoderDescriptor;
 use crate::{
     burn_texture::BurnTexture,
     viewer::{ViewerContext, ViewerMessage},
-    ViewerPane,
+    ViewerPanel,
 };
 
 pub(crate) struct ScenePanel {
@@ -130,7 +131,7 @@ impl ScenePanel {
     }
 }
 
-impl ViewerPane for ScenePanel {
+impl ViewerPanel for ScenePanel {
     fn title(&self) -> String {
         "Scene".to_owned()
     }
@@ -141,7 +142,10 @@ impl ViewerPane for ScenePanel {
                 self.last_train_step = (Instant::now(), 0);
                 self.last_message = None;
             }
-            ViewerMessage::Dataset(d) => {
+            ViewerMessage::Dataset {
+                data: d,
+                final_data: _,
+            } => {
                 // Set train view to last loaded camera.
                 if let Some(view) = d.train.views.last() {
                     context.focus_view(&view.camera);
@@ -150,7 +154,7 @@ impl ViewerPane for ScenePanel {
             }
             ViewerMessage::TrainStep {
                 splats: _,
-                loss: _,
+                stats: _,
                 iter,
                 timestamp,
             } => {
@@ -163,7 +167,7 @@ impl ViewerPane for ScenePanel {
         self.last_message = Some(message);
     }
 
-    fn ui(&mut self, ui: &mut egui::Ui, context: &mut ViewerContext) -> egui_tiles::UiResponse {
+    fn ui(&mut self, ui: &mut egui::Ui, context: &mut ViewerContext) {
         let _span = trace_span!("Draw UI").entered();
 
         if let Some(message) = self.last_message.clone() {
@@ -174,7 +178,10 @@ impl ViewerPane for ScenePanel {
                 ViewerMessage::Error(e) => {
                     ui.label("Error: ".to_owned() + &e.to_string());
                 }
-                ViewerMessage::Dataset(_) => {
+                ViewerMessage::Dataset {
+                    data: _,
+                    final_data: _,
+                } => {
                     ui.label("Loading dataset...");
                 }
                 ViewerMessage::SplatLoad {
@@ -194,7 +201,7 @@ impl ViewerPane for ScenePanel {
                 }
                 ViewerMessage::TrainStep {
                     splats,
-                    loss,
+                    stats: _,
                     iter,
                     timestamp: _,
                 } => {
@@ -205,14 +212,17 @@ impl ViewerPane for ScenePanel {
                             self.train_iter_per_s
                         ));
 
-                        ui.label(format!("loss: {loss:.3e}"));
-
                         // let mut shared = self.train_state.shared.write();
                         // let paused = shared.paused;
                         // ui.toggle_value(&mut shared.paused, if paused { "⏵" } else { "⏸" });
                     });
 
-                    self.draw_splats(ui, context, &splats, context.dataset.train.background);
+                    self.draw_splats(
+                        ui,
+                        context,
+                        &splats.valid(),
+                        context.dataset.train.background,
+                    );
                 }
             }
         }
@@ -220,7 +230,5 @@ impl ViewerPane for ScenePanel {
         if context.controls.is_animating() {
             ui.ctx().request_repaint();
         }
-
-        egui_tiles::UiResponse::None
     }
 }

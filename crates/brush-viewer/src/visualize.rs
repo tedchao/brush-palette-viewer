@@ -29,7 +29,8 @@ impl VisualizeTools {
 
         #[cfg(not(target_family = "wasm"))]
         {
-            let rec = rerun::RecordingStreamBuilder::new("Brush").connect().ok();
+            // Spawn rerun - creating this is already explicatly done by a user.
+            let rec = rerun::RecordingStreamBuilder::new("Brush").spawn().ok();
             Self { rec }
         }
     }
@@ -40,6 +41,10 @@ impl VisualizeTools {
             let Some(rec) = self.rec.as_ref() else {
                 return Ok(());
             };
+
+            if !rec.is_enabled() {
+                return Ok(());
+            }
 
             let means = splats
                 .means
@@ -105,6 +110,10 @@ impl VisualizeTools {
                 return Ok(());
             };
 
+            if !rec.is_enabled() {
+                return Ok(());
+            }
+
             rec.log_static("world", &rerun::ViewCoordinates::RIGHT_HAND_Y_DOWN)?;
 
             for (i, view) in scene.views.iter().enumerate() {
@@ -134,12 +143,16 @@ impl VisualizeTools {
         Ok(())
     }
 
-    pub fn log_eval_stats(&self, iter: u32, stats: &brush_train::eval::EvalStats) -> Result<()> {
+    pub fn log_eval_stats(&self, iter: u32, stats: brush_train::eval::EvalStats) -> Result<()> {
         #[cfg(not(target_family = "wasm"))]
         {
             let Some(rec) = self.rec.as_ref() else {
                 return Ok(());
             };
+
+            if !rec.is_enabled() {
+                return Ok(());
+            }
 
             rec.set_time_sequence("iterations", iter);
 
@@ -165,9 +178,9 @@ impl VisualizeTools {
 
     pub async fn log_train_stats<B: AutodiffBackend>(
         &self,
+        iter: u32,
         splats: Splats<B>,
-        stats: &TrainStepStats<B>,
-        gt_images: Tensor<B, 4>,
+        stats: TrainStepStats<B>,
     ) -> Result<()> {
         #[cfg(not(target_family = "wasm"))]
         {
@@ -175,10 +188,19 @@ impl VisualizeTools {
                 return Ok(());
             };
 
-            rec.set_time_sequence("iterations", stats.iter);
+            if !rec.is_enabled() {
+                return Ok(());
+            }
+
+            rec.set_time_sequence("iterations", iter);
             rec.log("lr/mean", &rerun::Scalar::new(stats.lr_mean))?;
+            rec.log("lr/mean", &rerun::Scalar::new(stats.lr_rotation))?;
+            rec.log("lr/mean", &rerun::Scalar::new(stats.lr_scale))?;
+            rec.log("lr/mean", &rerun::Scalar::new(stats.lr_coeffs))?;
+            rec.log("lr/mean", &rerun::Scalar::new(stats.lr_opac))?;
+
             rec.log(
-                "splats/num",
+                "splats/num_splats",
                 &rerun::Scalar::new(splats.num_splats() as f64).clone(),
             )?;
             let [batch_size, img_h, img_w, _] = stats.pred_images.dims();
@@ -187,7 +209,8 @@ impl VisualizeTools {
                     .pred_images
                     .clone()
                     .slice([0..batch_size, 0..img_h, 0..img_w, 0..3]);
-            let gt_rgb = gt_images
+            let gt_rgb = stats
+                .gt_images
                 .clone()
                 .slice([0..batch_size, 0..img_h, 0..img_w, 0..3]);
             let mse = (pred_rgb.clone() - gt_rgb.clone()).powf_scalar(2.0).mean();
@@ -209,11 +232,11 @@ impl VisualizeTools {
                 &rerun::Scalar::new(main_aux.read_num_intersections() as f64),
             )?;
             rec.log(
-                "splats/num_visible",
+                "splats/splats_visible",
                 &rerun::Scalar::new(main_aux.read_num_visible() as f64),
             )?;
             rec.log(
-                "images/tile depth",
+                "images/tile_depth",
                 &main_aux.read_tile_depth().into_rerun(),
             )?;
         }

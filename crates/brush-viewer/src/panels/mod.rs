@@ -5,6 +5,7 @@ mod stats;
 mod viewpoints;
 
 pub(crate) use load_data::*;
+pub(crate) use rerun::*;
 pub(crate) use scene::*;
 pub(crate) use stats::*;
 pub(crate) use viewpoints::*;

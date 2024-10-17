@@ -1,5 +1,4 @@
 use anyhow::Result;
-use brush_render::camera::Camera;
 use brush_render::gaussian_splats::Splats;
 use brush_render::{AutodiffBackend, Backend, RenderAux};
 use burn::lr_scheduler::exponential::{ExponentialLrScheduler, ExponentialLrSchedulerConfig};
@@ -13,6 +12,8 @@ use burn::{
     tensor::Tensor,
 };
 use tracing::trace_span;
+
+use crate::scene::SceneView;
 
 #[derive(Config)]
 pub struct TrainConfig {
@@ -84,15 +85,21 @@ pub struct TrainConfig {
 #[derive(Clone, Debug)]
 pub struct SceneBatch<B: Backend> {
     pub gt_images: Tensor<B, 4>,
-    pub cameras: Vec<Camera>,
+    pub gt_views: Vec<SceneView>,
 }
 
+#[derive(Clone)]
 pub struct TrainStepStats<B: AutodiffBackend> {
     pub pred_images: Tensor<B, 4>,
+    pub gt_images: Tensor<B, 4>,
+    pub gt_views: Vec<SceneView>,
     pub auxes: Vec<RenderAux>,
     pub loss: Tensor<B, 1>,
     pub lr_mean: f64,
-    pub iter: u32,
+    pub lr_rotation: f64,
+    pub lr_scale: f64,
+    pub lr_coeffs: f64,
+    pub lr_opac: f64,
 }
 
 pub struct SplatTrainer<B: AutodiffBackend>
@@ -201,8 +208,8 @@ where
             let mut renders = vec![];
             let mut auxes = vec![];
 
-            for i in 0..batch.cameras.len() {
-                let camera = &batch.cameras[i];
+            for i in 0..batch.gt_views.len() {
+                let camera = &batch.gt_views[i].camera;
 
                 let (pred_image, aux) = splats.render(
                     camera,
@@ -248,57 +255,63 @@ where
 
         let mut grads = trace_span!("Backward pass", sync_burn = true).in_scope(|| loss.backward());
 
-        if self.iter < max_refine_step {
-            trace_span!("Housekeeping", sync_burn = true).in_scope(|| {
-                let xys_grad = Tensor::from_inner(
-                    splats
-                        .xys_dummy
-                        .grad_remove(&mut grads)
-                        .expect("XY gradients need to be calculated."),
-                );
+        let (lr_mean, lr_rotation, lr_scale, lr_coeffs, lr_opac) = (
+            self.sched_mean.step(),
+            self.config.lr_rotation,
+            self.config.lr_scale,
+            self.config.lr_coeffs,
+            self.config.lr_opac,
+        );
 
-                // From normalized to pixels.
-                let xys_grad = xys_grad
-                    * Tensor::<_, 1>::from_floats([img_w as f32 / 2.0, img_h as f32 / 2.0], device)
-                        .reshape([1, 2]);
-
-                let grad_mag = xys_grad.powf_scalar(2.0).sum_dim(1).squeeze(1).sqrt();
-
-                // TODO: Add += to Burn.
-                if self.iter > self.config.warmup_steps {
-                    self.grad_2d_accum = self.grad_2d_accum.clone() + grad_mag.clone();
-                    self.xy_grad_counts =
-                        self.xy_grad_counts.clone() + grad_mag.greater_elem(0.0).int();
-                }
-            });
-
-            splats = trace_span!("Optimizer step", sync_burn = true).in_scope(|| {
-                let mut splats = splats;
-                let grad_means =
-                    GradientsParams::from_params(&mut grads, &splats, &[splats.means.id]);
-                splats = self.optim.step(self.sched_mean.step(), splats, grad_means);
-
-                let grad_opac =
-                    GradientsParams::from_params(&mut grads, &splats, &[splats.raw_opacity.id]);
-                splats = self.optim.step(self.config.lr_opac, splats, grad_opac);
-
-                let grad_coeff =
-                    GradientsParams::from_params(&mut grads, &splats, &[splats.sh_coeffs.id]);
-                splats = self.optim.step(self.config.lr_coeffs, splats, grad_coeff);
-
-                let grad_rot =
-                    GradientsParams::from_params(&mut grads, &splats, &[splats.rotation.id]);
-                splats = self.optim.step(self.config.lr_rotation, splats, grad_rot);
-
-                let grad_scale =
-                    GradientsParams::from_params(&mut grads, &splats, &[splats.log_scales.id]);
-                splats = self.optim.step(self.config.lr_scale, splats, grad_scale);
-
-                // Make sure rotations are still valid after optimization step.
-                splats.norm_rotations();
+        trace_span!("Housekeeping", sync_burn = true).in_scope(|| {
+            let xys_grad = Tensor::from_inner(
                 splats
-            });
+                    .xys_dummy
+                    .grad_remove(&mut grads)
+                    .expect("XY gradients need to be calculated."),
+            );
 
+            // From normalized to pixels.
+            let xys_grad = xys_grad
+                * Tensor::<_, 1>::from_floats([img_w as f32 / 2.0, img_h as f32 / 2.0], device)
+                    .reshape([1, 2]);
+
+            let grad_mag = xys_grad.powf_scalar(2.0).sum_dim(1).squeeze(1).sqrt();
+
+            // TODO: Add += to Burn.
+            if self.iter > self.config.warmup_steps {
+                self.grad_2d_accum = self.grad_2d_accum.clone() + grad_mag.clone();
+                self.xy_grad_counts =
+                    self.xy_grad_counts.clone() + grad_mag.greater_elem(0.0).int();
+            }
+        });
+
+        splats = trace_span!("Optimizer step", sync_burn = true).in_scope(|| {
+            let mut splats = splats;
+            let grad_means = GradientsParams::from_params(&mut grads, &splats, &[splats.means.id]);
+            splats = self.optim.step(lr_mean, splats, grad_means);
+
+            let grad_opac =
+                GradientsParams::from_params(&mut grads, &splats, &[splats.raw_opacity.id]);
+            splats = self.optim.step(lr_opac, splats, grad_opac);
+
+            let grad_coeff =
+                GradientsParams::from_params(&mut grads, &splats, &[splats.sh_coeffs.id]);
+            splats = self.optim.step(lr_coeffs, splats, grad_coeff);
+
+            let grad_rot = GradientsParams::from_params(&mut grads, &splats, &[splats.rotation.id]);
+            splats = self.optim.step(lr_rotation, splats, grad_rot);
+
+            let grad_scale =
+                GradientsParams::from_params(&mut grads, &splats, &[splats.log_scales.id]);
+            splats = self.optim.step(lr_scale, splats, grad_scale);
+
+            // Make sure rotations are still valid after optimization step.
+            splats.norm_rotations();
+            splats
+        });
+
+        if self.iter < max_refine_step {
             if self.iter >= self.config.warmup_steps && self.iter % self.config.refine_every == 0 {
                 let grads = self.grad_2d_accum.clone()
                     / self.xy_grad_counts.clone().clamp(1, i32::MAX).float();
@@ -436,10 +449,15 @@ where
 
         let stats = TrainStepStats {
             pred_images,
+            gt_images: batch.gt_images,
+            gt_views: batch.gt_views,
             auxes,
             loss,
-            lr_mean: self.sched_mean.step(),
-            iter: self.iter,
+            lr_mean,
+            lr_rotation,
+            lr_scale,
+            lr_coeffs,
+            lr_opac,
         };
 
         Ok((splats, stats))

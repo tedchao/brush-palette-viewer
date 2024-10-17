@@ -1,4 +1,4 @@
-use crate::{train_loop::TrainArgs, viewer::ViewerContext, ViewerPane};
+use crate::{train_loop::TrainArgs, viewer::ViewerContext, ViewerPanel};
 use egui::Slider;
 
 pub(crate) struct LoadDataPanel {
@@ -16,12 +16,12 @@ impl LoadDataPanel {
     }
 }
 
-impl ViewerPane for LoadDataPanel {
+impl ViewerPanel for LoadDataPanel {
     fn title(&self) -> String {
         "Load data".to_owned()
     }
 
-    fn ui(&mut self, ui: &mut egui::Ui, context: &mut ViewerContext) -> egui_tiles::UiResponse {
+    fn ui(&mut self, ui: &mut egui::Ui, context: &mut ViewerContext) {
         ui.label("Select a .ply to visualize, or a .zip with training data.");
 
         if ui.button("Pick a file").clicked() {
@@ -61,7 +61,5 @@ impl ViewerPane for LoadDataPanel {
         if ui.input(|r| r.key_pressed(egui::Key::Escape)) {
             ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
         }
-
-        egui_tiles::UiResponse::None
     }
 }
