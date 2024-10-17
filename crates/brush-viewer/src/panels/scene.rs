@@ -1,4 +1,3 @@
-use burn::module::AutodiffModule;
 use egui::epaint::mutex::RwLock as EguiRwLock;
 use std::sync::Arc;
 
@@ -24,9 +23,6 @@ pub(crate) struct ScenePanel {
     queue: Arc<wgpu::Queue>,
     device: Arc<wgpu::Device>,
     renderer: Arc<EguiRwLock<Renderer>>,
-
-    last_train_step: (Instant, u32),
-    train_iter_per_s: f32,
 }
 
 impl ScenePanel {
@@ -42,8 +38,6 @@ impl ScenePanel {
             queue,
             device,
             renderer,
-            last_train_step: (Instant::now(), 0),
-            train_iter_per_s: 0.0,
         }
     }
 
@@ -136,35 +130,19 @@ impl ViewerPanel for ScenePanel {
         "Scene".to_owned()
     }
 
-    fn on_message(&mut self, message: ViewerMessage, context: &mut ViewerContext) {
+    fn on_message(&mut self, message: ViewerMessage, _: &mut ViewerContext) {
         match message.clone() {
-            ViewerMessage::StartLoading => {
-                self.last_train_step = (Instant::now(), 0);
+            ViewerMessage::PickFile => {
                 self.last_message = None;
             }
-            ViewerMessage::Dataset {
-                data: d,
-                final_data: _,
-            } => {
-                // Set train view to last loaded camera.
-                if let Some(view) = d.train.views.last() {
-                    context.focus_view(&view.camera);
-                }
-                context.dataset = d;
+            ViewerMessage::Splats { splats: _ } => {
+                self.last_message = Some(message);
             }
-            ViewerMessage::TrainStep {
-                splats: _,
-                stats: _,
-                iter,
-                timestamp,
-            } => {
-                self.train_iter_per_s = (iter - self.last_train_step.1) as f32
-                    / (timestamp - self.last_train_step.0).as_secs_f32();
-                self.last_train_step = (timestamp, iter);
+            ViewerMessage::Error(_) => {
+                self.last_message = Some(message);
             }
             _ => {}
         }
-        self.last_message = Some(message);
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, context: &mut ViewerContext) {
@@ -172,58 +150,16 @@ impl ViewerPanel for ScenePanel {
 
         if let Some(message) = self.last_message.clone() {
             match message {
-                ViewerMessage::StartLoading => {
+                ViewerMessage::PickFile => {
                     ui.label("Loading...");
                 }
                 ViewerMessage::Error(e) => {
                     ui.label("Error: ".to_owned() + &e.to_string());
                 }
-                ViewerMessage::Dataset {
-                    data: _,
-                    final_data: _,
-                } => {
-                    ui.label("Loading dataset...");
+                ViewerMessage::Splats { splats } => {
+                    self.draw_splats(ui, context, &splats, context.dataset.train.background);
                 }
-                ViewerMessage::SplatLoad {
-                    splats,
-                    total_count,
-                } => {
-                    ui.horizontal(|ui| {
-                        ui.label(format!("{} splats", splats.num_splats()));
-                        if splats.num_splats() < total_count {
-                            ui.label(format!(
-                                "Loading... ({}%)",
-                                splats.num_splats() as f32 / total_count as f32 * 100.0
-                            ));
-                        }
-                    });
-                    self.draw_splats(ui, context, &splats, glam::Vec3::ZERO);
-                }
-                ViewerMessage::TrainStep {
-                    splats,
-                    stats: _,
-                    iter,
-                    timestamp: _,
-                } => {
-                    ui.horizontal(|ui| {
-                        ui.label(format!("{} splats", splats.num_splats()));
-                        ui.label(format!(
-                            "Train step {iter}, {:.1} steps/s",
-                            self.train_iter_per_s
-                        ));
-
-                        // let mut shared = self.train_state.shared.write();
-                        // let paused = shared.paused;
-                        // ui.toggle_value(&mut shared.paused, if paused { "⏵" } else { "⏸" });
-                    });
-
-                    self.draw_splats(
-                        ui,
-                        context,
-                        &splats.valid(),
-                        context.dataset.train.background,
-                    );
-                }
+                _ => {}
             }
         }
 

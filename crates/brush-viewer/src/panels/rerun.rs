@@ -32,7 +32,7 @@ impl ViewerPanel for RerunPanel {
         "Rerun".to_owned()
     }
 
-    fn on_message(&mut self, message: crate::viewer::ViewerMessage, _: &mut ViewerContext) {
+    fn on_message(&mut self, message: crate::viewer::ViewerMessage, context: &mut ViewerContext) {
         let Some(visualize) = self.visualize.clone() else {
             return;
         };
@@ -40,12 +40,10 @@ impl ViewerPanel for RerunPanel {
         match message {
             // TODO: New stream on start load?
             // crate::viewer::ViewerMessage::StartLoading => self.visualize = VisualizeTools::new(),
-            crate::viewer::ViewerMessage::Dataset { data, final_data } => {
-                // Log the final dataset to rerun.
-                if final_data {
-                    self.dataset = data;
+            crate::viewer::ViewerMessage::DoneLoading { training } => {
+                if training {
                     let visualize = visualize.clone();
-                    let train_scene = self.dataset.train.clone();
+                    let train_scene = context.dataset.train.clone();
 
                     spawn_future(async move {
                         if let Err(e) = visualize.log_scene(&train_scene) {

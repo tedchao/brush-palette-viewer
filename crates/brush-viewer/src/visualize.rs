@@ -235,10 +235,10 @@ impl VisualizeTools {
                 "splats/splats_visible",
                 &rerun::Scalar::new(main_aux.read_num_visible() as f64),
             )?;
-            rec.log(
-                "images/tile_depth",
-                &main_aux.read_tile_depth().into_rerun(),
-            )?;
+            // rec.log(
+            //     "images/tile_depth",
+            //     &main_aux.read_tile_depth().into_rerun(),
+            // )?;
         }
 
         Ok(())

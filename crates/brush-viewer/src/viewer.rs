@@ -7,7 +7,6 @@ use burn::backend::Autodiff;
 use glam::{Quat, Vec3};
 use std::sync::Arc;
 
-use anyhow::Context;
 use brush_render::gaussian_splats::Splats;
 use brush_render::PrimaryBackend;
 use burn_wgpu::{RuntimeOptions, Wgpu, WgpuDevice};
@@ -31,21 +30,25 @@ struct TrainStats {
 
 #[derive(Clone)]
 pub(crate) enum ViewerMessage {
-    StartLoading,
+    PickFile,
+    StartLoading {
+        training: bool,
+    },
     /// Some process errored out, and want to display this error
     /// to the user.
     Error(Arc<anyhow::Error>),
     /// Loaded a splat from a ply file.
     ///
     /// Nb: This includes all the intermediately loaded splats.
-    SplatLoad {
+    Splats {
         splats: Splats<PrimaryBackend>,
-        total_count: usize,
     },
     /// Loaded a bunch of viewpoints to train on.
     Dataset {
         data: Dataset,
-        final_data: bool,
+    },
+    DoneLoading {
+        training: bool,
     },
     /// Some number of training steps are done.
     TrainStep {
@@ -75,23 +78,21 @@ pub(crate) struct ViewerContext {
 async fn process_loop(
     device: WgpuDevice,
     sender: Sender<ViewerMessage>,
-    egui_ctx: egui::Context,
     train_args: TrainArgs,
 ) -> anyhow::Result<()> {
-    let _ = sender.send(ViewerMessage::StartLoading).await;
+    let _ = sender.send(ViewerMessage::PickFile).await;
     let picked = rrfd::pick_file().await?;
 
     if picked.file_name.contains(".ply") {
-        load_ply_loop(&picked.data, device, sender, egui_ctx).await
+        let _ = sender
+            .send(ViewerMessage::StartLoading { training: false })
+            .await;
+        load_ply_loop(&picked.data, device, sender).await
     } else if picked.file_name.contains(".zip") {
-        train_loop::train_loop(
-            ZipData::from(picked.data),
-            device,
-            sender,
-            egui_ctx,
-            train_args,
-        )
-        .await
+        let _ = sender
+            .send(ViewerMessage::StartLoading { training: true })
+            .await;
+        train_loop::train_loop(ZipData::from(picked.data), device, sender, train_args).await
     } else {
         anyhow::bail!("Only .ply and .zip files are supported.")
     }
@@ -101,24 +102,13 @@ async fn load_ply_loop(
     data: &[u8],
     device: WgpuDevice,
     sender: Sender<ViewerMessage>,
-    egui_ctx: egui::Context,
 ) -> anyhow::Result<()> {
-    let total_count = splat_import::ply_count(data).context("Invalid ply file")?;
-
     let splat_stream = splat_import::load_splat_from_ply::<PrimaryBackend>(data, device.clone());
 
     let mut splat_stream = std::pin::pin!(splat_stream);
     while let Some(splats) = splat_stream.next().await {
-        egui_ctx.request_repaint();
-
-        let splats = splats?;
-        let msg = ViewerMessage::SplatLoad {
-            splats,
-            total_count,
-        };
-
         sender
-            .send(msg)
+            .send(ViewerMessage::Splats { splats: splats? })
             .await
             .map_err(|e| anyhow::anyhow!("Failed to send message: {}", e))?;
     }
@@ -156,16 +146,27 @@ impl ViewerContext {
         <Wgpu as burn::prelude::Backend>::seed(42);
 
         let device = self.device.clone();
-        let ctx = self.ctx.clone();
 
         // create a channel for the train loop.
         let (sender, receiver) = async_std::channel::bounded(2);
-        self.receiver = Some(receiver);
+        let ctx = self.ctx.clone();
+
+        // Spawn a future that sends the viewer messages.
+        spawn_future(async move {
+            if let Err(e) = process_loop(device, sender.clone(), args).await {
+                let _ = sender.send(ViewerMessage::Error(Arc::new(e))).await;
+            }
+        });
+
+        // Spawn another future that receives them & forward them to the UI.
+        let (ui_sender, ui_receiver) = async_std::channel::bounded(2);
+        self.receiver = Some(ui_receiver);
         self.dataset = Dataset::empty();
 
         spawn_future(async move {
-            if let Err(e) = process_loop(device, sender.clone(), ctx, args).await {
-                let _ = sender.send(ViewerMessage::Error(Arc::new(e))).await;
+            while let Ok(m) = receiver.recv().await {
+                ctx.request_repaint();
+                let _ = ui_sender.send(m).await;
             }
         });
     }
@@ -265,13 +266,16 @@ impl eframe::App for Viewer {
                         egui_tiles::Tile::Container(_) => {}
                     }
                 }
+
+                println!("Repaint");
+                ctx.request_repaint();
             }
         }
 
         egui::CentralPanel::default().show(ctx, |ui| {
             // Close when pressing escape (in a native viewer anyway).
             if ui.input(|r| r.key_pressed(egui::Key::Escape)) {
-                ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             }
             self.tree.ui(&mut self.tree_ctx, ui);
         });
