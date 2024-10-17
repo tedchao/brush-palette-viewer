@@ -16,7 +16,7 @@ use web_time::Instant;
 use brush_dataset::{self, Dataset, ZipData};
 
 use crate::orbit_controls::OrbitControls;
-use crate::panels::{LoadDataPanel, ScenePanel, ViewpointsPane};
+use crate::panels::{LoadDataPanel, ScenePanel, StatsPanel, ViewpointsPane};
 use crate::train_loop::TrainArgs;
 use crate::{splat_import, train_loop, PaneType, ViewerTree};
 
@@ -196,7 +196,7 @@ impl Viewer {
 
         let mut tiles: Tiles<PaneType> = egui_tiles::Tiles::default();
 
-        let context = ViewerContext::new(device, cc.egui_ctx.clone());
+        let context = ViewerContext::new(device.clone(), cc.egui_ctx.clone());
 
         let data_pane = LoadDataPanel::new();
         let viewpoints_pane = ViewpointsPane::new();
@@ -207,9 +207,12 @@ impl Viewer {
             state.renderer.clone(),
         );
 
+        let stats_panel = StatsPanel::new(device);
+
         let sides = vec![
             tiles.insert_pane(Box::new(data_pane)),
             tiles.insert_pane(Box::new(viewpoints_pane)),
+            tiles.insert_pane(Box::new(stats_panel)),
             #[cfg(feature = "tracing")]
             tiles.insert_pane(Box::new(TracingPanel::default())),
         ];
