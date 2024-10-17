@@ -145,7 +145,7 @@ impl VisualizeTools {
 
             let avg_psnr =
                 stats.samples.iter().map(|s| s.psnr).sum::<f32>() / (stats.samples.len() as f32);
-            rec.log("stats/Eval PSNR", &rerun::Scalar::new(avg_psnr as f64))?;
+            rec.log("stats/eval_psnr", &rerun::Scalar::new(avg_psnr as f64))?;
 
             for (i, samp) in stats.samples.iter().enumerate() {
                 let render = samp.rendered.clone();
@@ -197,7 +197,7 @@ impl VisualizeTools {
                 &rerun::Scalar::new(stats.loss.clone().into_scalar_async().await.elem::<f64>()),
             )?;
             rec.log(
-                "stats/Train PSNR",
+                "stats/train_psnr",
                 &rerun::Scalar::new(psnr.into_scalar_async().await.elem::<f64>()),
             )?;
             // Not sure what's best here, atm let's just log the first batch render only.
