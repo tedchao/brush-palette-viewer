@@ -109,7 +109,15 @@ impl ViewerPane for ViewpointsPane {
 
         if let Some(view) = self.selected_view.as_ref() {
             ui.add(egui::Image::new(&view.1).shrink_to_fit());
-            ui.label(&scene.views[*nearest].name);
+
+            let view = &scene.views[*nearest];
+            let info = format!(
+                "{} ({}x{})",
+                view.name,
+                view.image.width(),
+                view.image.height()
+            );
+            ui.label(info);
         }
 
         egui_tiles::UiResponse::None
