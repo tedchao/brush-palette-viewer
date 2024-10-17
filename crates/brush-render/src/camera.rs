@@ -43,13 +43,12 @@ impl Camera {
         self.local_to_world().inverse()
     }
 }
-
 // Converts field of view to focal length
 pub fn fov_to_focal(fov_rad: f32, pixels: u32) -> f32 {
-    0.5 * (pixels as f32) / (fov_rad * 0.5).tan()
+    0.5 * (pixels as f32) / f32::tan(fov_rad * 0.5)
 }
 
-// Converts focal length to field of view.
+// Converts focal length to field of view
 pub fn focal_to_fov(focal: f32, pixels: u32) -> f32 {
-    2.0 * ((pixels as f32) / (2.0 * focal)).atan()
+    2.0 * f32::atan((pixels as f32) / (2.0 * focal))
 }

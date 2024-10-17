@@ -67,19 +67,22 @@ fn read_views(
                 let image_data = archive.by_name(&format!("images/{img_path}"))?;
                 let img_bytes = image_data.bytes().collect::<std::io::Result<Vec<u8>>>()?;
                 let mut img = image::load_from_memory(&img_bytes)?;
+
                 if let Some(max) = max_resolution {
                     img = crate::clamp_img_to_max_size(img, max);
                 }
+
                 // Convert w2c to c2w.
                 let world_to_cam = glam::Affine3A::from_rotation_translation(quat, translation);
-
                 let cam_to_world = world_to_cam.inverse();
-
                 let (_, quat, translation) = cam_to_world.to_scale_rotation_translation();
+
+                let converted_cam =
+                    Camera::new(translation, quat, glam::vec2(fovx, fovy), center_uv);
 
                 let view = SceneView {
                     name: img_path.to_string(),
-                    camera: Camera::new(translation, quat, glam::vec2(fovx, fovy), center_uv),
+                    camera: converted_cam,
                     image: Arc::new(img),
                 };
                 anyhow::Result::<SceneView>::Ok(view)

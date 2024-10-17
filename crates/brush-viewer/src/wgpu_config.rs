@@ -8,7 +8,7 @@ pub fn get_config() -> WgpuConfiguration {
             required_features: adapter.features(),
             required_limits: adapter.limits(),
             // cube already batches allocations.
-            memory_hints: wgpu::MemoryHints::MemoryUsage,
+            memory_hints: wgpu::MemoryHints::Performance,
         }),
         supported_backends: wgpu::Backends::PRIMARY,
         power_preference: wgpu::PowerPreference::HighPerformance,
