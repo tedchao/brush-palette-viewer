@@ -336,7 +336,17 @@ where
                 let clone_count = clone_inds.dims()[0];
                 if clone_count > 0 {
                     let clone_inds = clone_inds.squeeze(1);
-                    append_means.push(splats.means.val().select(0, clone_inds.clone()));
+                    let cur_scale = splats.log_scales.val().select(0, clone_inds.clone());
+                    let cur_rots = splats.rotation.val().select(0, clone_inds.clone());
+
+                    // Slightly offset cloned gaussians so they don't just follow the original one.
+                    let samples = quaternion_vec_multiply(
+                        cur_rots.clone(),
+                        Tensor::random([clone_count, 3], Distribution::Normal(0.0, 0.5), device)
+                            * cur_scale.clone().exp(),
+                    );
+
+                    append_means.push(splats.means.val().select(0, clone_inds.clone()) + samples);
                     append_rots.push(splats.rotation.val().select(0, clone_inds.clone()));
                     append_coeffs.push(splats.sh_coeffs.val().select(0, clone_inds.clone()));
                     append_opac.push(splats.raw_opacity.val().select(0, clone_inds.clone()));
@@ -355,14 +365,14 @@ where
                     let split_inds = split_inds.squeeze(1);
                     let cur_means = splats.means.val().select(0, split_inds.clone());
                     let cur_coeff = splats.sh_coeffs.val().select(0, split_inds.clone());
-                    let cur_opac = splats.raw_opacity.val().select(0, split_inds.clone());
-                    let cur_scale = splats.log_scales.val().select(0, split_inds.clone());
+                    let cur_raw_opac = splats.raw_opacity.val().select(0, split_inds.clone());
+                    let cur_log_scale = splats.log_scales.val().select(0, split_inds.clone());
                     let cur_rots = splats.rotation.val().select(0, split_inds.clone());
 
                     let samples = quaternion_vec_multiply(
                         cur_rots.clone(),
-                        Tensor::random([split_count, 3], Distribution::Normal(0.0, 1.0), device)
-                            * cur_scale.clone().exp(),
+                        Tensor::random([split_count, 3], Distribution::Normal(0.0, 0.5), device)
+                            * cur_log_scale.clone().exp(),
                     );
 
                     // TODO: Should also modify the old splat to be smaller & shifted.
@@ -370,8 +380,8 @@ where
                     append_means.push(cur_means.clone() + samples);
                     append_rots.push(cur_rots.clone());
                     append_coeffs.push(cur_coeff.clone());
-                    append_opac.push(cur_opac);
-                    append_scales.push((cur_scale.exp() / 1.6).log());
+                    append_opac.push(cur_raw_opac);
+                    append_scales.push((cur_log_scale.exp() / 1.6).log());
                 }
 
                 if !append_means.is_empty() {
