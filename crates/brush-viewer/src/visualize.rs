@@ -194,10 +194,10 @@ impl VisualizeTools {
 
             rec.set_time_sequence("iterations", iter);
             rec.log("lr/mean", &rerun::Scalar::new(stats.lr_mean))?;
-            rec.log("lr/mean", &rerun::Scalar::new(stats.lr_rotation))?;
-            rec.log("lr/mean", &rerun::Scalar::new(stats.lr_scale))?;
-            rec.log("lr/mean", &rerun::Scalar::new(stats.lr_coeffs))?;
-            rec.log("lr/mean", &rerun::Scalar::new(stats.lr_opac))?;
+            rec.log("lr/rotation", &rerun::Scalar::new(stats.lr_rotation))?;
+            rec.log("lr/scale", &rerun::Scalar::new(stats.lr_scale))?;
+            rec.log("lr/coeffs", &rerun::Scalar::new(stats.lr_coeffs))?;
+            rec.log("lr/opac", &rerun::Scalar::new(stats.lr_opac))?;
 
             rec.log(
                 "splats/num_splats",

@@ -267,7 +267,6 @@ impl eframe::App for Viewer {
                     }
                 }
 
-                println!("Repaint");
                 ctx.request_repaint();
             }
         }
