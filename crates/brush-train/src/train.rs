@@ -31,8 +31,11 @@ pub struct TrainConfig {
     #[config(default = 0.5)]
     stop_refine_percent: f32,
 
+    #[config(default = 0.01)]
+    reset_alpha_value: f32,
+
     // threshold of opacity for culling gaussians. One can set it to a lower value (e.g. 0.005) for higher quality
-    #[config(default = 0.1)]
+    #[config(default = 0.005)]
     cull_alpha_thresh: f32,
 
     // threshold of scale for culling huge gaussians
@@ -184,8 +187,10 @@ where
 
     pub(crate) fn reset_opacity(&self, splats: &mut Splats<B>) {
         let inv_sigmoid = |x: f32| (x / (1.0 - x)).ln();
-        let base = inv_sigmoid(self.config.cull_alpha_thresh * 0.5);
-        Splats::map_param(&mut splats.raw_opacity, |op| Tensor::zeros_like(&op) + base);
+
+        Splats::map_param(&mut splats.raw_opacity, |op| {
+            Tensor::zeros_like(&op) + inv_sigmoid(self.config.reset_alpha_value)
+        });
     }
 
     pub async fn step(
@@ -323,9 +328,7 @@ where
             // let means_state = optim_record[&splats.means.id].into_state();
 
             let split_clone_size_mask = splats
-                .log_scales
-                .val()
-                .exp()
+                .scale()
                 .max_dim(1)
                 .squeeze(1)
                 .lower_elem(self.config.densify_size_thresh);
@@ -417,19 +420,18 @@ where
             // of gradient <-> splat.
 
             // Remove barely visible gaussians.
-            let alpha_mask = burn::tensor::activation::sigmoid(splats.raw_opacity.val())
-                .lower_elem(self.config.cull_alpha_thresh);
+            let alpha_mask = splats.opacity().lower_elem(self.config.cull_alpha_thresh);
             prune_points(&mut splats, alpha_mask).await;
 
-            // Delete Gaussians with too large of a radius in world-units.
-            let scale_mask = splats
-                .log_scales
-                .val()
-                .exp()
-                .max_dim(1)
-                .squeeze(1)
-                .greater_elem(self.config.cull_scale_thresh);
-            prune_points(&mut splats, scale_mask).await;
+            // // Delete Gaussians with too large of a radius in world-units.
+            // let scale_mask = splats
+            //     .log_scales
+            //     .val()
+            //     .exp()
+            //     .max_dim(1)
+            //     .squeeze(1)
+            //     .greater_elem(self.config.cull_scale_thresh);
+            // prune_points(&mut splats, scale_mask).await;
 
             // Stats don't line up anymore so have to reset them.
             self.reset_stats(splats.num_splats(), device);

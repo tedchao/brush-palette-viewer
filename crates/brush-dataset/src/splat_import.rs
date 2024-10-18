@@ -27,12 +27,6 @@ pub(crate) struct GaussianData {
     sh_coeffs: Vec<f32>,
 }
 
-fn inv_sigmoid(v: f32) -> f32 {
-    (v / (1.0 - v)).ln()
-}
-
-const SH_C0: f32 = 0.28209479;
-
 impl PropertyAccess for GaussianData {
     fn new() -> Self {
         GaussianData {
@@ -158,9 +152,9 @@ fn interleave_coeffs(sh_dc: [f32; 3], sh_rest: &[f32]) -> Vec<f32> {
 }
 
 pub fn load_splat_from_ply<B: Backend>(
-    ply_data: &[u8],
+    ply_data: Vec<u8>,
     device: B::Device,
-) -> impl Stream<Item = Result<Splats<B>>> + '_ {
+) -> impl Stream<Item = Result<Splats<B>>> + 'static {
     // set up a reader, in this case a file.
     let mut reader = std::io::Cursor::new(ply_data);
     let mut splats: Option<Splats<B>> = None;

@@ -2,15 +2,17 @@ pub mod colmap;
 pub mod colmap_read_model;
 pub mod nerf_synthetic;
 pub mod scene_batch;
+pub mod splat_import;
 
 use anyhow::Result;
 use async_std::stream::Stream;
-use brush_render::Backend;
+use brush_render::{gaussian_splats::Splats, Backend};
 use brush_train::scene::{Scene, SceneView};
 use glam::Vec3;
 use image::DynamicImage;
+use splat_import::load_splat_from_ply;
 use std::{
-    io::Cursor,
+    io::{Cursor, Read},
     path::{Path, PathBuf},
     pin::Pin,
     sync::Arc,
@@ -105,17 +107,50 @@ pub(crate) fn clamp_img_to_max_size(image: DynamicImage, max_size: u32) -> Dynam
 
 type DataStream = Pin<Box<dyn Stream<Item = Result<Dataset>> + Send + 'static>>;
 
-pub fn read_dataset<B: Backend>(
+pub fn read_dataset_views(
     archive: ZipArchive<Cursor<ZipData>>,
     load_args: &LoadDatasetArgs,
 ) -> Result<DataStream> {
-    let nerf = nerf_synthetic::read_dataset(archive.clone(), load_args);
+    let nerf = nerf_synthetic::read_dataset_views(archive.clone(), load_args);
     if let Ok(stream) = nerf {
         return Ok(stream);
     }
-    let colmap = colmap::read_dataset(archive.clone(), load_args);
+    let colmap = colmap::read_dataset_views(archive.clone(), load_args);
     if let Ok(stream) = colmap {
         return Ok(stream);
     }
     anyhow::bail!("Couldn't parse dataset as any format. Only some formats are supported.")
+}
+
+type SplatStream<B> = Pin<Box<dyn Stream<Item = Result<Splats<B>>> + Send + 'static>>;
+
+fn read_init_ply<B: Backend>(
+    mut archive: ZipArchive<Cursor<ZipData>>,
+    device: &B::Device,
+) -> Result<SplatStream<B>> {
+    let data = archive
+        .by_name("init.ply")
+        .map(|f| f.bytes().collect::<std::io::Result<Vec<u8>>>())?;
+
+    let Ok(data) = data else {
+        anyhow::bail!("Couldn't load data")
+    };
+
+    let splat_stream = load_splat_from_ply::<B>(data, device.clone());
+    Ok(Box::pin(splat_stream))
+}
+
+pub fn read_dataset_init<B: Backend>(
+    archive: ZipArchive<Cursor<ZipData>>,
+    device: &B::Device,
+) -> Result<SplatStream<B>> {
+    // If there's an init.ply definitey use that.
+    if let Ok(stream) = read_init_ply(archive.clone(), device) {
+        return Ok(stream);
+    }
+    let colmap = colmap::read_init_splat(archive.clone(), device);
+    if let Ok(stream) = colmap {
+        return Ok(stream);
+    }
+    anyhow::bail!("No splat initialization possible.")
 }

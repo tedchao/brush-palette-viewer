@@ -131,7 +131,7 @@ fn read_transforms_file(
     Ok(iter.collect())
 }
 
-pub fn read_dataset(
+pub fn read_dataset_views(
     archive: ZipArchive<Cursor<ZipData>>,
     load_args: &LoadDatasetArgs,
 ) -> Result<DataStream> {

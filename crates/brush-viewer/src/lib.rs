@@ -7,7 +7,6 @@ use viewer::{ViewerContext, ViewerMessage};
 
 mod burn_texture;
 mod orbit_controls;
-mod splat_import;
 mod visualize;
 
 mod panels;

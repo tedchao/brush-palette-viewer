@@ -25,7 +25,6 @@ egui.workspace = true
 egui_tiles.workspace = true
 tracing.workspace = true
 wgpu.workspace = true
-ply-rs.workspace = true
 tracing-subscriber.workspace = true
 
 web-time.workspace = true

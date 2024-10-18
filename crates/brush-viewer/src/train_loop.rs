@@ -1,22 +1,17 @@
-use std::io::Read;
-
 use anyhow::anyhow;
 use async_std::{
     channel::{Sender, TrySendError},
     stream::StreamExt,
 };
 use brush_dataset::{scene_batch::SceneLoader, Dataset, LoadDatasetArgs, ZipData};
-use brush_render::{gaussian_splats::RandomSplatsConfig, PrimaryBackend};
+use brush_render::gaussian_splats::{RandomSplatsConfig, Splats};
 use brush_train::train::{SplatTrainer, TrainConfig};
-use burn::{
-    backend::Autodiff, lr_scheduler::exponential::ExponentialLrSchedulerConfig,
-    module::AutodiffModule,
-};
+use burn::{lr_scheduler::exponential::ExponentialLrSchedulerConfig, module::AutodiffModule};
 use burn_wgpu::WgpuDevice;
 use web_time::Instant;
 use zip::ZipArchive;
 
-use crate::{splat_import, viewer::ViewerMessage};
+use crate::viewer::ViewerMessage;
 
 pub(crate) struct SharedTrainState {
     pub paused: bool,
@@ -29,20 +24,13 @@ pub(crate) async fn train_loop(
     load_data_args: LoadDatasetArgs,
 ) -> anyhow::Result<()> {
     let total_steps = 30000;
-    let mut archive = ZipArchive::new(zip_data.open_for_read())?;
+    let archive = ZipArchive::new(zip_data.open_for_read())?;
 
     // Load initial splats if included
     let mut initial_splats = None;
+    let mut splat_stream = brush_dataset::read_dataset_init(archive.clone(), &device);
 
-    let data = archive
-        .by_name("init.ply")
-        .map(|f| f.bytes().collect::<std::io::Result<Vec<u8>>>());
-
-    if let Ok(Ok(data)) = data {
-        let splat_stream =
-            splat_import::load_splat_from_ply::<Autodiff<PrimaryBackend>>(&data, device.clone());
-
-        let mut splat_stream = std::pin::pin!(splat_stream);
+    if let Ok(splat_stream) = splat_stream.as_mut() {
         while let Some(splats) = splat_stream.next().await {
             let splats = splats?;
             let msg = ViewerMessage::Splats {
@@ -56,10 +44,8 @@ pub(crate) async fn train_loop(
         }
     }
 
-    let data_stream =
-        brush_dataset::read_dataset::<Autodiff<PrimaryBackend>>(archive.clone(), &load_data_args)?;
-
     let mut dataset = Dataset::empty();
+    let data_stream = brush_dataset::read_dataset_views(archive.clone(), &load_data_args)?;
     let mut data_stream = std::pin::pin!(data_stream);
     while let Some(d) = data_stream.next().await {
         dataset = d?;
@@ -83,8 +69,8 @@ pub(crate) async fn train_loop(
         let bounds = dataset.train.bounds(0.0);
         let bounds_extent = bounds.extent.length();
         let adjusted_bounds = dataset.train.bounds(bounds_extent);
-        let config = RandomSplatsConfig::new(adjusted_bounds);
-        config.init(&device)
+        let config = RandomSplatsConfig::new();
+        Splats::from_random_config(config, adjusted_bounds, &device)
     };
 
     let train_scene = dataset.train.clone();

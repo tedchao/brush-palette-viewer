@@ -82,6 +82,8 @@ rerun = { version = "0.19.0", default-features = false, features = [
     'image',
 ] }
 
+kiddo = "4.2.1"
+
 # Build dependencies.
 thiserror = "*"
 web-sys = "0.3.70"

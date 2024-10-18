@@ -14,11 +14,11 @@ use egui::Hyperlink;
 use egui_tiles::Tiles;
 use web_time::Instant;
 
-use brush_dataset::{self, Dataset, LoadDatasetArgs, ZipData};
+use brush_dataset::{self, splat_import, Dataset, LoadDatasetArgs, ZipData};
 
 use crate::orbit_controls::OrbitControls;
 use crate::panels::{DatasetPanel, LoadDataPanel, RerunPanel, ScenePanel, StatsPanel};
-use crate::{splat_import, train_loop, PaneType, ViewerTree};
+use crate::{train_loop, PaneType, ViewerTree};
 
 use eframe::egui;
 
@@ -86,7 +86,7 @@ async fn process_loop(
         let _ = sender
             .send(ViewerMessage::StartLoading { training: false })
             .await;
-        load_ply_loop(&picked.data, device, sender).await
+        load_ply_loop(picked.data, device, sender).await
     } else if picked.file_name.contains(".zip") {
         let _ = sender
             .send(ViewerMessage::StartLoading { training: true })
@@ -98,7 +98,7 @@ async fn process_loop(
 }
 
 async fn load_ply_loop(
-    data: &[u8],
+    data: Vec<u8>,
     device: WgpuDevice,
     sender: Sender<ViewerMessage>,
 ) -> anyhow::Result<()> {

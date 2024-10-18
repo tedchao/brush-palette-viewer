@@ -55,9 +55,9 @@ impl VisualizeTools {
                 .unwrap();
             let means = means.chunks(3).map(|c| glam::vec3(c[0], c[1], c[2]));
 
-            let sh_c0 = 0.2820947917738781;
-            let base_rgb =
-                splats.sh_coeffs.val().slice([0..splats.num_splats(), 0..3]) * sh_c0 + 0.5;
+            let base_rgb = splats.sh_coeffs.val().slice([0..splats.num_splats(), 0..3])
+                * brush_render::render::SH_C0
+                + 0.5;
 
             let transparency = sigmoid(splats.raw_opacity.val());
 

@@ -24,6 +24,8 @@ tracing.workspace = true
 naga.workspace = true
 log.workspace = true
 serde.workspace = true
+kiddo.workspace = true
+
 
 [build-dependencies]
 brush-wgsl.path = "../brush-wgsl"

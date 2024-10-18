@@ -3,11 +3,15 @@ use std::{
     sync::Arc,
 };
 
-use crate::{DataStream, Dataset, LoadDatasetArgs, ZipData};
+use crate::{DataStream, Dataset, LoadDatasetArgs, SplatStream, ZipData};
 use anyhow::Result;
 use async_fn_stream::try_fn_stream;
 use async_std::task::JoinHandle;
-use brush_render::camera::{self, Camera};
+use brush_render::{
+    camera::{self, Camera},
+    gaussian_splats::Splats,
+    Backend,
+};
 use brush_train::{scene::SceneView, spawn_future};
 use glam::Vec3;
 use zip::ZipArchive;
@@ -90,7 +94,7 @@ fn read_views(
     Ok(handles)
 }
 
-pub(crate) fn read_dataset(
+pub(crate) fn read_dataset_views(
     archive: ZipArchive<Cursor<ZipData>>,
     load_args: &LoadDatasetArgs,
 ) -> Result<DataStream> {
@@ -126,6 +130,41 @@ pub(crate) fn read_dataset(
                 .await;
         }
 
+        Ok(())
+    });
+
+    Ok(Box::pin(stream))
+}
+
+pub(crate) fn read_init_splat<B: Backend>(
+    mut archive: ZipArchive<Cursor<ZipData>>,
+    device: &B::Device,
+) -> Result<SplatStream<B>> {
+    let (bin, points_path) = if archive.by_name("sparse/0/points3D.bin").is_ok() {
+        (true, "sparse/0/points3D.bin")
+    } else if archive.by_name("sparse/0/cameras.txt").is_ok() {
+        (false, "sparse/0/points3D.txt")
+    } else {
+        anyhow::bail!("No COLMAP data found (either text or binary.");
+    };
+
+    // Extract COLMAP sfm points.
+    let points_data = {
+        let mut points_file = archive.by_name(points_path)?;
+        colmap_read_model::read_points3d(&mut points_file, bin)?
+    };
+
+    let device = device.clone();
+
+    let stream = try_fn_stream(|emitter| async move {
+        let positions = points_data.values().map(|p| p.xyz).collect();
+        let colors = points_data
+            .values()
+            .map(|p| Vec3::new(p.rgb[0] as f32, p.rgb[1] as f32, p.rgb[2] as f32) / 255.0)
+            .collect();
+
+        let splats = Splats::from_point_cloud(positions, colors, &device);
+        emitter.emit(splats).await;
         Ok(())
     });
 

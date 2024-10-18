@@ -31,6 +31,8 @@ use burn::backend::{
 };
 use glam::uvec2;
 
+pub const SH_C0: f32 = shaders::gather_grads::SH_C0;
+
 pub const fn num_sh_coeffs(degree: usize) -> usize {
     (degree + 1).pow(2)
 }

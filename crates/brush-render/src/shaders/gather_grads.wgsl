@@ -12,6 +12,8 @@
 @group(0) @binding(7) var<storage, read_write> v_opacs: array<f32>;
 @group(0) @binding(8) var<storage, read_write> v_xy_global: array<vec2f>;
 
+const SH_C0: f32 = 0.2820947917738781f;
+
 fn sh_coeffs_to_color_fast_vjp(
     degree: u32,
     viewdir: vec3f,
@@ -21,7 +23,7 @@ fn sh_coeffs_to_color_fast_vjp(
 
     // Expects v_colors to be len CHANNELS
     // and v_coeffs to be num_bases * CHANNELS
-    v_coeffs.b0_c0 = 0.2820947917738781f * v_colors;
+    v_coeffs.b0_c0 = SH_C0 * v_colors;
 
     if (degree < 1) {
         return v_coeffs;
