@@ -3,15 +3,12 @@ use std::{
     sync::Arc,
 };
 
-use crate::{DataStream, Dataset, ZipData};
+use crate::{DataStream, Dataset, LoadDatasetArgs, ZipData};
 use anyhow::Result;
 use async_fn_stream::try_fn_stream;
 use async_std::task::JoinHandle;
 use brush_render::camera::{self, Camera};
-use brush_train::{
-    scene::{Scene, SceneView},
-    spawn_future,
-};
+use brush_train::{scene::SceneView, spawn_future};
 use glam::Vec3;
 use zip::ZipArchive;
 
@@ -19,8 +16,7 @@ use crate::colmap_read_model;
 
 fn read_views(
     mut archive: ZipArchive<Cursor<ZipData>>,
-    max_frames: Option<usize>,
-    max_resolution: Option<u32>,
+    load_args: &LoadDatasetArgs,
 ) -> Result<Vec<JoinHandle<Result<SceneView>>>> {
     let (bin, cam_path, img_path) = if archive.by_name("sparse/0/cameras.bin").is_ok() {
         (true, "sparse/0/cameras.bin", "sparse/0/images.bin")
@@ -43,7 +39,7 @@ fn read_views(
 
     let img_info_list = img_infos
         .into_values()
-        .take(max_frames.unwrap_or(usize::MAX))
+        .take(load_args.max_frames.unwrap_or(usize::MAX))
         .collect::<Vec<_>>();
 
     let handles = img_info_list
@@ -54,6 +50,7 @@ fn read_views(
             let translation = img_info.tvec;
             let quat = img_info.quat;
             let img_path = img_info.name.clone();
+            let load_args = load_args.clone();
 
             spawn_future(async move {
                 let focal = cam.focal();
@@ -68,7 +65,7 @@ fn read_views(
                 let img_bytes = image_data.bytes().collect::<std::io::Result<Vec<u8>>>()?;
                 let mut img = image::load_from_memory(&img_bytes)?;
 
-                if let Some(max) = max_resolution {
+                if let Some(max) = load_args.max_resolution {
                     img = crate::clamp_img_to_max_size(img, max);
                 }
 
@@ -95,19 +92,38 @@ fn read_views(
 
 pub(crate) fn read_dataset(
     archive: ZipArchive<Cursor<ZipData>>,
-    max_frames: Option<usize>,
-    max_resolution: Option<u32>,
+    load_args: &LoadDatasetArgs,
 ) -> Result<DataStream> {
-    let handles = read_views(archive, max_frames, max_resolution)?;
+    let handles = read_views(archive, load_args)?;
+
+    // 'real' colmap scenes are assumed to be opaque and not have a background, aka
+    // a black background.
+    let background = Vec3::ZERO;
+    let load_args = load_args.clone();
 
     let stream = try_fn_stream(|emitter| async move {
-        let mut dataset = Dataset::empty();
-        let mut views = vec![];
+        let mut train_views = vec![];
+        let mut eval_views = vec![];
 
-        for handle in handles {
-            views.push(handle.await?);
-            dataset.train = Scene::new(views.clone(), Vec3::ZERO);
-            emitter.emit(dataset.clone()).await;
+        for (i, handle) in handles.into_iter().enumerate() {
+            // I cannot wait for let chains.
+            if let Some(eval_period) = load_args.eval_split_every {
+                if i % eval_period == 0 {
+                    eval_views.push(handle.await?);
+                } else {
+                    train_views.push(handle.await?);
+                }
+            } else {
+                train_views.push(handle.await?);
+            }
+
+            emitter
+                .emit(Dataset::from_views(
+                    train_views.clone(),
+                    eval_views.clone(),
+                    background,
+                ))
+                .await;
         }
 
         Ok(())

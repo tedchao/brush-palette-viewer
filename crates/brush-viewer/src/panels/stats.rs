@@ -12,6 +12,7 @@ pub(crate) struct StatsPanel {
     last_train_step: (Instant, u32),
     train_iter_per_s: f32,
 
+    training: bool,
     num_splats: usize,
 }
 
@@ -21,6 +22,7 @@ impl StatsPanel {
             device,
             last_train_step: (Instant::now(), 0),
             train_iter_per_s: 0.0,
+            training: false,
             num_splats: 0,
         }
     }
@@ -33,6 +35,12 @@ impl ViewerPanel for StatsPanel {
 
     fn on_message(&mut self, message: crate::viewer::ViewerMessage, _: &mut ViewerContext) {
         match message {
+            ViewerMessage::StartLoading { training } => {
+                self.last_train_step = (Instant::now(), 0);
+                self.train_iter_per_s = 0.0;
+                self.num_splats = 0;
+                self.training = training;
+            }
             ViewerMessage::TrainStep {
                 splats: _,
                 stats: _,
@@ -55,10 +63,12 @@ impl ViewerPanel for StatsPanel {
         // let mut shared = self.train_state.shared.write();
         // let paused = shared.paused;
         // ui.toggle_value(&mut shared.paused, if paused { "⏵" } else { "⏸" });
-
         ui.label(format!("Splats: {}", self.num_splats));
-        ui.label(format!("Train step: {}", self.last_train_step.1));
-        ui.label(format!("steps/s: {:.1} ", self.train_iter_per_s));
+        if self.training {
+            ui.label(format!("Train step: {}", self.last_train_step.1));
+            ui.label(format!("steps/s: {:.1} ", self.train_iter_per_s));
+        }
+
         ui.add_space(10.0);
 
         let client = WgpuRuntime::client(&self.device);

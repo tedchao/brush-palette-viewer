@@ -1,17 +1,20 @@
-use crate::{train_loop::TrainArgs, viewer::ViewerContext, ViewerPanel};
+use crate::{viewer::ViewerContext, ViewerPanel};
+use brush_dataset::LoadDatasetArgs;
 use egui::Slider;
 
 pub(crate) struct LoadDataPanel {
-    target_train_resolution: Option<u32>,
+    max_train_resolution: Option<u32>,
     max_frames: Option<usize>,
+    eval_split_every: Option<usize>,
 }
 
 impl LoadDataPanel {
     pub(crate) fn new() -> Self {
         Self {
             // High resolution performance just isn't great at the moment... limit this for now by default.
-            target_train_resolution: Some(800),
+            max_train_resolution: None,
             max_frames: None,
+            eval_split_every: Some(8),
         }
     }
 }
@@ -25,25 +28,26 @@ impl ViewerPanel for LoadDataPanel {
         ui.label("Select a .ply to visualize, or a .zip with training data.");
 
         if ui.button("Pick a file").clicked() {
-            let train_args = TrainArgs {
-                frame_count: self.max_frames,
-                target_resolution: self.target_train_resolution,
+            let load_data_args = LoadDatasetArgs {
+                max_frames: self.max_frames,
+                max_resolution: self.max_train_resolution,
+                eval_split_every: self.eval_split_every,
             };
-            context.start_data_load(train_args);
+            context.start_data_load(load_data_args);
         }
 
         ui.add_space(10.0);
         ui.heading("Train settings");
 
-        let mut limit_res = self.target_train_resolution.is_some();
+        let mut limit_res = self.max_train_resolution.is_some();
         if ui
             .checkbox(&mut limit_res, "Limit training resolution")
             .clicked()
         {
-            self.target_train_resolution = if limit_res { Some(800) } else { None };
+            self.max_train_resolution = if limit_res { Some(800) } else { None };
         }
 
-        if let Some(target_res) = self.target_train_resolution.as_mut() {
+        if let Some(target_res) = self.max_train_resolution.as_mut() {
             ui.add(Slider::new(target_res, 32..=2048));
         }
 
@@ -55,6 +59,24 @@ impl ViewerPanel for LoadDataPanel {
         if let Some(max_frames) = self.max_frames.as_mut() {
             ui.add(Slider::new(max_frames, 1..=256));
         }
+
+        let mut use_eval_split = self.eval_split_every.is_some();
+        if ui
+            .checkbox(&mut use_eval_split, "Split dataset for evaluation")
+            .clicked()
+        {
+            self.eval_split_every = if use_eval_split { Some(8) } else { None };
+        }
+
+        if let Some(eval_split) = self.eval_split_every.as_mut() {
+            ui.add(
+                Slider::new(eval_split, 2..=32)
+                    .prefix("1 out of ")
+                    .suffix(" frames"),
+            );
+        }
+
+        ui.add_space(5.0);
 
         ui.add_space(15.0);
 

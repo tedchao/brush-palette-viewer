@@ -14,11 +14,10 @@ use egui::Hyperlink;
 use egui_tiles::Tiles;
 use web_time::Instant;
 
-use brush_dataset::{self, Dataset, ZipData};
+use brush_dataset::{self, Dataset, LoadDatasetArgs, ZipData};
 
 use crate::orbit_controls::OrbitControls;
 use crate::panels::{DatasetPanel, LoadDataPanel, RerunPanel, ScenePanel, StatsPanel};
-use crate::train_loop::TrainArgs;
 use crate::{splat_import, train_loop, PaneType, ViewerTree};
 
 use eframe::egui;
@@ -78,7 +77,7 @@ pub(crate) struct ViewerContext {
 async fn process_loop(
     device: WgpuDevice,
     sender: Sender<ViewerMessage>,
-    train_args: TrainArgs,
+    load_data_args: LoadDatasetArgs,
 ) -> anyhow::Result<()> {
     let _ = sender.send(ViewerMessage::PickFile).await;
     let picked = rrfd::pick_file().await?;
@@ -92,7 +91,7 @@ async fn process_loop(
         let _ = sender
             .send(ViewerMessage::StartLoading { training: true })
             .await;
-        train_loop::train_loop(ZipData::from(picked.data), device, sender, train_args).await
+        train_loop::train_loop(ZipData::from(picked.data), device, sender, load_data_args).await
     } else {
         anyhow::bail!("Only .ply and .zip files are supported.")
     }
@@ -142,7 +141,7 @@ impl ViewerContext {
                 * 0.5;
     }
 
-    pub(crate) fn start_data_load(&mut self, args: TrainArgs) {
+    pub(crate) fn start_data_load(&mut self, load_data_args: LoadDatasetArgs) {
         <Wgpu as burn::prelude::Backend>::seed(42);
 
         let device = self.device.clone();
@@ -153,7 +152,7 @@ impl ViewerContext {
 
         // Spawn a future that sends the viewer messages.
         spawn_future(async move {
-            if let Err(e) = process_loop(device, sender.clone(), args).await {
+            if let Err(e) = process_loop(device, sender.clone(), load_data_args).await {
                 let _ = sender.send(ViewerMessage::Error(Arc::new(e))).await;
             }
         });

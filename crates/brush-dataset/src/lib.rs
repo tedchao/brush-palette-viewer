@@ -6,7 +6,7 @@ pub mod scene_batch;
 use anyhow::Result;
 use async_std::stream::Stream;
 use brush_render::Backend;
-use brush_train::scene::Scene;
+use brush_train::scene::{Scene, SceneView};
 use glam::Vec3;
 use image::DynamicImage;
 use std::{
@@ -45,8 +45,6 @@ impl From<Vec<u8>> for ZipData {
 #[derive(Clone)]
 pub struct Dataset {
     pub train: Scene,
-    #[allow(unused)]
-    pub test: Option<Scene>,
     pub eval: Option<Scene>,
 }
 
@@ -54,10 +52,31 @@ impl Dataset {
     pub fn empty() -> Self {
         Dataset {
             train: Scene::new(vec![], Vec3::ZERO),
-            test: None,
             eval: None,
         }
     }
+
+    pub fn from_views(
+        train_views: Vec<SceneView>,
+        eval_views: Vec<SceneView>,
+        background: glam::Vec3,
+    ) -> Self {
+        Dataset {
+            train: Scene::new(train_views, background),
+            eval: if eval_views.is_empty() {
+                None
+            } else {
+                Some(Scene::new(eval_views.clone(), background))
+            },
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct LoadDatasetArgs {
+    pub max_frames: Option<usize>,
+    pub max_resolution: Option<u32>,
+    pub eval_split_every: Option<usize>,
 }
 
 pub(crate) fn normalized_path_string(path: &Path) -> String {
@@ -88,14 +107,13 @@ type DataStream = Pin<Box<dyn Stream<Item = Result<Dataset>> + Send + 'static>>;
 
 pub fn read_dataset<B: Backend>(
     archive: ZipArchive<Cursor<ZipData>>,
-    max_frames: Option<usize>,
-    max_resolution: Option<u32>,
+    load_args: &LoadDatasetArgs,
 ) -> Result<DataStream> {
-    let nerf = nerf_synthetic::read_dataset(archive.clone(), max_frames, max_resolution);
+    let nerf = nerf_synthetic::read_dataset(archive.clone(), load_args);
     if let Ok(stream) = nerf {
         return Ok(stream);
     }
-    let colmap = colmap::read_dataset(archive.clone(), max_frames, max_resolution);
+    let colmap = colmap::read_dataset(archive.clone(), load_args);
     if let Ok(stream) = colmap {
         return Ok(stream);
     }

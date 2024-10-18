@@ -45,7 +45,7 @@ pub struct TrainConfig {
 
     // threshold of positional gradient norm for densifying gaussians
     // TODO: Abs grad.
-    #[config(default = 0.00005)]
+    #[config(default = 0.0002)]
     densify_grad_thresh: f32,
 
     // below this size, gaussians are *duplicated*, otherwise split.
@@ -57,8 +57,14 @@ pub struct TrainConfig {
 
     // Learning rates.
     lr_mean: ExponentialLrSchedulerConfig,
+
+    // Learning rate for the basic coefficients.
     #[config(default = 0.0025)]
-    lr_coeffs: f64,
+    lr_coeffs_dc: f64,
+
+    // How much to divide the learning rate by for higher SH orders.
+    #[config(default = 20.0)]
+    lr_coeffs_sh_scale: f64,
 
     #[config(default = 0.05)]
     lr_opac: f64,
@@ -69,17 +75,8 @@ pub struct TrainConfig {
     #[config(default = 0.001)]
     lr_rotation: f64,
 
-    #[config(default = 5000)]
-    schedule_steps: u32,
-
     #[config(default = 42)]
     seed: u64,
-
-    #[config(default = 1000)]
-    pub eval_every: u32,
-
-    #[config(default = 400)]
-    pub visualize_splats_every: u32,
 }
 
 #[derive(Clone, Debug)]
@@ -259,7 +256,7 @@ where
             self.sched_mean.step(),
             self.config.lr_rotation,
             self.config.lr_scale,
-            self.config.lr_coeffs,
+            self.config.lr_coeffs_dc,
             self.config.lr_opac,
         );
 
@@ -311,137 +308,138 @@ where
             splats
         });
 
-        if self.iter < max_refine_step {
-            if self.iter >= self.config.warmup_steps && self.iter % self.config.refine_every == 0 {
-                let grads = self.grad_2d_accum.clone()
-                    / self.xy_grad_counts.clone().clamp(1, i32::MAX).float();
+        if self.iter < max_refine_step
+            && self.iter >= self.config.warmup_steps
+            && self.iter % self.config.refine_every == 0
+        {
+            let grads =
+                self.grad_2d_accum.clone() / self.xy_grad_counts.clone().clamp(1, i32::MAX).float();
 
-                let big_grad_mask = grads.greater_equal_elem(self.config.densify_grad_thresh);
+            let big_grad_mask = grads.greater_equal_elem(self.config.densify_grad_thresh);
 
-                // TODO: Carry adam state.
-                // let optim_record = self.optim.to_record();
-                // let means = splats.means.val();
-                // let means_state = optim_record[&splats.means.id].into_state();
+            // TODO: Carry adam state.
+            // let optim_record = self.optim.to_record();
+            // let means = splats.means.val();
+            // let means_state = optim_record[&splats.means.id].into_state();
 
-                let split_clone_size_mask = splats
-                    .log_scales
-                    .val()
-                    .exp()
-                    .max_dim(1)
-                    .squeeze(1)
-                    .lower_elem(self.config.densify_size_thresh);
+            let split_clone_size_mask = splats
+                .log_scales
+                .val()
+                .exp()
+                .max_dim(1)
+                .squeeze(1)
+                .lower_elem(self.config.densify_size_thresh);
 
-                let mut append_means = vec![];
-                let mut append_rots = vec![];
-                let mut append_coeffs = vec![];
-                let mut append_opac = vec![];
-                let mut append_scales = vec![];
+            let mut append_means = vec![];
+            let mut append_rots = vec![];
+            let mut append_coeffs = vec![];
+            let mut append_opac = vec![];
+            let mut append_scales = vec![];
 
-                let clone_inds = Tensor::stack::<2>(
-                    vec![split_clone_size_mask.clone(), big_grad_mask.clone()],
-                    1,
-                )
-                .all_dim(1)
-                .squeeze::<1>(1)
-                .argwhere_async()
-                .await;
+            let clone_inds = Tensor::stack::<2>(
+                vec![split_clone_size_mask.clone(), big_grad_mask.clone()],
+                1,
+            )
+            .all_dim(1)
+            .squeeze::<1>(1)
+            .argwhere_async()
+            .await;
 
-                let clone_count = clone_inds.dims()[0];
-                if clone_count > 0 {
-                    let clone_inds = clone_inds.squeeze(1);
-                    let cur_scale = splats.log_scales.val().select(0, clone_inds.clone());
-                    let cur_rots = splats.rotation.val().select(0, clone_inds.clone());
+            let clone_count = clone_inds.dims()[0];
+            if clone_count > 0 {
+                let clone_inds = clone_inds.squeeze(1);
+                let cur_scale = splats.log_scales.val().select(0, clone_inds.clone());
+                let cur_rots = splats.rotation.val().select(0, clone_inds.clone());
 
-                    // Slightly offset cloned gaussians so they don't just follow the original one.
-                    let samples = quaternion_vec_multiply(
-                        cur_rots.clone(),
-                        Tensor::random([clone_count, 3], Distribution::Normal(0.0, 0.5), device)
-                            * cur_scale.clone().exp(),
-                    );
+                // Slightly offset cloned gaussians so they don't just follow the original one.
+                let samples = quaternion_vec_multiply(
+                    cur_rots.clone(),
+                    Tensor::random([clone_count, 3], Distribution::Normal(0.0, 0.5), device)
+                        * cur_scale.clone().exp(),
+                );
 
-                    append_means.push(splats.means.val().select(0, clone_inds.clone()) + samples);
-                    append_rots.push(splats.rotation.val().select(0, clone_inds.clone()));
-                    append_coeffs.push(splats.sh_coeffs.val().select(0, clone_inds.clone()));
-                    append_opac.push(splats.raw_opacity.val().select(0, clone_inds.clone()));
-                    append_scales.push(splats.log_scales.val().select(0, clone_inds.clone()));
-                }
+                append_means.push(splats.means.val().select(0, clone_inds.clone()) + samples);
+                append_rots.push(splats.rotation.val().select(0, clone_inds.clone()));
+                append_coeffs.push(splats.sh_coeffs.val().select(0, clone_inds.clone()));
+                append_opac.push(splats.raw_opacity.val().select(0, clone_inds.clone()));
+                append_scales.push(splats.log_scales.val().select(0, clone_inds.clone()));
+            }
 
-                let split_inds =
-                    Tensor::stack::<2>(vec![split_clone_size_mask.bool_not(), big_grad_mask], 1)
-                        .all_dim(1)
-                        .squeeze::<1>(1)
-                        .argwhere_async()
-                        .await;
+            let split_inds =
+                Tensor::stack::<2>(vec![split_clone_size_mask.bool_not(), big_grad_mask], 1)
+                    .all_dim(1)
+                    .squeeze::<1>(1)
+                    .argwhere_async()
+                    .await;
 
-                let split_count = split_inds.dims()[0];
-                if split_count > 0 {
-                    let split_inds = split_inds.squeeze(1);
-                    let cur_means = splats.means.val().select(0, split_inds.clone());
-                    let cur_coeff = splats.sh_coeffs.val().select(0, split_inds.clone());
-                    let cur_raw_opac = splats.raw_opacity.val().select(0, split_inds.clone());
-                    let cur_log_scale = splats.log_scales.val().select(0, split_inds.clone());
-                    let cur_rots = splats.rotation.val().select(0, split_inds.clone());
+            let split_count = split_inds.dims()[0];
+            if split_count > 0 {
+                let split_inds = split_inds.squeeze(1);
+                let cur_means = splats.means.val().select(0, split_inds.clone());
+                let cur_coeff = splats.sh_coeffs.val().select(0, split_inds.clone());
+                let cur_raw_opac = splats.raw_opacity.val().select(0, split_inds.clone());
+                let cur_log_scale = splats.log_scales.val().select(0, split_inds.clone());
+                let cur_rots = splats.rotation.val().select(0, split_inds.clone());
 
-                    let samples = quaternion_vec_multiply(
-                        cur_rots.clone(),
-                        Tensor::random([split_count, 3], Distribution::Normal(0.0, 0.5), device)
-                            * cur_log_scale.clone().exp(),
-                    );
+                let samples = quaternion_vec_multiply(
+                    cur_rots.clone(),
+                    Tensor::random([split_count, 3], Distribution::Normal(0.0, 0.5), device)
+                        * cur_log_scale.clone().exp(),
+                );
 
-                    // TODO: Should also modify the old splat to be smaller & shifted.
+                // TODO: Should also modify the old splat to be smaller & shifted.
 
-                    append_means.push(cur_means.clone() + samples);
-                    append_rots.push(cur_rots.clone());
-                    append_coeffs.push(cur_coeff.clone());
-                    append_opac.push(cur_raw_opac);
-                    append_scales.push((cur_log_scale.exp() / 1.6).log());
-                }
+                append_means.push(cur_means.clone() + samples);
+                append_rots.push(cur_rots.clone());
+                append_coeffs.push(cur_coeff.clone());
+                append_opac.push(cur_raw_opac);
+                append_scales.push((cur_log_scale.exp() / 1.6).log());
+            }
 
-                if !append_means.is_empty() {
-                    let append_means = Tensor::cat(append_means, 0);
-                    let append_rots = Tensor::cat(append_rots, 0);
-                    let append_coeffs = Tensor::cat(append_coeffs, 0);
-                    let append_opac = Tensor::cat(append_opac, 0);
-                    let append_scales = Tensor::cat(append_scales, 0);
+            if !append_means.is_empty() {
+                let append_means = Tensor::cat(append_means, 0);
+                let append_rots = Tensor::cat(append_rots, 0);
+                let append_coeffs = Tensor::cat(append_coeffs, 0);
+                let append_opac = Tensor::cat(append_opac, 0);
+                let append_scales = Tensor::cat(append_scales, 0);
 
-                    concat_splats(
-                        &mut splats,
-                        append_means,
-                        append_rots,
-                        append_coeffs,
-                        append_opac,
-                        append_scales,
-                    );
-                }
+                concat_splats(
+                    &mut splats,
+                    append_means,
+                    append_rots,
+                    append_coeffs,
+                    append_opac,
+                    append_scales,
+                );
+            }
 
-                // Do some more processing. Important to do this last as otherwise you might mess up the correspondence
-                // of gradient <-> splat.
+            // Do some more processing. Important to do this last as otherwise you might mess up the correspondence
+            // of gradient <-> splat.
 
-                // Remove barely visible gaussians.
-                let alpha_mask = burn::tensor::activation::sigmoid(splats.raw_opacity.val())
-                    .lower_elem(self.config.cull_alpha_thresh);
-                prune_points(&mut splats, alpha_mask).await;
+            // Remove barely visible gaussians.
+            let alpha_mask = burn::tensor::activation::sigmoid(splats.raw_opacity.val())
+                .lower_elem(self.config.cull_alpha_thresh);
+            prune_points(&mut splats, alpha_mask).await;
 
-                // Delete Gaussians with too large of a radius in world-units.
-                let scale_mask = splats
-                    .log_scales
-                    .val()
-                    .exp()
-                    .max_dim(1)
-                    .squeeze(1)
-                    .greater_elem(self.config.cull_scale_thresh);
-                prune_points(&mut splats, scale_mask).await;
+            // Delete Gaussians with too large of a radius in world-units.
+            let scale_mask = splats
+                .log_scales
+                .val()
+                .exp()
+                .max_dim(1)
+                .squeeze(1)
+                .greater_elem(self.config.cull_scale_thresh);
+            prune_points(&mut splats, scale_mask).await;
 
-                // Stats don't line up anymore so have to reset them.
-                self.reset_stats(splats.num_splats(), device);
+            // Stats don't line up anymore so have to reset them.
+            self.reset_stats(splats.num_splats(), device);
 
-                // TODO: Want to do state surgery and keep momenta for splats.
-                self.optim = self.opt_config.init();
+            // TODO: Want to do state surgery and keep momenta for splats.
+            self.optim = self.opt_config.init();
 
-                // Nb: th
-                if self.iter % (self.config.refine_every * self.config.reset_alpha_every) == 0 {
-                    self.reset_opacity(&mut splats);
-                }
+            // Nb: th
+            if self.iter % (self.config.refine_every * self.config.reset_alpha_every) == 0 {
+                self.reset_opacity(&mut splats);
             }
         }
 

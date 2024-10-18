@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use brush_render::RenderAux;
 use brush_render::{gaussian_splats::Splats, Backend};
 use burn::tensor::ElementConversion;
@@ -7,13 +5,13 @@ use image::DynamicImage;
 use rand::seq::IteratorRandom;
 
 use crate::image::{image_to_tensor, tensor_into_image};
-use crate::scene::Scene;
+use crate::scene::{Scene, SceneView};
 
 // TODO: Add ssim, maybe lpips.
 pub struct EvalView {
-    pub psnr: f32,
+    pub view: SceneView,
     pub rendered: DynamicImage,
-    pub ground_truth: Arc<DynamicImage>,
+    pub psnr: f32,
     pub aux: RenderAux,
 }
 
@@ -42,7 +40,7 @@ pub async fn eval_stats<B: Backend>(
     let mut ret = vec![];
 
     for view in eval_views {
-        let ground_truth = view.image;
+        let ground_truth = view.image.clone();
         let res = glam::uvec2(ground_truth.width(), ground_truth.height());
 
         let gt_tensor = image_to_tensor::<B>(&ground_truth, device);
@@ -57,9 +55,9 @@ pub async fn eval_stats<B: Backend>(
         let eval_render = tensor_into_image(render_rgb.into_data_async().await);
 
         ret.push(EvalView {
+            view,
             psnr,
             rendered: eval_render,
-            ground_truth,
             aux,
         });
     }

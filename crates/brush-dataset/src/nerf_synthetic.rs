@@ -4,7 +4,6 @@ use async_fn_stream::try_fn_stream;
 use async_std::task::JoinHandle;
 use brush_render::camera;
 use brush_render::camera::Camera;
-use brush_train::scene::Scene;
 use brush_train::scene::SceneView;
 use brush_train::spawn_future;
 use std::io::Cursor;
@@ -17,6 +16,7 @@ use crate::clamp_img_to_max_size;
 use crate::normalized_path_string;
 use crate::DataStream;
 use crate::Dataset;
+use crate::LoadDatasetArgs;
 use crate::ZipData;
 
 #[derive(serde::Deserialize)]
@@ -34,8 +34,7 @@ struct FrameData {
 fn read_transforms_file(
     mut archive: ZipArchive<Cursor<ZipData>>,
     name: &'static str,
-    max_frames: Option<usize>,
-    max_resolution: Option<u32>,
+    load_args: &LoadDatasetArgs,
 ) -> Result<Vec<JoinHandle<anyhow::Result<SceneView>>>> {
     let transform_fname = archive
         .file_names()
@@ -58,10 +57,11 @@ fn read_transforms_file(
     let iter = scene_train
         .frames
         .into_iter()
-        .take(max_frames.unwrap_or(usize::MAX))
+        .take(load_args.max_frames.unwrap_or(usize::MAX))
         .map(move |frame| {
             let base_path = base_path.clone();
             let mut archive = archive.clone();
+            let load_args = load_args.clone();
 
             spawn_future(async move {
                 // NeRF 'transform_matrix' is a camera-to-world transform
@@ -92,7 +92,7 @@ fn read_transforms_file(
                 let mut image = tracing::trace_span!("Decode image")
                     .in_scope(|| image::load_from_memory(&img_buffer))?;
 
-                if let Some(max_resolution) = max_resolution {
+                if let Some(max_resolution) = load_args.max_resolution {
                     image = clamp_img_to_max_size(image, max_resolution);
                 }
 
@@ -133,43 +133,54 @@ fn read_transforms_file(
 
 pub fn read_dataset(
     archive: ZipArchive<Cursor<ZipData>>,
-    max_frames: Option<usize>,
-    max_resolution: Option<u32>,
+    load_args: &LoadDatasetArgs,
 ) -> Result<DataStream> {
     // Assume nerf synthetic has a white background. Maybe add a custom json field to customize this
     // or something.
     let background = glam::Vec3::ONE;
 
-    let mut dataset = Dataset::empty();
-
-    let train_stream = read_transforms_file(
-        archive.clone(),
-        "transforms_train.json",
-        max_frames,
-        max_resolution,
-    )?;
+    let load_args = load_args.clone();
+    let train_handles = read_transforms_file(archive.clone(), "transforms_train.json", &load_args)?;
 
     let stream = try_fn_stream(|emitter| async move {
-        let mut views = vec![];
+        let mut train_views = vec![];
+        let mut eval_views = vec![];
 
-        for handle in train_stream {
-            views.push(handle.await?);
-            dataset.train = Scene::new(views.clone(), background);
-            emitter.emit(dataset.clone()).await;
+        for (i, handle) in train_handles.into_iter().enumerate() {
+            // I cannot wait for let chains.
+            if let Some(eval_period) = load_args.eval_split_every {
+                if i % eval_period == 0 {
+                    eval_views.push(handle.await?);
+                } else {
+                    train_views.push(handle.await?);
+                }
+            } else {
+                train_views.push(handle.await?);
+            }
+
+            emitter
+                .emit(Dataset::from_views(
+                    train_views.clone(),
+                    eval_views.clone(),
+                    background,
+                ))
+                .await;
         }
 
         // Not entirely sure yet if we want to report stats on both test
         // and eval. If so, just read  "transforms_test.json"
-        let val_stream =
-            read_transforms_file(archive, "transforms_val.json", max_frames, max_resolution);
+        let val_stream = read_transforms_file(archive, "transforms_val.json", &load_args);
 
         if let Ok(val_stream) = val_stream {
-            let mut views = vec![];
-
             for handle in val_stream {
-                views.push(handle.await?);
-                dataset.eval = Some(Scene::new(views.clone(), background));
-                emitter.emit(dataset.clone()).await;
+                eval_views.push(handle.await?);
+                emitter
+                    .emit(Dataset::from_views(
+                        train_views.clone(),
+                        eval_views.clone(),
+                        background,
+                    ))
+                    .await;
             }
         }
 

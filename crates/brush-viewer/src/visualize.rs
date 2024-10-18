@@ -1,6 +1,6 @@
 #![allow(unused_imports, unused_variables)]
 
-use std::borrow::Borrow;
+use std::{borrow::Borrow, io::Read};
 
 use anyhow::Result;
 use brush_render::{gaussian_splats::Splats, AutodiffBackend, Backend};
@@ -119,13 +119,14 @@ impl VisualizeTools {
             for (i, view) in scene.views.iter().enumerate() {
                 let path = format!("world/dataset/camera/{i}");
                 let (width, height) = (view.image.width(), view.image.height());
-
                 let vis_size = glam::uvec2(width, height);
-                let rerun_camera = rerun::Pinhole::from_focal_length_and_resolution(
-                    view.camera.focal(vis_size),
-                    glam::vec2(vis_size.x as f32, vis_size.y as f32),
-                );
-                rec.log_static(path.clone(), &rerun_camera)?;
+                rec.log_static(
+                    path.clone(),
+                    &rerun::Pinhole::from_focal_length_and_resolution(
+                        view.camera.focal(vis_size),
+                        glam::vec2(vis_size.x as f32, vis_size.y as f32),
+                    ),
+                )?;
                 rec.log_static(
                     path.clone(),
                     &rerun::Transform3D::from_translation_rotation(
@@ -161,15 +162,31 @@ impl VisualizeTools {
             rec.log("stats/eval_psnr", &rerun::Scalar::new(avg_psnr as f64))?;
 
             for (i, samp) in stats.samples.iter().enumerate() {
-                let render = samp.rendered.clone();
-                let [w, h] = [render.width(), render.height()];
+                let rendered = samp.rendered.to_rgb8();
+                let gt = samp.view.image.as_rgb8().unwrap();
+
+                let [w, h] = [rendered.width(), rendered.height()];
                 rec.log(
-                    format!("eval/render {i}"),
-                    &rerun::Image::from_rgb24(render.into_bytes(), [w, h]),
+                    format!("world/eval/view_{i}"),
+                    &rerun::Transform3D::from_translation_rotation(
+                        samp.view.camera.position,
+                        samp.view.camera.rotation,
+                    ),
                 )?;
                 rec.log(
-                    format!("eval/render {i}"),
-                    &rerun::Image::from_rgb24(samp.ground_truth.as_bytes().to_vec(), [w, h]),
+                    format!("world/eval/view_{i}"),
+                    &rerun::Pinhole::from_focal_length_and_resolution(
+                        samp.view.camera.focal(glam::uvec2(w, h)),
+                        glam::vec2(w as f32, h as f32),
+                    ),
+                )?;
+                rec.log(
+                    format!("world/eval/view_{i}/ground_truth"),
+                    &rerun::Image::from_rgb24(gt.to_vec(), [w, h]),
+                )?;
+                rec.log(
+                    format!("world/eval/view_{i}/render"),
+                    &rerun::Image::from_rgb24(rendered.to_vec(), [w, h]),
                 )?;
             }
         }
