@@ -3,7 +3,7 @@ use async_std::{
     channel::{Sender, TrySendError},
     stream::StreamExt,
 };
-use brush_dataset::{scene_batch::SceneLoader, Dataset, LoadDatasetArgs, ZipData};
+use brush_dataset::{scene_batch::SceneLoader, Dataset, LoadDatasetArgs, LoadInitArgs, ZipData};
 use brush_render::gaussian_splats::{RandomSplatsConfig, Splats};
 use brush_train::train::{SplatTrainer, TrainConfig};
 use burn::{lr_scheduler::exponential::ExponentialLrSchedulerConfig, module::AutodiffModule};
@@ -22,13 +22,14 @@ pub(crate) async fn train_loop(
     device: WgpuDevice,
     sender: Sender<ViewerMessage>,
     load_data_args: LoadDatasetArgs,
+    load_init_args: LoadInitArgs,
 ) -> anyhow::Result<()> {
-    let total_steps = 30000;
     let archive = ZipArchive::new(zip_data.open_for_read())?;
 
     // Load initial splats if included
     let mut initial_splats = None;
-    let mut splat_stream = brush_dataset::read_dataset_init(archive.clone(), &device);
+    let mut splat_stream =
+        brush_dataset::read_dataset_init(archive.clone(), &device, &load_init_args);
 
     if let Ok(splat_stream) = splat_stream.as_mut() {
         while let Some(splats) = splat_stream.next().await {
@@ -62,6 +63,7 @@ pub(crate) async fn train_loop(
         .await
         .map_err(|e| anyhow!("Failed to send message: {}", e))?;
 
+    // TODO: Maybe just move this default to the dataset reader.
     let mut splats = if let Some(splats) = initial_splats {
         splats
     } else {
@@ -69,18 +71,19 @@ pub(crate) async fn train_loop(
         let bounds = dataset.train.bounds(0.0);
         let bounds_extent = bounds.extent.length();
         let adjusted_bounds = dataset.train.bounds(bounds_extent);
-        let config = RandomSplatsConfig::new();
+        let config = RandomSplatsConfig::new().with_sh_degree(load_init_args.sh_degree);
         Splats::from_random_config(config, adjusted_bounds, &device)
     };
 
     let train_scene = dataset.train.clone();
 
+    let total_steps = 30000;
+
     let scene_extent = train_scene.bounds(0.0).extent.length() as f64;
-    let lr_max = 1.6e-4 * scene_extent;
+    let lr_max = 2.0e-4 * scene_extent;
     let decay = 1e-2f64.powf(1.0 / total_steps as f64);
     let config = TrainConfig::new(ExponentialLrSchedulerConfig::new(lr_max, decay))
-        .with_total_steps(total_steps)
-        .with_densify_size_thresh(0.01 * scene_extent as f32);
+        .with_total_steps(total_steps);
 
     let mut dataloader = SceneLoader::new(&train_scene, 1, &device);
     let mut trainer = SplatTrainer::new(splats.num_splats(), &config, &splats);

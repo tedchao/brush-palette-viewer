@@ -33,11 +33,11 @@ use glam::uvec2;
 
 pub const SH_C0: f32 = shaders::gather_grads::SH_C0;
 
-pub const fn num_sh_coeffs(degree: usize) -> usize {
+pub const fn num_sh_coeffs(degree: u32) -> u32 {
     (degree + 1).pow(2)
 }
 
-pub fn sh_degree_from_coeffs(coeffs_per_channel: usize) -> usize {
+pub fn sh_degree_from_coeffs(coeffs_per_channel: u32) -> u32 {
     match coeffs_per_channel {
         1 => 0,
         4 => 1,
@@ -72,7 +72,7 @@ fn render_forward(
         .check_dims(&means, &["D".into(), 3.into()])
         .check_dims(&log_scales, &["D".into(), 3.into()])
         .check_dims(&quats, &["D".into(), 4.into()])
-        .check_dims(&sh_coeffs, &["D".into(), "C".into()])
+        .check_dims(&sh_coeffs, &["D".into(), "C".into(), 3.into()])
         .check_dims(&raw_opacities, &["D".into()]);
 
     // Divide screen into tiles.
@@ -94,9 +94,8 @@ fn render_forward(
     //  global_from_compact_gid.
 
     // Tile rendering setup.
-    let sh_degree = sh_degree_from_coeffs(sh_coeffs.shape.dims[1] / 3);
+    let sh_degree = sh_degree_from_coeffs(sh_coeffs.shape.dims[1] as u32);
     let total_splats = means.shape.dims[0] as u32;
-
     let uniforms_buffer = create_uniform_buffer(
         shaders::helpers::RenderUniforms {
             viewmat: camera.world_to_local().to_cols_array_2d(),
@@ -106,7 +105,7 @@ fn render_forward(
             tile_bounds: tile_bounds.into(),
             num_visible: 0,
             background: [background.x, background.y, background.z, 0.0],
-            sh_degree: sh_degree as u32,
+            sh_degree,
             total_splats,
             padding: 0,
         },
@@ -336,7 +335,7 @@ impl Backend for PrimaryBackend {
         _xy_dummy: Tensor<Self, 2>,
         log_scales: Tensor<Self, 2>,
         quats: Tensor<Self, 2>,
-        sh_coeffs: Tensor<Self, 2>,
+        sh_coeffs: Tensor<Self, 3>,
         raw_opacity: Tensor<Self, 1>,
         background: glam::Vec3,
         render_u32_buffer: bool,
@@ -363,7 +362,7 @@ struct GaussianBackwardState {
     log_scales: NodeID,
     quats: NodeID,
     raw_opac: NodeID,
-    sh_degree: usize,
+    sh_degree: u32,
     out_img: JitTensor<WgpuRuntime, f32>,
     aux: RenderAux,
 }
@@ -379,7 +378,7 @@ impl<C: CheckpointStrategy> Backend for Autodiff<PrimaryBackend, C> {
         xy_dummy: Tensor<Self, 2>,
         log_scales: Tensor<Self, 2>,
         quats: Tensor<Self, 2>,
-        sh_coeffs: Tensor<Self, 2>,
+        sh_coeffs: Tensor<Self, 3>,
         raw_opacity: Tensor<Self, 1>,
         background: glam::Vec3,
         render_u32_buffer: bool,
@@ -419,7 +418,7 @@ impl<C: CheckpointStrategy> Backend for Autodiff<PrimaryBackend, C> {
             .compute_bound()
             .stateful();
 
-        let sh_degree = sh_degree_from_coeffs(sh_coeffs.primitive.shape.dims[1] / 3);
+        let sh_degree = sh_degree_from_coeffs(sh_coeffs.primitive.shape.dims[1] as u32);
 
         match prep_nodes {
             OpsKind::Tracked(mut prep) => {
@@ -516,7 +515,7 @@ impl Backward<PrimaryBackend, 6> for RenderBackwards {
             });
 
             let v_coeffs = PrimaryBackend::float_zeros(
-                [num_points, num_sh_coeffs(state.sh_degree) * 3].into(),
+                [num_points, num_sh_coeffs(state.sh_degree) as usize, 3].into(),
                 device,
             );
             let v_opacities = PrimaryBackend::float_zeros([num_points].into(), device);
@@ -651,7 +650,7 @@ mod tests {
         let quats = Tensor::<_, 1, _>::from_floats(glam::Quat::IDENTITY.to_array(), &device)
             .unsqueeze_dim(0)
             .repeat_dim(0, num_points);
-        let sh_coeffs = Tensor::ones([num_points, 4], &device);
+        let sh_coeffs = Tensor::ones([num_points, 1, 3], &device);
         let raw_opacity = Tensor::zeros([num_points], &device);
         let (output, _) = DiffBack::render_splats(
             &cam,
@@ -765,9 +764,7 @@ mod tests {
             let v_opacities = splats.raw_opacity.grad(&grads).context("opacities grad")?;
 
             let v_coeffs_ref =
-                safetensor_to_burn::<DiffBack, 3>(tensors.tensor("v_coeffs")?, &device)
-                    .reshape([splats.num_splats(), 3])
-                    .inner();
+                safetensor_to_burn::<DiffBack, 3>(tensors.tensor("v_coeffs")?, &device).inner();
             let v_coeffs = splats.sh_coeffs.grad(&grads).context("coeffs grad")?;
 
             let v_quats = splats.rotation.grad(&grads).context("quats grad")?;

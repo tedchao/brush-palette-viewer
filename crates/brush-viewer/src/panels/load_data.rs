@@ -1,11 +1,12 @@
 use crate::{viewer::ViewerContext, ViewerPanel};
-use brush_dataset::LoadDatasetArgs;
+use brush_dataset::{LoadDatasetArgs, LoadInitArgs};
 use egui::Slider;
 
 pub(crate) struct LoadDataPanel {
     max_train_resolution: Option<u32>,
     max_frames: Option<usize>,
     eval_split_every: Option<usize>,
+    sh_degree: u32,
 }
 
 impl LoadDataPanel {
@@ -15,6 +16,7 @@ impl LoadDataPanel {
             max_train_resolution: None,
             max_frames: None,
             eval_split_every: Some(8),
+            sh_degree: 3,
         }
     }
 }
@@ -33,11 +35,17 @@ impl ViewerPanel for LoadDataPanel {
                 max_resolution: self.max_train_resolution,
                 eval_split_every: self.eval_split_every,
             };
-            context.start_data_load(load_data_args);
+            let load_init_args = LoadInitArgs {
+                sh_degree: self.sh_degree,
+            };
+            context.start_data_load(load_data_args, load_init_args);
         }
 
         ui.add_space(10.0);
         ui.heading("Train settings");
+
+        ui.label("Spherical Harmonics Degree:");
+        ui.add(Slider::new(&mut self.sh_degree, 1..=5));
 
         let mut limit_res = self.max_train_resolution.is_some();
         if ui

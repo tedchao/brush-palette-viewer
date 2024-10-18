@@ -3,7 +3,7 @@ use std::{
     sync::Arc,
 };
 
-use crate::{DataStream, Dataset, LoadDatasetArgs, SplatStream, ZipData};
+use crate::{DataStream, Dataset, LoadDatasetArgs, LoadInitArgs, SplatStream, ZipData};
 use anyhow::Result;
 use async_fn_stream::try_fn_stream;
 use async_std::task::JoinHandle;
@@ -139,6 +139,7 @@ pub(crate) fn read_dataset_views(
 pub(crate) fn read_init_splat<B: Backend>(
     mut archive: ZipArchive<Cursor<ZipData>>,
     device: &B::Device,
+    load_args: &LoadInitArgs,
 ) -> Result<SplatStream<B>> {
     let (bin, points_path) = if archive.by_name("sparse/0/points3D.bin").is_ok() {
         (true, "sparse/0/points3D.bin")
@@ -155,6 +156,7 @@ pub(crate) fn read_init_splat<B: Backend>(
     };
 
     let device = device.clone();
+    let sh_degree = load_args.sh_degree;
 
     let stream = try_fn_stream(|emitter| async move {
         let positions = points_data.values().map(|p| p.xyz).collect();
@@ -163,7 +165,7 @@ pub(crate) fn read_init_splat<B: Backend>(
             .map(|p| Vec3::new(p.rgb[0] as f32, p.rgb[1] as f32, p.rgb[2] as f32) / 255.0)
             .collect();
 
-        let splats = Splats::from_point_cloud(positions, colors, &device);
+        let splats = Splats::from_point_cloud(positions, colors, sh_degree, &device);
         emitter.emit(splats).await;
         Ok(())
     });

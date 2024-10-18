@@ -55,7 +55,7 @@ fn sh_coeffs_to_color(
 ) -> vec3f {
     var colors = 0.2820947917738781f * sh.b0_c0;
 
-    if (degree < 1) {
+    if (degree == 0) {
         return colors;
     }
 
@@ -69,7 +69,7 @@ fn sh_coeffs_to_color(
                     z * sh.b1_c1 -
                     x * sh.b1_c2);
 
-    if (degree < 2) {
+    if (degree == 1) {
         return colors;
     }
     let z2 = z * z;
@@ -85,13 +85,13 @@ fn sh_coeffs_to_color(
     let pSH4 = fTmp1A * fS1;
 
     colors +=
-        pSH4 * sh.b2_c0 + 
+        pSH4 * sh.b2_c0 +
         pSH5 * sh.b2_c1 +
-        pSH6 * sh.b2_c2 + 
+        pSH6 * sh.b2_c2 +
         pSH7 * sh.b2_c3 +
         pSH8 * sh.b2_c4;
 
-    if (degree < 3) {
+    if (degree == 2) {
         return colors;
     }
 
@@ -115,7 +115,7 @@ fn sh_coeffs_to_color(
                 pSH14 * sh.b3_c5 +
                 pSH15 * sh.b3_c6;
 
-    return colors;    
+    return colors;
     // if (degree < 4) {
     //     return colors;
     // }
@@ -194,19 +194,19 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     var sh = ShCoeffs();
     sh.b0_c0 = read_coeffs(&base_id);
 
-    if sh_degree > 0 {
+    if sh_degree >= 1 {
         sh.b1_c0 = read_coeffs(&base_id);
         sh.b1_c1 = read_coeffs(&base_id);
         sh.b1_c2 = read_coeffs(&base_id);
 
-        if sh_degree > 1 {
+        if sh_degree >= 2 {
             sh.b2_c0 = read_coeffs(&base_id);
             sh.b2_c1 = read_coeffs(&base_id);
             sh.b2_c2 = read_coeffs(&base_id);
             sh.b2_c3 = read_coeffs(&base_id);
             sh.b2_c4 = read_coeffs(&base_id);
 
-            if sh_degree > 2 {
+            if sh_degree >= 3 {
                 sh.b3_c0 = read_coeffs(&base_id);
                 sh.b3_c1 = read_coeffs(&base_id);
                 sh.b3_c2 = read_coeffs(&base_id);
@@ -230,8 +230,10 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         }
     }
 
-    let viewdir = normalize(-uniforms.viewmat[3].xyz - mean);
-    let color = max(sh_coeffs_to_color(sh_degree, viewdir, sh) + vec3f(0.5), vec3f(0.0));
+    let camera_pos = uniforms.viewmat[3].xyz;
+    let viewdir = normalize(mean - camera_pos);
+
+    let color = sh_coeffs_to_color(sh_degree, viewdir, sh) + vec3f(0.5);
 
     let radius = helpers::radius_from_conic(conic, opac);
 
@@ -252,6 +254,6 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         xy,
         conic,
         vec4f(color, opac)
-    ); 
+    );
     num_tiles_hit[compact_gid] = u32(tile_area);
 }

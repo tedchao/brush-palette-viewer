@@ -67,14 +67,12 @@ impl ViewerPanel for RerunPanel {
                 }
                 if let Some(eval_scene) = context.dataset.eval.clone() {
                     if iter % self.eval_every == 0 {
-                        log::info!("Logging eval stats");
                         let device = self.device.clone();
                         let visualize = visualize.clone();
                         let splats = splats.clone();
                         let num_eval = self.eval_view_count;
 
                         spawn_future(async move {
-                            log::info!("Gathering eval stats");
                             let eval = brush_train::eval::eval_stats(
                                 splats,
                                 &eval_scene,
@@ -83,7 +81,6 @@ impl ViewerPanel for RerunPanel {
                             )
                             .await;
 
-                            log::info!("Visualizing eval stats");
                             if let Err(e) = visualize.log_eval_stats(iter, eval) {
                                 log::error!("Error logging eval stats: {}", e);
                             }
@@ -138,11 +135,31 @@ impl ViewerPanel for RerunPanel {
         let mut limit_eval_views = self.eval_view_count.is_some();
         ui.checkbox(&mut limit_eval_views, "Limit eval views");
         if limit_eval_views != self.eval_view_count.is_some() {
-            self.eval_view_count = if limit_eval_views { Some(5) } else { None };
+            self.eval_view_count = if limit_eval_views {
+                Some(
+                    context
+                        .dataset
+                        .eval
+                        .as_ref()
+                        .map_or(0, |eval| eval.views.len()),
+                )
+            } else {
+                None
+            };
         }
 
         if let Some(count) = self.eval_view_count.as_mut() {
-            ui.add(egui::Slider::new(count, 1..=100).text("Eval view count"));
+            ui.add(
+                egui::Slider::new(
+                    count,
+                    1..=context
+                        .dataset
+                        .eval
+                        .as_ref()
+                        .map_or(1, |eval| eval.views.len()),
+                )
+                .text("Eval view count"),
+            );
         }
 
         let mut visualize_splats = self.visualize_splats_every.is_some();

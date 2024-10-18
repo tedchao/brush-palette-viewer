@@ -25,7 +25,7 @@ fn sh_coeffs_to_color_fast_vjp(
     // and v_coeffs to be num_bases * CHANNELS
     v_coeffs.b0_c0 = SH_C0 * v_colors;
 
-    if (degree < 1) {
+    if (degree == 0) {
         return v_coeffs;
     }
     let norm = normalize(viewdir);
@@ -38,7 +38,7 @@ fn sh_coeffs_to_color_fast_vjp(
     v_coeffs.b1_c1 = fTmp0A * z * v_colors;
     v_coeffs.b1_c2 = -fTmp0A * x * v_colors;
 
-    if (degree < 2) {
+    if (degree == 1) {
         return v_coeffs;
     }
 
@@ -58,7 +58,7 @@ fn sh_coeffs_to_color_fast_vjp(
     v_coeffs.b2_c3 = pSH7 * v_colors;
     v_coeffs.b2_c4 = pSH8 * v_colors;
 
-    if (degree < 3) {
+    if (degree == 2) {
         return v_coeffs;
     }
 
@@ -180,7 +180,9 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     let global_gid = global_from_compact_gid[compact_gid];
 
     let mean = helpers::as_vec(means[global_gid]);
-    let viewdir = normalize(-uniforms.viewmat[3].xyz - mean);
+
+    let camera_pos = uniforms.viewmat[3].xyz;
+    let viewdir = normalize(mean - camera_pos);
 
     let sh_degree = uniforms.sh_degree;
     let v_coeff = sh_coeffs_to_color_fast_vjp(sh_degree, viewdir, v_color.xyz);

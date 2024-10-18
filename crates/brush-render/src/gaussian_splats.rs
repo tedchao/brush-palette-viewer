@@ -28,12 +28,14 @@ pub struct RandomSplatsConfig {
     scale_min: f64,
     #[config(default = 0.15)]
     scale_max: f64,
+    #[config(default = 0)]
+    sh_degree: u32,
 }
 
 #[derive(Module, Debug)]
 pub struct Splats<B: Backend> {
     pub means: Param<Tensor<B, 2>>,
-    pub sh_coeffs: Param<Tensor<B, 2>>,
+    pub sh_coeffs: Param<Tensor<B, 3>>,
     pub rotation: Param<Tensor<B, 2>>,
     pub raw_opacity: Param<Tensor<B, 1>>,
     pub log_scales: Param<Tensor<B, 2>>,
@@ -73,10 +75,10 @@ impl<B: Backend> Splats<B> {
             device,
         );
         let means = Tensor::stack(vec![xx, yy, zz], 1);
-        let num_coeffs = num_sh_coeffs(0);
+        let num_coeffs = num_sh_coeffs(config.sh_degree);
 
         let sh_coeffs = Tensor::random(
-            [num_points, num_coeffs * 3],
+            [num_points, num_coeffs as usize, 3],
             Distribution::Uniform(-0.5, 0.5),
             device,
         );
@@ -90,7 +92,6 @@ impl<B: Backend> Splats<B> {
             device,
         );
 
-        // TODO: Fancy KNN init.
         let scale_min = config.scale_min.ln();
         let scale_max = config.scale_max.ln();
 
@@ -113,6 +114,7 @@ impl<B: Backend> Splats<B> {
     pub fn from_point_cloud(
         positions: Vec<Vec3>,
         colors: Vec<Vec3>,
+        sh_degree: u32,
         device: &B::Device,
     ) -> Splats<B> {
         let num_points = positions.len();
@@ -122,13 +124,18 @@ impl<B: Backend> Splats<B> {
 
         let colors: Vec<f32> = colors.iter().flat_map(|v| [v.x, v.y, v.z]).collect();
         let colors =
-            Tensor::<B, 1>::from_floats(colors.as_slice(), device).reshape([num_points, 3]);
+            Tensor::<B, 1>::from_floats(colors.as_slice(), device).reshape([num_points, 1, 3]);
 
-        // TODO: TO SH
-        let sh_coeffs = (colors - 0.5) / shaders::gather_grads::SH_C0;
+        let sh_coeffs_dc = (colors - 0.5) / shaders::gather_grads::SH_C0;
 
-        // let dist2 = torch.clamp_min(distCUDA2(torch.from_numpy(np.asarray(pcd.points)).float().cuda()), 0.0000001);
-        // let scales = torch.log(torch.sqrt(dist2))[...,None].repeat(1, 3);
+        let sh_num = num_sh_coeffs(sh_degree);
+        let sh_coeffs = Tensor::cat(
+            vec![
+                sh_coeffs_dc,
+                Tensor::zeros([num_points, sh_num as usize - 1, 3], device),
+            ],
+            1,
+        );
 
         let init_rotation = Tensor::<_, 1>::from_floats([1.0, 0.0, 0.0, 0.0], device)
             .unsqueeze::<2>()
@@ -136,7 +143,6 @@ impl<B: Backend> Splats<B> {
 
         let raw_opacities = Tensor::ones(Shape::new([num_points]), device) * inverse_sigmoid(0.1);
 
-        // use the kiddo::KdTree type to get up and running quickly with default settings
         let tree: KdTree<_, 3> = (&positions_arr).into();
         let extents: Vec<_> = positions_arr
             .iter()
@@ -144,9 +150,10 @@ impl<B: Backend> Splats<B> {
                 // Get average of 3 nearest squared distances.
                 tree.nearest_n::<SquaredEuclidean>(p, 3)
                     .iter()
-                    .map(|x| x.distance * x.distance)
+                    .map(|x| x.distance)
                     .sum::<f32>()
                     .sqrt()
+                    / 3.0
             })
             .collect();
 
@@ -168,7 +175,7 @@ impl<B: Backend> Splats<B> {
 
     pub fn from_data(
         means: Tensor<B, 2>,
-        sh_coeffs: Tensor<B, 2>,
+        sh_coeffs: Tensor<B, 3>,
         rotation: Tensor<B, 2>,
         raw_opacity: Tensor<B, 1>,
         log_scales: Tensor<B, 2>,
@@ -177,7 +184,10 @@ impl<B: Backend> Splats<B> {
         let num_points = means.shape().dims[0];
         Splats {
             means: Param::initialized(ParamId::new(), means.detach().require_grad()),
-            sh_coeffs: Param::initialized(ParamId::new(), sh_coeffs.detach().require_grad()),
+            sh_coeffs: Param::initialized(
+                ParamId::new(),
+                sh_coeffs.clone().detach().require_grad(),
+            ),
             rotation: Param::initialized(ParamId::new(), rotation.detach().require_grad()),
             raw_opacity: Param::initialized(ParamId::new(), raw_opacity.detach().require_grad()),
             log_scales: Param::initialized(ParamId::new(), log_scales.detach().require_grad()),
@@ -217,7 +227,7 @@ impl<B: Backend> Splats<B> {
         sigmoid(self.raw_opacity.val())
     }
 
-    pub fn scale(&self) -> Tensor<B, 2> {
+    pub fn scales(&self) -> Tensor<B, 2> {
         self.log_scales.val().exp()
     }
 
@@ -233,13 +243,11 @@ impl<B: Backend> Splats<B> {
 
     pub fn from_safetensors(tensors: &SafeTensors, device: &B::Device) -> anyhow::Result<Self> {
         let means = safetensor_to_burn::<B, 2>(tensors.tensor("means")?, device);
-        let num_points = means.dims()[0];
         let log_scales = safetensor_to_burn::<B, 2>(tensors.tensor("scales")?, device);
 
         // TODO: This doesn't really handle SH properly. Probably should serialize this in the format
         // we expect and save this reshape hassle.
-        let sh_coeffs =
-            safetensor_to_burn::<B, 3>(tensors.tensor("coeffs")?, device).reshape([num_points, 3]);
+        let sh_coeffs = safetensor_to_burn::<B, 3>(tensors.tensor("coeffs")?, device);
         let quats = safetensor_to_burn::<B, 2>(tensors.tensor("quats")?, device);
         let raw_opacity = safetensor_to_burn::<B, 1>(tensors.tensor("opacities")?, device);
 

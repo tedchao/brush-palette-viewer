@@ -81,6 +81,11 @@ pub struct LoadDatasetArgs {
     pub eval_split_every: Option<usize>,
 }
 
+#[derive(Clone)]
+pub struct LoadInitArgs {
+    pub sh_degree: u32,
+}
+
 pub(crate) fn normalized_path_string(path: &Path) -> String {
     Path::new(path)
         .components()
@@ -143,12 +148,15 @@ fn read_init_ply<B: Backend>(
 pub fn read_dataset_init<B: Backend>(
     archive: ZipArchive<Cursor<ZipData>>,
     device: &B::Device,
+    load_args: &LoadInitArgs,
 ) -> Result<SplatStream<B>> {
-    // If there's an init.ply definitey use that.
+    // If there's an init.ply definitey use that. Nb:
+    // this ignores the specified number of SH channels atm.
     if let Ok(stream) = read_init_ply(archive.clone(), device) {
         return Ok(stream);
     }
-    let colmap = colmap::read_init_splat(archive.clone(), device);
+
+    let colmap = colmap::read_init_splat(archive.clone(), device, load_args);
     if let Ok(stream) = colmap {
         return Ok(stream);
     }

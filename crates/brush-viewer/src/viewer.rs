@@ -14,7 +14,7 @@ use egui::Hyperlink;
 use egui_tiles::Tiles;
 use web_time::Instant;
 
-use brush_dataset::{self, splat_import, Dataset, LoadDatasetArgs, ZipData};
+use brush_dataset::{self, splat_import, Dataset, LoadDatasetArgs, LoadInitArgs, ZipData};
 
 use crate::orbit_controls::OrbitControls;
 use crate::panels::{DatasetPanel, LoadDataPanel, RerunPanel, ScenePanel, StatsPanel};
@@ -78,6 +78,7 @@ async fn process_loop(
     device: WgpuDevice,
     sender: Sender<ViewerMessage>,
     load_data_args: LoadDatasetArgs,
+    load_init_args: LoadInitArgs,
 ) -> anyhow::Result<()> {
     let _ = sender.send(ViewerMessage::PickFile).await;
     let picked = rrfd::pick_file().await?;
@@ -91,7 +92,14 @@ async fn process_loop(
         let _ = sender
             .send(ViewerMessage::StartLoading { training: true })
             .await;
-        train_loop::train_loop(ZipData::from(picked.data), device, sender, load_data_args).await
+        train_loop::train_loop(
+            ZipData::from(picked.data),
+            device,
+            sender,
+            load_data_args,
+            load_init_args,
+        )
+        .await
     } else {
         anyhow::bail!("Only .ply and .zip files are supported.")
     }
@@ -141,7 +149,11 @@ impl ViewerContext {
                 * 0.5;
     }
 
-    pub(crate) fn start_data_load(&mut self, load_data_args: LoadDatasetArgs) {
+    pub(crate) fn start_data_load(
+        &mut self,
+        load_data_args: LoadDatasetArgs,
+        load_init_args: LoadInitArgs,
+    ) {
         <Wgpu as burn::prelude::Backend>::seed(42);
 
         let device = self.device.clone();
@@ -152,7 +164,9 @@ impl ViewerContext {
 
         // Spawn a future that sends the viewer messages.
         spawn_future(async move {
-            if let Err(e) = process_loop(device, sender.clone(), load_data_args).await {
+            if let Err(e) =
+                process_loop(device, sender.clone(), load_data_args, load_init_args).await
+            {
                 let _ = sender.send(ViewerMessage::Error(Arc::new(e))).await;
             }
         });

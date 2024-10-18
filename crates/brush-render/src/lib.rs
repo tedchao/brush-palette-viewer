@@ -79,7 +79,7 @@ pub trait Backend: burn::tensor::backend::Backend {
         xy_dummy: Tensor<Self, 2>,
         log_scales: Tensor<Self, 2>,
         quats: Tensor<Self, 2>,
-        colors: Tensor<Self, 2>,
+        sh_coeffs: Tensor<Self, 3>,
         raw_opacity: Tensor<Self, 1>,
         background: glam::Vec3,
         render_u32_buffer: bool,

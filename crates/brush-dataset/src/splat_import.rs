@@ -83,8 +83,11 @@ fn update_splats<B: Backend>(
     let n_coeffs = sh_coeffs.len() / n_splats;
 
     let means = Tensor::from_data(TensorData::new(means, [n_splats, 3]), device).require_grad();
-    let sh_coeffs =
-        Tensor::from_data(TensorData::new(sh_coeffs, [n_splats, n_coeffs]), device).require_grad();
+    let sh_coeffs = Tensor::from_data(
+        TensorData::new(sh_coeffs, [n_splats, n_coeffs / 3, 3]),
+        device,
+    )
+    .require_grad();
     let rotations =
         Tensor::from_data(TensorData::new(rotation, [n_splats, 4]), device).require_grad();
     let raw_opacities =
@@ -219,8 +222,9 @@ pub fn load_splat_from_ply<B: Backend>(
                     let mut sh_coeffs_interleaved =
                         interleave_coeffs(splat.sh_dc, &splat.sh_coeffs);
 
-                    // Limit the numer of SH channels for now.
-                    let max_sh_len = num_sh_coeffs(2) * 3;
+                    // Limit the number of imported SH channels for now.
+                    let max_sh_len = num_sh_coeffs(3) as usize * 3;
+
                     if sh_coeffs_interleaved.len() > max_sh_len {
                         sh_coeffs_interleaved.truncate(max_sh_len);
                     }
