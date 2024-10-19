@@ -1,6 +1,5 @@
 use super::PickedFile;
 use anyhow::Result;
-use async_channel::Sender;
 use jni::objects::{GlobalRef, JByteArray, JClass, JStaticMethodID, JString};
 use jni::signature::Primitive;
 use jni::JNIEnv;
@@ -31,7 +30,7 @@ pub fn jni_initialize(vm: Arc<jni::JavaVM>) {
 }
 
 pub(crate) async fn pick_file() -> Result<PickedFile> {
-    let (sender, receiver) = async_channel::bounded(1);
+    let (sender, receiver) = async_std::channel::bounded(1);
     {
         let channel = CHANNEL.write();
         if let Ok(mut channel) = channel {
