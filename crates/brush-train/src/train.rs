@@ -14,6 +14,7 @@ use burn::{
 use tracing::trace_span;
 
 use crate::scene::SceneView;
+use crate::ssim::Ssim;
 
 #[derive(Config)]
 pub struct TrainConfig {
@@ -49,15 +50,19 @@ pub struct TrainConfig {
     // threshold of positional gradient norm for densifying gaussians
     // TODO: Abs grad.
     // TODO: Tweak when ssim is enabled.
-    #[config(default = 0.00007)]
+    #[config(default = 0.0002)]
     densify_grad_thresh: f32,
 
     // below this size, gaussians are *duplicated*, otherwise split.
     #[config(default = 0.005)]
     densify_size_thresh: f32,
 
-    #[config(default = 0.0)]
+    #[config(default = 0.2)]
     ssim_weight: f32,
+
+    // TODO: Up to 11 when convolutions aren't as slow anymore
+    #[config(default = 5)]
+    ssim_window_size: usize,
 
     // Learning rates.
     lr_mean: ExponentialLrSchedulerConfig,
@@ -119,6 +124,8 @@ where
     // of observations per gaussian. Used in pruning and densification.
     grad_2d_accum: Tensor<B, 1>,
     xy_grad_counts: Tensor<B, 1, Int>,
+
+    ssim: Ssim<B>,
 }
 
 fn quaternion_vec_multiply<B: Backend>(
@@ -170,6 +177,7 @@ where
 
         let device = &splats.means.device();
 
+        let ssim = Ssim::new(config.ssim_window_size, 3, device);
         Self {
             config: config.clone(),
             iter: 0,
@@ -178,6 +186,7 @@ where
             opt_config,
             grad_2d_accum: Tensor::zeros([num_points], device),
             xy_grad_counts: Tensor::zeros([num_points], device),
+            ssim,
         }
     }
 
@@ -237,13 +246,12 @@ where
 
             let loss = (pred_rgb.clone() - gt_rgb.clone()).abs().mean();
             let loss = if self.config.ssim_weight > 0.0 {
-                let ssim_loss = crate::ssim::ssim(
+                let ssim_loss = -self.ssim.ssim(
                     pred_rgb.clone().permute([0, 3, 1, 2]),
                     gt_rgb.clone().permute([0, 3, 1, 2]),
-                    11,
-                );
-                loss * (1.0 - self.config.ssim_weight)
-                    + (-ssim_loss + 1.0) * self.config.ssim_weight
+                ) + 1.0;
+
+                loss * (1.0 - self.config.ssim_weight) + ssim_loss * self.config.ssim_weight
             } else {
                 loss
             };

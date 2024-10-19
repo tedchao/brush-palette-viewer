@@ -80,7 +80,7 @@ pub(crate) async fn train_loop(
     let total_steps = 30000;
 
     let scene_extent = train_scene.bounds(0.0).extent.length() as f64;
-    let lr_max = 2.0e-4 * scene_extent;
+    let lr_max = 1.6e-4 * scene_extent;
     let decay = 1e-2f64.powf(1.0 / total_steps as f64);
     let config = TrainConfig::new(ExponentialLrSchedulerConfig::new(lr_max, decay))
         .with_total_steps(total_steps);
