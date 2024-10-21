@@ -21,7 +21,7 @@ pub(crate) struct RerunPanel {
 
     read_to_log_dataset: bool,
 
-    // TODO: This async logic is maybe better moved to the visualize class.
+    // TODO: This async logic is maybe better moved to the visualize module.
     task_queue: Sender<Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send>>>,
 }
 
@@ -66,8 +66,15 @@ impl ViewerPanel for RerunPanel {
 
     fn on_message(&mut self, message: crate::viewer::ViewerMessage, context: &mut ViewerContext) {
         match message {
-            // TODO: New stream on start load?
-            // crate::viewer::ViewerMessage::StartLoading => self.visualize = VisualizeTools::new(),
+            crate::viewer::ViewerMessage::StartLoading { training } => {
+                if training {
+                    if self.visualize.is_some() {
+                        self.visualize = Some(Arc::new(VisualizeTools::new()));
+                    }
+                } else {
+                    self.visualize = None;
+                }
+            }
             crate::viewer::ViewerMessage::DoneLoading { training } => {
                 if training {
                     self.read_to_log_dataset = true;

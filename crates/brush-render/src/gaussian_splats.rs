@@ -1,6 +1,5 @@
 use crate::bounding_box::BoundingBox;
 use crate::camera::Camera;
-use crate::render::sh_degree_from_coeffs;
 use crate::safetensor_utils::safetensor_to_burn;
 use crate::shaders;
 use crate::{render::sh_coeffs_for_degree, Backend};
@@ -245,9 +244,6 @@ impl<B: Backend> Splats<B> {
     pub fn from_safetensors(tensors: &SafeTensors, device: &B::Device) -> anyhow::Result<Self> {
         let means = safetensor_to_burn::<B, 2>(tensors.tensor("means")?, device);
         let log_scales = safetensor_to_burn::<B, 2>(tensors.tensor("scales")?, device);
-
-        // TODO: This doesn't really handle SH properly. Probably should serialize this in the format
-        // we expect and save this reshape hassle.
         let sh_coeffs = safetensor_to_burn::<B, 3>(tensors.tensor("coeffs")?, device);
         let quats = safetensor_to_burn::<B, 2>(tensors.tensor("quats")?, device);
         let raw_opacity = safetensor_to_burn::<B, 1>(tensors.tensor("opacities")?, device);

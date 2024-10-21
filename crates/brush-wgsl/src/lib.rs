@@ -234,7 +234,7 @@ pub fn build_modules(
                                 constants,
                                 types: _,
                             } => constants,
-                            _ => todo!(),
+                            _ => unimplemented!("Unimplemented export type"),
                         }
                     };
                     map.insert(name.to_owned(), constant_str);
@@ -291,7 +291,7 @@ pub fn build_modules(
                                 constants: _,
                                 types,
                             } => types,
-                            _ => todo!(),
+                            _ => unimplemented!("Unimplemented export type"),
                         }
                     };
                     map.insert(name.to_owned(), struct_str);

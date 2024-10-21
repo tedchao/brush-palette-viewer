@@ -167,7 +167,11 @@ impl VisualizeTools {
 
             let avg_psnr =
                 stats.samples.iter().map(|s| s.psnr).sum::<f32>() / (stats.samples.len() as f32);
+            let avg_ssim =
+                stats.samples.iter().map(|s| s.ssim).sum::<f32>() / (stats.samples.len() as f32);
+
             rec.log("stats/eval_psnr", &rerun::Scalar::new(avg_psnr as f64))?;
+            rec.log("stats/eval_ssim", &rerun::Scalar::new(avg_ssim as f64))?;
 
             for (i, samp) in stats.samples.iter().enumerate() {
                 let eval_render = tensor_into_image(samp.rendered.to_data_async().await);

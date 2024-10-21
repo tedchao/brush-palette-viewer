@@ -49,7 +49,6 @@ pub struct TrainConfig {
 
     // threshold of positional gradient norm for densifying gaussians
     // TODO: Abs grad.
-    // TODO: Tweak when ssim is enabled.
     #[config(default = 0.0002)]
     densify_grad_thresh: f32,
 
@@ -60,7 +59,7 @@ pub struct TrainConfig {
     #[config(default = 0.2)]
     ssim_weight: f32,
 
-    // TODO: Up to 11 when convolutions aren't as slow anymore
+    // TODO: Up this to 11 when convolutions aren't as slow anymore
     #[config(default = 5)]
     ssim_window_size: usize,
 
@@ -283,7 +282,7 @@ where
 
             let grad_mag = xys_grad.powf_scalar(2.0).sum_dim(1).squeeze(1).sqrt();
 
-            // TODO: Add += to Burn.
+            // TODO: Burn really should implement +=
             if self.iter > self.config.warmup_steps {
                 self.grad_2d_accum = self.grad_2d_accum.clone() + grad_mag.clone();
                 self.xy_grad_counts =
@@ -347,12 +346,6 @@ where
                 self.grad_2d_accum.clone() / self.xy_grad_counts.clone().clamp(1, i32::MAX).float();
 
             let big_grad_mask = grads.greater_equal_elem(self.config.densify_grad_thresh);
-
-            // TODO: Carry adam state.
-            // let optim_record = self.optim.to_record();
-            // let means = splats.means.val();
-            // let means_state = optim_record[&splats.means.id].into_state();
-
             let split_clone_size_mask = splats_post_step
                 .scales()
                 .max_dim(1)

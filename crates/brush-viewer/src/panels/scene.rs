@@ -177,7 +177,6 @@ impl ViewerPanel for ScenePanel {
                             self.live_update = !self.live_update;
                         }
 
-                        // TODO: File dialog and that whole business.
                         if ui.button("Export").clicked() {
                             spawn_future(async move {
                                 let data = splat_export::splat_to_ply(*splats).await;

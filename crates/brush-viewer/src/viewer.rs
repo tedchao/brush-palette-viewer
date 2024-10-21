@@ -69,7 +69,7 @@ pub struct Viewer {
     tree_ctx: ViewerTree,
 }
 
-// TODO: Bit too much random shared state here...
+// TODO: Bit too much random shared state here.
 pub(crate) struct ViewerContext {
     pub dataset: Dataset,
     pub camera: Camera,

@@ -7,7 +7,6 @@ use crate::image::image_to_tensor;
 use crate::scene::{Scene, SceneView};
 use crate::ssim::Ssim;
 
-// TODO: Add ssim, maybe lpips.
 #[derive(Clone)]
 pub struct EvalView<B: Backend> {
     pub view: SceneView,
@@ -31,7 +30,6 @@ pub async fn eval_stats<B: Backend>(
     device: &B::Device,
 ) -> EvalStats<B> {
     let indices = if let Some(num) = num_frames {
-        // TODO: Reproducible RNG.
         let mut rng = rand::thread_rng();
         (0..eval_scene.views.len()).choose_multiple(&mut rng, num)
     } else {

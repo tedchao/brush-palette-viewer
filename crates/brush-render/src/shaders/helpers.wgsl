@@ -164,7 +164,6 @@ fn cov_to_conic(cov2d: vec3f) -> vec3f {
     return vec3f(cov2d.z, -cov2d.y, cov2d.x) / det;
 }
 
-// TODO: Is this 0.3 good? Make this configurable?
 const COV_BLUR: f32 = 0.3;
 
 fn cov_compensation(cov2d: vec3f) -> f32 {

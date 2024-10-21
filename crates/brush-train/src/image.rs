@@ -9,7 +9,6 @@ pub fn image_to_tensor<B: Backend>(image: &DynamicImage, device: &B::Device) -> 
     let (w, h) = (image.width(), image.height());
     let num_channels = image.color().channel_count();
 
-    // TODO: Could upload as rgb8 -> convert to float on GPU. Not sure if that's faster.
     let data = image.to_rgb32f().into_vec();
     let tensor_data = TensorData::new(data, [h as usize, w as usize, num_channels as usize]);
     Tensor::from_data(tensor_data, device)
