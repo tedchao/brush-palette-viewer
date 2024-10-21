@@ -20,6 +20,10 @@ pub(crate) struct ScenePanel {
     pub(crate) last_draw: Option<Instant>,
     pub(crate) last_message: Option<ViewerMessage>,
 
+    is_training: bool,
+    live_update: bool,
+    dirty: bool,
+
     queue: Arc<wgpu::Queue>,
     device: Arc<wgpu::Device>,
     renderer: Arc<EguiRwLock<Renderer>>,
@@ -35,6 +39,9 @@ impl ScenePanel {
             backbuffer: BurnTexture::new(),
             last_draw: None,
             last_message: None,
+            live_update: true,
+            dirty: false,
+            is_training: false,
             queue,
             device,
             renderer,
@@ -94,7 +101,7 @@ impl ScenePanel {
         self.last_draw = Some(cur_time);
 
         // If this viewport is re-rendering.
-        if ui.ctx().has_requested_repaint() {
+        if ui.ctx().has_requested_repaint() && self.dirty {
             let _span = trace_span!("Render splats").entered();
             let (img, _) = splats.render(&context.camera, size, background, true);
 
@@ -132,11 +139,15 @@ impl ViewerPanel for ScenePanel {
 
     fn on_message(&mut self, message: ViewerMessage, _: &mut ViewerContext) {
         match message.clone() {
-            ViewerMessage::PickFile => {
+            ViewerMessage::StartLoading { training } => {
+                self.is_training = training;
                 self.last_message = None;
             }
             ViewerMessage::Splats { iter: _, splats: _ } => {
-                self.last_message = Some(message);
+                if self.live_update {
+                    self.dirty = true;
+                    self.last_message = Some(message);
+                }
             }
             ViewerMessage::Error(_) => {
                 self.last_message = Some(message);
@@ -150,9 +161,6 @@ impl ViewerPanel for ScenePanel {
 
         if let Some(message) = self.last_message.clone() {
             match message {
-                ViewerMessage::PickFile => {
-                    ui.label("Loading...");
-                }
                 ViewerMessage::Error(e) => {
                     ui.label("Error: ".to_owned() + &e.to_string());
                 }
@@ -163,7 +171,16 @@ impl ViewerPanel for ScenePanel {
             }
         }
 
+        if self.is_training
+            && ui
+                .selectable_label(self.live_update, "Live update")
+                .clicked()
+        {
+            self.live_update = !self.live_update;
+        }
+
         if context.controls.is_animating() {
+            self.dirty = true;
             ui.ctx().request_repaint();
         }
     }

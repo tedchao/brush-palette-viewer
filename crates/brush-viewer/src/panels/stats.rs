@@ -1,4 +1,5 @@
 use crate::{
+    train_loop::TrainMessage,
     viewer::{ViewerContext, ViewerMessage},
     ViewerPanel,
 };
@@ -12,7 +13,8 @@ pub(crate) struct StatsPanel {
     last_train_step: (Instant, u32),
     train_iter_per_s: f32,
 
-    training: bool,
+    training_started: bool,
+    paused: bool,
     num_splats: usize,
 }
 
@@ -22,7 +24,8 @@ impl StatsPanel {
             device,
             last_train_step: (Instant::now(), 0),
             train_iter_per_s: 0.0,
-            training: false,
+            training_started: false,
+            paused: false,
             num_splats: 0,
         }
     }
@@ -39,7 +42,7 @@ impl ViewerPanel for StatsPanel {
                 self.last_train_step = (Instant::now(), 0);
                 self.train_iter_per_s = 0.0;
                 self.num_splats = 0;
-                self.training = training;
+                self.training_started = training;
             }
             ViewerMessage::TrainStep {
                 stats: _,
@@ -57,14 +60,19 @@ impl ViewerPanel for StatsPanel {
         }
     }
 
-    fn ui(&mut self, ui: &mut egui::Ui, _: &mut ViewerContext) {
+    fn ui(&mut self, ui: &mut egui::Ui, context: &mut ViewerContext) {
         // let mut shared = self.train_state.shared.write();
         // let paused = shared.paused;
         // ui.toggle_value(&mut shared.paused, if paused { "⏵" } else { "⏸" });
         ui.label(format!("Splats: {}", self.num_splats));
-        if self.training {
+        if self.training_started {
             ui.label(format!("Train step: {}", self.last_train_step.1));
             ui.label(format!("steps/s: {:.1} ", self.train_iter_per_s));
+
+            if ui.selectable_label(self.paused, "Pause training").clicked() {
+                self.paused = !self.paused;
+                context.send_train_message(TrainMessage::Paused(self.paused));
+            }
         }
 
         ui.add_space(10.0);
