@@ -42,7 +42,6 @@ impl ViewerPanel for StatsPanel {
                 self.training = training;
             }
             ViewerMessage::TrainStep {
-                splats: _,
                 stats: _,
                 iter,
                 timestamp,
@@ -51,10 +50,9 @@ impl ViewerPanel for StatsPanel {
                     / (timestamp - self.last_train_step.0).as_secs_f32();
                 self.last_train_step = (timestamp, iter);
             }
-            ViewerMessage::Splats { splats } => {
+            ViewerMessage::Splats { iter: _, splats } => {
                 self.num_splats = splats.num_splats();
             }
-
             _ => {}
         }
     }

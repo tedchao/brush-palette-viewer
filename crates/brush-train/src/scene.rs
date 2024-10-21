@@ -3,7 +3,7 @@ use std::sync::Arc;
 use brush_render::{bounding_box::BoundingBox, camera::Camera};
 use glam::Vec3;
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum ViewType {
     Train,
     Eval,

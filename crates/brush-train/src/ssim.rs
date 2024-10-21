@@ -40,6 +40,10 @@ impl<B: Backend> Ssim<B> {
     }
 
     pub(crate) fn ssim(&self, img1: Tensor<B, 4>, img2: Tensor<B, 4>) -> Tensor<B, 1> {
+        // Images are [N, H, W, C], need them as [N, C, H, W].
+        let img1 = img1.permute([0, 3, 1, 2]);
+        let img2 = img2.permute([0, 3, 1, 2]);
+
         let [channels, _, _, window_size] = self.weights.dims();
         let padding = window_size / 2;
         let conv_options = ConvOptions::new([1, 1], [padding, padding], [1, 1], channels);

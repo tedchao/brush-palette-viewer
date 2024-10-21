@@ -1,6 +1,7 @@
-use async_std::channel::{Receiver, Sender};
+use async_std::channel::{Receiver, Sender, TrySendError};
 use async_std::stream::StreamExt;
 use brush_render::camera::Camera;
+use brush_train::eval::EvalStats;
 use brush_train::spawn_future;
 use brush_train::train::TrainStepStats;
 use burn::backend::Autodiff;
@@ -18,6 +19,7 @@ use brush_dataset::{self, splat_import, Dataset, LoadDatasetArgs, LoadInitArgs, 
 
 use crate::orbit_controls::OrbitControls;
 use crate::panels::{DatasetPanel, LoadDataPanel, RerunPanel, ScenePanel, StatsPanel};
+use crate::train_loop::TrainMessage;
 use crate::{train_loop, PaneType, ViewerTree};
 
 use eframe::egui;
@@ -40,7 +42,8 @@ pub(crate) enum ViewerMessage {
     ///
     /// Nb: This includes all the intermediately loaded splats.
     Splats {
-        splats: Splats<PrimaryBackend>,
+        iter: u32,
+        splats: Box<Splats<PrimaryBackend>>,
     },
     /// Loaded a bunch of viewpoints to train on.
     Dataset {
@@ -51,10 +54,13 @@ pub(crate) enum ViewerMessage {
     },
     /// Some number of training steps are done.
     TrainStep {
-        splats: Splats<Autodiff<PrimaryBackend>>,
         stats: TrainStepStats<Autodiff<PrimaryBackend>>,
         iter: u32,
         timestamp: Instant,
+    },
+    Eval {
+        iter: u32,
+        eval: EvalStats<PrimaryBackend>,
     },
 }
 
@@ -71,12 +77,15 @@ pub(crate) struct ViewerContext {
 
     device: WgpuDevice,
     ctx: egui::Context,
+
+    sender: Option<Sender<TrainMessage>>,
     receiver: Option<Receiver<ViewerMessage>>,
 }
 
 async fn process_loop(
     device: WgpuDevice,
     sender: Sender<ViewerMessage>,
+    train_receiver: Receiver<TrainMessage>,
     load_data_args: LoadDatasetArgs,
     load_init_args: LoadInitArgs,
 ) -> anyhow::Result<()> {
@@ -96,6 +105,7 @@ async fn process_loop(
             ZipData::from(picked.data),
             device,
             sender,
+            train_receiver,
             load_data_args,
             load_init_args,
         )
@@ -115,7 +125,10 @@ async fn load_ply_loop(
     let mut splat_stream = std::pin::pin!(splat_stream);
     while let Some(splats) = splat_stream.next().await {
         sender
-            .send(ViewerMessage::Splats { splats: splats? })
+            .send(ViewerMessage::Splats {
+                iter: 0, // For viewing just use "training step 0", bit weird.
+                splats: Box::new(splats?),
+            })
             .await
             .map_err(|e| anyhow::anyhow!("Failed to send message: {}", e))?;
     }
@@ -137,6 +150,7 @@ impl ViewerContext {
             ctx,
             dataset: Dataset::empty(),
             receiver: None,
+            sender: None,
         }
     }
 
@@ -160,12 +174,19 @@ impl ViewerContext {
 
         // create a channel for the train loop.
         let (sender, receiver) = async_std::channel::bounded(2);
+        let (train_sender, train_receiver) = async_std::channel::unbounded();
         let ctx = self.ctx.clone();
 
         // Spawn a future that sends the viewer messages.
         spawn_future(async move {
-            if let Err(e) =
-                process_loop(device, sender.clone(), load_data_args, load_init_args).await
+            if let Err(e) = process_loop(
+                device,
+                sender.clone(),
+                train_receiver,
+                load_data_args,
+                load_init_args,
+            )
+            .await
             {
                 let _ = sender.send(ViewerMessage::Error(Arc::new(e))).await;
             }
@@ -174,6 +195,8 @@ impl ViewerContext {
         // Spawn another future that receives them & forward them to the UI.
         let (ui_sender, ui_receiver) = async_std::channel::bounded(2);
         self.receiver = Some(ui_receiver);
+        self.sender = Some(train_sender);
+
         self.dataset = Dataset::empty();
 
         spawn_future(async move {
@@ -182,6 +205,18 @@ impl ViewerContext {
                 let _ = ui_sender.send(m).await;
             }
         });
+    }
+
+    pub fn send_train_message(&self, message: TrainMessage) {
+        if let Some(sender) = self.sender.as_ref() {
+            match sender.try_send(message) {
+                Ok(_) => {}
+                Err(TrySendError::Closed(_)) => {}
+                Err(TrySendError::Full(_)) => {
+                    unreachable!("Should use an unbounded channel for try send.")
+                }
+            }
+        }
     }
 }
 

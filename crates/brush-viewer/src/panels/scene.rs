@@ -135,7 +135,7 @@ impl ViewerPanel for ScenePanel {
             ViewerMessage::PickFile => {
                 self.last_message = None;
             }
-            ViewerMessage::Splats { splats: _ } => {
+            ViewerMessage::Splats { iter: _, splats: _ } => {
                 self.last_message = Some(message);
             }
             ViewerMessage::Error(_) => {
@@ -156,7 +156,7 @@ impl ViewerPanel for ScenePanel {
                 ViewerMessage::Error(e) => {
                     ui.label("Error: ".to_owned() + &e.to_string());
                 }
-                ViewerMessage::Splats { splats } => {
+                ViewerMessage::Splats { iter: _, splats } => {
                     self.draw_splats(ui, context, &splats, context.dataset.train.background);
                 }
                 _ => {}

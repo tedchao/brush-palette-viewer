@@ -1,6 +1,6 @@
 use anyhow::anyhow;
 use async_std::{
-    channel::{Sender, TrySendError},
+    channel::{Receiver, Sender, TryRecvError, TrySendError},
     stream::StreamExt,
 };
 use brush_dataset::{scene_batch::SceneLoader, Dataset, LoadDatasetArgs, LoadInitArgs, ZipData};
@@ -13,14 +13,17 @@ use zip::ZipArchive;
 
 use crate::viewer::ViewerMessage;
 
-pub(crate) struct SharedTrainState {
-    pub paused: bool,
+#[derive(Debug, Clone)]
+pub enum TrainMessage {
+    Paused(bool),
+    Eval { view_count: Option<usize> },
 }
 
 pub(crate) async fn train_loop(
     zip_data: ZipData,
     device: WgpuDevice,
     sender: Sender<ViewerMessage>,
+    receiver: Receiver<TrainMessage>,
     load_data_args: LoadDatasetArgs,
     load_init_args: LoadInitArgs,
 ) -> anyhow::Result<()> {
@@ -35,7 +38,8 @@ pub(crate) async fn train_loop(
         while let Some(splats) = splat_stream.next().await {
             let splats = splats?;
             let msg = ViewerMessage::Splats {
-                splats: splats.valid(),
+                iter: 0,
+                splats: Box::new(splats.valid()),
             };
             sender
                 .send(msg)
@@ -76,6 +80,7 @@ pub(crate) async fn train_loop(
     };
 
     let train_scene = dataset.train.clone();
+    let eval_scene = dataset.eval.clone();
 
     let total_steps = 30000;
 
@@ -88,36 +93,75 @@ pub(crate) async fn train_loop(
     let mut dataloader = SceneLoader::new(&train_scene, 1, &device);
     let mut trainer = SplatTrainer::new(splats.num_splats(), &config, &splats);
 
+    let mut is_paused = false;
+
     loop {
-        // TODO: Restore the pause button but better.
-        // if shared_state.read().paused {
-        //     #[cfg(not(target_arch = "wasm32"))]
-        //     std::thread::yield_now();
-        //     #[cfg(target_arch = "wasm32")]
-        //     gloo_timers::future::TimeoutFuture::new(0).await;
-        //     continue;
-        // }
-        let batch = {
-            // let _span = trace_span!("Get batch").entered();
-            dataloader.next_batch().await
-        };
-        let (new_splats, stats) = trainer.step(batch, train_scene.background, splats).await?;
-        splats = new_splats;
-
-        if trainer.iter % 5 == 0 {
-            if let Err(TrySendError::Closed(_)) = sender.try_send(ViewerMessage::Splats {
-                splats: splats.valid(),
-            }) {
-                break; // channel closed, bail.
+        let message = if is_paused {
+            // When paused, wait for a message async and handle it. The "default" train iteration
+            // won't be hit.
+            match receiver.recv().await {
+                Ok(message) => Some(message),
+                Err(_) => break, // if channel is closed, stop.
             }
+        } else {
+            // Otherwise, check for messages, and if there isn't any just proceed training.
+            match receiver.try_recv() {
+                Ok(message) => Some(message),
+                Err(TryRecvError::Empty) => None, // Nothing special to do.
+                Err(TryRecvError::Closed) => break, // If channel is closed, stop.
+            }
+        };
 
-            if let Err(TrySendError::Closed(_)) = sender.try_send(ViewerMessage::TrainStep {
-                splats: splats.clone(),
-                stats,
-                iter: trainer.iter,
-                timestamp: Instant::now(),
-            }) {
-                break; // channel closed, bail.
+        match message {
+            Some(TrainMessage::Paused(paused)) => {
+                is_paused = paused;
+            }
+            Some(TrainMessage::Eval { view_count }) => {
+                if let Some(eval_scene) = eval_scene.as_ref() {
+                    let eval = brush_train::eval::eval_stats(
+                        splats.valid(),
+                        eval_scene,
+                        view_count,
+                        &device,
+                    )
+                    .await;
+
+                    let _ = sender
+                        .send(ViewerMessage::Eval {
+                            iter: trainer.iter,
+                            eval,
+                        })
+                        .await;
+                }
+            }
+            // By default, continue train steps.
+            None => {
+                let batch = {
+                    // let _span = trace_span!("Get batch").entered();
+                    dataloader.next_batch().await
+                };
+                let (new_splats, stats) =
+                    trainer.step(batch, train_scene.background, splats).await?;
+                splats = new_splats;
+
+                if trainer.iter % 5 == 0 {
+                    if let Err(TrySendError::Closed(_)) = sender.try_send(ViewerMessage::Splats {
+                        iter: trainer.iter,
+                        splats: Box::new(splats.valid()),
+                    }) {
+                        break; // channel closed, bail.
+                    }
+
+                    if let Err(TrySendError::Closed(_)) =
+                        sender.try_send(ViewerMessage::TrainStep {
+                            stats,
+                            iter: trainer.iter,
+                            timestamp: Instant::now(),
+                        })
+                    {
+                        break; // channel closed, bail.
+                    }
+                }
             }
         }
     }

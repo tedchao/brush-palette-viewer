@@ -1,22 +1,27 @@
 use brush_render::RenderAux;
 use brush_render::{gaussian_splats::Splats, Backend};
-use burn::tensor::ElementConversion;
-use image::DynamicImage;
+use burn::tensor::{ElementConversion, Tensor};
 use rand::seq::IteratorRandom;
 
-use crate::image::{image_to_tensor, tensor_into_image};
+use crate::image::image_to_tensor;
 use crate::scene::{Scene, SceneView};
+use crate::ssim::Ssim;
 
 // TODO: Add ssim, maybe lpips.
-pub struct EvalView {
+#[derive(Clone)]
+pub struct EvalView<B: Backend> {
     pub view: SceneView,
-    pub rendered: DynamicImage,
+    pub rendered: Tensor<B, 3>,
+    // TODO: Maybe these are better kept as tensors too,
+    // but would complicate displaying things in the stats panel a bit.
     pub psnr: f32,
+    pub ssim: f32,
     pub aux: RenderAux,
 }
 
-pub struct EvalStats {
-    pub samples: Vec<EvalView>,
+#[derive(Clone)]
+pub struct EvalStats<B: Backend> {
+    pub samples: Vec<EvalView<B>>,
 }
 
 pub async fn eval_stats<B: Backend>(
@@ -24,7 +29,7 @@ pub async fn eval_stats<B: Backend>(
     eval_scene: &Scene,
     num_frames: Option<usize>,
     device: &B::Device,
-) -> EvalStats {
+) -> EvalStats<B> {
     let indices = if let Some(num) = num_frames {
         let mut rng = rand::thread_rng();
         (0..eval_scene.views.len()).choose_multiple(&mut rng, num)
@@ -47,17 +52,22 @@ pub async fn eval_stats<B: Backend>(
         let (rendered, aux) = splats.render(&view.camera, res, eval_scene.background, false);
 
         let render_rgb = rendered.slice([0..res.y as usize, 0..res.x as usize, 0..3]);
-        let mse = (render_rgb.clone() - gt_tensor).powf_scalar(2.0).mean();
+        let mse = (render_rgb.clone() - gt_tensor.clone())
+            .powf_scalar(2.0)
+            .mean();
 
         let psnr = mse.recip().log() * 10.0 / std::f32::consts::LN_10;
         let psnr = psnr.into_scalar_async().await.elem::<f32>();
 
-        let eval_render = tensor_into_image(render_rgb.into_data_async().await);
+        let ssim_measure = Ssim::new(11, 3, device);
+        let ssim = ssim_measure.ssim(render_rgb.clone().unsqueeze(), gt_tensor.unsqueeze());
+        let ssim = ssim.into_scalar_async().await.elem::<f32>();
 
         ret.push(EvalView {
             view,
             psnr,
-            rendered: eval_render,
+            ssim,
+            rendered: render_rgb,
             aux,
         });
     }

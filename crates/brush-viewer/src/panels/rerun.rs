@@ -1,6 +1,12 @@
-use std::sync::Arc;
+use std::{future::Future, pin::Pin, sync::Arc};
 
-use crate::{viewer::ViewerContext, visualize::VisualizeTools, ViewerPanel};
+use crate::{
+    train_loop::TrainMessage,
+    viewer::{ViewerContext, ViewerMessage},
+    visualize::VisualizeTools,
+    ViewerPanel,
+};
+use async_std::channel::Sender;
 use brush_train::spawn_future;
 use burn_wgpu::WgpuDevice;
 
@@ -14,10 +20,24 @@ pub(crate) struct RerunPanel {
     visualize_splats_every: Option<u32>,
 
     read_to_log_dataset: bool,
+
+    // TODO: This async logic is maybe better moved to the visualize class.
+    task_queue: Sender<Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send>>>,
 }
 
 impl RerunPanel {
     pub(crate) fn new(device: WgpuDevice) -> Self {
+        let (queue_send, queue_receive) = async_std::channel::unbounded();
+
+        spawn_future(async move {
+            // Handle futures one by one as they come in.
+            while let Ok(fut) = queue_receive.recv().await {
+                if let Err(e) = fut.await {
+                    log::error!("Error logging to rerun: {}", e);
+                }
+            }
+        });
+
         RerunPanel {
             visualize: None,
             eval_every: 1000,
@@ -26,7 +46,16 @@ impl RerunPanel {
             visualize_splats_every: None,
             device,
             read_to_log_dataset: false,
+            task_queue: queue_send,
         }
+    }
+}
+
+impl RerunPanel {
+    fn queue_task(&self, fut: impl Future<Output = anyhow::Result<()>> + Send + 'static) {
+        // Ignore this error - if the channel is closed we just don't do anything and drop
+        // the future.
+        let _ = self.task_queue.try_send(Box::pin(fut));
     }
 }
 
@@ -44,8 +73,18 @@ impl ViewerPanel for RerunPanel {
                     self.read_to_log_dataset = true;
                 }
             }
+            crate::viewer::ViewerMessage::Splats { iter, splats } => {
+                let Some(visualize) = self.visualize.clone() else {
+                    return;
+                };
+
+                if let Some(every) = self.visualize_splats_every {
+                    if iter % every == 0 {
+                        self.queue_task(visualize.log_splats(*splats));
+                    }
+                }
+            }
             crate::viewer::ViewerMessage::TrainStep {
-                splats,
                 stats,
                 iter,
                 timestamp: _,
@@ -54,54 +93,26 @@ impl ViewerPanel for RerunPanel {
                     return;
                 };
 
-                if iter % self.log_train_stats_every == 0 {
-                    let splats = splats.clone();
-                    let visualize = visualize.clone();
-                    let stats = stats.clone();
-
-                    spawn_future(async move {
-                        if let Err(e) = visualize.log_train_stats(iter, splats, stats).await {
-                            log::error!("Error logging train stats: {}", e);
-                        }
+                // If needed, start an eval run.
+                if iter % self.eval_every == 0 {
+                    context.send_train_message(TrainMessage::Eval {
+                        view_count: self.eval_view_count,
                     });
                 }
-                if let Some(eval_scene) = context.dataset.eval.clone() {
-                    if iter % self.eval_every == 0 {
-                        let device = self.device.clone();
-                        let visualize = visualize.clone();
-                        let splats = splats.clone();
-                        let num_eval = self.eval_view_count;
 
-                        spawn_future(async move {
-                            let eval = brush_train::eval::eval_stats(
-                                splats,
-                                &eval_scene,
-                                num_eval,
-                                &device,
-                            )
-                            .await;
-
-                            if let Err(e) = visualize.log_eval_stats(iter, eval) {
-                                log::error!("Error logging eval stats: {}", e);
-                            }
-                        });
-                    }
-                }
-
-                if let Some(every) = self.visualize_splats_every {
-                    if iter % every == 0 {
-                        let visualize = visualize.clone();
-                        let splats = splats.clone();
-
-                        // TODO: Spawn a task with this?
-                        spawn_future(async move {
-                            if let Err(e) = visualize.log_splats(splats).await {
-                                log::error!("Error logging splats: {}", e);
-                            }
-                        });
-                    }
+                // Log out train stats.
+                if iter % self.log_train_stats_every == 0 {
+                    self.queue_task(visualize.log_train_stats(iter, stats));
                 }
             }
+            ViewerMessage::Eval { iter, eval } => {
+                let Some(visualize) = self.visualize.clone() else {
+                    return;
+                };
+
+                self.queue_task(visualize.log_eval_stats(iter, eval));
+            }
+
             _ => {}
         }
     }
@@ -115,13 +126,7 @@ impl ViewerPanel for RerunPanel {
         };
 
         if self.read_to_log_dataset {
-            let visualize = visualize.clone();
-            let train_scene = context.dataset.train.clone();
-            spawn_future(async move {
-                if let Err(e) = visualize.log_scene(&train_scene) {
-                    log::error!("Error logging initial scene: {}", e);
-                }
-            });
+            self.queue_task(visualize.log_scene(context.dataset.train.clone()));
             self.read_to_log_dataset = false;
         }
 

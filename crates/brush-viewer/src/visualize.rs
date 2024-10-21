@@ -1,11 +1,12 @@
 #![allow(unused_imports, unused_variables)]
 
+use std::sync::Arc;
 use std::{borrow::Borrow, io::Read};
 
 use anyhow::Result;
 use brush_render::{gaussian_splats::Splats, AutodiffBackend, Backend};
-use brush_train::scene::Scene;
 use brush_train::train::TrainStepStats;
+use brush_train::{image::tensor_into_image, scene::Scene};
 use burn::tensor::{activation::sigmoid, ElementConversion, Tensor};
 use image::GenericImageView;
 
@@ -35,7 +36,7 @@ impl VisualizeTools {
         }
     }
 
-    pub(crate) async fn log_splats<B: Backend>(&self, splats: Splats<B>) -> Result<()> {
+    pub(crate) async fn log_splats<B: Backend>(self: Arc<Self>, splats: Splats<B>) -> Result<()> {
         #[cfg(not(target_family = "wasm"))]
         {
             let Some(rec) = self.rec.as_ref() else {
@@ -106,7 +107,7 @@ impl VisualizeTools {
         Ok(())
     }
 
-    pub(crate) fn log_scene(&self, scene: &Scene) -> Result<()> {
+    pub(crate) async fn log_scene(self: Arc<Self>, scene: Scene) -> Result<()> {
         #[cfg(not(target_family = "wasm"))]
         {
             let Some(rec) = self.rec.as_ref() else {
@@ -147,7 +148,11 @@ impl VisualizeTools {
         Ok(())
     }
 
-    pub fn log_eval_stats(&self, iter: u32, stats: brush_train::eval::EvalStats) -> Result<()> {
+    pub async fn log_eval_stats<B: Backend>(
+        self: Arc<Self>,
+        iter: u32,
+        stats: brush_train::eval::EvalStats<B>,
+    ) -> Result<()> {
         #[cfg(not(target_family = "wasm"))]
         {
             let Some(rec) = self.rec.as_ref() else {
@@ -165,7 +170,9 @@ impl VisualizeTools {
             rec.log("stats/eval_psnr", &rerun::Scalar::new(avg_psnr as f64))?;
 
             for (i, samp) in stats.samples.iter().enumerate() {
-                let rendered = samp.rendered.to_rgb8();
+                let eval_render = tensor_into_image(samp.rendered.to_data_async().await);
+
+                let rendered = eval_render.to_rgb8();
                 let gt = samp.view.image.as_rgb8().unwrap();
 
                 let [w, h] = [rendered.width(), rendered.height()];
@@ -196,10 +203,29 @@ impl VisualizeTools {
         Ok(())
     }
 
+    pub async fn log_splat_stats<B: AutodiffBackend>(&self, splats: Splats<B>) -> Result<()> {
+        #[cfg(not(target_family = "wasm"))]
+        {
+            let Some(rec) = self.rec.as_ref() else {
+                return Ok(());
+            };
+
+            if !rec.is_enabled() {
+                return Ok(());
+            }
+
+            rec.log(
+                "splats/num_splats",
+                &rerun::Scalar::new(splats.num_splats() as f64).clone(),
+            )?;
+
+            Ok(())
+        }
+    }
+
     pub async fn log_train_stats<B: AutodiffBackend>(
-        &self,
+        self: Arc<Self>,
         iter: u32,
-        splats: Splats<B>,
         stats: TrainStepStats<B>,
     ) -> Result<()> {
         #[cfg(not(target_family = "wasm"))]
@@ -219,10 +245,6 @@ impl VisualizeTools {
             rec.log("lr/coeffs", &rerun::Scalar::new(stats.lr_coeffs))?;
             rec.log("lr/opac", &rerun::Scalar::new(stats.lr_opac))?;
 
-            rec.log(
-                "splats/num_splats",
-                &rerun::Scalar::new(splats.num_splats() as f64).clone(),
-            )?;
             let [batch_size, img_h, img_w, _] = stats.pred_images.dims();
             let pred_rgb =
                 stats
@@ -255,6 +277,8 @@ impl VisualizeTools {
                 "splats/splats_visible",
                 &rerun::Scalar::new(main_aux.read_num_visible() as f64),
             )?;
+
+            // TODO: Whats a good place for this? Maybe in eval views?
             // rec.log(
             //     "images/tile_depth",
             //     &main_aux.read_tile_depth().into_rerun(),

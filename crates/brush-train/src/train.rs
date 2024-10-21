@@ -246,11 +246,7 @@ where
 
             let loss = (pred_rgb.clone() - gt_rgb.clone()).abs().mean();
             let loss = if self.config.ssim_weight > 0.0 {
-                let ssim_loss = -self.ssim.ssim(
-                    pred_rgb.clone().permute([0, 3, 1, 2]),
-                    gt_rgb.clone().permute([0, 3, 1, 2]),
-                ) + 1.0;
-
+                let ssim_loss = -self.ssim.ssim(pred_rgb.clone(), gt_rgb.clone()) + 1.0;
                 loss * (1.0 - self.config.ssim_weight) + ssim_loss * self.config.ssim_weight
             } else {
                 loss
