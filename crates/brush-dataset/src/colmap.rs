@@ -41,14 +41,17 @@ fn read_views(
         colmap_read_model::read_images(&mut buf_reader, bin)?
     };
 
-    let img_info_list = img_infos
-        .into_values()
-        .take(load_args.max_frames.unwrap_or(usize::MAX))
-        .collect::<Vec<_>>();
+    let mut img_info_list = img_infos.into_iter().collect::<Vec<_>>();
+
+    // Sort by image ID. Not entirely sure whether it's better to
+    // load things in COLMAP order or sorted by file name. Either way, at least
+    // it is consistent
+    img_info_list.sort_by_key(|key_img| key_img.0);
 
     let handles = img_info_list
-        .iter()
-        .map(move |img_info| {
+        .into_iter()
+        .take(load_args.max_frames.unwrap_or(usize::MAX))
+        .map(move |(_, img_info)| {
             let mut archive = archive.clone();
             let cam = cam_model_data[&img_info.camera_id].clone();
             let translation = img_info.tvec;
