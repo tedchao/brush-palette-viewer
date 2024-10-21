@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use brush_render::gaussian_splats::Splats;
 use brush_render::PrimaryBackend;
-use burn_wgpu::{RuntimeOptions, Wgpu, WgpuDevice};
+use burn_wgpu::{RuntimeOptions, WgpuDevice};
 use egui::Hyperlink;
 use egui_tiles::Tiles;
 use web_time::Instant;
@@ -168,8 +168,6 @@ impl ViewerContext {
         load_data_args: LoadDatasetArgs,
         load_init_args: LoadInitArgs,
     ) {
-        <Wgpu as burn::prelude::Backend>::seed(42);
-
         let device = self.device.clone();
 
         // create a channel for the train loop.

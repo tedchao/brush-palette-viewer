@@ -4,7 +4,10 @@ use async_std::{
     stream::StreamExt,
 };
 use brush_dataset::{scene_batch::SceneLoader, Dataset, LoadDatasetArgs, LoadInitArgs, ZipData};
-use brush_render::gaussian_splats::{RandomSplatsConfig, Splats};
+use brush_render::{
+    gaussian_splats::{RandomSplatsConfig, Splats},
+    PrimaryBackend,
+};
 use brush_train::train::{SplatTrainer, TrainConfig};
 use burn::{lr_scheduler::exponential::ExponentialLrSchedulerConfig, module::AutodiffModule};
 use burn_wgpu::WgpuDevice;
@@ -27,6 +30,12 @@ pub(crate) async fn train_loop(
     load_data_args: LoadDatasetArgs,
     load_init_args: LoadInitArgs,
 ) -> anyhow::Result<()> {
+    let batch_size = 1;
+
+    // Maybe good if the seed would be configurable.
+    let seed = 42;
+    <PrimaryBackend as burn::prelude::Backend>::seed(seed);
+
     let archive = ZipArchive::new(zip_data.open_for_read())?;
 
     // Load initial splats if included
@@ -90,7 +99,7 @@ pub(crate) async fn train_loop(
     let config = TrainConfig::new(ExponentialLrSchedulerConfig::new(lr_max, decay))
         .with_total_steps(total_steps);
 
-    let mut dataloader = SceneLoader::new(&train_scene, 1, &device);
+    let mut dataloader = SceneLoader::new(&train_scene, batch_size, seed, &device);
     let mut trainer = SplatTrainer::new(splats.num_splats(), &config, &splats);
 
     let mut is_paused = false;

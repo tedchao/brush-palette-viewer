@@ -31,6 +31,7 @@ pub async fn eval_stats<B: Backend>(
     device: &B::Device,
 ) -> EvalStats<B> {
     let indices = if let Some(num) = num_frames {
+        // TODO: Reproducible RNG.
         let mut rng = rand::thread_rng();
         (0..eval_scene.views.len()).choose_multiple(&mut rng, num)
     } else {

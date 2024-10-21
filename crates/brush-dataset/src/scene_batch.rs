@@ -11,21 +11,27 @@ pub struct SceneLoader<B: Backend> {
 }
 
 impl<B: Backend> SceneLoader<B> {
-    pub fn new(scene: &Scene, batch_size: usize, device: &B::Device) -> Self {
+    pub fn new(scene: &Scene, batch_size: usize, seed: u64, device: &B::Device) -> Self {
         let scene = scene.clone();
-        // Bound == number of batches to prefix.
+        // The bounded size == number of batches to prefetch.
         let (tx, rx) = async_std::channel::bounded(5);
         let device = device.clone();
-        let len = scene.views.len();
+        let len = scene.views.len() as u64;
 
         let fut = async move {
-            let mut index = 0;
+            // Nb: Index works as a "seed" to the dataloader.
+            let mut index = seed;
 
             loop {
-                let indexes: Vec<_> = (0..batch_size)
-                    .map(|i| miller_shuffle((index + i) % len, (index + i) / len, len))
+                let indices: Vec<_> = (0..batch_size)
+                    .map(|i| {
+                        miller_shuffle((index + i as u64) % len, (index + i as u64) / len, len)
+                    })
                     .collect();
-                let gt_views: Vec<_> = indexes.iter().map(|&x| scene.views[x].clone()).collect();
+                let gt_views: Vec<_> = indices
+                    .iter()
+                    .map(|&x| scene.views[x as usize].clone())
+                    .collect();
                 let selected_tensors: Vec<_> = gt_views
                     .iter()
                     .map(|view| image_to_tensor(&view.image, &device))
@@ -42,7 +48,7 @@ impl<B: Backend> SceneLoader<B> {
                     break;
                 }
 
-                index += 1;
+                index = index.wrapping_add(1);
             }
         };
 
@@ -62,10 +68,10 @@ impl<B: Backend> SceneLoader<B> {
 // "Miller Shuffle Algorithm E variant".
 // Copyright 2022 Ronald R. Miller
 // http://www.apache.org/licenses/LICENSE-2.0
-fn miller_shuffle(inx: usize, shuffle_id: usize, list_size: usize) -> usize {
-    let p1: usize = 24317;
-    let p2: usize = 32141;
-    let p3: usize = 63629; // for shuffling 60,000+ indexes
+fn miller_shuffle(inx: u64, shuffle_id: u64, list_size: u64) -> u64 {
+    let p1 = 24317;
+    let p2 = 32141;
+    let p3 = 63629; // for shuffling 60,000+ indexes
 
     let shuffle_id = shuffle_id + 131 * (inx / list_size); // have inx overflow effect the mix
     let mut si = (inx + shuffle_id) % list_size; // cut the deck

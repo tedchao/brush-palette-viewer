@@ -29,8 +29,8 @@ impl RerunPanel {
     pub(crate) fn new(device: WgpuDevice) -> Self {
         let (queue_send, queue_receive) = async_std::channel::unbounded();
 
+        // Spawn a task to handle futures one by one as they come in.
         spawn_future(async move {
-            // Handle futures one by one as they come in.
             while let Ok(fut) = queue_receive.recv().await {
                 if let Err(e) = fut.await {
                     log::error!("Error logging to rerun: {}", e);
