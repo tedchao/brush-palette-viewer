@@ -2,6 +2,7 @@ pub mod colmap;
 pub mod colmap_read_model;
 pub mod nerf_synthetic;
 pub mod scene_batch;
+pub mod splat_export;
 pub mod splat_import;
 
 use anyhow::Result;

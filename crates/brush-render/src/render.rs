@@ -33,7 +33,7 @@ use glam::uvec2;
 
 pub const SH_C0: f32 = shaders::gather_grads::SH_C0;
 
-pub const fn num_sh_coeffs(degree: u32) -> u32 {
+pub const fn sh_coeffs_for_degree(degree: u32) -> u32 {
     (degree + 1).pow(2)
 }
 
@@ -515,7 +515,12 @@ impl Backward<PrimaryBackend, 6> for RenderBackwards {
             });
 
             let v_coeffs = PrimaryBackend::float_zeros(
-                [num_points, num_sh_coeffs(state.sh_degree) as usize, 3].into(),
+                [
+                    num_points,
+                    sh_coeffs_for_degree(state.sh_degree) as usize,
+                    3,
+                ]
+                .into(),
                 device,
             );
             let v_opacities = PrimaryBackend::float_zeros([num_points].into(), device);

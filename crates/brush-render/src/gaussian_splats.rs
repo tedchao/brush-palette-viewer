@@ -1,8 +1,9 @@
 use crate::bounding_box::BoundingBox;
 use crate::camera::Camera;
+use crate::render::sh_degree_from_coeffs;
 use crate::safetensor_utils::safetensor_to_burn;
 use crate::shaders;
-use crate::{render::num_sh_coeffs, Backend};
+use crate::{render::sh_coeffs_for_degree, Backend};
 use burn::config::Config;
 use burn::tensor::activation::sigmoid;
 use burn::tensor::Tensor;
@@ -75,7 +76,7 @@ impl<B: Backend> Splats<B> {
             device,
         );
         let means = Tensor::stack(vec![xx, yy, zz], 1);
-        let num_coeffs = num_sh_coeffs(config.sh_degree);
+        let num_coeffs = sh_coeffs_for_degree(config.sh_degree);
 
         let sh_coeffs = Tensor::random(
             [num_points, num_coeffs as usize, 3],
@@ -128,7 +129,7 @@ impl<B: Backend> Splats<B> {
 
         let sh_coeffs_dc = (colors - 0.5) / shaders::gather_grads::SH_C0;
 
-        let sh_num = num_sh_coeffs(sh_degree);
+        let sh_num = sh_coeffs_for_degree(sh_degree);
         let sh_coeffs = Tensor::cat(
             vec![
                 sh_coeffs_dc,

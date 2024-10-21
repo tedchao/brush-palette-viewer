@@ -1,3 +1,5 @@
+use brush_dataset::splat_export;
+use brush_train::spawn_future;
 use egui::epaint::mutex::RwLock as EguiRwLock;
 use std::sync::Arc;
 
@@ -166,17 +168,36 @@ impl ViewerPanel for ScenePanel {
                 }
                 ViewerMessage::Splats { iter: _, splats } => {
                     self.draw_splats(ui, context, &splats, context.dataset.train.background);
+
+                    if self.is_training {
+                        if ui
+                            .selectable_label(self.live_update, "Live update")
+                            .clicked()
+                        {
+                            self.live_update = !self.live_update;
+                        }
+
+                        // TODO: File dialog and that whole business.
+                        if ui.button("Export").clicked() {
+                            spawn_future(async move {
+                                let data = splat_export::splat_to_ply(*splats).await;
+                                let data = match data {
+                                    Ok(data) => data,
+                                    Err(e) => {
+                                        log::error!("Failed to save file: {e}");
+                                        return;
+                                    }
+                                };
+                                // Not sure where/how to show this error if any.
+                                if let Err(e) = rrfd::save_file("export.ply", data).await {
+                                    log::error!("Failed to save file: {e}");
+                                }
+                            });
+                        }
+                    }
                 }
                 _ => {}
             }
-        }
-
-        if self.is_training
-            && ui
-                .selectable_label(self.live_update, "Live update")
-                .clicked()
-        {
-            self.live_update = !self.live_update;
         }
 
         if context.controls.is_animating() {

@@ -1,6 +1,6 @@
 use async_fn_stream::try_fn_stream;
 use async_std::stream::Stream;
-use brush_render::{render::num_sh_coeffs, Backend};
+use brush_render::{render::sh_coeffs_for_degree, Backend};
 use burn::{
     module::{Param, ParamId},
     tensor::{Tensor, TensorData},
@@ -19,12 +19,14 @@ use anyhow::{Context, Result};
 use brush_render::gaussian_splats::Splats;
 
 pub(crate) struct GaussianData {
-    means: [f32; 3],
-    scale: [f32; 3],
-    opacity: f32,
-    rotation: [f32; 4],
-    sh_dc: [f32; 3],
-    sh_coeffs: Vec<f32>,
+    pub(crate) means: [f32; 3],
+    pub(crate) scale: [f32; 3],
+    pub(crate) opacity: f32,
+    pub(crate) rotation: [f32; 4],
+    pub(crate) sh_dc: [f32; 3],
+    // NB: This is in the inria format, aka [channels, coeffs]
+    // not [coeffs, channels].
+    pub(crate) sh_coeffs_rest: Vec<f32>,
 }
 
 impl PropertyAccess for GaussianData {
@@ -35,7 +37,7 @@ impl PropertyAccess for GaussianData {
             opacity: 0.0,
             rotation: [0.0; 4],
             sh_dc: [0.0, 0.0, 0.0],
-            sh_coeffs: Vec::new(),
+            sh_coeffs_rest: Vec::new(),
         }
     }
 
@@ -58,14 +60,41 @@ impl PropertyAccess for GaussianData {
                 "f_dc_2" => self.sh_dc[2] = v,
                 _ if key.starts_with("f_rest_") => {
                     if let Ok(idx) = key["f_rest_".len()..].parse::<u32>() {
-                        if idx >= self.sh_coeffs.len() as u32 {
-                            self.sh_coeffs.resize(idx as usize + 1, 0.0);
+                        if idx >= self.sh_coeffs_rest.len() as u32 {
+                            self.sh_coeffs_rest.resize(idx as usize + 1, 0.0);
                         }
-                        self.sh_coeffs[idx as usize] = v;
+                        self.sh_coeffs_rest[idx as usize] = v;
                     }
                 }
                 _ => (),
             }
+        }
+    }
+
+    fn get_float(&self, key: &str) -> Option<f32> {
+        match key {
+            "x" => Some(self.means[0]),
+            "y" => Some(self.means[1]),
+            "z" => Some(self.means[2]),
+            "scale_0" => Some(self.scale[0]),
+            "scale_1" => Some(self.scale[1]),
+            "scale_2" => Some(self.scale[2]),
+            "opacity" => Some(self.opacity),
+            "rot_0" => Some(self.rotation[0]),
+            "rot_1" => Some(self.rotation[1]),
+            "rot_2" => Some(self.rotation[2]),
+            "rot_3" => Some(self.rotation[3]),
+            "f_dc_0" => Some(self.sh_dc[0]),
+            "f_dc_1" => Some(self.sh_dc[1]),
+            "f_dc_2" => Some(self.sh_dc[2]),
+            _ if key.starts_with("f_rest_") => {
+                if let Ok(idx) = key["f_rest_".len()..].parse::<usize>() {
+                    self.sh_coeffs_rest.get(idx).copied()
+                } else {
+                    None
+                }
+            }
+            _ => None,
         }
     }
 }
@@ -183,7 +212,7 @@ pub fn load_splat_from_ply<B: Backend>(
                     Err(anyhow::anyhow!("Invalid splat ply. Missing properties!"))?
                 }
 
-                let sh_coeffs_per_channel = (1 + element
+                let n_sh_coeffs = (1 + element
                     .properties
                     .iter()
                     .filter_map(|x| {
@@ -192,11 +221,10 @@ pub fn load_splat_from_ply<B: Backend>(
                             .and_then(|x| x.parse::<u32>().ok())
                     })
                     .max()
-                    .unwrap_or(0)
-                    / 3) as usize;
+                    .unwrap_or(0)) as usize;
 
                 let mut means = Vec::with_capacity(update_every * 3);
-                let mut sh_coeffs = Vec::with_capacity(update_every * sh_coeffs_per_channel * 3);
+                let mut sh_coeffs = Vec::with_capacity(update_every * n_sh_coeffs);
                 let mut rotation = Vec::with_capacity(update_every * 4);
                 let mut opacity = Vec::with_capacity(update_every);
                 let mut scales = Vec::with_capacity(update_every * 3);
@@ -220,10 +248,10 @@ pub fn load_splat_from_ply<B: Backend>(
                     };
 
                     let mut sh_coeffs_interleaved =
-                        interleave_coeffs(splat.sh_dc, &splat.sh_coeffs);
+                        interleave_coeffs(splat.sh_dc, &splat.sh_coeffs_rest);
 
                     // Limit the number of imported SH channels for now.
-                    let max_sh_len = num_sh_coeffs(3) as usize * 3;
+                    let max_sh_len = sh_coeffs_for_degree(3) as usize * 3;
 
                     if sh_coeffs_interleaved.len() > max_sh_len {
                         sh_coeffs_interleaved.truncate(max_sh_len);

@@ -84,10 +84,6 @@ impl ViewerPanel for LoadDataPanel {
             );
         }
 
-        ui.add_space(5.0);
-
-        ui.add_space(15.0);
-
         if ui.input(|r| r.key_pressed(egui::Key::Escape)) {
             ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
         }
