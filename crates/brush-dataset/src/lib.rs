@@ -6,12 +6,16 @@ pub mod splat_export;
 pub mod splat_import;
 
 use anyhow::Result;
+use async_fn_stream::fn_stream;
 use async_std::stream::Stream;
+use async_std::task::{self, JoinHandle};
 use brush_render::{gaussian_splats::Splats, Backend};
 use brush_train::scene::{Scene, SceneView};
 use glam::Vec3;
 use image::DynamicImage;
 use splat_import::load_splat_from_ply;
+use std::future::Future;
+use std::num::NonZero;
 use std::{
     io::{Cursor, Read},
     path::{Path, PathBuf},
@@ -111,12 +115,66 @@ pub(crate) fn clamp_img_to_max_size(image: DynamicImage, max_size: u32) -> Dynam
     image.resize(new_width, new_height, image::imageops::FilterType::Lanczos3)
 }
 
-type DataStream = Pin<Box<dyn Stream<Item = Result<Dataset>> + Send + 'static>>;
+/// Spawn a future (on the async executor on native, as a JS promise on web).
+#[cfg(not(target_family = "wasm"))]
+mod async_helpers {
+    use super::*;
+
+    pub(super) type DataStream<T> = Pin<Box<dyn Stream<Item = Result<T>> + Send + 'static>>;
+
+    pub(super) fn spawn_future<T: Send + 'static>(
+        future: impl Future<Output = T> + Send + 'static,
+    ) -> JoinHandle<T> {
+        task::spawn(future)
+    }
+}
+
+#[cfg(target_family = "wasm")]
+mod async_helpers {
+    use super::*;
+
+    pub(super) type DataStream<T> = Pin<Box<dyn Stream<Item = Result<T>> + 'static>>;
+
+    pub(super) fn spawn_future<T: 'static>(
+        future: impl Future<Output = T> + 'static,
+    ) -> JoinHandle<T> {
+        task::spawn_local(future)
+    }
+}
+
+pub(crate) use async_helpers::*;
+
+pub(crate) fn stream_fut_parallel<T: Send + 'static>(
+    futures: Vec<impl Future<Output = T> + Send + 'static>,
+) -> impl Stream<Item = T> {
+    let parallel = if cfg!(target_family = "wasm") {
+        1
+    } else {
+        std::thread::available_parallelism()
+            .unwrap_or(NonZero::new(8).unwrap())
+            .get()
+    };
+
+    let mut futures = futures;
+    fn_stream(|emitter| async move {
+        while !futures.is_empty() {
+            // Spawn a batch of threads.
+            let handles: Vec<_> = futures
+                .drain(..futures.len().min(parallel))
+                .map(|fut| spawn_future(fut))
+                .collect();
+            // Stream each of them.
+            for handle in handles {
+                emitter.emit(handle.await).await;
+            }
+        }
+    })
+}
 
 pub fn read_dataset_views(
     archive: ZipArchive<Cursor<ZipData>>,
     load_args: &LoadDatasetArgs,
-) -> Result<DataStream> {
+) -> Result<DataStream<Dataset>> {
     let nerf = nerf_synthetic::read_dataset_views(archive.clone(), load_args);
     if let Ok(stream) = nerf {
         return Ok(stream);
@@ -128,12 +186,10 @@ pub fn read_dataset_views(
     anyhow::bail!("Couldn't parse dataset as any format. Only some formats are supported.")
 }
 
-type SplatStream<B> = Pin<Box<dyn Stream<Item = Result<Splats<B>>> + Send + 'static>>;
-
 fn read_init_ply<B: Backend>(
     mut archive: ZipArchive<Cursor<ZipData>>,
     device: &B::Device,
-) -> Result<SplatStream<B>> {
+) -> Result<DataStream<Splats<B>>> {
     let data = archive
         .by_name("init.ply")
         .map(|f| f.bytes().collect::<std::io::Result<Vec<u8>>>())?;
@@ -150,7 +206,7 @@ pub fn read_dataset_init<B: Backend>(
     archive: ZipArchive<Cursor<ZipData>>,
     device: &B::Device,
     load_args: &LoadInitArgs,
-) -> Result<SplatStream<B>> {
+) -> Result<DataStream<Splats<B>>> {
     // If there's an init.ply definitey use that. Nb:
     // this ignores the specified number of SH channels atm.
     if let Ok(stream) = read_init_ply(archive.clone(), device) {

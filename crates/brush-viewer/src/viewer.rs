@@ -1,8 +1,9 @@
+use async_fn_stream::try_fn_stream;
 use async_std::channel::{Receiver, Sender, TrySendError};
-use async_std::stream::StreamExt;
+use async_std::stream::{Stream, StreamExt};
+use async_std::task;
 use brush_render::camera::Camera;
 use brush_train::eval::EvalStats;
-use brush_train::spawn_future;
 use brush_train::train::TrainStepStats;
 use burn::backend::Autodiff;
 use glam::{Quat, Vec3};
@@ -18,7 +19,7 @@ use web_time::Instant;
 use brush_dataset::{self, splat_import, Dataset, LoadDatasetArgs, LoadInitArgs, ZipData};
 
 use crate::orbit_controls::OrbitControls;
-use crate::panels::{DatasetPanel, LoadDataPanel, RerunPanel, ScenePanel, StatsPanel};
+use crate::panels::{DatasetPanel, LoadDataPanel, ScenePanel, StatsPanel};
 use crate::train_loop::TrainMessage;
 use crate::{train_loop, PaneType, ViewerTree};
 
@@ -54,11 +55,11 @@ pub(crate) enum ViewerMessage {
     },
     /// Some number of training steps are done.
     TrainStep {
-        stats: TrainStepStats<Autodiff<PrimaryBackend>>,
+        stats: Box<TrainStepStats<Autodiff<PrimaryBackend>>>,
         iter: u32,
         timestamp: Instant,
     },
-    Eval {
+    EvalResult {
         iter: u32,
         eval: EvalStats<PrimaryBackend>,
     },
@@ -82,37 +83,54 @@ pub(crate) struct ViewerContext {
     receiver: Option<Receiver<ViewerMessage>>,
 }
 
-async fn process_loop(
+fn process_loop(
     device: WgpuDevice,
-    sender: Sender<ViewerMessage>,
     train_receiver: Receiver<TrainMessage>,
     load_data_args: LoadDatasetArgs,
     load_init_args: LoadInitArgs,
-) -> anyhow::Result<()> {
-    let _ = sender.send(ViewerMessage::PickFile).await;
-    let picked = rrfd::pick_file().await?;
+) -> impl Stream<Item = anyhow::Result<ViewerMessage>> {
+    try_fn_stream(|emitter| async move {
+        let _ = emitter.emit(ViewerMessage::PickFile).await;
+        let picked = rrfd::pick_file().await?;
 
-    if picked.file_name.contains(".ply") {
-        let _ = sender
-            .send(ViewerMessage::StartLoading { training: false })
-            .await;
-        load_ply_loop(picked.data, device, sender).await
-    } else if picked.file_name.contains(".zip") {
-        let _ = sender
-            .send(ViewerMessage::StartLoading { training: true })
-            .await;
-        train_loop::train_loop(
-            ZipData::from(picked.data),
-            device,
-            sender,
-            train_receiver,
-            load_data_args,
-            load_init_args,
-        )
-        .await
-    } else {
-        anyhow::bail!("Only .ply and .zip files are supported.")
-    }
+        if picked.file_name.contains(".ply") {
+            let _ = emitter
+                .emit(ViewerMessage::StartLoading { training: false })
+                .await;
+            let data = picked.data;
+            let splat_stream =
+                splat_import::load_splat_from_ply::<PrimaryBackend>(data, device.clone());
+            let mut splat_stream = std::pin::pin!(splat_stream);
+            while let Some(splats) = splat_stream.next().await {
+                emitter
+                    .emit(ViewerMessage::Splats {
+                        iter: 0, // For viewing just use "training step 0", bit weird.
+                        splats: Box::new(splats?),
+                    })
+                    .await;
+            }
+        } else if picked.file_name.contains(".zip") {
+            let _ = emitter
+                .emit(ViewerMessage::StartLoading { training: true })
+                .await;
+
+            let stream = train_loop::train_loop(
+                ZipData::from(picked.data),
+                device,
+                train_receiver,
+                load_data_args,
+                load_init_args,
+            );
+            let mut stream = std::pin::pin!(stream);
+            while let Some(message) = stream.next().await {
+                emitter.emit(message?).await;
+            }
+        } else {
+            anyhow::bail!("Only .ply and .zip files are supported.")
+        }
+
+        Ok(())
+    })
 }
 
 async fn load_ply_loop(
@@ -171,38 +189,50 @@ impl ViewerContext {
         let device = self.device.clone();
 
         // create a channel for the train loop.
-        let (sender, receiver) = async_std::channel::bounded(2);
         let (train_sender, train_receiver) = async_std::channel::unbounded();
-        let ctx = self.ctx.clone();
 
-        // Spawn a future that sends the viewer messages.
-        spawn_future(async move {
-            if let Err(e) = process_loop(
-                device,
-                sender.clone(),
-                train_receiver,
-                load_data_args,
-                load_init_args,
-            )
-            .await
-            {
-                let _ = sender.send(ViewerMessage::Error(Arc::new(e))).await;
-            }
-        });
+        // Create a small channel. We don't want 10 updated splats to be stuck in the queue eating up memory!
+        // Bigger channels could mean the train loop spends less time waiting for the UI though.
+        let (sender, receiver) = async_std::channel::bounded(1);
 
-        // Spawn another future that receives them & forward them to the UI.
-        let (ui_sender, ui_receiver) = async_std::channel::bounded(2);
-        self.receiver = Some(ui_receiver);
+        self.receiver = Some(receiver);
         self.sender = Some(train_sender);
 
         self.dataset = Dataset::empty();
+        let ctx = self.ctx.clone();
 
-        spawn_future(async move {
-            while let Ok(m) = receiver.recv().await {
+        let fut = async move {
+            // Map errors to a viewer message containing thee error.
+            let stream = process_loop(device, train_receiver, load_data_args, load_init_args).map(
+                |message| match message {
+                    Ok(message) => message,
+                    Err(e) => ViewerMessage::Error(Arc::new(e)),
+                },
+            );
+            let mut stream = std::pin::pin!(stream);
+
+            // Loop until there are no more messages, processing is done.
+            while let Some(m) = stream.next().await {
                 ctx.request_repaint();
-                let _ = ui_sender.send(m).await;
+
+                // If channel is closed, bail.
+                if sender.send(m).await.is_err() {
+                    break;
+                }
             }
-        });
+        };
+
+        #[cfg(target_family = "wasm")]
+        {
+            let fut =
+                crate::timeout_future::with_timeout_yield(fut, web_time::Duration::from_millis(5));
+            task::spawn_local(fut);
+        }
+
+        #[cfg(not(target_family = "wasm"))]
+        {
+            task::spawn(fut);
+        }
     }
 
     pub fn send_train_message(&self, message: TrainMessage) {
@@ -235,7 +265,7 @@ impl Viewer {
         );
 
         cfg_if::cfg_if! {
-            if #[cfg(target_arch = "wasm32")] {
+            if #[cfg(target_family = "wasm")] {
                 use tracing_subscriber::layer::SubscriberExt;
 
                 let subscriber = tracing_subscriber::registry().with(tracing_wasm::WASMLayer::new(Default::default()));
@@ -267,13 +297,12 @@ impl Viewer {
         );
 
         let stats_panel = StatsPanel::new(device.clone());
-        let rerun_panel = RerunPanel::new(device.clone());
 
         let sides = vec![
             tiles.insert_pane(Box::new(data_pane)),
             tiles.insert_pane(Box::new(stats_panel)),
             #[cfg(not(target_family = "wasm"))]
-            tiles.insert_pane(Box::new(rerun_panel)),
+            tiles.insert_pane(Box::new(crate::panels::RerunPanel::new(device.clone()))),
             #[cfg(feature = "tracing")]
             tiles.insert_pane(Box::new(TracingPanel::default())),
         ];

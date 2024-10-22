@@ -222,9 +222,9 @@ impl VisualizeTools {
                 "splats/num_splats",
                 &rerun::Scalar::new(splats.num_splats() as f64).clone(),
             )?;
-
-            Ok(())
         }
+
+        Ok(())
     }
 
     pub async fn log_train_stats<B: AutodiffBackend>(

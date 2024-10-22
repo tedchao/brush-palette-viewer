@@ -1,5 +1,5 @@
+use async_std::task;
 use brush_dataset::splat_export;
-use brush_train::spawn_future;
 use egui::epaint::mutex::RwLock as EguiRwLock;
 use std::sync::Arc;
 
@@ -178,7 +178,7 @@ impl ViewerPanel for ScenePanel {
                         }
 
                         if ui.button("Export").clicked() {
-                            spawn_future(async move {
+                            task::spawn_local(async move {
                                 let data = splat_export::splat_to_ply(*splats).await;
                                 let data = match data {
                                     Ok(data) => data,

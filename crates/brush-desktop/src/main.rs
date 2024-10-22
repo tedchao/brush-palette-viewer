@@ -3,11 +3,12 @@
 fn main() -> anyhow::Result<()> {
     let wgpu_options = brush_viewer::wgpu_config::get_config();
 
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(target_family = "wasm"))]
     {
         env_logger::init();
-        // Build app display.
+
         let native_options = eframe::NativeOptions {
+            // Build app display.
             viewport: egui::ViewportBuilder::default()
                 .with_inner_size(egui::Vec2::new(1280.0, 720.0))
                 .with_active(true),
@@ -15,6 +16,7 @@ fn main() -> anyhow::Result<()> {
             wgpu_options,
             ..Default::default()
         };
+
         eframe::run_native(
             "Brush 🖌️",
             native_options,
@@ -23,13 +25,10 @@ fn main() -> anyhow::Result<()> {
         .unwrap();
     }
 
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(target_family = "wasm")]
     {
         use wasm_bindgen::JsCast;
-
-        console_error_panic_hook::set_once();
-
-        wasm_logger::init(wasm_logger::Config::new(log::Level::Info));
+        eframe::WebLogger::init(log::LevelFilter::Debug).ok();
 
         let web_options = eframe::WebOptions {
             wgpu_options,
@@ -43,7 +42,7 @@ fn main() -> anyhow::Result<()> {
             .dyn_into::<web_sys::HtmlCanvasElement>()
             .unwrap();
 
-        spawn_future(async {
+        async_std::task::spawn_local(async {
             eframe::WebRunner::new()
                 .start(
                     canvas,

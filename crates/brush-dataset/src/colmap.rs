@@ -1,18 +1,19 @@
 use std::{
+    future::Future,
     io::{Cursor, Read},
     sync::Arc,
 };
 
-use crate::{DataStream, Dataset, LoadDatasetArgs, LoadInitArgs, SplatStream, ZipData};
+use crate::{stream_fut_parallel, DataStream, Dataset, LoadDatasetArgs, LoadInitArgs, ZipData};
 use anyhow::Result;
 use async_fn_stream::try_fn_stream;
-use async_std::task::JoinHandle;
+use async_std::stream::StreamExt;
 use brush_render::{
     camera::{self, Camera},
     gaussian_splats::Splats,
     Backend,
 };
-use brush_train::{scene::SceneView, spawn_future};
+use brush_train::scene::SceneView;
 use glam::Vec3;
 use zip::ZipArchive;
 
@@ -21,7 +22,7 @@ use crate::colmap_read_model;
 fn read_views(
     mut archive: ZipArchive<Cursor<ZipData>>,
     load_args: &LoadDatasetArgs,
-) -> Result<Vec<JoinHandle<Result<SceneView>>>> {
+) -> Result<Vec<impl Future<Output = Result<SceneView>>>> {
     let (bin, cam_path, img_path) = if archive.by_name("sparse/0/cameras.bin").is_ok() {
         (true, "sparse/0/cameras.bin", "sparse/0/images.bin")
     } else if archive.by_name("sparse/0/cameras.txt").is_ok() {
@@ -59,7 +60,7 @@ fn read_views(
             let img_path = img_info.name.clone();
             let load_args = load_args.clone();
 
-            spawn_future(async move {
+            async move {
                 let focal = cam.focal();
 
                 let fovx = camera::focal_to_fov(focal.x, cam.width as u32);
@@ -90,7 +91,7 @@ fn read_views(
                     image: Arc::new(img),
                 };
                 anyhow::Result::<SceneView>::Ok(view)
-            })
+            }
         })
         .collect();
 
@@ -100,40 +101,35 @@ fn read_views(
 pub(crate) fn read_dataset_views(
     archive: ZipArchive<Cursor<ZipData>>,
     load_args: &LoadDatasetArgs,
-) -> Result<DataStream> {
+) -> Result<DataStream<Dataset>> {
     let handles = read_views(archive, load_args)?;
 
     // 'real' colmap scenes are assumed to be opaque and not have a background, aka
     // a black background.
-    let background = Vec3::ZERO;
     let load_args = load_args.clone();
+    let stream = stream_fut_parallel(handles);
 
-    let stream = try_fn_stream(|emitter| async move {
-        let mut train_views = vec![];
-        let mut eval_views = vec![];
+    let mut train_views = vec![];
+    let mut eval_views = vec![];
 
-        for (i, handle) in handles.into_iter().enumerate() {
-            // I cannot wait for let chains.
-            if let Some(eval_period) = load_args.eval_split_every {
-                if i % eval_period == 0 {
-                    eval_views.push(handle.await?);
-                } else {
-                    train_views.push(handle.await?);
-                }
+    let stream = stream.enumerate().map(move |(i, view)| {
+        // I cannot wait for let chains.
+        if let Some(eval_period) = load_args.eval_split_every {
+            if i % eval_period == 0 {
+                eval_views.push(view?);
             } else {
-                train_views.push(handle.await?);
+                train_views.push(view?);
             }
-
-            emitter
-                .emit(Dataset::from_views(
-                    train_views.clone(),
-                    eval_views.clone(),
-                    background,
-                ))
-                .await;
+        } else {
+            train_views.push(view?);
         }
+        let background = Vec3::ZERO;
 
-        Ok(())
+        Ok(Dataset::from_views(
+            train_views.clone(),
+            eval_views.clone(),
+            background,
+        ))
     });
 
     Ok(Box::pin(stream))
@@ -143,7 +139,7 @@ pub(crate) fn read_init_splat<B: Backend>(
     mut archive: ZipArchive<Cursor<ZipData>>,
     device: &B::Device,
     load_args: &LoadInitArgs,
-) -> Result<SplatStream<B>> {
+) -> Result<DataStream<Splats<B>>> {
     let (bin, points_path) = if archive.by_name("sparse/0/points3D.bin").is_ok() {
         (true, "sparse/0/points3D.bin")
     } else if archive.by_name("sparse/0/cameras.txt").is_ok() {

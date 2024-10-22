@@ -101,7 +101,7 @@ pub fn prefix_sum(input: JitTensor<WgpuRuntime, u32>) -> JitTensor<WgpuRuntime, 
     outputs
 }
 
-#[cfg(all(test, not(target_arch = "wasm32")))]
+#[cfg(all(test, not(target_family = "wasm")))]
 mod tests {
     use crate::prefix_sum;
     use brush_kernel::bitcast_tensor;

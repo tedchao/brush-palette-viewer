@@ -1,14 +1,19 @@
 mod datasets;
 mod load_data;
-mod rerun;
+
 mod scene;
 mod stats;
 
 pub(crate) use datasets::*;
 pub(crate) use load_data::*;
-pub(crate) use rerun::*;
 pub(crate) use scene::*;
 pub(crate) use stats::*;
+
+#[cfg(not(target_family = "wasm"))]
+mod rerun;
+
+#[cfg(not(target_family = "wasm"))]
+pub(crate) use rerun::*;
 
 #[cfg(feature = "tracing")]
 mod tracing_debug;

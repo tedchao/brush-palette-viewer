@@ -7,6 +7,7 @@ use viewer::{ViewerContext, ViewerMessage};
 
 mod burn_texture;
 mod orbit_controls;
+mod timeout_future;
 mod visualize;
 
 mod panels;

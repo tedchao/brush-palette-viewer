@@ -6,8 +6,10 @@ use crate::{
     visualize::VisualizeTools,
     ViewerPanel,
 };
-use async_std::channel::Sender;
-use brush_train::spawn_future;
+use async_std::{
+    channel::{self, Sender},
+    task,
+};
 use burn_wgpu::WgpuDevice;
 
 pub(crate) struct RerunPanel {
@@ -27,10 +29,10 @@ pub(crate) struct RerunPanel {
 
 impl RerunPanel {
     pub(crate) fn new(device: WgpuDevice) -> Self {
-        let (queue_send, queue_receive) = async_std::channel::unbounded();
+        let (queue_send, queue_receive) = channel::unbounded();
 
         // Spawn a task to handle futures one by one as they come in.
-        spawn_future(async move {
+        task::spawn(async move {
             while let Ok(fut) = queue_receive.recv().await {
                 if let Err(e) = fut.await {
                     log::error!("Error logging to rerun: {}", e);
@@ -109,10 +111,10 @@ impl ViewerPanel for RerunPanel {
 
                 // Log out train stats.
                 if iter % self.log_train_stats_every == 0 {
-                    self.queue_task(visualize.log_train_stats(iter, stats));
+                    self.queue_task(visualize.log_train_stats(iter, *stats));
                 }
             }
-            ViewerMessage::Eval { iter, eval } => {
+            ViewerMessage::EvalResult { iter, eval } => {
                 let Some(visualize) = self.visualize.clone() else {
                     return;
                 };

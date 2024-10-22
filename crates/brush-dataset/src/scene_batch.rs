@@ -2,9 +2,10 @@ use async_std::channel::Receiver;
 use brush_render::Backend;
 use brush_train::image::image_to_tensor;
 use brush_train::scene::Scene;
-use brush_train::spawn_future;
 use brush_train::train::SceneBatch;
 use burn::tensor::Tensor;
+
+use crate::spawn_future;
 
 pub struct SceneLoader<B: Backend> {
     receiver: Receiver<SceneBatch<B>>,

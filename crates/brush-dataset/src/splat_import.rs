@@ -1,5 +1,5 @@
 use async_fn_stream::try_fn_stream;
-use async_std::stream::Stream;
+use async_std::{stream::Stream, task};
 use brush_render::{render::sh_coeffs_for_degree, Backend};
 use burn::{
     module::{Param, ParamId},
@@ -229,9 +229,6 @@ pub fn load_splat_from_ply<B: Backend>(
                 let mut opacity = Vec::with_capacity(update_every);
                 let mut scales = Vec::with_capacity(update_every * 3);
 
-                #[cfg(target_arch = "wasm32")]
-                let mut last_yield_time = Instant::now();
-
                 for i in 0..element.count {
                     let splat = match header.encoding {
                         ply_rs::ply::Encoding::Ascii => {
@@ -285,17 +282,9 @@ pub fn load_splat_from_ply<B: Backend>(
                             .await;
                     }
 
-                    // On wasm, yield to the browser occsionally
-                    #[cfg(target_arch = "wasm32")]
-                    if i % 100 == 0 && Instant::now() - last_yield_time > Duration::from_millis(5) {
-                        // You'd think yield_now() should work but that doesn't actually hand back control to the browser.
-                        // async_std::task::yield_now();
-                        last_yield_time = Instant::now();
-
-                        // Timeout future actually yield back to browser.
-                        let never = async_std::future::pending::<()>();
-                        let dur = Duration::from_millis(0);
-                        let _ = async_std::future::timeout(dur, never).await;
+                    // Ocassionally yield.
+                    if i % 500 == 0 {
+                        task::yield_now().await;
                     }
                 }
 

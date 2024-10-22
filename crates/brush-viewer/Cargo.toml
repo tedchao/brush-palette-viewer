@@ -21,6 +21,7 @@ burn-jit.workspace = true
 image.workspace = true
 anyhow.workspace = true
 eframe.workspace = true
+web-sys.workspace = true
 egui.workspace = true
 egui_tiles.workspace = true
 tracing.workspace = true
@@ -30,6 +31,7 @@ tracing-subscriber.workspace = true
 web-time.workspace = true
 
 log.workspace = true
+gloo-timers.workspace = true
 
 tracing-tracy = { workspace = true, optional = true }
 cfg-if.workspace = true
@@ -43,11 +45,11 @@ async-std.workspace = true
 
 parking_lot.workspace = true
 
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
 rerun.workspace = true
 brush-rerun.path = "../brush-rerun"
 
-[target.'cfg(target_arch = "wasm32")'.dependencies]
+[target.'cfg(target_family = "wasm")'.dependencies]
 tracing-wasm.workspace = true
 web-sys.workspace = true
 

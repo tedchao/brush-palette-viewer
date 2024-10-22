@@ -39,7 +39,7 @@ pub fn module_to_compiled<C: Compiler>(
 
     // Dawn annoyingly wants an extra non-standard syntax to enable subgroups,
     // so just hack this in when running on wasm.
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(target_family = "wasm")]
     let shader_string = if shader_string.contains("subgroupAdd") {
         "enable subgroups;\n".to_owned() + &shader_string
     } else {

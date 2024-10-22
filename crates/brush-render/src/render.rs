@@ -493,7 +493,7 @@ impl Backward<PrimaryBackend, 6> for RenderBackwards {
             let v_conics = PrimaryBackend::float_zeros([num_points, 3].into(), device);
             let v_colors = PrimaryBackend::float_zeros([num_points, 4].into(), device);
 
-            let hard_float = !cfg!(target_arch = "wasm32");
+            let hard_float = !cfg!(target_family = "wasm");
 
             tracing::trace_span!("RasterizeBackwards", sync_burn = true).in_scope(|| unsafe {
                 client.execute_unchecked(
@@ -614,7 +614,7 @@ impl Backward<PrimaryBackend, 6> for RenderBackwards {
     }
 }
 
-#[cfg(all(test, not(target_arch = "wasm32")))]
+#[cfg(all(test, not(target_family = "wasm")))]
 mod tests {
     use std::fs::File;
     use std::io::Read;

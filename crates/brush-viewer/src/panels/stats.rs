@@ -59,7 +59,7 @@ impl ViewerPanel for StatsPanel {
             ViewerMessage::Splats { iter: _, splats } => {
                 self.num_splats = splats.num_splats();
             }
-            ViewerMessage::Eval { iter: _, eval } => {
+            ViewerMessage::EvalResult { iter: _, eval } => {
                 let avg_psnr =
                     eval.samples.iter().map(|s| s.psnr).sum::<f32>() / (eval.samples.len() as f32);
                 self.last_eval_psnr = Some(avg_psnr);

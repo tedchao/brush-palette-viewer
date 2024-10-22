@@ -149,7 +149,7 @@ pub fn radix_argsort(
     (cur_keys, cur_vals)
 }
 
-#[cfg(all(test, not(target_arch = "wasm32")))]
+#[cfg(all(test, not(target_family = "wasm")))]
 mod tests {
     use crate::radix_argsort;
     use brush_kernel::bitcast_tensor;

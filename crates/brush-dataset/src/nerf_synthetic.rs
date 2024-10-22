@@ -1,11 +1,10 @@
 use anyhow::Context;
 use anyhow::Result;
 use async_fn_stream::try_fn_stream;
-use async_std::task::JoinHandle;
 use brush_render::camera;
 use brush_render::camera::Camera;
 use brush_train::scene::SceneView;
-use brush_train::spawn_future;
+use std::future::Future;
 use std::io::Cursor;
 use std::io::Read;
 use std::path::Path;
@@ -35,7 +34,7 @@ fn read_transforms_file(
     mut archive: ZipArchive<Cursor<ZipData>>,
     name: &'static str,
     load_args: &LoadDatasetArgs,
-) -> Result<Vec<JoinHandle<anyhow::Result<SceneView>>>> {
+) -> Result<Vec<impl Future<Output = anyhow::Result<SceneView>>>> {
     let transform_fname = archive
         .file_names()
         .find(|x| x.ends_with(name))
@@ -63,7 +62,7 @@ fn read_transforms_file(
             let mut archive = archive.clone();
             let load_args = load_args.clone();
 
-            spawn_future(async move {
+            async move {
                 // NeRF 'transform_matrix' is a camera-to-world transform
                 let transform_matrix: Vec<f32> =
                     frame.transform_matrix.iter().flatten().copied().collect();
@@ -125,7 +124,7 @@ fn read_transforms_file(
                     image: Arc::new(image),
                 };
                 anyhow::Result::<SceneView>::Ok(view)
-            })
+            }
         });
 
     Ok(iter.collect())
@@ -134,7 +133,7 @@ fn read_transforms_file(
 pub fn read_dataset_views(
     archive: ZipArchive<Cursor<ZipData>>,
     load_args: &LoadDatasetArgs,
-) -> Result<DataStream> {
+) -> Result<DataStream<Dataset>> {
     // Assume nerf synthetic has a white background. Maybe add a custom json field to customize this
     // or something.
     let background = glam::Vec3::ONE;
