@@ -140,7 +140,7 @@ pub(crate) fn train_loop(
                             .await;
                     }
                 }
-                // By default, continue trainining.
+                // By default, continue training.
                 None => {
                     let batch = dataloader
                         .next_batch()

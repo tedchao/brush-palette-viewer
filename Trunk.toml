@@ -3,3 +3,5 @@
 target = "crates/brush-desktop/index.html"
 # The output dir for all final assets.
 dist = "trunk_dist"
+# The public URL from which assets are to be served.
+public_url = "/brush-demo"
