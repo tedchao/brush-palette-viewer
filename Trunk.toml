@@ -1,5 +1,5 @@
 [build]
 # The index HTML file to drive the bundling process.
-target = "index.html"
+target = "crates/brush-desktop/index.html"
 # The output dir for all final assets.
 dist = "trunk_dist"
