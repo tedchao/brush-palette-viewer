@@ -736,13 +736,22 @@ mod tests {
             );
 
             let out_rgb = out.clone().slice([0..h, 0..w, 0..3]);
-
             if let Ok(rec) = rec.as_ref() {
-                rec.set_time_sequence("test case", i as i64);
-                rec.log("img/render", &out_rgb.clone().into_rerun_image())?;
-                rec.log("img/ref", &img_ref.clone().into_rerun_image())?;
-                rec.log("img/dif", &(img_ref.clone() - out_rgb.clone()).into_rerun())?;
-                rec.log("images/tile depth", &aux.read_tile_depth().into_rerun())?;
+                task::block_on::<_, anyhow::Result<()>>(async {
+                    rec.set_time_sequence("test case", i as i64);
+                    rec.log("img/render", &out_rgb.clone().into_rerun_image().await)?;
+                    rec.log("img/ref", &img_ref.clone().into_rerun_image().await)?;
+                    rec.log(
+                        "img/dif",
+                        &(img_ref.clone() - out_rgb.clone()).into_rerun().await,
+                    )?;
+                    rec.log(
+                        "images/tile depth",
+                        &aux.read_tile_depth().into_rerun().await,
+                    )?;
+
+                    Ok(())
+                })?;
             }
 
             let num_visible = task::block_on(aux.read_num_visible()) as usize;

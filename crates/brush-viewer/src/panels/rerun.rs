@@ -9,6 +9,7 @@ use async_std::{
     channel::{self, Sender},
     task,
 };
+use brush_rerun::BurnToRerun;
 use burn_wgpu::WgpuDevice;
 
 use brush_render::{gaussian_splats::Splats, AutodiffBackend, Backend};
@@ -212,6 +213,11 @@ impl VisualizeTools {
                     format!("world/eval/view_{i}/render"),
                     &rerun::Image::from_rgb24(rendered.to_vec(), [w, h]),
                 )?;
+                // TODO: Whats a good place for this? Maybe in eval views?
+                rec.log(
+                    format!("world/eval/view_{i}/tile_depth"),
+                    &samp.aux.read_tile_depth().into_rerun().await,
+                )?;
             }
 
             Ok(())
@@ -320,11 +326,6 @@ impl VisualizeTools {
                     &rerun::Scalar::new(refine.num_scale_pruned as f64),
                 )?;
             }
-            // TODO: Whats a good place for this? Maybe in eval views?
-            // rec.log(
-            //     "images/tile_depth",
-            //     &main_aux.read_tile_depth().into_rerun(),
-            // )?;
             Ok(())
         });
     }
