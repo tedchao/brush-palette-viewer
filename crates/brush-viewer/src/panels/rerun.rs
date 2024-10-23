@@ -26,7 +26,7 @@ pub struct VisualizeTools {
 impl VisualizeTools {
     pub fn new() -> Self {
         // Spawn rerun - creating this is already explicitly done by a user.
-        let rec = rerun::RecordingStreamBuilder::new("Brush").connect().ok();
+        let rec = rerun::RecordingStreamBuilder::new("Brush").spawn().ok();
 
         let (queue_send, queue_receive) = channel::unbounded();
 
@@ -439,6 +439,7 @@ impl ViewerPanel for RerunPanel {
 
             ui.label("Install the viewer to get started.");
             ui.label("Will open the viewer if it isn't open yet. Open the viewer before enabling rerun to keep data.");
+            ui.label("Open the brush_blueprint.rbl in the rerun viewer for a good default layout.");
             return;
         };
 
