@@ -11,6 +11,7 @@ rustup target add aarch64-linux-android
 cargo install cargo-ndk
 
 # Each time you change the rust code:
+cd ./crates/brush-android # Make sure to run this in the android crate path.
 cargo ndk -t arm64-v8a -o app/src/main/jniLibs/  build
 
 # Nb, for best performance, build in release mode. This is seperate
