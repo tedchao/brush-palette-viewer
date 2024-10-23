@@ -11,7 +11,8 @@ use brush_render::{
 };
 use brush_train::train::{SplatTrainer, TrainConfig};
 use burn::{lr_scheduler::exponential::ExponentialLrSchedulerConfig, module::AutodiffModule};
-use burn_wgpu::WgpuDevice;
+use burn_jit::cubecl::Runtime;
+use burn_wgpu::{WgpuDevice, WgpuRuntime};
 use rand::SeedableRng;
 use tracing::{trace_span, Instrument};
 use web_time::Instant;
@@ -180,6 +181,14 @@ pub(crate) fn train_loop(
                         last_logged = trainer.iter;
                     }
                 }
+            }
+
+            // On the first iteration, wait for the backend to catch up. It likely kicks off a flurry of autotuning,
+            // and on web where this isn't cached causes a real slowdown. Autotuning takes forever as the GPU is
+            // busy with our work.
+            if trainer.iter == 1 {
+                let client = WgpuRuntime::client(&device);
+                client.sync().await;
             }
 
             task::yield_now().await;
