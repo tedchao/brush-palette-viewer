@@ -1,6 +1,6 @@
 # Brush - universal splats
 
-TEASER VIDEO
+https://github.com/user-attachments/assets/4bf7920e-da16-4c01-a37a-82ed1469f15b
 
 Brush is a 3D reconstruction engine using [Gaussian splatting](https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/), aiming to be highly portable, flexible and fast. It can render and train on a wide range of systems: macOS/windows/linux, on AMD/Nvidia, on Android, and in a browser. It currently roughly matches reconstruction quality in the original Guassian splatting paper.
 
@@ -16,10 +16,9 @@ The current demo app can load pretrained ply files and can load datasets of imag
 
 While training you can interact with the splats and see their training dynamics live! You can compare to reference training / eval views as the training progresses.
 
-
 ## Web
 
-TRAIN ON WEB
+https://github.com/user-attachments/assets/91122b36-ebc3-45d1-9dc4-7c8d93fb2817
 
 [**Try the (experimental) web demo** <img src="https://cdn-icons-png.flaticon.com/256/888/888846.png" alt="chrome logo" width="16"/>
 ](https://arthurbrussee.github.io/brush-demo)
@@ -28,14 +27,12 @@ NOTE: This only works on Chrome 129+ currently. Firefox and Safari are hopefully
 
 ## Rerun
 
-RERUN VIDEO
+https://github.com/user-attachments/assets/f679fec0-935d-4dd2-87e1-c301db9cdc2c
 
 While training, additional data can be visualized with the excellent [rerun](https://rerun.io/). To install rerun on your machine, please follow their [instructions](https://rerun.io/docs/getting-started/installing-viewer).
 
 ## Android
-
-TRAIN ON ANDROID VIDEO
-
+https://github.com/user-attachments/assets/d6751cb3-ff58-45a4-8321-77d3b0a7b051
 Live training on a pixel 7
 
 # Getting started
