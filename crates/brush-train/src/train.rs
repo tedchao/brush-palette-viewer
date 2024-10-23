@@ -94,6 +94,14 @@ pub struct SceneBatch<B: Backend> {
 }
 
 #[derive(Clone)]
+pub struct RefineStats {
+    pub num_split: usize,
+    pub num_cloned: usize,
+    pub num_transparent_pruned: usize,
+    pub num_scale_pruned: usize,
+}
+
+#[derive(Clone)]
 pub struct TrainStepStats<B: AutodiffBackend> {
     pub pred_images: Tensor<B, 4>,
     pub gt_images: Tensor<B, 4>,
@@ -105,6 +113,8 @@ pub struct TrainStepStats<B: AutodiffBackend> {
     pub lr_scale: f64,
     pub lr_coeffs: f64,
     pub lr_opac: f64,
+
+    pub refine: Option<RefineStats>,
 }
 
 pub struct SplatTrainer<B: AutodiffBackend>
@@ -330,6 +340,8 @@ where
             splats
         });
 
+        let mut refine_stats = None;
+
         let do_refine = self.iter < max_refine_step
             && self.iter >= self.config.warmup_steps
             && self.iter % self.config.refine_every == 1;
@@ -480,9 +492,13 @@ where
             // Do some more processing. Important to do this last as otherwise you might mess up the correspondence
             // of gradient <-> splat.
 
+            let start_count = splats.num_splats();
+
             // Remove barely visible gaussians.
             let alpha_mask = splats.opacity().lower_elem(self.config.cull_alpha_thresh);
             prune_points(&mut splats, alpha_mask).await;
+
+            let alpha_pruned = start_count - splats.num_splats();
 
             // Delete Gaussians with too large of a radius in world-units.
             let scale_mask = splats
@@ -493,6 +509,15 @@ where
                 .squeeze(1)
                 .greater_elem(self.config.cull_scale_thresh);
             prune_points(&mut splats, scale_mask).await;
+
+            let scale_pruned = start_count - splats.num_splats();
+
+            refine_stats = Some(RefineStats {
+                num_split: split_count,
+                num_cloned: clone_count,
+                num_transparent_pruned: alpha_pruned,
+                num_scale_pruned: scale_pruned,
+            });
 
             let refine_step = self.iter / self.config.refine_every;
             if refine_step % self.config.reset_alpha_every_refine == 0 {
@@ -521,6 +546,7 @@ where
             lr_scale,
             lr_coeffs,
             lr_opac,
+            refine: refine_stats,
         };
 
         Ok((splats, stats))

@@ -106,6 +106,8 @@ pub(crate) fn train_loop(
 
         let mut is_paused = false;
 
+        let mut last_logged = 0;
+
         loop {
             let message = if is_paused {
                 // When paused, wait for a message async and handle it. The "default" train iteration
@@ -159,7 +161,10 @@ pub(crate) fn train_loop(
                         .await?;
                     splats = new_splats;
 
-                    if trainer.iter % 5 == 0 {
+                    // Log out train stats.
+                    // HACK: Always emit events that do a refine,
+                    // as stats might want to log them.
+                    if trainer.iter - last_logged > 5 || stats.refine.is_some() {
                         emitter
                             .emit(ViewerMessage::Splats {
                                 iter: trainer.iter,
@@ -172,7 +177,9 @@ pub(crate) fn train_loop(
                                 iter: trainer.iter,
                                 timestamp: Instant::now(),
                             })
-                            .await
+                            .await;
+
+                        last_logged = trainer.iter;
                     }
                 }
             }

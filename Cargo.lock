@@ -833,6 +833,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "assert_approx_eq",
+ "async-std",
  "brush-kernel",
  "brush-prefix-sum",
  "brush-rerun",

@@ -1,6 +1,6 @@
 use burn::tensor::{backend::Backend, module::conv2d, ops::ConvOptions, Tensor};
 
-pub(crate) struct Ssim<B: Backend> {
+pub struct Ssim<B: Backend> {
     weights: Tensor<B, 4>,
 }
 
@@ -31,7 +31,7 @@ impl<B: Backend> Ssim<B> {
     //     )
     // }
 
-    pub(crate) fn new(window_size: usize, channels: usize, device: &B::Device) -> Self {
+    pub fn new(window_size: usize, channels: usize, device: &B::Device) -> Self {
         let window1d = gaussian(window_size, 1.5, device).reshape([window_size, 1]);
         let window2d = window1d.clone().matmul(window1d.transpose());
         // Channels out, in, h, w.
@@ -39,7 +39,7 @@ impl<B: Backend> Ssim<B> {
         Self { weights }
     }
 
-    pub(crate) fn ssim(&self, img1: Tensor<B, 4>, img2: Tensor<B, 4>) -> Tensor<B, 1> {
+    pub fn ssim(&self, img1: Tensor<B, 4>, img2: Tensor<B, 4>) -> Tensor<B, 1> {
         // Images are [N, H, W, C], need them as [N, C, H, W].
         let img1 = img1.permute([0, 3, 1, 2]);
         let img2 = img2.permute([0, 3, 1, 2]);

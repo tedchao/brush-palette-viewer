@@ -629,6 +629,7 @@ mod tests {
 
     use super::*;
     use assert_approx_eq::assert_approx_eq;
+    use async_std::task;
     use brush_rerun::{BurnToImage, BurnToRerun};
     use burn::tensor::{Float, Int};
     use burn_wgpu::WgpuDevice;
@@ -744,7 +745,7 @@ mod tests {
                 rec.log("images/tile depth", &aux.read_tile_depth().into_rerun())?;
             }
 
-            let num_visible = aux.read_num_visible() as usize;
+            let num_visible = task::block_on(aux.read_num_visible()) as usize;
 
             let projected_splats =
                 Tensor::from_primitive(TensorPrimitive::Float(aux.projected_splats.clone()));

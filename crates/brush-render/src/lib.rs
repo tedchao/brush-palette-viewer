@@ -37,19 +37,21 @@ pub struct RenderStats {
 }
 
 impl RenderAux {
-    pub fn read_num_visible(&self) -> u32 {
+    pub async fn read_num_visible(&self) -> u32 {
         Tensor::<JitBackend<WgpuRuntime, f32, i32>, 1, Int>::from_primitive(bitcast_tensor(
             self.num_visible.clone(),
         ))
-        .into_scalar()
+        .into_scalar_async()
+        .await
         .elem()
     }
 
-    pub fn read_num_intersections(&self) -> u32 {
+    pub async fn read_num_intersections(&self) -> u32 {
         Tensor::<JitBackend<WgpuRuntime, f32, i32>, 1, Int>::from_primitive(bitcast_tensor(
             self.num_intersections.clone(),
         ))
-        .into_scalar()
+        .into_scalar_async()
+        .await
         .elem()
     }
 

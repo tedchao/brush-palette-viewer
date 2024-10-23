@@ -12,8 +12,8 @@ use async_std::{
 use burn_wgpu::WgpuDevice;
 
 use brush_render::{gaussian_splats::Splats, AutodiffBackend, Backend};
-use brush_train::train::TrainStepStats;
 use brush_train::{image::tensor_into_image, scene::Scene};
+use brush_train::{ssim::Ssim, train::TrainStepStats};
 use burn::tensor::{activation::sigmoid, ElementConversion};
 use rerun::{Color, FillMode, RecordingStream};
 
@@ -180,8 +180,8 @@ impl VisualizeTools {
             let avg_ssim =
                 stats.samples.iter().map(|s| s.ssim).sum::<f32>() / (stats.samples.len() as f32);
 
-            rec.log("stats/eval_psnr", &rerun::Scalar::new(avg_psnr as f64))?;
-            rec.log("stats/eval_ssim", &rerun::Scalar::new(avg_ssim as f64))?;
+            rec.log("psnr/eval", &rerun::Scalar::new(avg_psnr as f64))?;
+            rec.log("ssim/eval", &rerun::Scalar::new(avg_ssim as f64))?;
 
             for (i, samp) in stats.samples.into_iter().enumerate() {
                 let eval_render = tensor_into_image(samp.rendered.into_data_async().await);
@@ -275,22 +275,51 @@ impl VisualizeTools {
                 &rerun::Scalar::new(stats.loss.clone().into_scalar_async().await.elem::<f64>()),
             )?;
             rec.log(
-                "stats/train_psnr",
+                "psnr/train",
                 &rerun::Scalar::new(psnr.into_scalar_async().await.elem::<f64>()),
             )?;
+            let device = gt_rgb.device();
+
+            // TODO: Bit annoyingly expensive to recalculate this here. Idk if train stats should be split into
+            // "very cheap" and somewhat more expensive stats.
+            let ssim_measure = Ssim::new(11, 3, &device);
+            let ssim = ssim_measure.ssim(pred_rgb.clone().unsqueeze(), gt_rgb.unsqueeze());
+            rec.log(
+                "ssim/train",
+                &rerun::Scalar::new(ssim.into_scalar_async().await.elem::<f64>()),
+            )?;
+
             // Not sure what's best here, atm let's just log the first batch render only.
             // Maybe could do an average instead?
             let main_aux = &stats.auxes[0];
 
             rec.log(
                 "splats/num_intersects",
-                &rerun::Scalar::new(main_aux.read_num_intersections() as f64),
+                &rerun::Scalar::new(main_aux.read_num_intersections().await as f64),
             )?;
             rec.log(
                 "splats/splats_visible",
-                &rerun::Scalar::new(main_aux.read_num_visible() as f64),
+                &rerun::Scalar::new(main_aux.read_num_visible().await as f64),
             )?;
 
+            if let Some(refine) = stats.refine {
+                rec.log(
+                    "refine/num_split",
+                    &rerun::Scalar::new(refine.num_split as f64),
+                )?;
+                rec.log(
+                    "refine/num_cloned",
+                    &rerun::Scalar::new(refine.num_cloned as f64),
+                )?;
+                rec.log(
+                    "refine/num_transparent_pruned",
+                    &rerun::Scalar::new(refine.num_transparent_pruned as f64),
+                )?;
+                rec.log(
+                    "refine/num_scale_pruned",
+                    &rerun::Scalar::new(refine.num_scale_pruned as f64),
+                )?;
+            }
             // TODO: Whats a good place for this? Maybe in eval views?
             // rec.log(
             //     "images/tile_depth",
@@ -376,7 +405,9 @@ impl ViewerPanel for RerunPanel {
                 }
 
                 // Log out train stats.
-                if iter % self.log_train_stats_every == 0 {
+                // HACK: Always log on a refine step, as they can happen off beat.
+                // Not sure how to best handle this properly.
+                if iter % self.log_train_stats_every == 0 || stats.refine.is_some() {
                     visualize.log_train_stats(iter, *stats);
                 }
             }
@@ -397,6 +428,16 @@ impl ViewerPanel for RerunPanel {
             if ui.button("Enable rerun").clicked() {
                 self.visualize = Some(Arc::new(VisualizeTools::new()));
             }
+
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 0.0;
+                ui.label("Stream data to ");
+                ui.hyperlink_to("rerun", "rerun.io");
+                ui.label(" for visualization");
+            });
+
+            ui.label("Install the viewer to get started.");
+            ui.label("Will open the viewer if it isn't open yet. Open the viewer before enabling rerun to keep data.");
             return;
         };
 
