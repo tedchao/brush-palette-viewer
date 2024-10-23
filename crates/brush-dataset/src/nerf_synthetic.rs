@@ -11,12 +11,9 @@ use std::path::Path;
 use std::sync::Arc;
 use zip::ZipArchive;
 
-use crate::clamp_img_to_max_size;
-use crate::normalized_path_string;
-use crate::DataStream;
-use crate::Dataset;
-use crate::LoadDatasetArgs;
-use crate::ZipData;
+use crate::{
+    clamp_img_to_max_size, normalized_path_string, DataStream, Dataset, LoadDatasetArgs, ZipData,
+};
 
 #[derive(serde::Deserialize)]
 struct SyntheticScene {

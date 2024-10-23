@@ -1,15 +1,12 @@
-use crate::bounding_box::BoundingBox;
-use crate::camera::Camera;
-use crate::safetensor_utils::safetensor_to_burn;
-use crate::shaders;
-use crate::{render::sh_coeffs_for_degree, Backend};
-use burn::config::Config;
-use burn::tensor::activation::sigmoid;
-use burn::tensor::Tensor;
-use burn::tensor::{Distribution, Shape};
+use crate::{
+    bounding_box::BoundingBox, camera::Camera, render::sh_coeffs_for_degree,
+    safetensor_utils::safetensor_to_burn, shaders, Backend,
+};
 use burn::{
+    config::Config,
     module::{Module, Param, ParamId},
-    tensor::Device,
+    tensor::activation::sigmoid,
+    tensor::{Device, Distribution, Shape, Tensor},
 };
 use glam::Vec3;
 use kiddo::{KdTree, SquaredEuclidean};
@@ -18,7 +15,7 @@ use safetensors::SafeTensors;
 #[derive(Config)]
 pub struct RandomSplatsConfig {
     // period of steps where refinement is turned off
-    #[config(default = 50000)]
+    #[config(default = 5000)]
     init_count: usize,
     #[config(default = -2.0)]
     opacity_min: f64,

@@ -64,6 +64,7 @@ fn write_grads_atomic(grads: helpers::ProjectedSplat, id: u32) {
     // v_colors[id * 4 + 1] = add_bitcast(v_colors[id * 4 + 1], grads.color.g);
     // v_colors[id * 4 + 2] = add_bitcast(v_colors[id * 4 + 2], grads.color.b);
     // v_colors[id * 4 + 3] = add_bitcast(v_colors[id * 4 + 3], grads.color.a);
+
     // Writing out all these CAS loops individually is terrible but wgsl doesn't have a mechanism to
     // turn this into a function as ptr<storage> can't be passed to a function...
     // v_xy.x

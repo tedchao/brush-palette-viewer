@@ -3,7 +3,6 @@ use std::{future::Future, pin::Pin, sync::Arc};
 use crate::{
     train_loop::TrainMessage,
     viewer::{ViewerContext, ViewerMessage},
-    visualize::VisualizeTools,
     ViewerPanel,
 };
 use async_std::{
@@ -12,23 +11,22 @@ use async_std::{
 };
 use burn_wgpu::WgpuDevice;
 
-pub(crate) struct RerunPanel {
-    visualize: Option<Arc<VisualizeTools>>,
-    device: WgpuDevice,
-    eval_every: u32,
-    eval_view_count: Option<usize>,
+use brush_render::{gaussian_splats::Splats, AutodiffBackend, Backend};
+use brush_train::train::TrainStepStats;
+use brush_train::{image::tensor_into_image, scene::Scene};
+use burn::tensor::{activation::sigmoid, ElementConversion};
+use rerun::{Color, FillMode, RecordingStream};
 
-    log_train_stats_every: u32,
-    visualize_splats_every: Option<u32>,
-
-    read_to_log_dataset: bool,
-
-    // TODO: This async logic is maybe better moved to the visualize module.
+pub struct VisualizeTools {
+    rec: Option<RecordingStream>,
     task_queue: Sender<Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send>>>,
 }
 
-impl RerunPanel {
-    pub(crate) fn new(device: WgpuDevice) -> Self {
+impl VisualizeTools {
+    pub fn new() -> Self {
+        // Spawn rerun - creating this is already explicitly done by a user.
+        let rec = rerun::RecordingStreamBuilder::new("Brush").spawn().ok();
+
         let (queue_send, queue_receive) = channel::unbounded();
 
         // Spawn a task to handle futures one by one as they come in.
@@ -40,6 +38,281 @@ impl RerunPanel {
             }
         });
 
+        Self {
+            rec,
+            task_queue: queue_send,
+        }
+    }
+
+    fn queue_task(&self, fut: impl Future<Output = anyhow::Result<()>> + Send + 'static) {
+        // Ignore this error - if the channel is closed we just don't do anything and drop
+        // the future.
+        let _ = self.task_queue.try_send(Box::pin(fut));
+    }
+
+    pub(crate) fn log_splats<B: Backend>(self: Arc<Self>, splats: Splats<B>) {
+        let Some(rec) = self.rec.clone() else {
+            return;
+        };
+
+        if !rec.is_enabled() {
+            return;
+        }
+
+        self.queue_task(async move {
+            let means = splats
+                .means
+                .val()
+                .into_data_async()
+                .await
+                .to_vec::<f32>()
+                .unwrap();
+            let means = means.chunks(3).map(|c| glam::vec3(c[0], c[1], c[2]));
+
+            let base_rgb = splats
+                .sh_coeffs
+                .val()
+                .slice([0..splats.num_splats(), 0..1, 0..3])
+                * brush_render::render::SH_C0
+                + 0.5;
+
+            let transparency = sigmoid(splats.raw_opacity.val());
+
+            let colors = base_rgb.into_data_async().await.to_vec::<f32>().unwrap();
+            let colors = colors.chunks(3).map(|c| {
+                Color::from_rgb(
+                    (c[0] * 255.0) as u8,
+                    (c[1] * 255.0) as u8,
+                    (c[2] * 255.0) as u8,
+                )
+            });
+
+            // Visualize 2 sigma, and simulate some of the small covariance blurring.
+            let radii = (splats.log_scales.val().exp() * transparency.unsqueeze_dim(1) * 2.0
+                + 0.004)
+                .into_data_async()
+                .await
+                .to_vec()
+                .unwrap();
+
+            let rotations = splats
+                .rotation
+                .val()
+                .into_data_async()
+                .await
+                .to_vec::<f32>()
+                .unwrap();
+            let rotations = rotations
+                .chunks(4)
+                .map(|q| glam::Quat::from_array([q[1], q[2], q[3], q[0]]));
+
+            let radii = radii.chunks(3).map(|r| glam::vec3(r[0], r[1], r[2]));
+
+            rec.log(
+                "world/splat/points",
+                &rerun::Ellipsoids3D::from_centers_and_half_sizes(means, radii)
+                    .with_quaternions(rotations)
+                    .with_colors(colors)
+                    .with_fill_mode(FillMode::Solid),
+            )?;
+            Ok(())
+        });
+    }
+
+    pub(crate) fn log_scene(self: Arc<Self>, scene: Scene) {
+        let Some(rec) = self.rec.clone() else {
+            return;
+        };
+
+        if !rec.is_enabled() {
+            return;
+        }
+
+        self.queue_task(async move {
+            rec.log_static("world", &rerun::ViewCoordinates::RIGHT_HAND_Y_DOWN)?;
+
+            for (i, view) in scene.views.iter().enumerate() {
+                let path = format!("world/dataset/camera/{i}");
+                let (width, height) = (view.image.width(), view.image.height());
+                let vis_size = glam::uvec2(width, height);
+                rec.log_static(
+                    path.clone(),
+                    &rerun::Pinhole::from_focal_length_and_resolution(
+                        view.camera.focal(vis_size),
+                        glam::vec2(vis_size.x as f32, vis_size.y as f32),
+                    ),
+                )?;
+                rec.log_static(
+                    path.clone(),
+                    &rerun::Transform3D::from_translation_rotation(
+                        view.camera.position,
+                        view.camera.rotation,
+                    ),
+                )?;
+                rec.log_static(
+                    path + "/image",
+                    &rerun::Image::from_dynamic_image(view.image.as_ref().clone())?,
+                )?;
+            }
+
+            Ok(())
+        });
+    }
+
+    pub fn log_eval_stats<B: Backend>(
+        self: Arc<Self>,
+        iter: u32,
+        stats: brush_train::eval::EvalStats<B>,
+    ) {
+        let Some(rec) = self.rec.clone() else {
+            return;
+        };
+
+        if !rec.is_enabled() {
+            return;
+        }
+
+        self.queue_task(async move {
+            rec.set_time_sequence("iterations", iter);
+
+            let avg_psnr =
+                stats.samples.iter().map(|s| s.psnr).sum::<f32>() / (stats.samples.len() as f32);
+            let avg_ssim =
+                stats.samples.iter().map(|s| s.ssim).sum::<f32>() / (stats.samples.len() as f32);
+
+            rec.log("stats/eval_psnr", &rerun::Scalar::new(avg_psnr as f64))?;
+            rec.log("stats/eval_ssim", &rerun::Scalar::new(avg_ssim as f64))?;
+
+            for (i, samp) in stats.samples.into_iter().enumerate() {
+                let eval_render = tensor_into_image(samp.rendered.into_data_async().await);
+
+                let rendered = eval_render.to_rgb8();
+                let gt = samp.view.image.as_rgb8().unwrap();
+
+                let [w, h] = [rendered.width(), rendered.height()];
+                rec.log(
+                    format!("world/eval/view_{i}"),
+                    &rerun::Transform3D::from_translation_rotation(
+                        samp.view.camera.position,
+                        samp.view.camera.rotation,
+                    ),
+                )?;
+                rec.log(
+                    format!("world/eval/view_{i}"),
+                    &rerun::Pinhole::from_focal_length_and_resolution(
+                        samp.view.camera.focal(glam::uvec2(w, h)),
+                        glam::vec2(w as f32, h as f32),
+                    ),
+                )?;
+                rec.log(
+                    format!("world/eval/view_{i}/ground_truth"),
+                    &rerun::Image::from_rgb24(gt.to_vec(), [w, h]),
+                )?;
+                rec.log(
+                    format!("world/eval/view_{i}/render"),
+                    &rerun::Image::from_rgb24(rendered.to_vec(), [w, h]),
+                )?;
+            }
+
+            Ok(())
+        });
+    }
+
+    pub fn log_splat_stats<B: AutodiffBackend>(&self, splats: Splats<B>) {
+        let Some(rec) = self.rec.clone() else {
+            return;
+        };
+
+        if !rec.is_enabled() {
+            return;
+        }
+
+        self.queue_task(async move {
+            rec.log(
+                "splats/num_splats",
+                &rerun::Scalar::new(splats.num_splats() as f64).clone(),
+            )?;
+
+            Ok(())
+        });
+    }
+
+    pub fn log_train_stats<B: AutodiffBackend>(
+        self: Arc<Self>,
+        iter: u32,
+        stats: TrainStepStats<B>,
+    ) {
+        let Some(rec) = self.rec.clone() else {
+            return;
+        };
+
+        if !rec.is_enabled() {
+            return;
+        }
+
+        self.queue_task(async move {
+            rec.set_time_sequence("iterations", iter);
+            rec.log("lr/mean", &rerun::Scalar::new(stats.lr_mean))?;
+            rec.log("lr/rotation", &rerun::Scalar::new(stats.lr_rotation))?;
+            rec.log("lr/scale", &rerun::Scalar::new(stats.lr_scale))?;
+            rec.log("lr/coeffs", &rerun::Scalar::new(stats.lr_coeffs))?;
+            rec.log("lr/opac", &rerun::Scalar::new(stats.lr_opac))?;
+
+            let [batch_size, img_h, img_w, _] = stats.pred_images.dims();
+            let pred_rgb =
+                stats
+                    .pred_images
+                    .clone()
+                    .slice([0..batch_size, 0..img_h, 0..img_w, 0..3]);
+            let gt_rgb = stats
+                .gt_images
+                .clone()
+                .slice([0..batch_size, 0..img_h, 0..img_w, 0..3]);
+            let mse = (pred_rgb.clone() - gt_rgb.clone()).powf_scalar(2.0).mean();
+            let psnr = mse.recip().log() * 10.0 / std::f32::consts::LN_10;
+            rec.log(
+                "losses/main",
+                &rerun::Scalar::new(stats.loss.clone().into_scalar_async().await.elem::<f64>()),
+            )?;
+            rec.log(
+                "stats/train_psnr",
+                &rerun::Scalar::new(psnr.into_scalar_async().await.elem::<f64>()),
+            )?;
+            // Not sure what's best here, atm let's just log the first batch render only.
+            // Maybe could do an average instead?
+            let main_aux = &stats.auxes[0];
+
+            rec.log(
+                "splats/num_intersects",
+                &rerun::Scalar::new(main_aux.read_num_intersections() as f64),
+            )?;
+            rec.log(
+                "splats/splats_visible",
+                &rerun::Scalar::new(main_aux.read_num_visible() as f64),
+            )?;
+
+            // TODO: Whats a good place for this? Maybe in eval views?
+            // rec.log(
+            //     "images/tile_depth",
+            //     &main_aux.read_tile_depth().into_rerun(),
+            // )?;
+            Ok(())
+        });
+    }
+}
+
+pub(crate) struct RerunPanel {
+    visualize: Option<Arc<VisualizeTools>>,
+    device: WgpuDevice,
+    eval_every: u32,
+    eval_view_count: Option<usize>,
+    log_train_stats_every: u32,
+    visualize_splats_every: Option<u32>,
+    ready_to_log_dataset: bool,
+}
+
+impl RerunPanel {
+    pub(crate) fn new(device: WgpuDevice) -> Self {
         RerunPanel {
             visualize: None,
             eval_every: 1000,
@@ -47,19 +320,12 @@ impl RerunPanel {
             log_train_stats_every: 50,
             visualize_splats_every: None,
             device,
-            read_to_log_dataset: false,
-            task_queue: queue_send,
+            ready_to_log_dataset: false,
         }
     }
 }
 
-impl RerunPanel {
-    fn queue_task(&self, fut: impl Future<Output = anyhow::Result<()>> + Send + 'static) {
-        // Ignore this error - if the channel is closed we just don't do anything and drop
-        // the future.
-        let _ = self.task_queue.try_send(Box::pin(fut));
-    }
-}
+impl RerunPanel {}
 
 impl ViewerPanel for RerunPanel {
     fn title(&self) -> String {
@@ -79,7 +345,7 @@ impl ViewerPanel for RerunPanel {
             }
             crate::viewer::ViewerMessage::DoneLoading { training } => {
                 if training {
-                    self.read_to_log_dataset = true;
+                    self.ready_to_log_dataset = true;
                 }
             }
             crate::viewer::ViewerMessage::Splats { iter, splats } => {
@@ -89,7 +355,7 @@ impl ViewerPanel for RerunPanel {
 
                 if let Some(every) = self.visualize_splats_every {
                     if iter % every == 0 {
-                        self.queue_task(visualize.log_splats(*splats));
+                        visualize.log_splats(*splats);
                     }
                 }
             }
@@ -111,7 +377,7 @@ impl ViewerPanel for RerunPanel {
 
                 // Log out train stats.
                 if iter % self.log_train_stats_every == 0 {
-                    self.queue_task(visualize.log_train_stats(iter, *stats));
+                    visualize.log_train_stats(iter, *stats);
                 }
             }
             ViewerMessage::EvalResult { iter, eval } => {
@@ -119,7 +385,7 @@ impl ViewerPanel for RerunPanel {
                     return;
                 };
 
-                self.queue_task(visualize.log_eval_stats(iter, eval));
+                visualize.log_eval_stats(iter, eval);
             }
 
             _ => {}
@@ -134,9 +400,9 @@ impl ViewerPanel for RerunPanel {
             return;
         };
 
-        if self.read_to_log_dataset {
-            self.queue_task(visualize.log_scene(context.dataset.train.clone()));
-            self.read_to_log_dataset = false;
+        if self.ready_to_log_dataset {
+            visualize.log_scene(context.dataset.train.clone());
+            self.ready_to_log_dataset = false;
         }
 
         ui.add(

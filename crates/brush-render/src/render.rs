@@ -1,12 +1,16 @@
+use super::{shaders, Backend, RenderAux};
+
 use std::mem::{offset_of, size_of};
 
-use crate::camera::Camera;
-use crate::dim_check::DimCheck;
-use crate::kernels::{
-    GatherGrads, GetTileBinEdges, MapGaussiansToIntersect, ProjectBackwards, ProjectSplats,
-    ProjectVisible, Rasterize, RasterizeBackwards,
+use crate::{
+    camera::Camera,
+    dim_check::DimCheck,
+    kernels::{
+        GatherGrads, GetTileBinEdges, MapGaussiansToIntersect, ProjectBackwards, ProjectSplats,
+        ProjectVisible, Rasterize, RasterizeBackwards,
+    },
+    PrimaryBackend,
 };
-use crate::PrimaryBackend;
 
 use brush_kernel::{
     bitcast_tensor, calc_cube_count, create_dispatch_buffer, create_tensor, create_uniform_buffer,
@@ -15,12 +19,6 @@ use brush_kernel::{
 use brush_prefix_sum::prefix_sum;
 use brush_sort::radix_argsort;
 use burn::backend::autodiff::NodeID;
-use burn::tensor::ops::IntTensorOps;
-use burn::tensor::ops::{FloatTensor, FloatTensorOps};
-use burn::tensor::{Tensor, TensorPrimitive};
-use burn_wgpu::{JitTensor, WgpuRuntime};
-
-use super::{shaders, Backend, RenderAux};
 use burn::backend::{
     autodiff::{
         checkpoint::{base::Checkpointer, strategy::CheckpointStrategy},
@@ -29,6 +27,10 @@ use burn::backend::{
     },
     Autodiff,
 };
+use burn::tensor::ops::IntTensorOps;
+use burn::tensor::ops::{FloatTensor, FloatTensorOps};
+use burn::tensor::{Tensor, TensorPrimitive};
+use burn_wgpu::{JitTensor, WgpuRuntime};
 use glam::uvec2;
 
 pub const SH_C0: f32 = shaders::gather_grads::SH_C0;

@@ -12,9 +12,6 @@ use ply_rs::{
 use std::io::BufRead;
 use tracing::trace_span;
 
-#[allow(unused)]
-use web_time::{Duration, Instant};
-
 use anyhow::{Context, Result};
 use brush_render::gaussian_splats::Splats;
 

@@ -73,14 +73,14 @@ pub(crate) fn train_loop(
             .emit(ViewerMessage::DoneLoading { training: true })
             .await;
 
-        // TODO: Maybe just move this default to the dataset reader.
         let mut splats = if let Some(splats) = initial_splats {
             splats
         } else {
             // By default, spawn the splats in bounds.
             let bounds = dataset.train.bounds(0.0);
             let bounds_extent = bounds.extent.length();
-            let adjusted_bounds = dataset.train.bounds(bounds_extent);
+            let adjusted_bounds = dataset.train.bounds(bounds_extent * 0.5);
+
             let config = RandomSplatsConfig::new().with_sh_degree(load_init_args.sh_degree);
             Splats::from_random_config(config, adjusted_bounds, &device)
         };

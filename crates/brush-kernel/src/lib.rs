@@ -7,10 +7,10 @@ pub use burn_jit::cubecl::{
     client::ComputeClient, compute::CompiledKernel, compute::CubeTask, server::ComputeServer,
     CubeCount, CubeDim, ExecutionMode, KernelId,
 };
+use burn_jit::{cubecl::Compiler, tensor::JitTensor, JitElement, JitRuntime};
 
 use burn::tensor::Shape;
 
-use burn_jit::{cubecl::Compiler, tensor::JitTensor, JitElement, JitRuntime};
 use bytemuck::Pod;
 
 pub fn calc_cube_count<const D: usize>(sizes: [u32; D], workgroup_size: [u32; 3]) -> CubeCount {

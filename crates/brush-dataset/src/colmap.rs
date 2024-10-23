@@ -4,7 +4,6 @@ use std::{
     sync::Arc,
 };
 
-use crate::{stream_fut_parallel, DataStream, Dataset, LoadDatasetArgs, LoadInitArgs, ZipData};
 use anyhow::Result;
 use async_fn_stream::try_fn_stream;
 use async_std::stream::StreamExt;
@@ -17,7 +16,10 @@ use brush_train::scene::SceneView;
 use glam::Vec3;
 use zip::ZipArchive;
 
-use crate::colmap_read_model;
+use crate::{
+    colmap_read_model, stream_fut_parallel, DataStream, Dataset, LoadDatasetArgs, LoadInitArgs,
+    ZipData,
+};
 
 fn read_views(
     mut archive: ZipArchive<Cursor<ZipData>>,

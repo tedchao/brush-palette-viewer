@@ -84,6 +84,7 @@ impl ViewerPanel for LoadDataPanel {
             );
         }
 
+        #[cfg(not(target_family = "wasm"))]
         if ui.input(|r| r.key_pressed(egui::Key::Escape)) {
             ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
         }

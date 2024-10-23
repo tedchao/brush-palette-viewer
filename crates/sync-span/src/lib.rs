@@ -1,8 +1,10 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use tracing::{info_span, Subscriber};
-use tracing_subscriber::layer::{Context, Layer};
-use tracing_subscriber::registry::LookupSpan;
+use tracing_subscriber::{
+    layer::{Context, Layer},
+    registry::LookupSpan,
+};
 
 use burn_wgpu::{Wgpu, WgpuDevice};
 

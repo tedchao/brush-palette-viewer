@@ -11,6 +11,7 @@ impl BoundingBox {
             extent: (max - min) / 2.0,
         }
     }
+
     pub fn min(&self) -> glam::Vec3 {
         self.center - self.extent
     }

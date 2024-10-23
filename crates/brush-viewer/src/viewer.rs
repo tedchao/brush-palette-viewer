@@ -1,29 +1,31 @@
+use std::sync::Arc;
+
 use async_fn_stream::try_fn_stream;
-use async_std::channel::{Receiver, Sender, TrySendError};
-use async_std::stream::{Stream, StreamExt};
-use async_std::task;
+use async_std::{
+    channel::{Receiver, Sender, TrySendError},
+    stream::{Stream, StreamExt},
+    task,
+};
+use brush_dataset::{self, splat_import, Dataset, LoadDatasetArgs, LoadInitArgs, ZipData};
 use brush_render::camera::Camera;
+use brush_render::gaussian_splats::Splats;
+use brush_render::PrimaryBackend;
 use brush_train::eval::EvalStats;
 use brush_train::train::TrainStepStats;
 use burn::backend::Autodiff;
-use glam::{Quat, Vec3};
-use std::sync::Arc;
-
-use brush_render::gaussian_splats::Splats;
-use brush_render::PrimaryBackend;
 use burn_wgpu::{RuntimeOptions, WgpuDevice};
+use eframe::egui;
 use egui::Hyperlink;
 use egui_tiles::Tiles;
+use glam::{Quat, Vec3};
 use web_time::Instant;
 
-use brush_dataset::{self, splat_import, Dataset, LoadDatasetArgs, LoadInitArgs, ZipData};
-
-use crate::orbit_controls::OrbitControls;
-use crate::panels::{DatasetPanel, LoadDataPanel, ScenePanel, StatsPanel};
-use crate::train_loop::TrainMessage;
-use crate::{train_loop, PaneType, ViewerTree};
-
-use eframe::egui;
+use crate::{
+    orbit_controls::OrbitControls,
+    panels::{DatasetPanel, LoadDataPanel, ScenePanel, StatsPanel},
+    train_loop::{self, TrainMessage},
+    PaneType, ViewerTree,
+};
 
 struct TrainStats {
     loss: f32,
@@ -50,6 +52,7 @@ pub(crate) enum ViewerMessage {
     Dataset {
         data: Dataset,
     },
+    /// Splat, or dataset and initial splat, are done loading.
     DoneLoading {
         training: bool,
     },
@@ -59,6 +62,7 @@ pub(crate) enum ViewerMessage {
         iter: u32,
         timestamp: Instant,
     },
+    /// Eval was run sucesfully with these results.
     EvalResult {
         iter: u32,
         eval: EvalStats<PrimaryBackend>,
@@ -131,27 +135,6 @@ fn process_loop(
 
         Ok(())
     })
-}
-
-async fn load_ply_loop(
-    data: Vec<u8>,
-    device: WgpuDevice,
-    sender: Sender<ViewerMessage>,
-) -> anyhow::Result<()> {
-    let splat_stream = splat_import::load_splat_from_ply::<PrimaryBackend>(data, device.clone());
-
-    let mut splat_stream = std::pin::pin!(splat_stream);
-    while let Some(splats) = splat_stream.next().await {
-        sender
-            .send(ViewerMessage::Splats {
-                iter: 0, // For viewing just use "training step 0", bit weird.
-                splats: Box::new(splats?),
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("Failed to send message: {}", e))?;
-    }
-
-    Ok(())
 }
 
 impl ViewerContext {
@@ -241,7 +224,7 @@ impl ViewerContext {
                 Ok(_) => {}
                 Err(TrySendError::Closed(_)) => {}
                 Err(TrySendError::Full(_)) => {
-                    unreachable!("Should use an unbounded channel for try send.")
+                    unreachable!("Should use an unbounded channel for train messages.")
                 }
             }
         }
@@ -285,31 +268,31 @@ impl Viewer {
 
         let context = ViewerContext::new(device.clone(), cc.egui_ctx.clone());
 
-        let data_pane = LoadDataPanel::new();
-        let dataset_panel = DatasetPanel::new();
-
-        let dataset_panel = tiles.insert_pane(Box::new(dataset_panel));
-
         let scene_pane = ScenePanel::new(
             state.queue.clone(),
             state.device.clone(),
             state.renderer.clone(),
         );
 
-        let stats_panel = StatsPanel::new(device.clone());
-
-        let sides = vec![
-            tiles.insert_pane(Box::new(data_pane)),
-            tiles.insert_pane(Box::new(stats_panel)),
-            #[cfg(not(target_family = "wasm"))]
-            tiles.insert_pane(Box::new(crate::panels::RerunPanel::new(device.clone()))),
-            #[cfg(feature = "tracing")]
-            tiles.insert_pane(Box::new(TracingPanel::default())),
+        #[allow(unused_mut)]
+        let mut sides = vec![
+            tiles.insert_pane(Box::new(LoadDataPanel::new())),
+            tiles.insert_pane(Box::new(StatsPanel::new(device.clone()))),
         ];
 
-        let side_panel = tiles.insert_vertical_tile(sides);
+        #[cfg(not(target_family = "wasm"))]
+        {
+            sides.push(tiles.insert_pane(Box::new(crate::panels::RerunPanel::new(device.clone()))));
+        }
 
+        #[cfg(feature = "tracing")]
+        {
+            sides.push(tiles.insert_pane(Box::new(TracingPanel::default())));
+        }
+
+        let side_panel = tiles.insert_vertical_tile(sides);
         let scene_pane_id = tiles.insert_pane(Box::new(scene_pane));
+        let dataset_panel = tiles.insert_pane(Box::new(DatasetPanel::new()));
 
         let mut lin = egui_tiles::Linear::new(
             egui_tiles::LinearDir::Horizontal,

@@ -46,9 +46,7 @@ public class MainActivity extends GameActivity {
         // When false, we render behind any system UI windows.
         WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
         hideSystemUI();
-
         FilePicker.Register(this);
-
         super.onCreate(savedInstanceState);
     }
 }

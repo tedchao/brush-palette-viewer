@@ -81,36 +81,34 @@ fn sh_coeffs_to_color_fast_vjp(
     v_coeffs.b3_c4 = pSH13 * v_colors;
     v_coeffs.b3_c5 = pSH14 * v_colors;
     v_coeffs.b3_c6 = pSH15 * v_colors;
+    if (degree == 3) {
+        return v_coeffs;
+    }
+    let fTmp0D = z * (-4.683325804901025f * z2 + 2.007139630671868f);
+    let fTmp1C = 3.31161143515146f * z2 - 0.47308734787878f;
+    let fTmp2B = -1.770130769779931f * z;
+    let fTmp3A = 0.6258357354491763f;
+    let fC3 = x * fC2 - y * fS2;
+    let fS3 = x * fS2 + y * fC2;
+    let pSH20 = (1.984313483298443f * z * pSH12 + -1.006230589874905f * pSH6);
+    let pSH21 = fTmp0D * x;
+    let pSH19 = fTmp0D * y;
+    let pSH22 = fTmp1C * fC1;
+    let pSH18 = fTmp1C * fS1;
+    let pSH23 = fTmp2B * fC2;
+    let pSH17 = fTmp2B * fS2;
+    let pSH24 = fTmp3A * fC3;
+    let pSH16 = fTmp3A * fS3;
+    v_coeffs.b4_c0 = pSH16 * v_colors;
+    v_coeffs.b4_c1 = pSH17 * v_colors;
+    v_coeffs.b4_c2 = pSH18 * v_colors;
+    v_coeffs.b4_c3 = pSH19 * v_colors;
+    v_coeffs.b4_c4 = pSH20 * v_colors;
+    v_coeffs.b4_c5 = pSH21 * v_colors;
+    v_coeffs.b4_c6 = pSH22 * v_colors;
+    v_coeffs.b4_c7 = pSH23 * v_colors;
+    v_coeffs.b4_c8 = pSH24 * v_colors;
     return v_coeffs;
-
-    // if (degree < 4) {
-    //     return v_coeffs;
-    // }
-    // let fTmp0D = z * (-4.683325804901025f * z2 + 2.007139630671868f);
-    // let fTmp1C = 3.31161143515146f * z2 - 0.47308734787878f;
-    // let fTmp2B = -1.770130769779931f * z;
-    // let fTmp3A = 0.6258357354491763f;
-    // let fC3 = x * fC2 - y * fS2;
-    // let fS3 = x * fS2 + y * fC2;
-    // let pSH20 = (1.984313483298443f * z * pSH12 + -1.006230589874905f * pSH6);
-    // let pSH21 = fTmp0D * x;
-    // let pSH19 = fTmp0D * y;
-    // let pSH22 = fTmp1C * fC1;
-    // let pSH18 = fTmp1C * fS1;
-    // let pSH23 = fTmp2B * fC2;
-    // let pSH17 = fTmp2B * fS2;
-    // let pSH24 = fTmp3A * fC3;
-    // let pSH16 = fTmp3A * fS3;
-    // v_coeffs.b4_c0 = pSH16 * v_colors;
-    // v_coeffs.b4_c1 = pSH17 * v_colors;
-    // v_coeffs.b4_c2 = pSH18 * v_colors;
-    // v_coeffs.b4_c3 = pSH19 * v_colors;
-    // v_coeffs.b4_c4 = pSH20 * v_colors;
-    // v_coeffs.b4_c5 = pSH21 * v_colors;
-    // v_coeffs.b4_c6 = pSH22 * v_colors;
-    // v_coeffs.b4_c7 = pSH23 * v_colors;
-    // v_coeffs.b4_c8 = pSH24 * v_colors;
-    // return v_coeffs;
 }
 
 struct ShCoeffs {
@@ -134,15 +132,15 @@ struct ShCoeffs {
     b3_c5: vec3f,
     b3_c6: vec3f,
 
-    // b4_c0: vec3f,
-    // b4_c1: vec3f,
-    // b4_c2: vec3f,
-    // b4_c3: vec3f,
-    // b4_c4: vec3f,
-    // b4_c5: vec3f,
-    // b4_c6: vec3f,
-    // b4_c7: vec3f,
-    // b4_c8: vec3f,
+    b4_c0: vec3f,
+    b4_c1: vec3f,
+    b4_c2: vec3f,
+    b4_c3: vec3f,
+    b4_c4: vec3f,
+    b4_c5: vec3f,
+    b4_c6: vec3f,
+    b4_c7: vec3f,
+    b4_c8: vec3f,
 }
 
 fn num_sh_coeffs(degree: u32) -> u32 {
@@ -208,17 +206,17 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
                 write_coeffs(&base_id, v_coeff.b3_c4);
                 write_coeffs(&base_id, v_coeff.b3_c5);
                 write_coeffs(&base_id, v_coeff.b3_c6);
-                // if sh_degree > 3 {
-                //     write_coeffs(&base_id, v_coeff.b4_c0);
-                //     write_coeffs(&base_id, v_coeff.b4_c1);
-                //     write_coeffs(&base_id, v_coeff.b4_c2);
-                //     write_coeffs(&base_id, v_coeff.b4_c3);
-                //     write_coeffs(&base_id, v_coeff.b4_c4);
-                //     write_coeffs(&base_id, v_coeff.b4_c5);
-                //     write_coeffs(&base_id, v_coeff.b4_c6);
-                //     write_coeffs(&base_id, v_coeff.b4_c7);
-                //     write_coeffs(&base_id, v_coeff.b4_c8);
-                // }
+                if sh_degree > 3 {
+                    write_coeffs(&base_id, v_coeff.b4_c0);
+                    write_coeffs(&base_id, v_coeff.b4_c1);
+                    write_coeffs(&base_id, v_coeff.b4_c2);
+                    write_coeffs(&base_id, v_coeff.b4_c3);
+                    write_coeffs(&base_id, v_coeff.b4_c4);
+                    write_coeffs(&base_id, v_coeff.b4_c5);
+                    write_coeffs(&base_id, v_coeff.b4_c6);
+                    write_coeffs(&base_id, v_coeff.b4_c7);
+                    write_coeffs(&base_id, v_coeff.b4_c8);
+                }
             }
         }
     }
