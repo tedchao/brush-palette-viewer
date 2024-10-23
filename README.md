@@ -32,7 +32,9 @@ https://github.com/user-attachments/assets/f679fec0-935d-4dd2-87e1-c301db9cdc2c
 While training, additional data can be visualized with the excellent [rerun](https://rerun.io/). To install rerun on your machine, please follow their [instructions](https://rerun.io/docs/getting-started/installing-viewer).
 
 ## Android
+
 https://github.com/user-attachments/assets/d6751cb3-ff58-45a4-8321-77d3b0a7b051
+
 Live training on a pixel 7
 
 # Getting started
