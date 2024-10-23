@@ -37,6 +37,10 @@ https://github.com/user-attachments/assets/d6751cb3-ff58-45a4-8321-77d3b0a7b051
 
 Live training on a pixel 7
 
+# Why
+
+My background is in "traditional" computer graphics. Machine Learning for rendering space is really exciting and has lots of potential, but also almost all current tools are at odds with realtime rendering. Rendering requires low latency, usually involve dynamic shapes, and it's not very pleasant to attempt to ship apps with massive PyTorch/Jax/CUDA deps calling out to layers of python in a rendering loop. The usual fix is to write a seperate training and inference application. Brush on the other hand, written in rust using wgpu and burn, can produce simple dependency free binaries, and can run on nearly all devices.
+
 # Getting started
 Install rust 1.81+ and run `cargo run` or `cargo run --release`. You can run tests with `cargo test --all`. Brush uses the wonderful [rerun](rerun.io) for additional visualizations while training.
 It currently requires rerun 0.19 however, which isn't released yet.
