@@ -10,7 +10,7 @@ fn main() -> anyhow::Result<()> {
         let native_options = eframe::NativeOptions {
             // Build app display.
             viewport: egui::ViewportBuilder::default()
-                .with_inner_size(egui::Vec2::new(1280.0, 720.0))
+                .with_inner_size(egui::Vec2::new(1450.0, 900.0))
                 .with_active(true),
             // Need a slightly more careful wgpu init to support burn.
             wgpu_options,

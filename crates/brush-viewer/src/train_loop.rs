@@ -82,9 +82,7 @@ pub(crate) fn train_loop(
             let bounds_extent = bounds.extent.length();
             // Arbitrarly assume area of interest is 0.2 - 0.75 of scene bounds.
             // Somewhat specific to the blender scenes
-            let adjusted_bounds = dataset
-                .train
-                .bounds(bounds_extent * 0.25, bounds_extent * 0.75);
+            let adjusted_bounds = dataset.train.bounds(bounds_extent * 0.25, bounds_extent);
 
             let config = RandomSplatsConfig::new().with_sh_degree(load_init_args.sh_degree);
             Splats::from_random_config(config, adjusted_bounds, &mut rng, &device)

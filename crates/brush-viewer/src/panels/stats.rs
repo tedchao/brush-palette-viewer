@@ -1,5 +1,4 @@
 use crate::{
-    train_loop::TrainMessage,
     viewer::{ViewerContext, ViewerMessage},
     ViewerPanel,
 };
@@ -15,7 +14,6 @@ pub(crate) struct StatsPanel {
     last_eval_psnr: Option<f32>,
 
     training_started: bool,
-    paused: bool,
     num_splats: usize,
 }
 
@@ -27,9 +25,28 @@ impl StatsPanel {
             train_iter_per_s: 0.0,
             last_eval_psnr: None,
             training_started: false,
-            paused: false,
             num_splats: 0,
         }
+    }
+}
+
+fn bytes_format(bytes: u64) -> String {
+    let unit = 1000;
+
+    if bytes < unit {
+        format!("{} B", bytes)
+    } else {
+        let size = bytes as f64;
+        let exp = match size.log(1000.0).floor() as usize {
+            0 => 1,
+            e => e,
+        };
+        let unit_prefix = "KMGTPEZY".as_bytes();
+        format!(
+            "{:.2} {}B",
+            (size / unit.pow(exp as u32) as f64),
+            unit_prefix[exp - 1] as char,
+        )
     }
 }
 
@@ -68,31 +85,49 @@ impl ViewerPanel for StatsPanel {
         }
     }
 
-    fn ui(&mut self, ui: &mut egui::Ui, context: &mut ViewerContext) {
-        ui.label(format!("Splats: {}", self.num_splats));
-        if self.training_started {
-            ui.label(format!("Train step: {}", self.last_train_step.1));
-            ui.label(format!("steps/s: {:.1} ", self.train_iter_per_s));
+    fn ui(&mut self, ui: &mut egui::Ui, _: &mut ViewerContext) {
+        egui::Grid::new("stats_grid")
+            .num_columns(2)
+            .spacing([40.0, 4.0])
+            .striped(true)
+            .show(ui, |ui| {
+                ui.label("Splats");
+                ui.label(format!("{:?}", self.num_splats));
+                ui.end_row();
 
-            if let Some(psnr) = self.last_eval_psnr {
-                ui.label(format!("Last eval psnr: {:.2} ", psnr));
-            }
-            let label = if self.paused {
-                "⏸ paused"
-            } else {
-                "⏵ training"
-            };
+                if self.training_started {
+                    ui.label("Train step");
+                    ui.label(format!("{}", self.last_train_step.1));
+                    ui.end_row();
 
-            if ui.selectable_label(self.paused, label).clicked() {
-                self.paused = !self.paused;
-                context.send_train_message(TrainMessage::Paused(self.paused));
-            }
-        }
+                    ui.label("Steps/s");
+                    ui.label(format!("{:.1}", self.train_iter_per_s));
+                    ui.end_row();
 
-        ui.add_space(10.0);
+                    if let Some(psnr) = self.last_eval_psnr {
+                        ui.label("Last eval PSNR");
+                        ui.label(format!("{:.}", psnr));
+                        ui.end_row();
+                    }
+                }
 
-        let client = WgpuRuntime::client(&self.device);
-        let memory = client.memory_usage();
-        ui.label(format!("GPU memory \n {}", memory));
+                let client = WgpuRuntime::client(&self.device);
+                let memory = client.memory_usage();
+
+                ui.label("GPU memory");
+                ui.end_row();
+
+                ui.label("Bytes in use");
+                ui.label(bytes_format(memory.bytes_in_use));
+                ui.end_row();
+
+                ui.label("Bytes reserved");
+                ui.label(bytes_format(memory.bytes_reserved));
+                ui.end_row();
+
+                ui.label("Active allocations");
+                ui.label(format!("{}", memory.number_allocs));
+                ui.end_row();
+            });
     }
 }

@@ -433,7 +433,7 @@ impl ViewerPanel for RerunPanel {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 0.0;
                 ui.label("Stream data to ");
-                ui.hyperlink_to("rerun", "rerun.io");
+                ui.hyperlink_to("Rerun.io", "rerun.io");
                 ui.label(" for visualization");
             });
 
@@ -447,12 +447,23 @@ impl ViewerPanel for RerunPanel {
             self.ready_to_log_dataset = false;
         }
 
-        ui.add(
-            egui::Slider::new(&mut self.log_train_stats_every, 1..=5000)
-                .text("Log train stats every"),
-        );
+        ui.horizontal(|ui| {
+            ui.label("Log train stats");
+            ui.add(
+                egui::Slider::new(&mut self.log_train_stats_every, 1..=1000)
+                    .prefix("every ")
+                    .suffix(" steps"),
+            );
+        });
 
-        ui.add(egui::Slider::new(&mut self.eval_every, 1..=5000).text("Evaluate every"));
+        ui.horizontal(|ui| {
+            ui.label("Evaluate");
+            ui.add(
+                egui::Slider::new(&mut self.eval_every, 1..=5000)
+                    .prefix("every ")
+                    .suffix(" steps"),
+            );
+        });
 
         let mut limit_eval_views = self.eval_view_count.is_some();
         ui.checkbox(&mut limit_eval_views, "Limit eval views");

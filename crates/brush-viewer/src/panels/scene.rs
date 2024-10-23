@@ -13,6 +13,7 @@ use wgpu::CommandEncoderDescriptor;
 
 use crate::{
     burn_texture::BurnTexture,
+    train_loop::TrainMessage,
     viewer::{ViewerContext, ViewerMessage},
     ViewerPanel,
 };
@@ -22,8 +23,11 @@ pub(crate) struct ScenePanel {
     pub(crate) last_draw: Option<Instant>,
     pub(crate) last_message: Option<ViewerMessage>,
 
+    is_loading: bool,
     is_training: bool,
     live_update: bool,
+    paused: bool,
+
     dirty: bool,
 
     queue: Arc<wgpu::Queue>,
@@ -42,7 +46,9 @@ impl ScenePanel {
             last_draw: None,
             last_message: None,
             live_update: true,
+            paused: false,
             dirty: false,
+            is_loading: false,
             is_training: false,
             queue,
             device,
@@ -118,19 +124,19 @@ impl ScenePanel {
         }
 
         if let Some(id) = self.backbuffer.id() {
-            ui.painter().rect_filled(rect, 0.0, Color32::BLACK);
-            ui.painter().image(
-                id,
-                rect,
-                Rect {
-                    min: egui::pos2(0.0, 0.0),
-                    max: egui::pos2(1.0, 1.0),
-                },
-                Color32::WHITE,
-            );
+            ui.scope(|ui| {
+                ui.painter().rect_filled(rect, 0.0, Color32::BLACK);
+                ui.painter().image(
+                    id,
+                    rect,
+                    Rect {
+                        min: egui::pos2(0.0, 0.0),
+                        max: egui::pos2(1.0, 1.0),
+                    },
+                    Color32::WHITE,
+                );
+            });
         }
-
-        ui.label(format!("Resolution {}x{}", size.x, size.y));
     }
 }
 
@@ -141,9 +147,19 @@ impl ViewerPanel for ScenePanel {
 
     fn on_message(&mut self, message: ViewerMessage, _: &mut ViewerContext) {
         match message.clone() {
+            ViewerMessage::PickFile => {
+                self.last_message = None;
+                self.paused = false;
+                self.is_loading = false;
+                self.is_training = false;
+            }
+            ViewerMessage::DoneLoading { training: _ } => {
+                self.is_loading = false;
+            }
             ViewerMessage::StartLoading { training } => {
                 self.is_training = training;
                 self.last_message = None;
+                self.is_loading = true;
             }
             ViewerMessage::Splats { iter: _, splats: _ } => {
                 if self.live_update {
@@ -159,7 +175,36 @@ impl ViewerPanel for ScenePanel {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, context: &mut ViewerContext) {
-        let _span = trace_span!("Draw UI").entered();
+        // Empty scene, nothing to show.
+        if !self.is_loading && context.dataset.train.views.is_empty() && self.last_message.is_none()
+        {
+            ui.heading("Load a ply file or dataset to get started.");
+            ui.add_space(5.0);
+            ui.label(
+                r#"
+Load a pretrained .ply file to view it
+
+Or load a dataset to train on. These are zip files with:
+    - a transform_train.json and images, like the synthetic NeRF dataset format.
+    - COLMAP data, containing the `images` & `sparse` folder."#,
+            );
+
+            ui.add_space(10.0);
+
+            #[cfg(target_family = "wasm")]
+            ui.scope(|ui| {
+                ui.visuals_mut().override_text_color = Some(Color32::YELLOW);
+                ui.heading("Note: Running in browser is experimental");
+
+                ui.label(
+                    r#"
+In browser training is about 2x lower than the native app. For bigger training
+runs consider using the native app."#,
+                );
+            });
+
+            return;
+        }
 
         if let Some(message) = self.last_message.clone() {
             match message {
@@ -169,31 +214,54 @@ impl ViewerPanel for ScenePanel {
                 ViewerMessage::Splats { iter: _, splats } => {
                     self.draw_splats(ui, context, &splats, context.dataset.train.background);
 
-                    if self.is_training {
-                        if ui
-                            .selectable_label(self.live_update, "Live update")
-                            .clicked()
-                        {
-                            self.live_update = !self.live_update;
-                        }
+                    ui.horizontal(|ui| {
+                        if self.is_training {
+                            ui.add_space(15.0);
 
-                        if ui.button("Export").clicked() {
-                            task::spawn_local(async move {
-                                let data = splat_export::splat_to_ply(*splats).await;
-                                let data = match data {
-                                    Ok(data) => data,
-                                    Err(e) => {
-                                        log::error!("Failed to save file: {e}");
-                                        return;
-                                    }
-                                };
-                                // Not sure where/how to show this error if any.
-                                if let Err(e) = rrfd::save_file("export.ply", data).await {
-                                    log::error!("Failed to save file: {e}");
+                            let label = if self.paused {
+                                "⏸ paused"
+                            } else {
+                                "⏵ training"
+                            };
+
+                            if ui.selectable_label(!self.paused, label).clicked() {
+                                self.paused = !self.paused;
+                                context.send_train_message(TrainMessage::Paused(self.paused));
+                            }
+
+                            ui.add_space(15.0);
+
+                            ui.scope(|ui| {
+                                ui.style_mut().visuals.selection.bg_fill = Color32::DARK_RED;
+                                if ui
+                                    .selectable_label(self.live_update, "🔴 Live update splats")
+                                    .clicked()
+                                {
+                                    self.live_update = !self.live_update;
                                 }
                             });
+
+                            ui.add_space(15.0);
+
+                            if ui.button("↑ Export").clicked() {
+                                let splats = splats.clone();
+                                task::spawn_local(async move {
+                                    let data = splat_export::splat_to_ply(*splats).await;
+                                    let data = match data {
+                                        Ok(data) => data,
+                                        Err(e) => {
+                                            log::error!("Failed to save file: {e}");
+                                            return;
+                                        }
+                                    };
+                                    // Not sure where/how to show this error if any.
+                                    if let Err(e) = rrfd::save_file("export.ply", data).await {
+                                        log::error!("Failed to save file: {e}");
+                                    }
+                                });
+                            }
                         }
-                    }
+                    });
                 }
                 _ => {}
             }

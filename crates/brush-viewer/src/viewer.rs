@@ -15,14 +15,13 @@ use brush_train::train::TrainStepStats;
 use burn::backend::Autodiff;
 use burn_wgpu::{RuntimeOptions, WgpuDevice};
 use eframe::egui;
-use egui::Hyperlink;
-use egui_tiles::Tiles;
+use egui_tiles::{Container, Tile, TileId, Tiles};
 use glam::{Quat, Vec3};
 use web_time::Instant;
 
 use crate::{
     orbit_controls::OrbitControls,
-    panels::{DatasetPanel, LoadDataPanel, ScenePanel, StatsPanel},
+    panels::{DatasetPanel, LoadDataPanel, PresetsPanel, ScenePanel, StatsPanel},
     train_loop::{self, TrainMessage},
     PaneType, ViewerTree,
 };
@@ -71,6 +70,7 @@ pub(crate) enum ViewerMessage {
 
 pub struct Viewer {
     tree: egui_tiles::Tree<PaneType>,
+    datasets: Option<TileId>,
     tree_ctx: ViewerTree,
 }
 
@@ -279,6 +279,7 @@ impl Viewer {
         let mut sides = vec![
             tiles.insert_pane(Box::new(LoadDataPanel::new())),
             tiles.insert_pane(Box::new(StatsPanel::new(device.clone()))),
+            tiles.insert_pane(Box::new(PresetsPanel::new())),
         ];
 
         #[cfg(not(target_family = "wasm"))]
@@ -293,23 +294,22 @@ impl Viewer {
 
         let side_panel = tiles.insert_vertical_tile(sides);
         let scene_pane_id = tiles.insert_pane(Box::new(scene_pane));
-        let dataset_panel = tiles.insert_pane(Box::new(DatasetPanel::new()));
 
         let mut lin = egui_tiles::Linear::new(
             egui_tiles::LinearDir::Horizontal,
-            vec![side_panel, scene_pane_id, dataset_panel],
+            vec![side_panel, scene_pane_id],
         );
-        lin.shares.set_share(side_panel, 0.25);
+        lin.shares.set_share(side_panel, 0.4);
 
-        let root = tiles.insert_container(lin);
-        let tree = egui_tiles::Tree::new("my_tree", root, tiles);
+        let root_container = tiles.insert_container(lin);
+        let tree = egui_tiles::Tree::new("viewer_tree", root_container, tiles);
 
         let tree_ctx = ViewerTree { context };
-        Viewer { tree, tree_ctx }
-    }
-
-    fn url_button(&mut self, label: &str, url: &str, ui: &mut egui::Ui) {
-        ui.add(Hyperlink::from_label_and_url(label, url).open_in_new_tab(true));
+        Viewer {
+            tree,
+            tree_ctx,
+            datasets: None,
+        }
     }
 }
 
@@ -317,12 +317,25 @@ impl eframe::App for Viewer {
     fn update(&mut self, ctx: &egui::Context, _: &mut eframe::Frame) {
         if let Some(rec) = self.tree_ctx.context.receiver.clone() {
             while let Ok(message) = rec.try_recv() {
+                if let ViewerMessage::Dataset { data: _ } = message {
+                    // Show the dataset panel if we've loaded one.
+                    if self.datasets.is_none() {
+                        let pane_id = self.tree.tiles.insert_pane(Box::new(DatasetPanel::new()));
+                        self.datasets = Some(pane_id);
+                        if let Some(Tile::Container(Container::Linear(lin))) =
+                            self.tree.tiles.get_mut(self.tree.root().unwrap())
+                        {
+                            lin.add_child(pane_id);
+                        }
+                    }
+                }
+
                 for (_, pane) in self.tree.tiles.iter_mut() {
                     match pane {
-                        egui_tiles::Tile::Pane(pane) => {
+                        Tile::Pane(pane) => {
                             pane.on_message(message.clone(), &mut self.tree_ctx.context);
                         }
-                        egui_tiles::Tile::Container(_) => {}
+                        Tile::Container(_) => {}
                     }
                 }
 

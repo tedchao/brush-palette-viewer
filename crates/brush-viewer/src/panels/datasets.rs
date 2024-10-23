@@ -62,17 +62,6 @@ impl ViewerPanel for DatasetPanel {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, context: &mut ViewerContext) {
-        // Empty scene, nothing to show.
-        if !self.loading && context.dataset.train.views.is_empty() {
-            ui.label("Load a dataset to train a splat.");
-            ui.label(r#"
-Datasets have to be provided in a single zip file. The format of this archive can be:
-    - the format used in the synthetic NeRF example data, containing a transform_train.json and images, please see a reference `zip` linked below.
-    - COLMAP data, by zipping the folder containing the `images` & `sparse` folder.
-            "#);
-            return;
-        }
-
         let mut nearest_view_ind = self
             .selected_scene(context)
             .get_nearest_view(&context.camera);
@@ -103,20 +92,11 @@ Datasets have to be provided in a single zip file. The format of this archive ca
                 ));
             }
 
-            if let Some(selected) = self.selected_view.as_ref() {
-                let views = &self.selected_scene(context).views;
-
-                ui.add(egui::Image::new(&selected.2).shrink_to_fit());
-                let info = format!(
-                    "{} ({}x{})",
-                    views[*nearest].name,
-                    views[*nearest].image.width(),
-                    views[*nearest].image.height()
-                );
-                ui.label(info);
-            }
-
             let view_count = self.selected_scene(context).views.len();
+
+            if let Some(selected) = self.selected_view.as_ref() {
+                ui.add(egui::Image::new(&selected.2).shrink_to_fit());
+            }
 
             ui.horizontal(|ui| {
                 let mut interacted = false;
@@ -159,6 +139,17 @@ Datasets have to be provided in a single zip file. The format of this archive ca
                     let cam = &self.selected_scene(context).views[*nearest].camera;
                     context.focus_view(cam);
                 }
+
+                ui.add_space(10.0);
+
+                let views = &self.selected_scene(context).views;
+                let info = format!(
+                    "{} ({}x{})",
+                    views[*nearest].name,
+                    views[*nearest].image.width(),
+                    views[*nearest].image.height()
+                );
+                ui.label(info);
             });
         }
 
