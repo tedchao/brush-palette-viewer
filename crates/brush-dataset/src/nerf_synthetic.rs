@@ -142,10 +142,14 @@ pub fn read_dataset_views(
         let mut train_views = vec![];
         let mut eval_views = vec![];
 
+        // Not entirely sure yet if we want to report stats on both test
+        // and eval, atm this skips "transforms_test.json" even if it's there.
+        let val_stream = read_transforms_file(archive, "transforms_val.json", &load_args).ok();
+
         for (i, handle) in train_handles.into_iter().enumerate() {
-            // I cannot wait for let chains.
             if let Some(eval_period) = load_args.eval_split_every {
-                if i % eval_period == 0 {
+                // Include extra eval images only when the dataset doesn't have them.
+                if i % eval_period == 0 && val_stream.is_some() {
                     eval_views.push(handle.await?);
                 } else {
                     train_views.push(handle.await?);
@@ -163,11 +167,7 @@ pub fn read_dataset_views(
                 .await;
         }
 
-        // Not entirely sure yet if we want to report stats on both test
-        // and eval. If so, just read  "transforms_test.json"
-        let val_stream = read_transforms_file(archive, "transforms_val.json", &load_args);
-
-        if let Ok(val_stream) = val_stream {
+        if let Some(val_stream) = val_stream {
             for handle in val_stream {
                 eval_views.push(handle.await?);
                 emitter
