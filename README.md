@@ -1,119 +1,110 @@
-# Brush
+# Brush - universal splats
 
-## Overview
+TEASER VIDEO
 
-Brush is a 3D reconstruction engine using [Gaussian splatting](https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/), made to be highly portable, flexible and fast. It can both render and train on macOS/windows/linux, in a browser, and on Android. It uses the [Burn](https://github.com/tracel-ai/burn) framework, and custom WGSL kernels.
+Brush is a 3D reconstruction engine using [Gaussian splatting](https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/), aiming to be highly portable, flexible and fast. It can render and train on a wide range of systems: macOS/windows/linux, on AMD/Nvidia, on Android, and in a browser. It currently roughly matches reconstruction quality in the original Guassian splatting paper.
 
-The default app (`crates/brush-desktop`) uses [egui](https://github.com/emilk/egui) and can be used to visualize a pre-trained splat from a `.ply` file, or train on different datasets. The datasets have to be provided in one `.zip` file. The format of this archive can be:
-- the format used in the synthetic NeRF example data, containing a transform_train.json and images, please see a reference `zip` linked below.
-- COLMAP data, by zipping the folder containing the `images` & `sparse` folder.
+To be portable, brush is built only using WebGPU compatbile tech, that can run anywhere! It uses the [Burn](https://github.com/tracel-ai/burn) framework, which has a portable [`wgpu`](https://github.com/gfx-rs/wgpu) backend.
 
-While training, training data and statistics can be visualized with [rerun](https://rerun.io/). To install rerun on your machine, follow the [instructions](https://rerun.io/docs/getting-started/installing-viewer).
+This project is currently still a proof of concept and doesn't yet implement the many extensions to splatting that have been developed, nor is the performance close to optimal yet.
 
-This project is a proof of concept - it currently only does basic training with the 'standard' Gaussian splatting algorithm, and doesn't implement the many extensions that have come out since.
+## Features
 
-## Getting started
+The current demo app can load pretrained ply files and can load datasets of images and viewpoints to train on. Currently only two formats are supported. A .zip file containing:
+- A transform_train.json and images, like the synthetic nerf scene dataset.
+- An `images` & `sparse` folder with [`COLMAP`](https://github.com/colmap/colmap) data
 
-Install rust 1.78+ and run `cargo run` or `cargo run --release`. You can run tests with `cargo test --all`. Brush uses the wonderful [rerun](rerun.io) for additional visualizations while training.
+While training you can interact with the splats and see their training dynamics live! You can compare to reference training / eval views as the training progresses.
+
+
+## Web
+
+TRAIN ON WEB
+
+[**Try the (experimental) web demo** <img src="https://cdn-icons-png.flaticon.com/256/888/888846.png" alt="chrome logo" width="16"/>
+](https://arthurbrussee.github.io/brush-demo)
+
+NOTE: This only works on Chrome 129+ currently. Firefox and Safari are hopefully supported [soon](https://caniuse.com/webgpu), but currently even firefox nightly and safari technical preview do not work.
+
+## Rerun
+
+RERUN VIDEO
+
+While training, additional data can be visualized with the excellent [rerun](https://rerun.io/). To install rerun on your machine, please follow their [instructions](https://rerun.io/docs/getting-started/installing-viewer).
+
+## Android
+
+TRAIN ON ANDROID VIDEO
+
+Live training on a pixel 7
+
+# Getting started
+Install rust 1.81+ and run `cargo run` or `cargo run --release`. You can run tests with `cargo test --all`. Brush uses the wonderful [rerun](rerun.io) for additional visualizations while training.
 It currently requires rerun 0.19 however, which isn't released yet.
 
-### Desktop
+### Windows/macOS/Linux
+Simply `cargo run` or `cargo run --release` from the workspace root.
 
-Simply `cargo run`. Windows uses Vulkan by default, but this can be changed in `crates/brus-viewer/wgpu_config.rs`. `DX12` works but seems to be much slower to compile all the kernels. macOS should be fully compatible and testd.
-
-### Android
-
-To build on Android, see the more detailed README instructions in crates/brush-android.
+Note: Linux has not yet been tested but *should* work. Windows works well, but does currently only works on Vulkan.
 
 ### Web
+This project uses [`trunk`](https://github.com/trunk-rs/trunk) to build for the web. Install trunk, and then run `trunk serve` or `trunk serve --release` to run a development server.
 
-This project uses `trunk` to build for the web. Install trunk, and then from the crates/brush-desktop folder run `trunk serve` to run a development server.
+WebGPU is still a new standard, and as such, only the latest versions of Chrome work currently. Firefox nightly should work but unfortunately crashes currently.
+
+The public web demo is registered for the [subgroups origin trial](https://chromestatus.com/feature/5126409856221184). To run the web demo for yourself, please enable the "Unsafe WebGPU support" flag in Chrome.
+
+### Android
+To build on Android, see the more detailed README instructions at crates/brush-android.
 
 ### iOS
+Brush *should* work on iOs but there is currently no project setup to do so.
 
-Things *should* work on iOs but there is currently no project setup to do so, and has not yet been tested.
-
-## Benchmarks
-
-Rendering performance is expected to be very competitive with gsplat, while training performance will likely still be a bit slower. More detailed benchmarks will be added soon.
-
-For profiling, you can use [tracy](https://github.com/wolfpld/tracy) and run with `cargo run --release --feature=tracy`. The UI will have some more options to sync the GPU so GPU times can be roughly measured.
-
-## Example data
-
-To get started, you can use some reference data taken from the [mipnerf](https://jonbarron.info/mipnerf360/) and [Gaussian splatting](https://github.com/graphdeco-inria/gaussian-splatting) paper.
-
-### Reference ply files
-- [bicycle (1.4GB)](https://drive.google.com/file/d/1kHkNqGFLLutRt3R7k2tGkjGwfXnPLnCi/view?usp=sharing)
-- [bonsai (300MB)](https://drive.google.com/file/d/1jf4bjaeTGeru1PQS_Ue716uc_edRbAPd/view?usp=sharing)
-- [counter (290MB)](https://drive.google.com/file/d/1O89SIHcWdmrWi75Cf6tDrv2Dl6yGndcz/view?usp=sharing)
-- [drjohnson (800MB)](https://drive.google.com/file/d/13FEQ7UZHYwymBTwxzpPeJob4cr8VxUTV/view?usp=sharing)
-- [garden (1.3GB)](https://drive.google.com/file/d/13FEQ7UZHYwymBTwxzpPeJob4cr8VxUTV/view?usp=sharing)
-- [kitchen (440MB)](https://drive.google.com/file/d/13FEQ7UZHYwymBTwxzpPeJob4cr8VxUTV/view?usp=sharing)
-- [playroom (600MB)](https://drive.google.com/file/d/13FEQ7UZHYwymBTwxzpPeJob4cr8VxUTV/view?usp=sharing)
-- [room (375MB)](https://drive.google.com/file/d/13FEQ7UZHYwymBTwxzpPeJob4cr8VxUTV/view?usp=sharing)
-- [stump (1.15GB)](https://drive.google.com/file/d/13FEQ7UZHYwymBTwxzpPeJob4cr8VxUTV/view?usp=sharing)
-
-### Synthetic nerf training data
-- [Chair](https://drive.google.com/file/d/13Q6s0agTW1_a7cFGcSmll1-Aikq_OPKe/view?usp=sharing)
-- [Drums](https://drive.google.com/file/d/1j8TuMiGb84YtlrZ0gnkMNOzUaIJqz0SY/view?usp=sharing)
-- [Ficus](https://drive.google.com/file/d/1VzT5SDiBefn9fvRw7LeYjUfDBZHCyzQ4/view?usp=sharing)
-- [Hotdog](https://drive.google.com/file/d/1hOjnCV8XdXClV2eC6c9H6PIQTUYv8zys/view?usp=sharing)
-- [Lego](https://drive.google.com/file/d/1VxsNFTHhgxK9iCOgkuKxakBXJfgHUOQk/view?usp=sharing)
-- [Materials](https://drive.google.com/file/d/1L7J5PNBcLcXde6CqzzkaNxHt7JtG2GIW/view?usp=sharing)
-- [Mic](https://drive.google.com/file/d/1SA0NNi0HsUHE6FgAP8XpD23N1xftsrr-/view?usp=sharing)
-- [Ship](https://drive.google.com/file/d/1rzL0KrWuLFebT1hLLm4uYnrNXNTkfjxM/view?usp=sharing)
-
-## Tech
-
-### Crate structure
+## Technical details
 
 Brush is split into various crates. A quick overview of the different responsibilities are:
 
 - `brush-render` is the main crate that pulls together the kernels into rendering functions.
 - `brush-train` has code to actually train Gaussians, and handle larger scale optimizations like splitting/cloning gaussians etc.
 - `brush-viewer` handles the UI and integrating the training loop.
-- `brush-android` is the binary target for running on android, `brush-desktop` is for running both on web, and mac/Windows/Linux.
+- `brush-android` is the binary target for running on android, while `brush-desktop` is for running both on web, and mac/Windows/Linux.
 - `brush-wgsl` handles some kernel inspection for generating CPU-side structs and interacing with [naga-oil](https://github.com/bevyengine/naga_oil) to handle shader imports.
-- `rrfd` is a small extension of [`rfd`](https://github.com/PolyMeilex/rfd)
 - `brush-dataset` handles importing different datasets like COLMAP or synthetic nerf data.
 - `brush-prefix-sum` and `brush-sort` are only compute kernels and should be largely independent of Brush (other than `brush-wgsl`).
-
-### Live training
-
-Brush can render while training on another thread. This allows you to watch the training dynamics live! It could also be used as a helpful preview while capturing data.
-
-On the web this runs in a separate async task, instead of a thread, as threading on WASM doesn't seem to be viable.
+- `rrfd` is a small extension of [`rfd`](https://github.com/PolyMeilex/rfd)
 
 ### Kernels
 
-The kernels are written in a "sparse" style, that is, only work for visible gaussians is done, though the final gradients are dense.
+The kernels are written in a "sparse" style, that is, only work for visible gaussians is done, though the final calculated gradients are dense.
 
-Brush uses a GPU radix sort based on [FidelityFX](https://www.amd.com/en/products/graphics/technologies/fidelityfx.html) (see `crates/brush-sort`). It splits the tile radix sort in two parts. First it only sorts by depth, then sorts by tile ID, which saves some sorting time compared to the original sort.
+Brush uses a GPU radix sort based on [FidelityFX](https://www.amd.com/en/products/graphics/technologies/fidelityfx.html) (see `crates/brush-sort`). The sorting is done in two parts - first splats are sorted only by depth, then sorted by their tile ID, which saves some sorting time compared to sorting both depth and tile ids at the same time.
 
 Compatibility with WebGPU does bring some challenges, even with (the excellent) [wgpu](https://github.com/gfx-rs/wgpu).
-- WebGPU lacks native atomic floating point additions. Instead, gradients are scattered in the backwards rasterization to a buffer and later aggregated.
-- WebGPU also lacks subgroup operations. wgpu recently gained the ability to use these on native platforms however, these should be integrated for a nice speedup.
-- Lastly, GPU readbacks are tricky on WebGPU. The rendering pass cannot do this unless the whole rendering becomes async with its own perils. The reference tile renderer requires reading back the number of "intersections", but this is not feasible. This is worked around by assuming a worst case, and the rasterizer uses a technique to cull away more intersections by intersecting the gaussian ellipses with screenspace tiles.
+- WebGPU lacks native atomic floating point additions, and a software CAS loop has to be used.
+- GPU readbacks are tricky on WebGPU. The rendering pass cannot do this unless the whole rendering becomes async, which has its own perils and isn't great for a UI. The reference tile renderer requires reading back the number of "intersections" (each visible tile of a gaussian is one intersection), but this is not feasible here. This is worked around by assuming a worst case. To reduce the number of tiles the rasterizer culls away unused tiles by intersecting the gaussian ellipses with the screenspace tiles.
 
-The WGSL kernels use [naga_oil](https://github.com/bevyengine/naga_oil) to manage imports. brush-wgsl additionally does some reflection to generate rust code to send uniform data to a kernel. In the future, it might be possible to port the kernels to Burns new CubeCL system which would make this easier, and add CUDA compatibility.
+The WGSL kernels use [naga_oil](https://github.com/bevyengine/naga_oil) to manage imports. brush-wgsl additionally does some reflection to generate rust code to send uniform data to a kernel. In the future, it might be possible to port the kernels to Burns new [`CubeCL`](https://github.com/tracel-ai/cubecl) language, which is much more ergonomic and would allow generating CUDA / rocM kernels.
 
-Brush shares the same [wgpu](https://github.com/gfx-rs/wgpu) device for the UI (egui) and the training. There is no multi device training yet.
+### Benchmarks
 
-The reference Gaussian splatting kernels rely on shared memory when rasterizing. Brush used to do this but this was benchmarked to be *slower* on an M1, so this is disabled at the moment. I hope to bring this back as it was
-faster on desktop GPUs.
+Rendering performance is expected to be very competitive with gsplat, while training performance is likely still a bit slower. You can run some benchmarks testing the performance of the kernels using `cargo bench`. The performance of the forward and backwards kernel are faster than the _legacy_ gSplat kernels as they have some new techniques for better performance, but they haven't been compared yet to the updated gsplat kernels. End-to-end training performance is also still slower due to other overheads.
 
-Gradients have been verified to match against a reference implementation for simple cases.
+For additional profiling, you can use [tracy](https://github.com/wolfpld/tracy) and run with `cargo run --release --feature=tracy`.
 
-## Acknowledgements
+### Async
+
+To be compatible with the web, the main training loop is written as an async stream, using [`async_std`](https://github.com/async-rs/async-std). On native, multiple threads execute tasks (eg. loading dataset images), while on the web everything is ran on a single thread.
+
+# Acknowledgements
+
+[**gSplat**](https://github.com/nerfstudio-project/gsplat), for their reference version of the kernels
+
+**Peter Hedman & George Kopanas**, for the many discussions & pointers.
+
+**The Burn team**, for help & improvements to Burn along the way
 
 **Raph Levien**, for the [original version](https://github.com/googlefonts/compute-shader-101/pull/31) of the GPU radix sort.
 
-**Peter Hedman & George Kopanas**, for discussion & inspiration.
+# Disclaimer
 
-**The Burn team**, for helping out with the tricky custom kernel integrations
-
-
-## Disclaimer
-
-This is *not* an official Google product.
+This is *not* an official Google product. This repository is a forked public version of [the google-research repository](https://github.com/google-research/google-research/tree/master/brush_splat)
