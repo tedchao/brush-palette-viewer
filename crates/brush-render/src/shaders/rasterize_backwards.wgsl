@@ -29,12 +29,16 @@ const BATCH_SIZE = helpers::TILE_SIZE;
 var<workgroup> local_batch: array<helpers::ProjectedSplat, BATCH_SIZE>;
 var<workgroup> local_id: array<u32, BATCH_SIZE>;
 
+// This kernel use a new technique to reduce the overhead of atomic gradient accumulation, especially when
+// using software CAS loops this helps performance a lot. Originally, each thread calculated
+// a gradient, summed them together in a subgroup, and one thread of these subgroups would then atomically add
+// this gradient to the global gradient. Instead, we push each subgroup gradient to a buffer
+// until it has N threads gradients, which are then written to the global gradients all at once.
+
 // Current queue of gradients to be flushed.
-// Target count of #gradients to gather per go.
-const GATHER_GRADS_MEM = BATCH_SIZE;
 var<workgroup> grad_count: atomic<i32>;
-var<workgroup> gather_grads: array<helpers::ProjectedSplat, GATHER_GRADS_MEM>;
-var<workgroup> gather_grad_id: array<u32, GATHER_GRADS_MEM>;
+var<workgroup> gather_grads: array<helpers::ProjectedSplat, BATCH_SIZE>;
+var<workgroup> gather_grad_id: array<u32, BATCH_SIZE>;
 
 fn add_bitcast(cur: u32, add: f32) -> u32 {
     return bitcast<u32>(bitcast<f32>(cur) + add);
