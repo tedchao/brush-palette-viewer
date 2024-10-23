@@ -435,7 +435,7 @@ where
                 let cur_means = splats_pre_step.means.val().select(0, split_inds.clone());
                 let samples = quaternion_vec_multiply(
                     cur_rots.clone(),
-                    Tensor::random([split_count, 3], Distribution::Normal(0.0, 0.75), device)
+                    Tensor::random([split_count, 3], Distribution::Normal(0.0, 0.5), device)
                         * cur_scale.clone(),
                 );
                 // Assign new means to current values.
@@ -451,7 +451,7 @@ where
                 // Append new means with offset sample.
                 let samples_new = quaternion_vec_multiply(
                     cur_rots.clone(),
-                    Tensor::random([split_count, 3], Distribution::Normal(0.0, 0.75), device)
+                    Tensor::random([split_count, 3], Distribution::Normal(0.0, 0.5), device)
                         * cur_scale,
                 );
                 append_means.push(cur_means.clone() + samples_new);

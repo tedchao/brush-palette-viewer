@@ -12,6 +12,7 @@ use brush_render::{
 use brush_train::train::{SplatTrainer, TrainConfig};
 use burn::{lr_scheduler::exponential::ExponentialLrSchedulerConfig, module::AutodiffModule};
 use burn_wgpu::WgpuDevice;
+use rand::SeedableRng;
 use tracing::{trace_span, Instrument};
 use web_time::Instant;
 use zip::ZipArchive;
@@ -37,7 +38,7 @@ pub(crate) fn train_loop(
         // Maybe good if the seed would be configurable.
         let seed = 42;
         <PrimaryBackend as burn::prelude::Backend>::seed(seed);
-
+        let mut rng = rand::rngs::StdRng::from_seed([seed as u8; 32]);
         let archive = ZipArchive::new(zip_data.open_for_read())?;
 
         // Load initial splats if included
@@ -77,12 +78,16 @@ pub(crate) fn train_loop(
             splats
         } else {
             // By default, spawn the splats in bounds.
-            let bounds = dataset.train.bounds(0.0);
+            let bounds = dataset.train.bounds(0.0, 0.0);
             let bounds_extent = bounds.extent.length();
-            let adjusted_bounds = dataset.train.bounds(bounds_extent * 0.5);
+            // Arbitrarly assume area of interest is 0.2 - 0.75 of scene bounds.
+            // Somewhat specific to the blender scenes
+            let adjusted_bounds = dataset
+                .train
+                .bounds(bounds_extent * 0.25, bounds_extent * 0.75);
 
             let config = RandomSplatsConfig::new().with_sh_degree(load_init_args.sh_degree);
-            Splats::from_random_config(config, adjusted_bounds, &device)
+            Splats::from_random_config(config, adjusted_bounds, &mut rng, &device)
         };
 
         let train_scene = dataset.train.clone();
@@ -90,7 +95,7 @@ pub(crate) fn train_loop(
 
         let total_steps = 30000;
 
-        let scene_extent = train_scene.bounds(0.0).extent.length() as f64;
+        let scene_extent = train_scene.bounds(0.0, 0.0).extent.length() as f64;
         let lr_max = 1.6e-4 * scene_extent;
         let decay = 1e-2f64.powf(1.0 / total_steps as f64);
         let config = TrainConfig::new(ExponentialLrSchedulerConfig::new(lr_max, decay))
@@ -128,6 +133,7 @@ pub(crate) fn train_loop(
                             splats.valid(),
                             eval_scene,
                             view_count,
+                            &mut rng,
                             &device,
                         )
                         .await;

@@ -27,11 +27,11 @@ pub async fn eval_stats<B: Backend>(
     splats: Splats<B>,
     eval_scene: &Scene,
     num_frames: Option<usize>,
+    rng: &mut impl rand::Rng,
     device: &B::Device,
 ) -> EvalStats<B> {
     let indices = if let Some(num) = num_frames {
-        let mut rng = rand::thread_rng();
-        (0..eval_scene.views.len()).choose_multiple(&mut rng, num)
+        (0..eval_scene.views.len()).choose_multiple(rng, num)
     } else {
         (0..eval_scene.views.len()).collect()
     };

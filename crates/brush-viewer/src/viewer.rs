@@ -160,7 +160,7 @@ impl ViewerContext {
         self.controls.focus = self.camera.position
             + self.camera.rotation
                 * glam::Vec3::Z
-                * self.dataset.train.bounds(0.0).extent.length()
+                * self.dataset.train.bounds(0.0, 0.0).extent.length()
                 * 0.5;
     }
 

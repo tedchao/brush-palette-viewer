@@ -25,7 +25,7 @@ naga.workspace = true
 log.workspace = true
 serde.workspace = true
 kiddo.workspace = true
-
+rand.workspace = true
 
 [build-dependencies]
 brush-wgsl.path = "../brush-wgsl"

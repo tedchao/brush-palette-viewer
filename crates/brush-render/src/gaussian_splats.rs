@@ -6,25 +6,18 @@ use burn::{
     config::Config,
     module::{Module, Param, ParamId},
     tensor::activation::sigmoid,
-    tensor::{Device, Distribution, Shape, Tensor},
+    tensor::{Device, Shape, Tensor},
 };
 use glam::Vec3;
 use kiddo::{KdTree, SquaredEuclidean};
+use rand::Rng;
 use safetensors::SafeTensors;
 
 #[derive(Config)]
 pub struct RandomSplatsConfig {
     // period of steps where refinement is turned off
-    #[config(default = 5000)]
+    #[config(default = 50000)]
     init_count: usize,
-    #[config(default = -2.0)]
-    opacity_min: f64,
-    #[config(default = -1.0)]
-    opacity_max: f64,
-    #[config(default = 0.05)]
-    scale_min: f64,
-    #[config(default = 0.15)]
-    scale_max: f64,
     #[config(default = 0)]
     sh_degree: u32,
 }
@@ -49,6 +42,7 @@ impl<B: Backend> Splats<B> {
     pub fn from_random_config(
         config: RandomSplatsConfig,
         bounds: BoundingBox,
+        rng: &mut impl Rng,
         device: &B::Device,
     ) -> Self {
         let num_points = config.init_count;
@@ -56,56 +50,23 @@ impl<B: Backend> Splats<B> {
         let min = bounds.min();
         let max = bounds.max();
 
-        let xx: Tensor<_, 1> = Tensor::random(
-            [num_points],
-            Distribution::Uniform(min.x as f64, max.x as f64),
-            device,
-        );
-        let yy: Tensor<_, 1> = Tensor::random(
-            [num_points],
-            Distribution::Uniform(min.y as f64, max.y as f64),
-            device,
-        );
-        let zz: Tensor<_, 1> = Tensor::random(
-            [num_points],
-            Distribution::Uniform(min.z as f64, max.z as f64),
-            device,
-        );
-        let means = Tensor::stack(vec![xx, yy, zz], 1);
-        let num_coeffs = sh_coeffs_for_degree(config.sh_degree);
+        let mut positions: Vec<Vec3> = Vec::with_capacity(num_points);
+        for _ in 0..num_points {
+            let x = rng.gen_range(min.x..max.x);
+            let y = rng.gen_range(min.y..max.y);
+            let z = rng.gen_range(min.z..max.z);
+            positions.push(Vec3::new(x, y, z));
+        }
 
-        let sh_coeffs = Tensor::random(
-            [num_points, num_coeffs as usize, 3],
-            Distribution::Uniform(-0.5, 0.5),
-            device,
-        );
-        let init_rotation = Tensor::<_, 1>::from_floats([1.0, 0.0, 0.0, 0.0], device)
-            .unsqueeze::<2>()
-            .repeat_dim(0, num_points);
+        let mut colors: Vec<Vec3> = Vec::with_capacity(num_points);
+        for _ in 0..num_points {
+            let r = rng.gen_range(0.0..1.0);
+            let g = rng.gen_range(0.0..1.0);
+            let b = rng.gen_range(0.0..1.0);
+            colors.push(Vec3::new(r, g, b));
+        }
 
-        let init_raw_opacity = Tensor::random(
-            [num_points],
-            Distribution::Uniform(config.opacity_min, config.opacity_max),
-            device,
-        );
-
-        let scale_min = config.scale_min.ln();
-        let scale_max = config.scale_max.ln();
-
-        let init_scale = Tensor::random(
-            [num_points, 3],
-            Distribution::Uniform(scale_min, scale_max),
-            device,
-        );
-
-        Splats::from_data(
-            means,
-            sh_coeffs,
-            init_rotation,
-            init_raw_opacity,
-            init_scale,
-            device,
-        )
+        Splats::from_point_cloud(positions, colors, config.sh_degree, device)
     }
 
     pub fn from_point_cloud(

@@ -41,12 +41,12 @@ impl Scene {
     }
 
     // Returns the extent of the cameras in the scene.
-    pub fn bounds(&self, cam_far: f32) -> BoundingBox {
+    pub fn bounds(&self, cam_near: f32, cam_far: f32) -> BoundingBox {
         let (min, max) = self.views.iter().fold(
             (Vec3::splat(f32::INFINITY), Vec3::splat(f32::NEG_INFINITY)),
             |(min, max), view| {
                 let cam = &view.camera;
-                let pos1 = cam.position;
+                let pos1 = cam.position + cam.rotation * Vec3::Z * cam_near;
                 let pos2 = cam.position + cam.rotation * Vec3::Z * cam_far;
                 (min.min(pos1).min(pos2), max.max(pos1).max(pos2))
             },

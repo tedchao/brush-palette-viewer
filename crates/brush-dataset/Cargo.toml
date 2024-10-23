@@ -20,7 +20,6 @@ tracing.workspace = true
 log.workspace = true
 ply-rs.workspace = true
 web-time.workspace = true
-kiddo.workspace = true
 
 async-std.workspace = true
 async-fn-stream.workspace = true
