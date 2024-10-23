@@ -29,7 +29,7 @@ NOTE: This only works on Chrome 129+ currently. Firefox and Safari are hopefully
 
 https://github.com/user-attachments/assets/f679fec0-935d-4dd2-87e1-c301db9cdc2c
 
-While training, additional data can be visualized with the excellent [rerun](https://rerun.io/). To install rerun on your machine, please follow their [instructions](https://rerun.io/docs/getting-started/installing-viewer).
+While training, additional data can be visualized with the excellent [rerun](https://rerun.io/). To install rerun on your machine, please follow their [instructions](https://rerun.io/docs/getting-started/installing-viewer). Open the ./brush_blueprint.rbl in the viewer for best results.
 
 ## Android
 
