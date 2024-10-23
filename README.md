@@ -2,9 +2,9 @@
 
 https://github.com/user-attachments/assets/4bf7920e-da16-4c01-a37a-82ed1469f15b
 
-Brush is a 3D reconstruction engine using [Gaussian splatting](https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/), aiming to be highly portable, flexible and fast. It can render and train on a wide range of systems: macOS/windows/linux, on AMD/Nvidia, on Android, and in a browser. It currently roughly matches reconstruction quality in the original Guassian splatting paper.
+Brush is a 3D reconstruction engine using [Gaussian splatting](https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/), aiming to be highly portable, flexible and fast. It can render and train on a wide range of systems: macOS/windows/linux, on AMD/Nvidia, on Android, and in a browser. It currently roughly matches reconstruction quality in the original Gaussian splatting paper.
 
-To be portable, brush is built only using WebGPU compatbile tech, that can run anywhere! It uses the [Burn](https://github.com/tracel-ai/burn) framework, which has a portable [`wgpu`](https://github.com/gfx-rs/wgpu) backend.
+To be portable, brush is built only using WebGPU compatible tech, that can run anywhere! It uses the [Burn](https://github.com/tracel-ai/burn) framework, which has a portable [`wgpu`](https://github.com/gfx-rs/wgpu) backend.
 
 This project is currently still a proof of concept and doesn't yet implement the many extensions to splatting that have been developed, nor is the performance close to optimal yet.
 
