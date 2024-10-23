@@ -1,5 +1,6 @@
 use super::PickedFile;
 use anyhow::Result;
+use async_std::channel::Sender;
 use jni::objects::{GlobalRef, JByteArray, JClass, JStaticMethodID, JString};
 use jni::signature::Primitive;
 use jni::JNIEnv;

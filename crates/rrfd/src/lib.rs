@@ -55,6 +55,8 @@ pub async fn save_file(default_name: &str, data: Vec<u8>) -> Result<String> {
 
     #[cfg(target_os = "android")]
     {
+        let _ = default_name;
+        let _ = data;
         unimplemented!("No saving on Android yet.")
     }
 }
