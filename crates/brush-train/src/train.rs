@@ -319,14 +319,16 @@ where
             // HACK: Want a lower learning rate for higher SH order.
             // This works as long as the update rule is linear.
             // (Adam Update rule is theta_{t + 1} = theta_{t} - lr * step)
-            Splats::map_param(&mut splats.sh_coeffs, |coeffs| {
-                let coeff_step = coeffs.clone() - old_coeffs.clone();
-                let scaled_coeffs =
-                    old_coeffs.clone() + coeff_step / self.config.lr_coeffs_sh_scale;
-                let base = coeffs.slice([0..num_splats, 0..1]);
-                let scaled = scaled_coeffs.slice([0..num_splats, 1..sh_num]);
-                Tensor::cat(vec![base, scaled], 1)
-            });
+            if sh_num > 1 {
+                Splats::map_param(&mut splats.sh_coeffs, |coeffs| {
+                    let coeff_step = coeffs.clone() - old_coeffs.clone();
+                    let scaled_coeffs =
+                        old_coeffs.clone() + coeff_step / self.config.lr_coeffs_sh_scale;
+                    let base = coeffs.slice([0..num_splats, 0..1]);
+                    let scaled = scaled_coeffs.slice([0..num_splats, 1..sh_num]);
+                    Tensor::cat(vec![base, scaled], 1)
+                });
+            }
 
             let grad_rot = GradientsParams::from_params(&mut grads, &splats, &[splats.rotation.id]);
             splats = self.optim.step(lr_rotation, splats, grad_rot);
@@ -350,186 +352,8 @@ where
             // If not refining, update splat to step with gradients applied.
             post_step_splat
         } else {
-            let mut splats_pre_step = splats;
-            let mut splats_post_step = post_step_splat.clone();
-
-            // Otherwise, do refinement, but do the split/clone on gaussians with no grads applied.
-            let grads =
-                self.grad_2d_accum.clone() / self.xy_grad_counts.clone().clamp(1, i32::MAX).float();
-
-            let big_grad_mask = grads.greater_equal_elem(self.config.densify_grad_thresh);
-            let split_clone_size_mask = splats_post_step
-                .scales()
-                .max_dim(1)
-                .squeeze(1)
-                .lower_elem(self.config.densify_size_thresh);
-
-            let mut append_means = vec![];
-            let mut append_rots = vec![];
-            let mut append_coeffs = vec![];
-            let mut append_opac = vec![];
-            let mut append_scales = vec![];
-
-            let clone_inds = Tensor::stack::<2>(
-                vec![split_clone_size_mask.clone(), big_grad_mask.clone()],
-                1,
-            )
-            .all_dim(1)
-            .squeeze::<1>(1)
-            .argwhere_async()
-            .await;
-
-            let clone_count = clone_inds.dims()[0];
-            if clone_count > 0 {
-                let clone_inds = clone_inds.squeeze(1);
-                append_means.push(splats_pre_step.means.val().select(0, clone_inds.clone()));
-                append_rots.push(splats_pre_step.rotation.val().select(0, clone_inds.clone()));
-                append_coeffs.push(
-                    splats_pre_step
-                        .sh_coeffs
-                        .val()
-                        .select(0, clone_inds.clone()),
-                );
-                append_opac.push(
-                    splats_pre_step
-                        .raw_opacity
-                        .val()
-                        .select(0, clone_inds.clone()),
-                );
-                append_scales.push(
-                    splats_pre_step
-                        .log_scales
-                        .val()
-                        .select(0, clone_inds.clone()),
-                );
-            }
-
-            let split_mask =
-                Tensor::stack::<2>(vec![split_clone_size_mask.bool_not(), big_grad_mask], 1)
-                    .all_dim(1);
-            let split_inds = split_mask.clone().squeeze::<1>(1).argwhere_async().await;
-
-            let split_count = split_inds.dims()[0];
-            if split_count > 0 {
-                let split_inds = split_inds.squeeze(1);
-
-                // Some parts can be straightforwardly copied to the new splats.
-                let cur_coeff = splats_post_step
-                    .sh_coeffs
-                    .val()
-                    .select(0, split_inds.clone());
-                let cur_raw_opac = splats_post_step
-                    .raw_opacity
-                    .val()
-                    .select(0, split_inds.clone());
-                let cur_rots = splats_post_step
-                    .rotation
-                    .val()
-                    .select(0, split_inds.clone());
-                append_rots.push(cur_rots.clone());
-                append_coeffs.push(cur_coeff.clone());
-                append_opac.push(cur_raw_opac);
-
-                // Change currentt scale to be lower.
-                let cur_scale = splats_post_step.scales().select(0, split_inds.clone());
-                Splats::map_param(&mut splats_post_step.log_scales, |m| {
-                    let div_scales = Tensor::zeros_like(&m).select_assign(
-                        0,
-                        split_inds.clone(),
-                        (cur_scale.clone() / 1.6).log(),
-                    );
-                    m.mask_where(split_mask.clone(), div_scales)
-                });
-                // Append newer smaller scales.
-                append_scales.push((cur_scale.clone() / 1.6).log());
-
-                // Sample new position for splits.
-                let cur_means = splats_pre_step.means.val().select(0, split_inds.clone());
-                let samples = quaternion_vec_multiply(
-                    cur_rots.clone(),
-                    Tensor::random([split_count, 3], Distribution::Normal(0.0, 0.5), device)
-                        * cur_scale.clone(),
-                );
-                // Assign new means to current values.
-                Splats::map_param(&mut splats_pre_step.means, |m| {
-                    let offset_means = Tensor::zeros_like(&m).select_assign(
-                        0,
-                        split_inds.clone(),
-                        cur_means.clone() - samples.clone(),
-                    );
-                    m.mask_where(split_mask.clone(), offset_means)
-                });
-
-                // Append new means with offset sample.
-                let samples_new = quaternion_vec_multiply(
-                    cur_rots.clone(),
-                    Tensor::random([split_count, 3], Distribution::Normal(0.0, 0.5), device)
-                        * cur_scale,
-                );
-                append_means.push(cur_means.clone() + samples_new);
-            }
-
-            // Do processing on splat post step.
-            let mut splats = post_step_splat;
-
-            if !append_means.is_empty() {
-                let append_means = Tensor::cat(append_means, 0);
-                let append_rots = Tensor::cat(append_rots, 0);
-                let append_coeffs = Tensor::cat(append_coeffs, 0);
-                let append_opac = Tensor::cat(append_opac, 0);
-                let append_scales = Tensor::cat(append_scales, 0);
-
-                concat_splats(
-                    &mut splats,
-                    append_means,
-                    append_rots,
-                    append_coeffs,
-                    append_opac,
-                    append_scales,
-                );
-            }
-
-            // Do some more processing. Important to do this last as otherwise you might mess up the correspondence
-            // of gradient <-> splat.
-
-            let start_count = splats.num_splats();
-
-            // Remove barely visible gaussians.
-            let alpha_mask = splats.opacity().lower_elem(self.config.cull_alpha_thresh);
-            prune_points(&mut splats, alpha_mask).await;
-
-            let alpha_pruned = start_count - splats.num_splats();
-
-            // Delete Gaussians with too large of a radius in world-units.
-            let scale_mask = splats
-                .log_scales
-                .val()
-                .exp()
-                .max_dim(1)
-                .squeeze(1)
-                .greater_elem(self.config.cull_scale_thresh);
-            prune_points(&mut splats, scale_mask).await;
-
-            let scale_pruned = start_count - splats.num_splats();
-
-            refine_stats = Some(RefineStats {
-                num_split: split_count,
-                num_cloned: clone_count,
-                num_transparent_pruned: alpha_pruned,
-                num_scale_pruned: scale_pruned,
-            });
-
-            let refine_step = self.iter / self.config.refine_every;
-            if refine_step % self.config.reset_alpha_every_refine == 0 {
-                self.reset_opacity(&mut splats);
-            }
-
-            // Stats don't line up anymore so have to reset them.
-            self.reset_stats(splats.num_splats(), device);
-
-            // TODO: Want to do state surgery and keep momenta for splats.
-            self.optim = self.opt_config.init();
-
+            let (splats, refine) = self.refine_splats(splats, post_step_splat).await;
+            refine_stats = Some(refine);
             splats
         };
 
@@ -550,6 +374,195 @@ where
         };
 
         Ok((splats, stats))
+    }
+
+    async fn refine_splats(
+        &mut self,
+        splats: Splats<B>,
+        post_step_splat: Splats<B>,
+    ) -> (Splats<B>, RefineStats) {
+        let device = splats.means.device();
+        let mut splats_pre_step = splats;
+        let mut splats_post_step = post_step_splat.clone();
+
+        // Otherwise, do refinement, but do the split/clone on gaussians with no grads applied.
+        let grads =
+            self.grad_2d_accum.clone() / self.xy_grad_counts.clone().clamp(1, i32::MAX).float();
+
+        let big_grad_mask = grads.greater_equal_elem(self.config.densify_grad_thresh);
+        let split_clone_size_mask = splats_post_step
+            .scales()
+            .max_dim(1)
+            .squeeze(1)
+            .lower_elem(self.config.densify_size_thresh);
+
+        let mut append_means = vec![];
+        let mut append_rots = vec![];
+        let mut append_coeffs = vec![];
+        let mut append_opac = vec![];
+        let mut append_scales = vec![];
+
+        let clone_inds = Tensor::stack::<2>(
+            vec![split_clone_size_mask.clone(), big_grad_mask.clone()],
+            1,
+        )
+        .all_dim(1)
+        .squeeze::<1>(1)
+        .argwhere_async()
+        .await;
+
+        // Clone splats
+        let clone_count = clone_inds.dims()[0];
+        if clone_count > 0 {
+            let clone_inds = clone_inds.squeeze(1);
+            append_means.push(splats_pre_step.means.val().select(0, clone_inds.clone()));
+            append_rots.push(splats_pre_step.rotation.val().select(0, clone_inds.clone()));
+            append_coeffs.push(
+                splats_pre_step
+                    .sh_coeffs
+                    .val()
+                    .select(0, clone_inds.clone()),
+            );
+            append_opac.push(
+                splats_pre_step
+                    .raw_opacity
+                    .val()
+                    .select(0, clone_inds.clone()),
+            );
+            append_scales.push(
+                splats_pre_step
+                    .log_scales
+                    .val()
+                    .select(0, clone_inds.clone()),
+            );
+        }
+
+        // Split splats.
+        let split_mask =
+            Tensor::stack::<2>(vec![split_clone_size_mask.bool_not(), big_grad_mask], 1).all_dim(1);
+        let split_inds = split_mask.clone().squeeze::<1>(1).argwhere_async().await;
+        let split_count = split_inds.dims()[0];
+        if split_count > 0 {
+            let split_inds = split_inds.squeeze(1);
+
+            // Some parts can be straightforwardly copied to the new splats.
+            let cur_coeff = splats_post_step
+                .sh_coeffs
+                .val()
+                .select(0, split_inds.clone());
+            let cur_raw_opac = splats_post_step
+                .raw_opacity
+                .val()
+                .select(0, split_inds.clone());
+            let cur_rots = splats_post_step
+                .rotation
+                .val()
+                .select(0, split_inds.clone());
+            append_rots.push(cur_rots.clone());
+            append_coeffs.push(cur_coeff.clone());
+            append_opac.push(cur_raw_opac);
+
+            // Change current scale to be lower.
+            let cur_scale = splats_post_step.scales().select(0, split_inds.clone());
+            Splats::map_param(&mut splats_post_step.log_scales, |m| {
+                let div_scales = Tensor::zeros_like(&m).select_assign(
+                    0,
+                    split_inds.clone(),
+                    (cur_scale.clone() / 1.6).log(),
+                );
+                m.mask_where(split_mask.clone(), div_scales)
+            });
+            // Append newer smaller scales.
+            append_scales.push((cur_scale.clone() / 1.6).log());
+
+            // Sample new position for splits.
+            let cur_means = splats_pre_step.means.val().select(0, split_inds.clone());
+            let samples = quaternion_vec_multiply(
+                cur_rots.clone(),
+                Tensor::random([split_count, 3], Distribution::Normal(0.0, 0.5), &device)
+                    * cur_scale.clone(),
+            );
+            // Assign new means to current values.
+            Splats::map_param(&mut splats_pre_step.means, |m| {
+                let offset_means = Tensor::zeros_like(&m).select_assign(
+                    0,
+                    split_inds.clone(),
+                    cur_means.clone() - samples.clone(),
+                );
+                m.mask_where(split_mask.clone(), offset_means)
+            });
+
+            // Append new means with offset sample.
+            let samples_new = quaternion_vec_multiply(
+                cur_rots.clone(),
+                Tensor::random([split_count, 3], Distribution::Normal(0.0, 0.5), &device)
+                    * cur_scale,
+            );
+            append_means.push(cur_means.clone() + samples_new);
+        }
+
+        // Do processing on splat post step.
+        let mut splats = post_step_splat;
+
+        if !append_means.is_empty() {
+            let append_means = Tensor::cat(append_means, 0);
+            let append_rots = Tensor::cat(append_rots, 0);
+            let append_coeffs = Tensor::cat(append_coeffs, 0);
+            let append_opac = Tensor::cat(append_opac, 0);
+            let append_scales = Tensor::cat(append_scales, 0);
+
+            concat_splats(
+                &mut splats,
+                append_means,
+                append_rots,
+                append_coeffs,
+                append_opac,
+                append_scales,
+            );
+        }
+
+        // Do some more processing. Important to do this last as otherwise you might mess up the correspondence
+        // of gradient <-> splat.
+
+        let start_count = splats.num_splats();
+
+        // Remove barely visible gaussians.
+        let alpha_mask = splats.opacity().lower_elem(self.config.cull_alpha_thresh);
+        prune_points(&mut splats, alpha_mask).await;
+
+        let alpha_pruned = start_count - splats.num_splats();
+
+        // Delete Gaussians with too large of a radius in world-units.
+        let scale_mask = splats
+            .log_scales
+            .val()
+            .exp()
+            .max_dim(1)
+            .squeeze(1)
+            .greater_elem(self.config.cull_scale_thresh);
+        prune_points(&mut splats, scale_mask).await;
+
+        let scale_pruned = start_count - splats.num_splats();
+
+        let refine_step = self.iter / self.config.refine_every;
+        if refine_step % self.config.reset_alpha_every_refine == 0 {
+            self.reset_opacity(&mut splats);
+        }
+
+        // Stats don't line up anymore so have to reset them.
+        self.reset_stats(splats.num_splats(), &device);
+
+        // TODO: Want to do state surgery and keep momenta for splats.
+        self.optim = self.opt_config.init();
+
+        let stats = RefineStats {
+            num_split: split_count,
+            num_cloned: clone_count,
+            num_transparent_pruned: alpha_pruned,
+            num_scale_pruned: scale_pruned,
+        };
+
+        (splats, stats)
     }
 }
 
