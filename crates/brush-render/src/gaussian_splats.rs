@@ -15,8 +15,7 @@ use safetensors::SafeTensors;
 
 #[derive(Config)]
 pub struct RandomSplatsConfig {
-    // period of steps where refinement is turned off
-    #[config(default = 50000)]
+    #[config(default = 10000)]
     init_count: usize,
     #[config(default = 0)]
     sh_degree: u32,
@@ -87,13 +86,18 @@ impl<B: Backend> Splats<B> {
         let sh_coeffs_dc = (colors - 0.5) / shaders::gather_grads::SH_C0;
 
         let sh_num = sh_coeffs_for_degree(sh_degree);
-        let sh_coeffs = Tensor::cat(
-            vec![
-                sh_coeffs_dc,
-                Tensor::zeros([num_points, sh_num as usize - 1, 3], device),
-            ],
-            1,
-        );
+        let sh_coeffs = if sh_num == 1 {
+            // Can't concatenate with 0 sized tensor.
+            sh_coeffs_dc
+        } else {
+            Tensor::cat(
+                vec![
+                    sh_coeffs_dc,
+                    Tensor::zeros([num_points, sh_num as usize - 1, 3], device),
+                ],
+                1,
+            )
+        };
 
         let init_rotation = Tensor::<_, 1>::from_floats([1.0, 0.0, 0.0, 0.0], device)
             .unsqueeze::<2>()

@@ -45,7 +45,7 @@ impl ViewerPanel for LoadDataPanel {
         ui.heading("Train settings");
 
         ui.label("Spherical Harmonics Degree:");
-        ui.add(Slider::new(&mut self.sh_degree, 1..=5));
+        ui.add(Slider::new(&mut self.sh_degree, 0..=4));
 
         let mut limit_res = self.max_train_resolution.is_some();
         if ui
