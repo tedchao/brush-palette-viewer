@@ -95,13 +95,18 @@ zip = { version = "2.1.3", default-features = false, features = ["deflate"] }
 
 [patch."https://github.com/tracel-ai/burn"]
 # Uncomment this to use local burn.
-burn = { path = "../burn/crates/burn" }
-burn-jit = { path = "../burn/crates/burn-jit" }
-burn-wgpu = { path = "../burn/crates/burn-wgpu" }
+# burn = { path = "../burn/crates/burn" }
+# burn-jit = { path = "../burn/crates/burn-jit" }
+# burn-wgpu = { path = "../burn/crates/burn-wgpu" }
+
+# Need some fixes which aren't quite at head currently. These will land soon.
+burn = { git = "https://github.com/ArthurBrussee/burn", branch = "temp-head" }
+burn-jit = { git = "https://github.com/ArthurBrussee/burn", branch = "temp-head" }
+burn-wgpu = { git = "https://github.com/ArthurBrussee/burn", branch = "temp-head" }
 
 [patch."https://github.com/tracel-ai/cubecl"]
-cubecl = { path = "../cubecl/crates/cubecl" }
-cubecl-common = { path = "../cubecl/crates/cubecl-common" }
+# cubecl = { path = "../cubecl/crates/cubecl" }
+# cubecl-common = { path = "../cubecl/crates/cubecl-common" }
 
 [patch.crates-io]
 # Override wgpu branch to force branch that includes float atomics.
