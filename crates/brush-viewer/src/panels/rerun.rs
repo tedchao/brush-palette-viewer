@@ -26,7 +26,7 @@ pub struct VisualizeTools {
 impl VisualizeTools {
     pub fn new() -> Self {
         // Spawn rerun - creating this is already explicitly done by a user.
-        let rec = rerun::RecordingStreamBuilder::new("Brush").spawn().ok();
+        let rec = rerun::RecordingStreamBuilder::new("Brush").connect().ok();
 
         let (queue_send, queue_receive) = channel::unbounded();
 
@@ -468,31 +468,11 @@ impl ViewerPanel for RerunPanel {
         let mut limit_eval_views = self.eval_view_count.is_some();
         ui.checkbox(&mut limit_eval_views, "Limit eval views");
         if limit_eval_views != self.eval_view_count.is_some() {
-            self.eval_view_count = if limit_eval_views {
-                Some(
-                    context
-                        .dataset
-                        .eval
-                        .as_ref()
-                        .map_or(0, |eval| eval.views.len()),
-                )
-            } else {
-                None
-            };
+            self.eval_view_count = if limit_eval_views { Some(4) } else { None };
         }
 
         if let Some(count) = self.eval_view_count.as_mut() {
-            ui.add(
-                egui::Slider::new(
-                    count,
-                    1..=context
-                        .dataset
-                        .eval
-                        .as_ref()
-                        .map_or(1, |eval| eval.views.len()),
-                )
-                .text("Eval view count"),
-            );
+            ui.add(egui::Slider::new(count, 1..=100).text("Eval view count"));
         }
 
         let mut visualize_splats = self.visualize_splats_every.is_some();
