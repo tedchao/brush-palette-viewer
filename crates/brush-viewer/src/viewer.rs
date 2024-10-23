@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{pin::Pin, sync::Arc};
 
 use async_fn_stream::try_fn_stream;
 use async_std::{
@@ -92,8 +92,8 @@ fn process_loop(
     train_receiver: Receiver<TrainMessage>,
     load_data_args: LoadDatasetArgs,
     load_init_args: LoadInitArgs,
-) -> impl Stream<Item = anyhow::Result<ViewerMessage>> {
-    try_fn_stream(|emitter| async move {
+) -> Pin<Box<impl Stream<Item = anyhow::Result<ViewerMessage>>>> {
+    let stream = try_fn_stream(|emitter| async move {
         let _ = emitter.emit(ViewerMessage::PickFile).await;
         let picked = rrfd::pick_file().await?;
 
@@ -134,7 +134,9 @@ fn process_loop(
         }
 
         Ok(())
-    })
+    });
+
+    Box::pin(stream)
 }
 
 impl ViewerContext {
@@ -170,6 +172,7 @@ impl ViewerContext {
         load_init_args: LoadInitArgs,
     ) {
         let device = self.device.clone();
+        log::info!("Start data load");
 
         // create a channel for the train loop.
         let (train_sender, train_receiver) = async_std::channel::unbounded();
@@ -186,13 +189,11 @@ impl ViewerContext {
 
         let fut = async move {
             // Map errors to a viewer message containing thee error.
-            let stream = process_loop(device, train_receiver, load_data_args, load_init_args).map(
-                |message| match message {
-                    Ok(message) => message,
+            let mut stream = process_loop(device, train_receiver, load_data_args, load_init_args)
+                .map(|m| match m {
+                    Ok(m) => m,
                     Err(e) => ViewerMessage::Error(Arc::new(e)),
-                },
-            );
-            let mut stream = std::pin::pin!(stream);
+                });
 
             // Loop until there are no more messages, processing is done.
             while let Some(m) = stream.next().await {
