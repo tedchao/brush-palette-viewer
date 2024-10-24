@@ -335,6 +335,7 @@ impl Backend for PrimaryBackend {
         img_size: glam::UVec2,
         means: Tensor<Self, 2>,
         _xy_dummy: Tensor<Self, 2>,
+        _xy_norm_dummy: Tensor<Self, 1>,
         log_scales: Tensor<Self, 2>,
         quats: Tensor<Self, 2>,
         sh_coeffs: Tensor<Self, 3>,
@@ -378,6 +379,7 @@ impl<C: CheckpointStrategy> Backend for Autodiff<PrimaryBackend, C> {
         img_size: glam::UVec2,
         means: Tensor<Self, 2>,
         xy_dummy: Tensor<Self, 2>,
+        xy_norm_dummy: Tensor<Self, 1>,
         log_scales: Tensor<Self, 2>,
         quats: Tensor<Self, 2>,
         sh_coeffs: Tensor<Self, 3>,
@@ -389,6 +391,7 @@ impl<C: CheckpointStrategy> Backend for Autodiff<PrimaryBackend, C> {
         // in the future.
         let means = means.into_primitive().tensor();
         let xy_dummy = xy_dummy.into_primitive().tensor();
+        let xy_norm_dummy = xy_norm_dummy.into_primitive().tensor();
         let log_scales = log_scales.into_primitive().tensor();
         let quats = quats.into_primitive().tensor();
         let sh_coeffs = sh_coeffs.into_primitive().tensor();
@@ -412,6 +415,7 @@ impl<C: CheckpointStrategy> Backend for Autodiff<PrimaryBackend, C> {
             .prepare::<C>([
                 means.clone().node,
                 xy_dummy.clone().node,
+                xy_norm_dummy.clone().node,
                 log_scales.clone().node,
                 quats.clone().node,
                 sh_coeffs.clone().node,
@@ -452,12 +456,12 @@ impl<C: CheckpointStrategy> Backend for Autodiff<PrimaryBackend, C> {
     }
 }
 
-impl Backward<PrimaryBackend, 6> for RenderBackwards {
+impl Backward<PrimaryBackend, 7> for RenderBackwards {
     type State = GaussianBackwardState;
 
     fn backward(
         self,
-        ops: Ops<Self::State, 6>,
+        ops: Ops<Self::State, 7>,
         grads: &mut Gradients,
         checkpointer: &mut Checkpointer,
     ) {
@@ -482,7 +486,7 @@ impl Backward<PrimaryBackend, 6> for RenderBackwards {
 
         let num_points = means.shape.dims[0];
 
-        let (v_xys, v_xys_global, v_conics, v_coeffs, v_opacities) = {
+        let (v_xys, v_xys_global, v_xys_norm, v_conics, v_coeffs, v_opacities) = {
             let tile_bounds = uvec2(
                 img_size.x.div_ceil(shaders::helpers::TILE_WIDTH),
                 img_size.y.div_ceil(shaders::helpers::TILE_WIDTH),
@@ -535,7 +539,7 @@ impl Backward<PrimaryBackend, 6> for RenderBackwards {
             );
 
             let v_xys_global = PrimaryBackend::float_zeros([num_points, 2].into(), device);
-
+            let v_xys_norm = PrimaryBackend::float_zeros([num_points].into(), device);
             unsafe {
                 client.execute_unchecked(
                     GatherGrads::task(),
@@ -550,11 +554,19 @@ impl Backward<PrimaryBackend, 6> for RenderBackwards {
                         v_coeffs.handle.clone().binding(),
                         v_opacities.handle.clone().binding(),
                         v_xys_global.handle.clone().binding(),
+                        v_xys_norm.handle.clone().binding(),
                     ],
                 );
             }
 
-            (v_xys_local, v_xys_global, v_conics, v_coeffs, v_opacities)
+            (
+                v_xys_local,
+                v_xys_global,
+                v_xys_norm,
+                v_conics,
+                v_coeffs,
+                v_opacities,
+            )
         };
 
         // Create tensors to hold gradients.
@@ -586,7 +598,7 @@ impl Backward<PrimaryBackend, 6> for RenderBackwards {
 
         // Register gradients for parent nodes (This code is already skipped entirely
         // if no parent nodes require gradients).
-        let [mean_parent, xys_parent, log_scales_parent, quats_parent, coeffs_parent, raw_opacity_parent] =
+        let [mean_parent, xys_parent, xys_norm_parent, log_scales_parent, quats_parent, coeffs_parent, raw_opacity_parent] =
             ops.parents;
 
         if let Some(node) = mean_parent {
@@ -596,6 +608,10 @@ impl Backward<PrimaryBackend, 6> for RenderBackwards {
         // Register the gradients for the dummy xy input.
         if let Some(node) = xys_parent {
             grads.register::<PrimaryBackend>(node.id, v_xys_global);
+        }
+
+        if let Some(node) = xys_norm_parent {
+            grads.register::<PrimaryBackend>(node.id, v_xys_norm);
         }
 
         if let Some(node) = log_scales_parent {
@@ -654,6 +670,7 @@ mod tests {
         let num_points = 8;
         let means = Tensor::<DiffBack, 2, _>::zeros([num_points, 3], &device);
         let xy_dummy = Tensor::<DiffBack, 2, _>::zeros([num_points, 2], &device);
+        let xy_norm_dummy = Tensor::<DiffBack, 1, _>::zeros([num_points], &device);
         let log_scales = Tensor::ones([num_points, 3], &device) * 2.0;
         let quats = Tensor::<_, 1, _>::from_floats(glam::Quat::IDENTITY.to_array(), &device)
             .unsqueeze_dim(0)
@@ -665,6 +682,7 @@ mod tests {
             img_size,
             means,
             xy_dummy,
+            xy_norm_dummy,
             log_scales,
             quats,
             sh_coeffs,

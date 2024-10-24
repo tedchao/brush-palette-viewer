@@ -218,9 +218,6 @@ where
     ) -> Result<(Splats<B>, TrainStepStats<B>), anyhow::Error> {
         let mut splats = splats;
 
-        let device = &splats.means.device();
-        // let _span = trace_span!("Train step").entered();
-
         let [batch_size, img_h, img_w, _] = batch.gt_images.dims();
 
         let (pred_images, auxes, loss) = {
@@ -278,25 +275,19 @@ where
         );
 
         trace_span!("Housekeeping", sync_burn = true).in_scope(|| {
-            let xys_grad = Tensor::from_inner(
+            // Get the xy gradient norm from the dummy tensor.
+            let xy_norm_grad = Tensor::from_inner(
                 splats
-                    .xys_dummy
+                    .xys_norm_dummy
                     .grad_remove(&mut grads)
                     .expect("XY gradients need to be calculated."),
             );
 
-            // From normalized to pixels.
-            let xys_grad = xys_grad
-                * Tensor::<_, 1>::from_floats([img_w as f32 / 2.0, img_h as f32 / 2.0], device)
-                    .reshape([1, 2]);
-
-            let grad_mag = xys_grad.powf_scalar(2.0).sum_dim(1).squeeze(1).sqrt();
-
             // TODO: Burn really should implement +=
             if self.iter > self.config.warmup_steps {
-                self.grad_2d_accum = self.grad_2d_accum.clone() + grad_mag.clone();
+                self.grad_2d_accum = self.grad_2d_accum.clone() + xy_norm_grad.clone();
                 self.xy_grad_counts =
-                    self.xy_grad_counts.clone() + grad_mag.greater_elem(0.0).int();
+                    self.xy_grad_counts.clone() + xy_norm_grad.greater_elem(0.0).int();
             }
         });
 

@@ -146,6 +146,7 @@ fn update_splats<B: Backend>(
             raw_opacity: Param::initialized(ParamId::new(), raw_opacities),
             log_scales: Param::initialized(ParamId::new(), log_scales),
             xys_dummy: Tensor::zeros([n_splats, 2], device).require_grad(),
+            xys_norm_dummy: Tensor::zeros([n_splats], device).require_grad(),
         };
         init.norm_rotations();
         // Create a new splat instance if it hasn't been initialzized yet.

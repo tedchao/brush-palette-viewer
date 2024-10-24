@@ -11,6 +11,7 @@
 @group(0) @binding(6) var<storage, read_write> v_coeffs: array<f32>;
 @group(0) @binding(7) var<storage, read_write> v_opacs: array<f32>;
 @group(0) @binding(8) var<storage, read_write> v_xy_global: array<vec2f>;
+@group(0) @binding(9) var<storage, read_write> v_xy_norm: array<f32>;
 
 const SH_C0: f32 = 0.2820947917738781f;
 
@@ -227,5 +228,8 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     v_opacs[global_gid] = v_opac;
 
     // Scatter the xy gradients, as later operations need them to be global.
-    v_xy_global[global_gid] = v_xy_local[compact_gid];
+    let v_xy_local = v_xy_local[compact_gid];
+    v_xy_global[global_gid] = v_xy_local;
+
+    v_xy_norm[global_gid] = length(v_xy_local * vec2f(f32(uniforms.img_size.x) / 2.0, f32(uniforms.img_size.y) / 2.0));
 }

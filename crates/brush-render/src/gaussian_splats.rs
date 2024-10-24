@@ -31,6 +31,9 @@ pub struct Splats<B: Backend> {
 
     // Dummy input to track screenspace gradient.
     pub xys_dummy: Tensor<B, 2>,
+
+    // Dummy input to track screenspace gradient magnitude
+    pub xys_norm_dummy: Tensor<B, 1>,
 }
 
 pub fn inverse_sigmoid(x: f32) -> f32 {
@@ -154,6 +157,7 @@ impl<B: Backend> Splats<B> {
             raw_opacity: Param::initialized(ParamId::new(), raw_opacity.detach().require_grad()),
             log_scales: Param::initialized(ParamId::new(), log_scales.detach().require_grad()),
             xys_dummy: Tensor::zeros([num_points, 2], device).require_grad(),
+            xys_norm_dummy: Tensor::zeros([num_points], device).require_grad(),
         }
     }
 
@@ -176,6 +180,7 @@ impl<B: Backend> Splats<B> {
             img_size,
             self.means.val(),
             self.xys_dummy.clone(),
+            self.xys_norm_dummy.clone(),
             self.log_scales.val(),
             self.rotation.val(),
             self.sh_coeffs.val(),
