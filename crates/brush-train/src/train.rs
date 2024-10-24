@@ -49,7 +49,7 @@ pub struct TrainConfig {
 
     // threshold of positional gradient norm for densifying gaussians
     // TODO: Abs grad.
-    #[config(default = 0.00025)]
+    #[config(default = 0.0002)]
     densify_grad_thresh: f32,
 
     // below this size, gaussians are *duplicated*, otherwise split.

@@ -55,7 +55,7 @@ impl ViewerPanel for LoadDataPanel {
             let decay = 1e-2f64.powf(1.0 / total_steps as f64);
 
             let grad_thresh = match self.quality {
-                Quality::Normal => 0.00025,
+                Quality::Normal => 0.0002,
                 Quality::Low => 0.00035,
             };
 
