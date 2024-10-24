@@ -185,8 +185,12 @@ pub(crate) fn train_loop(
 
             // On the first iteration, wait for the backend to catch up. It likely kicks off a flurry of autotuning,
             // and on web where this isn't cached causes a real slowdown. Autotuning takes forever as the GPU is
-            // busy with our work.
-            if trainer.iter == 1 {
+            // busy with our work. This is only needed on wasm - on native autotuning is
+            // synchronous anyway.
+            if cfg!(target_family = "wasm") && trainer.iter == 1 {
+                // Wait 1 second for all autotuning kernels to be submitted
+                task::sleep(web_time::Duration::from_secs(1)).await;
+                // Wait for them all to be done.
                 let client = WgpuRuntime::client(&device);
                 client.sync().await;
             }
