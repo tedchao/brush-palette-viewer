@@ -94,6 +94,18 @@ Rendering performance is expected to be very competitive with gsplat, while trai
 
 For additional profiling, you can use [tracy](https://github.com/wolfpld/tracy) and run with `cargo run --release --feature=tracy`.
 
+### Quality
+
+Quality is similair, but still somewhat lagging behind, to the origina gaussian splatting implementation
+
+| Scene      | Brush   | GS paper|
+|------------|---------|---------|
+| Bicycle@7K | 23.2    | 23.604  |
+| Garden@7k  | 25.8    | 26.245  |
+| Stump@7k   | 24.9    | 25.709  |
+
+This is likely due to some suboptimal splitting/cloning heuristics.
+
 ### Async
 
 To be compatible with the web, the main training loop is written as an async stream, using [`async_std`](https://github.com/async-rs/async-std). On native, multiple threads execute tasks (eg. loading dataset images), while on the web everything is ran on a single thread.
