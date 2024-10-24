@@ -1,12 +1,15 @@
 # Brush - universal splats
 
-https://github.com/user-attachments/assets/4bf7920e-da16-4c01-a37a-82ed1469f15b
+https://github.com/user-attachments/assets/b7f55b9c-8632-49f9-b34b-d5de52a7a8b0
 
 Brush is a 3D reconstruction engine using [Gaussian splatting](https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/), aiming to be highly portable, flexible and fast. It can render and train on a wide range of systems: macOS/windows/linux, on AMD/Nvidia, on Android, and in a browser. It currently roughly matches reconstruction quality in the original Gaussian splatting paper.
 
 To be portable, brush is built only using WebGPU compatible tech, that can run anywhere! It uses the [Burn](https://github.com/tracel-ai/burn) framework, which has a portable [`wgpu`](https://github.com/gfx-rs/wgpu) backend.
 
 This project is currently still a proof of concept and doesn't yet implement the many extensions to splatting that have been developed, nor is the performance close to optimal yet.
+
+[**Try the (experimental) web demo** <img src="https://cdn-icons-png.flaticon.com/256/888/888846.png" alt="chrome logo" width="20"/>
+](https://arthurbrussee.github.io/brush-demo)
 
 ## Features
 
@@ -19,9 +22,6 @@ While training you can interact with the splats and see their training dynamics 
 ## Web
 
 https://github.com/user-attachments/assets/4c70f892-cfd2-419f-8098-b0e20dba23c7
-
-[**Try the (experimental) web demo** <img src="https://cdn-icons-png.flaticon.com/256/888/888846.png" alt="chrome logo" width="16"/>
-](https://arthurbrussee.github.io/brush-demo)
 
 NOTE: This only works on Chrome 129+ currently. Firefox and Safari are hopefully supported [soon](https://caniuse.com/webgpu), but currently even firefox nightly and safari technical preview do not work.
 
