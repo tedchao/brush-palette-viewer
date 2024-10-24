@@ -18,6 +18,8 @@ While training you can interact with the splats and see their training dynamics 
 
 ## Web
 
+https://github.com/user-attachments/assets/4c70f892-cfd2-419f-8098-b0e20dba23c7
+
 [**Try the (experimental) web demo** <img src="https://cdn-icons-png.flaticon.com/256/888/888846.png" alt="chrome logo" width="16"/>
 ](https://arthurbrussee.github.io/brush-demo)
 
