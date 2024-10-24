@@ -22,12 +22,16 @@ use std::{
     pin::Pin,
     sync::Arc,
 };
+use zip::read::ZipFile;
+use zip::result::ZipError;
 use zip::ZipArchive;
 
 #[derive(Clone)]
 pub struct ZipData {
     data: Arc<Vec<u8>>,
 }
+
+type ZipReader = Cursor<ZipData>;
 
 impl AsRef<[u8]> for ZipData {
     fn as_ref(&self) -> &[u8] {
@@ -36,7 +40,7 @@ impl AsRef<[u8]> for ZipData {
 }
 
 impl ZipData {
-    pub fn open_for_read(&self) -> Cursor<ZipData> {
+    pub fn open_for_read(&self) -> ZipReader {
         Cursor::new(self.clone())
     }
 }
@@ -91,14 +95,39 @@ pub struct LoadInitArgs {
     pub sh_degree: u32,
 }
 
-pub(crate) fn normalized_path_string(path: &Path) -> String {
+pub(crate) fn normalized_path(path: &Path) -> PathBuf {
     Path::new(path)
         .components()
         .skip_while(|c| matches!(c, std::path::Component::CurDir))
         .collect::<PathBuf>()
-        .to_str()
-        .unwrap()
-        .replace(std::path::MAIN_SEPARATOR, "/")
+}
+
+pub(crate) fn archive_file_at_path<'a>(
+    path: &Path,
+    archive: &'a mut ZipArchive<ZipReader>,
+) -> Result<ZipFile<'a>, ZipError> {
+    let name = archive.file_names().find(|name| path == Path::new(name));
+    let Some(name) = name else {
+        return Err(ZipError::FileNotFound);
+    };
+    let name = name.to_owned();
+    archive.by_name(&name)
+}
+
+pub(crate) fn find_base_path(
+    search_path: &str,
+    archive: &ZipArchive<ZipReader>,
+) -> Option<PathBuf> {
+    for file in archive.file_names() {
+        let path = normalized_path(Path::new(file));
+        if path.ends_with(search_path) {
+            return path
+                .ancestors()
+                .nth(Path::new(search_path).components().count())
+                .map(|x| x.to_owned());
+        }
+    }
+    None
 }
 
 pub(crate) fn clamp_img_to_max_size(image: DynamicImage, max_size: u32) -> DynamicImage {
@@ -172,7 +201,7 @@ pub(crate) fn stream_fut_parallel<T: Send + 'static>(
 }
 
 pub fn read_dataset_views(
-    archive: ZipArchive<Cursor<ZipData>>,
+    archive: ZipArchive<ZipReader>,
     load_args: &LoadDatasetArgs,
 ) -> Result<DataStream<Dataset>> {
     let nerf = nerf_synthetic::read_dataset_views(archive.clone(), load_args);
@@ -187,7 +216,7 @@ pub fn read_dataset_views(
 }
 
 fn read_init_ply<B: Backend>(
-    mut archive: ZipArchive<Cursor<ZipData>>,
+    mut archive: ZipArchive<ZipReader>,
     device: &B::Device,
 ) -> Result<DataStream<Splats<B>>> {
     let data = archive
@@ -203,7 +232,7 @@ fn read_init_ply<B: Backend>(
 }
 
 pub fn read_dataset_init<B: Backend>(
-    archive: ZipArchive<Cursor<ZipData>>,
+    archive: ZipArchive<ZipReader>,
     device: &B::Device,
     load_args: &LoadInitArgs,
 ) -> Result<DataStream<Splats<B>>> {

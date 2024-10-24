@@ -7,13 +7,12 @@ use brush_train::scene::SceneView;
 use std::future::Future;
 use std::io::Cursor;
 use std::io::Read;
-use std::path::Path;
 use std::sync::Arc;
 use zip::ZipArchive;
 
-use crate::{
-    clamp_img_to_max_size, normalized_path_string, DataStream, Dataset, LoadDatasetArgs, ZipData,
-};
+use crate::archive_file_at_path;
+use crate::find_base_path;
+use crate::{clamp_img_to_max_size, DataStream, Dataset, LoadDatasetArgs, ZipData};
 
 #[derive(serde::Deserialize)]
 struct SyntheticScene {
@@ -32,17 +31,16 @@ fn read_transforms_file(
     name: &'static str,
     load_args: &LoadDatasetArgs,
 ) -> Result<Vec<impl Future<Output = anyhow::Result<SceneView>>>> {
-    let transform_fname = archive
-        .file_names()
-        .find(|x| x.ends_with(name))
-        .context("No transforms file")?
-        .to_owned();
-    let base_path = Path::new(&transform_fname)
-        .parent()
-        .unwrap_or(Path::new("./"))
-        .to_owned();
+    let base_path = find_base_path(name, &archive);
+
+    let Some(base_path) = base_path else {
+        anyhow::bail!("No transforms file found")
+    };
+
+    let transform_path = base_path.join(name);
+
     let transform_buf = {
-        let mut transforms_file = archive.by_name(&transform_fname)?;
+        let mut transforms_file = archive_file_at_path(&transform_path, &mut archive)?;
         let mut transform_buf = String::new();
         transforms_file.read_to_string(&mut transform_buf)?;
         transform_buf
@@ -74,12 +72,10 @@ fn read_transforms_file(
 
                 let (_, rotation, translation) = transform.to_scale_rotation_translation();
 
-                let image_path =
-                    normalized_path_string(&base_path.join(frame.file_path.to_owned() + ".png"));
+                let image_path = &base_path.join(frame.file_path.to_owned() + ".png");
 
                 let comp_span = tracing::trace_span!("Decompress image").entered();
-                let img_buffer = archive
-                    .by_name(&image_path)?
+                let img_buffer = archive_file_at_path(image_path, &mut archive)?
                     .bytes()
                     .collect::<Result<Vec<_>, _>>()?;
                 drop(comp_span);
@@ -111,7 +107,7 @@ fn read_transforms_file(
                     camera::focal_to_fov(camera::fov_to_focal(fovx, image.width()), image.height());
 
                 let view = SceneView {
-                    name: image_path,
+                    name: image_path.to_str().context("Invalid filename")?.to_owned(),
                     camera: Camera::new(
                         translation,
                         rotation,
