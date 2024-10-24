@@ -4,6 +4,7 @@ use crate::{
 };
 use burn_jit::cubecl::Runtime;
 use burn_wgpu::{WgpuDevice, WgpuRuntime};
+use std::collections::VecDeque;
 use web_time::Instant;
 
 pub(crate) struct StatsPanel {
@@ -11,6 +12,7 @@ pub(crate) struct StatsPanel {
 
     last_train_step: (Instant, u32),
     train_iter_per_s: f32,
+    train_iter_history: VecDeque<f32>,
     last_eval_psnr: Option<f32>,
 
     training_started: bool,
@@ -23,6 +25,7 @@ impl StatsPanel {
             device,
             last_train_step: (Instant::now(), 0),
             train_iter_per_s: 0.0,
+            train_iter_history: VecDeque::with_capacity(5),
             last_eval_psnr: None,
             training_started: false,
             num_splats: 0,
@@ -60,6 +63,7 @@ impl ViewerPanel for StatsPanel {
             ViewerMessage::StartLoading { training } => {
                 self.last_train_step = (Instant::now(), 0);
                 self.train_iter_per_s = 0.0;
+                self.train_iter_history.clear();
                 self.num_splats = 0;
                 self.last_eval_psnr = None;
                 self.training_started = training;
@@ -69,8 +73,17 @@ impl ViewerPanel for StatsPanel {
                 iter,
                 timestamp,
             } => {
-                self.train_iter_per_s = (iter - self.last_train_step.1) as f32
+                let current_iter_per_s = (iter - self.last_train_step.1) as f32
                     / (timestamp - self.last_train_step.0).as_secs_f32();
+
+                self.train_iter_history.push_back(current_iter_per_s);
+                if self.train_iter_history.len() > 25 {
+                    self.train_iter_history.pop_front();
+                }
+
+                self.train_iter_per_s = self.train_iter_history.iter().sum::<f32>()
+                    / self.train_iter_history.len() as f32;
+
                 self.last_train_step = (timestamp, iter);
             }
             ViewerMessage::Splats { iter: _, splats } => {
