@@ -59,9 +59,15 @@ impl ViewerPanel for LoadDataPanel {
                 Quality::Low => 0.00035,
             };
 
+            let refine_every = match self.quality {
+                Quality::Normal => 100,
+                Quality::Low => 200,
+            };
+
             let config = TrainConfig::new(ExponentialLrSchedulerConfig::new(lr_max, decay))
                 .with_total_steps(total_steps)
-                .with_densify_grad_thresh(grad_thresh);
+                .with_densify_grad_thresh(grad_thresh)
+                .with_refine_every(refine_every);
 
             context.start_data_load(load_data_args, load_init_args, config);
         }

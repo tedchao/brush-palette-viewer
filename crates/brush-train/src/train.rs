@@ -26,7 +26,7 @@ pub struct TrainConfig {
     warmup_steps: u32,
 
     // period of steps where gaussians are culled and densified
-    #[config(default = 200)]
+    #[config(default = 100)]
     refine_every: u32,
 
     #[config(default = 0.5)]
