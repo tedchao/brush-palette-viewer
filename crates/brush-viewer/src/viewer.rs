@@ -10,8 +10,8 @@ use brush_dataset::{self, splat_import, Dataset, LoadDatasetArgs, LoadInitArgs, 
 use brush_render::camera::Camera;
 use brush_render::gaussian_splats::Splats;
 use brush_render::PrimaryBackend;
-use brush_train::eval::EvalStats;
 use brush_train::train::TrainStepStats;
+use brush_train::{eval::EvalStats, train::TrainConfig};
 use burn::backend::Autodiff;
 use burn_wgpu::{RuntimeOptions, WgpuDevice};
 use eframe::egui;
@@ -92,6 +92,7 @@ fn process_loop(
     train_receiver: Receiver<TrainMessage>,
     load_data_args: LoadDatasetArgs,
     load_init_args: LoadInitArgs,
+    train_config: TrainConfig,
 ) -> Pin<Box<impl Stream<Item = anyhow::Result<ViewerMessage>>>> {
     let stream = try_fn_stream(|emitter| async move {
         let _ = emitter.emit(ViewerMessage::PickFile).await;
@@ -124,6 +125,7 @@ fn process_loop(
                 train_receiver,
                 load_data_args,
                 load_init_args,
+                train_config,
             );
             let mut stream = std::pin::pin!(stream);
             while let Some(message) = stream.next().await {
@@ -170,6 +172,7 @@ impl ViewerContext {
         &mut self,
         load_data_args: LoadDatasetArgs,
         load_init_args: LoadInitArgs,
+        train_config: TrainConfig,
     ) {
         let device = self.device.clone();
         log::info!("Start data load");
@@ -189,11 +192,17 @@ impl ViewerContext {
 
         let fut = async move {
             // Map errors to a viewer message containing thee error.
-            let mut stream = process_loop(device, train_receiver, load_data_args, load_init_args)
-                .map(|m| match m {
-                    Ok(m) => m,
-                    Err(e) => ViewerMessage::Error(Arc::new(e)),
-                });
+            let mut stream = process_loop(
+                device,
+                train_receiver,
+                load_data_args,
+                load_init_args,
+                train_config,
+            )
+            .map(|m| match m {
+                Ok(m) => m,
+                Err(e) => ViewerMessage::Error(Arc::new(e)),
+            });
 
             // Loop until there are no more messages, processing is done.
             while let Some(m) = stream.next().await {

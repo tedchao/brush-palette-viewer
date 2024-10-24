@@ -10,7 +10,7 @@ use brush_render::{
     PrimaryBackend,
 };
 use brush_train::train::{SplatTrainer, TrainConfig};
-use burn::{lr_scheduler::exponential::ExponentialLrSchedulerConfig, module::AutodiffModule};
+use burn::module::AutodiffModule;
 use burn_jit::cubecl::Runtime;
 use burn_wgpu::{WgpuDevice, WgpuRuntime};
 use rand::SeedableRng;
@@ -32,6 +32,7 @@ pub(crate) fn train_loop(
     receiver: Receiver<TrainMessage>,
     load_data_args: LoadDatasetArgs,
     load_init_args: LoadInitArgs,
+    config: TrainConfig,
 ) -> impl Stream<Item = anyhow::Result<ViewerMessage>> {
     try_fn_stream(|emitter| async move {
         let batch_size = 1;
@@ -91,14 +92,6 @@ pub(crate) fn train_loop(
 
         let train_scene = dataset.train.clone();
         let eval_scene = dataset.eval.clone();
-
-        let total_steps = 30000;
-
-        let scene_extent = train_scene.bounds(0.0, 0.0).extent.length() as f64;
-        let lr_max = 1.6e-4 * scene_extent;
-        let decay = 1e-2f64.powf(1.0 / total_steps as f64);
-        let config = TrainConfig::new(ExponentialLrSchedulerConfig::new(lr_max, decay))
-            .with_total_steps(total_steps);
 
         let mut dataloader = SceneLoader::new(&train_scene, batch_size, seed, &device);
         let mut trainer = SplatTrainer::new(splats.num_splats(), &config, &splats);

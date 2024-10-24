@@ -18,6 +18,7 @@ impl<B: Backend> SceneLoader<B> {
         let (tx, rx) = async_std::channel::bounded(5);
         let device = device.clone();
         let len = scene.views.len() as u64;
+        let scene_extent = scene.bounds(0.0, 0.0).extent.length() as f64;
 
         let fut = async move {
             // Nb: Index works as a "seed" to the dataloader.
@@ -43,6 +44,7 @@ impl<B: Backend> SceneLoader<B> {
                 let scene_batch = SceneBatch {
                     gt_images: batch_tensor,
                     gt_views,
+                    scene_extent,
                 };
 
                 if tx.send(scene_batch).await.is_err() {

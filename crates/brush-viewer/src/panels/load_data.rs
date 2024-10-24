@@ -1,12 +1,20 @@
 use crate::{viewer::ViewerContext, ViewerPanel};
 use brush_dataset::{LoadDatasetArgs, LoadInitArgs};
+use brush_train::train::TrainConfig;
+use burn::lr_scheduler::exponential::ExponentialLrSchedulerConfig;
 use egui::Slider;
+
+enum Quality {
+    Low,
+    Normal,
+}
 
 pub(crate) struct LoadDataPanel {
     max_train_resolution: Option<u32>,
     max_frames: Option<usize>,
     eval_split_every: Option<usize>,
     sh_degree: u32,
+    quality: Quality,
 }
 
 impl LoadDataPanel {
@@ -17,6 +25,7 @@ impl LoadDataPanel {
             max_frames: None,
             eval_split_every: Some(8),
             sh_degree: 3,
+            quality: Quality::Normal,
         }
     }
 }
@@ -38,7 +47,23 @@ impl ViewerPanel for LoadDataPanel {
             let load_init_args = LoadInitArgs {
                 sh_degree: self.sh_degree,
             };
-            context.start_data_load(load_data_args, load_init_args);
+
+            // Slightly odd to manage train config here but it'll do for now.
+            let total_steps = 30000;
+
+            let lr_max = 1.6e-4;
+            let decay = 1e-2f64.powf(1.0 / total_steps as f64);
+
+            let grad_thresh = match self.quality {
+                Quality::Normal => 0.00025,
+                Quality::Low => 0.00035,
+            };
+
+            let config = TrainConfig::new(ExponentialLrSchedulerConfig::new(lr_max, decay))
+                .with_total_steps(total_steps)
+                .with_densify_grad_thresh(grad_thresh);
+
+            context.start_data_load(load_data_args, load_init_args, config);
         }
 
         ui.add_space(10.0);
@@ -46,6 +71,22 @@ impl ViewerPanel for LoadDataPanel {
 
         ui.label("Spherical Harmonics Degree:");
         ui.add(Slider::new(&mut self.sh_degree, 0..=4));
+
+        ui.horizontal(|ui| {
+            ui.label("Quality:");
+            if ui
+                .selectable_label(matches!(self.quality, Quality::Low), "Low")
+                .clicked()
+            {
+                self.quality = Quality::Low;
+            }
+            if ui
+                .selectable_label(matches!(self.quality, Quality::Normal), "Normal")
+                .clicked()
+            {
+                self.quality = Quality::Normal;
+            }
+        });
 
         let mut limit_res = self.max_train_resolution.is_some();
         if ui

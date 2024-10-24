@@ -49,7 +49,7 @@ pub struct TrainConfig {
 
     // threshold of positional gradient norm for densifying gaussians
     // TODO: Abs grad.
-    #[config(default = 0.0002)]
+    #[config(default = 0.00025)]
     densify_grad_thresh: f32,
 
     // below this size, gaussians are *duplicated*, otherwise split.
@@ -62,6 +62,9 @@ pub struct TrainConfig {
     // TODO: Up this to 11 when convolutions aren't as slow anymore
     #[config(default = 5)]
     ssim_window_size: usize,
+
+    #[config(default = true)]
+    scale_mean_lr_by_extent: bool,
 
     // Learning rates.
     lr_mean: ExponentialLrSchedulerConfig,
@@ -91,6 +94,7 @@ pub struct TrainConfig {
 pub struct SceneBatch<B: Backend> {
     pub gt_images: Tensor<B, 4>,
     pub gt_views: Vec<SceneView>,
+    pub scene_extent: f64,
 }
 
 #[derive(Clone)]
@@ -266,8 +270,9 @@ where
 
         let mut grads = trace_span!("Backward pass", sync_burn = true).in_scope(|| loss.backward());
 
+        // TODO: Should scale lr be scales by scene scale as well?
         let (lr_mean, lr_rotation, lr_scale, lr_coeffs, lr_opac) = (
-            self.sched_mean.step(),
+            self.sched_mean.step() * batch.scene_extent,
             self.config.lr_rotation,
             self.config.lr_scale,
             self.config.lr_coeffs_dc,
