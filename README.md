@@ -2,18 +2,18 @@
 
 https://github.com/user-attachments/assets/b7f55b9c-8632-49f9-b34b-d5de52a7a8b0
 
-Brush is a 3D reconstruction engine using [Gaussian splatting](https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/), aiming to be highly portable, flexible and fast. It can render and train on a wide range of systems: macOS/windows/linux, on AMD/Nvidia, on Android, and in a browser. It currently roughly matches reconstruction quality in the original Gaussian splatting paper.
+Brush is a 3D reconstruction engine using [Gaussian splatting](https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/), aiming to be highly portable, flexible and fast. It can render and train on a wide range of systems: **macOS/windows/linux**, on **AMD/Nvidia** cards, on **Android**, and in a **browser**. To achieve this, brush is built only using WebGPU compatible tech, that can run anywhere! It uses the [Burn](https://github.com/tracel-ai/burn) framework, which has a portable [`wgpu`](https://github.com/gfx-rs/wgpu) backend.
 
-To be portable, brush is built only using WebGPU compatible tech, that can run anywhere! It uses the [Burn](https://github.com/tracel-ai/burn) framework, which has a portable [`wgpu`](https://github.com/gfx-rs/wgpu) backend.
-
-This project is currently still a proof of concept and doesn't yet implement the many extensions to splatting that have been developed, nor is the performance close to optimal yet.
+This project is currently a proof of concept and doesn't yet implement any extensions to splatting that have been developed since, nor is the performance optimal yet.
 
 [**Try the (experimental) web demo** <img src="https://cdn-icons-png.flaticon.com/256/888/888846.png" alt="chrome logo" width="20"/>
 ](https://arthurbrussee.github.io/brush-demo)
 
+_NOTE: This only works on desktop Chrome 129+ currently. Firefox and Safari are hopefully supported [soon](https://caniuse.com/webgpu), but currently even firefox nightly and safari technical preview do not work._
+
 ## Features
 
-The current demo app can load pretrained ply files and can load datasets of images and viewpoints to train on. Currently only two formats are supported. A .zip file containing:
+The demo UI can load pretrained ply files and can load datasets of images and viewpoints to train on. Currently only two formats are supported. A .zip file containing:
 - A transform_train.json and images, like the synthetic nerf scene dataset.
 - An `images` & `sparse` folder with [`COLMAP`](https://github.com/colmap/colmap) data
 
@@ -23,15 +23,13 @@ While training you can interact with the splats and see their training dynamics 
 
 https://github.com/user-attachments/assets/4c70f892-cfd2-419f-8098-b0e20dba23c7
 
-NOTE: This only works on Chrome 129+ currently. Firefox and Safari are hopefully supported [soon](https://caniuse.com/webgpu), but currently even firefox nightly and safari technical preview do not work.
-
 ## Rerun
 
 https://github.com/user-attachments/assets/f679fec0-935d-4dd2-87e1-c301db9cdc2c
 
 While training, additional data can be visualized with the excellent [rerun](https://rerun.io/). To install rerun on your machine, please follow their [instructions](https://rerun.io/docs/getting-started/installing-viewer). Open the ./brush_blueprint.rbl in the viewer for best results.
 
-## Android
+## Mobile
 
 https://github.com/user-attachments/assets/d6751cb3-ff58-45a4-8321-77d3b0a7b051
 
@@ -39,7 +37,7 @@ Live training on a pixel 7
 
 # Why
 
-My background is in "traditional" computer graphics. Machine Learning for rendering space is really exciting and has lots of potential, but also almost all current tools are at odds with realtime rendering. Rendering requires low latency, usually involve dynamic shapes, and it's not very pleasant to attempt to ship apps with massive PyTorch/Jax/CUDA deps calling out to layers of python in a rendering loop. The usual fix is to write a seperate training and inference application. Brush on the other hand, written in rust using wgpu and burn, can produce simple dependency free binaries, and can run on nearly all devices.
+Machine Learned real time rendering space has a a ton of potential, but at the same time most popular ML tools are at odds with realtime rendering. Rendering requires low latency, usually involve dynamic shapes, and it's not pleasant to attempt to ship apps with large PyTorch/Jax/CUDA deps calling out to python in a rendering loop. The usual fix is to write a seperate training and inference application. Brush on the other hand, written in rust using `wgpu` and `burn`, can produce simple dependency free binaries, and can run on nearly all devices.
 
 # Getting started
 Install rust 1.81+ and run `cargo run` or `cargo run --release`. You can run tests with `cargo test --all`. Brush uses the wonderful [rerun](rerun.io) for additional visualizations while training.
