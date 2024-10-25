@@ -7,7 +7,7 @@ Brush is a 3D reconstruction engine, using [Gaussian splatting](https://repo-sam
 [**Try the (experimental) web demo** <img src="https://cdn-icons-png.flaticon.com/256/888/888846.png" alt="chrome logo" width="24"/>
 ](https://arthurbrussee.github.io/brush-demo)
 
-_NOTE: This only works on desktop Chrome 129+ currently. Firefox and Safari are hopefully supported [soon](https://caniuse.com/webgpu), but currently even firefox nightly and safari technical preview do not work_
+_NOTE: This only works on desktop Chrome 129+ currently (Oct 2024). Firefox and Safari are hopefully supported [soon](https://caniuse.com/webgpu), but currently even firefox nightly and safari technical preview do not work_
 
 ## Features
 
