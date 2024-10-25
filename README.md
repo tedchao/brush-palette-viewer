@@ -2,22 +2,20 @@
 
 https://github.com/user-attachments/assets/b7f55b9c-8632-49f9-b34b-d5de52a7a8b0
 
-Brush is a 3D reconstruction engine using [Gaussian splatting](https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/), aiming to be highly portable, flexible and fast. It can render and train on a wide range of systems: **macOS/windows/linux**, on **AMD/Nvidia** cards, on **Android**, and in a **browser**. To achieve this, brush is built only using WebGPU compatible tech, that can run anywhere! It uses the [Burn](https://github.com/tracel-ai/burn) framework, which has a portable [`wgpu`](https://github.com/gfx-rs/wgpu) backend.
+Brush is a 3D reconstruction engine, using [Gaussian splatting](https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/). It aims to be highly portable, flexible and fast. 3D reconstruction shouldn't require special hardware. Brush can render and train on a wide range of systems: **macOS/windows/linux**, **AMD/Nvidia** cards, **Android**, and in a **browser**. To achieve this, brush is built using WebGPU compatible tech, that can run practically anywhere! It uses the [Burn](https://github.com/tracel-ai/burn) framework, which has a portable [`wgpu`](https://github.com/gfx-rs/wgpu) backend. This project is currently still a proof of concept, and doesn't yet implement any of the extensions to gaussian splatting that have been developed, nor is the performance optimal yet.
 
-This project is currently a proof of concept and doesn't yet implement any extensions to splatting that have been developed since, nor is the performance optimal yet.
-
-[**Try the (experimental) web demo** <img src="https://cdn-icons-png.flaticon.com/256/888/888846.png" alt="chrome logo" width="20"/>
+[**Try the (experimental) web demo** <img src="https://cdn-icons-png.flaticon.com/256/888/888846.png" alt="chrome logo" width="24"/>
 ](https://arthurbrussee.github.io/brush-demo)
 
-_NOTE: This only works on desktop Chrome 129+ currently. Firefox and Safari are hopefully supported [soon](https://caniuse.com/webgpu), but currently even firefox nightly and safari technical preview do not work._
+_NOTE: This only works on desktop Chrome 129+ currently. Firefox and Safari are hopefully supported [soon](https://caniuse.com/webgpu), but currently even firefox nightly and safari technical preview do not work_
 
 ## Features
 
-The demo UI can load pretrained ply files and can load datasets of images and viewpoints to train on. Currently only two formats are supported. A .zip file containing:
+The demo can load pretrained ply splats, and can load datasets to train on. Currently only two formats are supported. A .zip file containing:
 - A transform_train.json and images, like the synthetic nerf scene dataset.
 - An `images` & `sparse` folder with [`COLMAP`](https://github.com/colmap/colmap) data
 
-While training you can interact with the splats and see their training dynamics live! You can compare to reference training / eval views as the training progresses.
+While training you can interact with the splats and see their training dynamics live, and compare the current rendering to training / eval views as the training progresses.
 
 ## Web
 
@@ -37,7 +35,7 @@ Live training on a pixel 7
 
 # Why
 
-Machine Learned real time rendering space has a ton of potential, but at the same time most popular ML tools are at odds with realtime rendering. Rendering requires low latency, usually involve dynamic shapes, and it's not pleasant to attempt to ship apps with large PyTorch/Jax/CUDA deps calling out to python in a rendering loop. The usual fix is to write a seperate training and inference application. Brush on the other hand, written in rust using `wgpu` and `burn`, can produce simple dependency free binaries, and can run on nearly all devices.
+Machine learning for real time rendering has a lot of potential, but at the same time, most popular ML tools don't align well with r. Rendering requires low latency, usually involve dynamic shapes, and it's not pleasant to attempt to ship apps with large PyTorch/Jax/CUDA deps calling out to python in a rendering loop. The usual fix is to write a seperate training and inference application. Brush on the other hand, written in rust using `wgpu` and `burn`, can produce simple dependency free binaries, and can run on nearly all devices.
 
 # Getting started
 Install rust 1.81+ and run `cargo run` or `cargo run --release`. You can run tests with `cargo test --all`. Brush uses the wonderful [rerun](rerun.io) for additional visualizations while training.
@@ -76,37 +74,29 @@ Brush is split into various crates. A quick overview of the different responsibi
 
 ### Kernels
 
-The kernels are written in a "sparse" style, that is, only work for visible gaussians is done, though the final calculated gradients are dense.
-
-Brush uses a GPU radix sort based on [FidelityFX](https://www.amd.com/en/products/graphics/technologies/fidelityfx.html) (see `crates/brush-sort`). The sorting is done in two parts - first splats are sorted only by depth, then sorted by their tile ID, which saves some sorting time compared to sorting both depth and tile ids at the same time.
+The kernels are written in a "sparse" style, that is, only work for visible gaussians is done, though the final calculated gradients are dense. Brush uses a GPU radix sort based on [FidelityFX](https://www.amd.com/en/products/graphics/technologies/fidelityfx.html) (see `crates/brush-sort`). The sorting is done in two parts - first splats are sorted only by depth, then sorted by their tile ID, which saves some sorting time compared to sorting both depth and tile ids at the same time.
 
 Compatibility with WebGPU does bring some challenges, even with (the excellent) [wgpu](https://github.com/gfx-rs/wgpu).
 - WebGPU lacks native atomic floating point additions, and a software CAS loop has to be used.
-- GPU readbacks are tricky on WebGPU. The rendering pass cannot do this unless the whole rendering becomes async, which has its own perils and isn't great for a UI. The reference tile renderer requires reading back the number of "intersections" (each visible tile of a gaussian is one intersection), but this is not feasible here. This is worked around by assuming a worst case. To reduce the number of tiles the rasterizer culls away unused tiles by intersecting the gaussian ellipses with the screenspace tiles.
+- GPU readbacks have to be async on WebGPU. A rendering pass can't do this unless the whole rendering becomes async, which has its own perils, and isn't great for an UI. The reference tile renderer requires reading back the number of "intersections" (each visible tile of a gaussian is one intersection), but this is not feasible. This is worked around by assuming a worst case. To reduce the number of tiles the rasterizer culls away unused tiles by intersecting the gaussian ellipses with the screenspace tiles.
 
-The WGSL kernels use [naga_oil](https://github.com/bevyengine/naga_oil) to manage imports. brush-wgsl additionally does some reflection to generate rust code to send uniform data to a kernel. In the future, it might be possible to port the kernels to Burns new [`CubeCL`](https://github.com/tracel-ai/cubecl) language, which is much more ergonomic and would allow generating CUDA / rocM kernels.
+The WGSL kernels use [naga_oil](https://github.com/bevyengine/naga_oil) to manage imports. brush-wgsl additionally does some reflection to generate rust code to send uniform data to a kernel. In the future, it might be possible to port the kernels to Burns new [`CubeCL`](https://github.com/tracel-ai/cubecl) language, which is much more ergonomic and would allow generating CUDA / rocM kernels. It might also be possible to integrate with George Kopanos' [Slang kernels](https://github.com/google/slang-gaussian-rasterization).
 
 ### Benchmarks
 
-Rendering performance is expected to be very competitive with gsplat, while training performance is likely still a bit slower. You can run some benchmarks testing the performance of the kernels using `cargo bench`. The performance of the forward and backwards kernel are faster than the _legacy_ gSplat kernels as they have some new techniques for better performance, but they haven't been compared yet to the updated gsplat kernels. End-to-end training performance is also still slower due to other overheads.
+Rendering performance is expected to be very competitive with gSplat, while training performance is still a bit slower. You can run some benchmarks using `cargo bench`. The performance of the splatting forward and backwards kernel are faster than the _legacy_ gSplat kernels as they use some new techniques for better performance, but they haven't been compared yet to the more recent gSplat kernels. End-to-end training performance is also still slower, due to other overheads.
 
 For additional profiling, you can use [tracy](https://github.com/wolfpld/tracy) and run with `cargo run --release --feature=tracy`.
 
 ### Quality
 
-Quality is similair, but still somewhat lagging behind, to the origina gaussian splatting implementation
+Quality is similair, but for now still somewhat lagging behind the original GS implementation. This is likely due to some suboptimal splitting/cloning heuristics.
 
 | Scene      | Brush   | GS paper|
 |------------|---------|---------|
 | Bicycle@7K | 23.2    | 23.604  |
 | Garden@7k  | 25.8    | 26.245  |
 | Stump@7k   | 24.9    | 25.709  |
-
-This is likely due to some suboptimal splitting/cloning heuristics.
-
-### Async
-
-To be compatible with the web, the main training loop is written as an async stream, using [`async_std`](https://github.com/async-rs/async-std). On native, multiple threads execute tasks (eg. loading dataset images), while on the web everything is ran on a single thread.
 
 # Acknowledgements
 
