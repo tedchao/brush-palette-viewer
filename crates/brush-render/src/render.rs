@@ -30,6 +30,7 @@ use burn::backend::{
 use burn::tensor::ops::IntTensorOps;
 use burn::tensor::ops::{FloatTensor, FloatTensorOps};
 use burn::tensor::{Tensor, TensorPrimitive};
+use burn_jit::cubecl::Feature;
 use burn_wgpu::{JitTensor, WgpuRuntime};
 use glam::uvec2;
 
@@ -499,11 +500,13 @@ impl Backward<PrimaryBackend, 7> for RenderBackwards {
             let v_conics = PrimaryBackend::float_zeros([num_points, 3].into(), device);
             let v_colors = PrimaryBackend::float_zeros([num_points, 4].into(), device);
 
-            let hard_float = !cfg!(target_family = "wasm") && !cfg!(target_os = "android");
+            // TODO: Properly register hardware atomic floats as a cube feature when
+            // https://github.com/gfx-rs/wgpu/pull/6234 lands.
+            let hard_floats = false;
 
             tracing::trace_span!("RasterizeBackwards", sync_burn = true).in_scope(|| unsafe {
                 client.execute_unchecked(
-                    RasterizeBackwards::task(hard_float),
+                    RasterizeBackwards::task(hard_floats),
                     CubeCount::Static(invocations, 1, 1),
                     vec![
                         aux.uniforms_buffer.clone().handle.binding(),
