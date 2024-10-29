@@ -30,7 +30,6 @@ use burn::backend::{
 use burn::tensor::ops::IntTensorOps;
 use burn::tensor::ops::{FloatTensor, FloatTensorOps};
 use burn::tensor::{Tensor, TensorPrimitive};
-use burn_jit::cubecl::Feature;
 use burn_wgpu::{JitTensor, WgpuRuntime};
 use glam::uvec2;
 
