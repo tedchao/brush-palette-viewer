@@ -245,7 +245,7 @@ runs consider using the native app."#,
                             if ui.button("⬆ Export").clicked() {
                                 let splats = splats.clone();
 
-                                crate::async_lib::spawn_future(async move {
+                                let fut = async move {
                                     let file = rrfd::save_file("export.ply").await;
 
                                     // Not sure where/how to show this error if any.
@@ -269,7 +269,12 @@ runs consider using the native app."#,
                                             }
                                         }
                                     }
-                                });
+                                };
+
+                                #[cfg(target_family = "wasm")]
+                                async_std::task::spawn_local(fut);
+                                #[cfg(not(target_family = "wasm"))]
+                                async_std::task::spawn(fut);
                             }
                         }
                     });

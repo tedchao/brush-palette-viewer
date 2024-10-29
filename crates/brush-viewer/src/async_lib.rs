@@ -1,88 +1,65 @@
+use gloo_timers::future::TimeoutFuture;
 use std::future::Future;
 use web_time::Duration;
-use wgpu::WasmNotSend;
 
 /// Wrap a future to yield back to the browser macrotasks
 /// queue each time it yields (using a setTimeout).
 ///
 /// In the future this could work better with scheduler.yield.
-pub fn with_timeout_yield<F: Future<Output = T> + WasmNotSend + 'static, T: Send + 'static>(
+pub fn with_timeout_yield<F: Future<Output = T> + 'static, T: Send + 'static>(
     future: F,
     min_time_between_yields: Duration,
-) -> impl Future<Output = T> + WasmNotSend + 'static {
-    #[cfg(not(target_family = "wasm"))]
-    {
-        let _ = min_time_between_yields;
-        future
+) -> impl Future<Output = T> + 'static {
+    use std::{
+        pin::Pin,
+        task::{Context, Poll},
+    };
+    use web_time::Instant;
+
+    struct WithTimeoutYield<F> {
+        future: Pin<Box<F>>,
+        timeout: Option<TimeoutFuture>,
+        last_yield: Option<Instant>,
+        min_duration: Duration,
     }
 
-    #[cfg(target_family = "wasm")]
-    {
-        use gloo_timers::future::TimeoutFuture;
-        use std::{
-            pin::Pin,
-            task::{Context, Poll},
-        };
-        use web_time::Instant;
+    impl<F: Future> Future for WithTimeoutYield<F> {
+        type Output = F::Output;
 
-        struct WithTimeoutYield<F> {
-            future: Pin<Box<F>>,
-            timeout: Option<TimeoutFuture>,
-            last_yield: Option<Instant>,
-            min_duration: Duration,
-        }
+        fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+            let this = self.get_mut();
 
-        impl<F: Future> Future for WithTimeoutYield<F> {
-            type Output = F::Output;
-
-            fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-                let this = self.get_mut();
-
-                if let Some(timeout) = &mut this.timeout {
-                    match std::pin::pin!(timeout).poll(cx) {
-                        Poll::Ready(_) => {
-                            this.timeout = None;
-                            this.last_yield = Some(Instant::now());
-                        }
-                        Poll::Pending => return Poll::Pending,
+            if let Some(timeout) = &mut this.timeout {
+                match std::pin::pin!(timeout).poll(cx) {
+                    Poll::Ready(_) => {
+                        this.timeout = None;
+                        this.last_yield = Some(Instant::now());
                     }
+                    Poll::Pending => return Poll::Pending,
                 }
+            }
 
-                match this.future.as_mut().poll(cx) {
-                    Poll::Ready(output) => Poll::Ready(output),
-                    Poll::Pending => {
-                        let should_yield = this
-                            .last_yield
-                            .map(|t| t.elapsed() >= this.min_duration)
-                            .unwrap_or(true);
+            match this.future.as_mut().poll(cx) {
+                Poll::Ready(output) => Poll::Ready(output),
+                Poll::Pending => {
+                    let should_yield = this
+                        .last_yield
+                        .map(|t| t.elapsed() >= this.min_duration)
+                        .unwrap_or(true);
 
-                        if should_yield && this.timeout.is_none() {
-                            this.timeout = Some(TimeoutFuture::new(0));
-                        }
-                        Poll::Pending
+                    if should_yield && this.timeout.is_none() {
+                        this.timeout = Some(TimeoutFuture::new(0));
                     }
+                    Poll::Pending
                 }
             }
         }
-
-        WithTimeoutYield {
-            future: Box::pin(future),
-            timeout: None,
-            last_yield: None,
-            min_duration: min_time_between_yields,
-        }
     }
-}
 
-pub fn spawn_future<T: WasmNotSend + 'static>(
-    fut: impl Future<Output = T> + WasmNotSend + 'static,
-) {
-    #[cfg(target_family = "wasm")]
-    {
-        async_std::task::spawn_local(fut);
-    }
-    #[cfg(not(target_family = "wasm"))]
-    {
-        async_std::task::spawn(fut);
+    WithTimeoutYield {
+        future: Box::pin(future),
+        timeout: None,
+        last_yield: None,
+        min_duration: min_time_between_yields,
     }
 }

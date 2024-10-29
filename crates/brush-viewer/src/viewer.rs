@@ -19,7 +19,6 @@ use glam::{Quat, Vec3};
 use web_time::Instant;
 
 use crate::{
-    async_lib,
     orbit_controls::OrbitControls,
     panels::{DatasetPanel, LoadDataPanel, PresetsPanel, ScenePanel, StatsPanel},
     train_loop::{self, TrainMessage},
@@ -96,8 +95,11 @@ fn process_loop(
 ) -> Pin<Box<impl Stream<Item = anyhow::Result<ViewerMessage>>>> {
     let stream = try_fn_stream(|emitter| async move {
         let _ = emitter.emit(ViewerMessage::PickFile).await;
+        log::warn!("Start picking file");
         let picked = rrfd::pick_file().await?;
         let name = picked.file_name();
+
+        log::warn!("Got file {name}");
 
         if name.contains(".ply") {
             let data = picked.read().await;
@@ -117,7 +119,11 @@ fn process_loop(
                     .await;
             }
         } else if name.contains(".zip") {
+            log::warn!("Start reading data");
+
             let data = picked.read().await;
+
+            log::warn!("Managed to read data");
 
             let _ = emitter
                 .emit(ViewerMessage::StartLoading { training: true })
@@ -219,8 +225,16 @@ impl ViewerContext {
             }
         };
 
-        let fut = crate::async_lib::with_timeout_yield(fut, web_time::Duration::from_millis(5));
-        async_lib::spawn_future(fut);
+        #[cfg(target_family = "wasm")]
+        {
+            let fut = crate::async_lib::with_timeout_yield(fut, web_time::Duration::from_millis(5));
+            async_std::task::spawn_local(fut);
+        }
+
+        #[cfg(not(target_family = "wasm"))]
+        {
+            async_std::task::spawn(fut);
+        }
     }
 
     pub fn send_train_message(&self, message: TrainMessage) {
