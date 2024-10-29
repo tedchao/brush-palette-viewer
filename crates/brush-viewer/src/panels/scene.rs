@@ -1,4 +1,3 @@
-use async_std::task;
 use brush_dataset::splat_export;
 use egui::epaint::mutex::RwLock as EguiRwLock;
 use std::sync::Arc;
@@ -243,20 +242,32 @@ runs consider using the native app."#,
 
                             ui.add_space(15.0);
 
-                            if ui.button("↑ Export").clicked() {
+                            if ui.button("⬆ Export").clicked() {
                                 let splats = splats.clone();
-                                task::spawn_local(async move {
-                                    let data = splat_export::splat_to_ply(*splats).await;
-                                    let data = match data {
-                                        Ok(data) => data,
+
+                                crate::async_lib::spawn_future(async move {
+                                    let file = rrfd::save_file("export.ply").await;
+
+                                    // Not sure where/how to show this error if any.
+                                    match file {
                                         Err(e) => {
                                             log::error!("Failed to save file: {e}");
-                                            return;
                                         }
-                                    };
-                                    // Not sure where/how to show this error if any.
-                                    if let Err(e) = rrfd::save_file("export.ply", data).await {
-                                        log::error!("Failed to save file: {e}");
+                                        Ok(file) => {
+                                            let data = splat_export::splat_to_ply(*splats).await;
+
+                                            let data = match data {
+                                                Ok(data) => data,
+                                                Err(e) => {
+                                                    log::error!("Failed to serialize file: {e}");
+                                                    return;
+                                                }
+                                            };
+
+                                            if let Err(e) = file.write(&data).await {
+                                                log::error!("Failed to write file: {e}");
+                                            }
+                                        }
                                     }
                                 });
                             }

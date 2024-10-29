@@ -5,9 +5,9 @@
 use egui_tiles::SimplificationOptions;
 use viewer::{ViewerContext, ViewerMessage};
 
+mod async_lib;
 mod burn_texture;
 mod orbit_controls;
-mod timeout_future;
 
 mod panels;
 mod train_loop;

@@ -42,6 +42,7 @@ fn main() -> anyhow::Result<()> {
             .dyn_into::<web_sys::HtmlCanvasElement>()
             .unwrap();
 
+        // On wasm, run as a local task.
         async_std::task::spawn_local(async {
             eframe::WebRunner::new()
                 .start(

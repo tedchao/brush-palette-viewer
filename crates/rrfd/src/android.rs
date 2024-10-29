@@ -1,4 +1,3 @@
-use super::PickedFile;
 use anyhow::Result;
 use async_std::channel::Sender;
 use jni::objects::{GlobalRef, JByteArray, JClass, JStaticMethodID, JString};
@@ -8,6 +7,12 @@ use lazy_static::lazy_static;
 use std::sync::Arc;
 use std::sync::RwLock;
 
+#[derive(Clone, Debug)]
+pub struct PickedFile {
+    pub data: Vec<u8>,
+    pub file_name: String,
+}
+
 lazy_static! {
     static ref VM: RwLock<Option<Arc<jni::JavaVM>>> = RwLock::new(None);
     static ref CHANNEL: RwLock<Option<Sender<Result<PickedFile>>>> = RwLock::new(None);
@@ -15,6 +20,7 @@ lazy_static! {
     static ref FILE_PICKER_CLASS: RwLock<Option<GlobalRef>> = RwLock::new(None);
 }
 
+#[allow(unused)]
 pub fn jni_initialize(vm: Arc<jni::JavaVM>) {
     let mut env = vm.get_env().expect("Cannot get reference to the JNIEnv");
     let class = env.find_class("com/splats/app/FilePicker").unwrap();
@@ -30,6 +36,7 @@ pub fn jni_initialize(vm: Arc<jni::JavaVM>) {
     *VM.write().unwrap() = Some(vm);
 }
 
+#[allow(unused)]
 pub(crate) async fn pick_file() -> Result<PickedFile> {
     let (sender, receiver) = async_std::channel::bounded(1);
     {

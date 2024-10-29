@@ -4,7 +4,6 @@ use async_fn_stream::try_fn_stream;
 use async_std::{
     channel::{Receiver, Sender, TrySendError},
     stream::{Stream, StreamExt},
-    task,
 };
 use brush_dataset::{self, splat_import, Dataset, LoadDatasetArgs, LoadInitArgs, ZipData};
 use brush_render::camera::Camera;
@@ -20,6 +19,7 @@ use glam::{Quat, Vec3};
 use web_time::Instant;
 
 use crate::{
+    async_lib,
     orbit_controls::OrbitControls,
     panels::{DatasetPanel, LoadDataPanel, PresetsPanel, ScenePanel, StatsPanel},
     train_loop::{self, TrainMessage},
@@ -97,12 +97,14 @@ fn process_loop(
     let stream = try_fn_stream(|emitter| async move {
         let _ = emitter.emit(ViewerMessage::PickFile).await;
         let picked = rrfd::pick_file().await?;
+        let name = picked.file_name();
 
-        if picked.file_name.contains(".ply") {
+        if name.contains(".ply") {
+            let data = picked.read().await;
+
             let _ = emitter
                 .emit(ViewerMessage::StartLoading { training: false })
                 .await;
-            let data = picked.data;
             let splat_stream =
                 splat_import::load_splat_from_ply::<PrimaryBackend>(data, device.clone());
             let mut splat_stream = std::pin::pin!(splat_stream);
@@ -114,13 +116,15 @@ fn process_loop(
                     })
                     .await;
             }
-        } else if picked.file_name.contains(".zip") {
+        } else if name.contains(".zip") {
+            let data = picked.read().await;
+
             let _ = emitter
                 .emit(ViewerMessage::StartLoading { training: true })
                 .await;
 
             let stream = train_loop::train_loop(
-                ZipData::from(picked.data),
+                ZipData::from(data),
                 device,
                 train_receiver,
                 load_data_args,
@@ -215,17 +219,8 @@ impl ViewerContext {
             }
         };
 
-        #[cfg(target_family = "wasm")]
-        {
-            let fut =
-                crate::timeout_future::with_timeout_yield(fut, web_time::Duration::from_millis(5));
-            task::spawn_local(fut);
-        }
-
-        #[cfg(not(target_family = "wasm"))]
-        {
-            task::spawn(fut);
-        }
+        let fut = crate::async_lib::with_timeout_yield(fut, web_time::Duration::from_millis(5));
+        async_lib::spawn_future(fut);
     }
 
     pub fn send_train_message(&self, message: TrainMessage) {

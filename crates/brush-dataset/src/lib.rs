@@ -167,6 +167,7 @@ mod async_helpers {
     pub(super) fn spawn_future<T: 'static>(
         future: impl Future<Output = T> + 'static,
     ) -> JoinHandle<T> {
+        // On wasm, just spawn locally.
         task::spawn_local(future)
     }
 }
