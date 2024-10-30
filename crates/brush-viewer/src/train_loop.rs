@@ -4,7 +4,9 @@ use async_std::{
     stream::{Stream, StreamExt},
     task,
 };
-use brush_dataset::{scene_batch::SceneLoader, Dataset, LoadDatasetArgs, LoadInitArgs, ZipData};
+use brush_dataset::{
+    scene_batch::SceneLoader, zip::DatasetZip, Dataset, LoadDatasetArgs, LoadInitArgs,
+};
 use brush_render::{
     gaussian_splats::{RandomSplatsConfig, Splats},
     PrimaryBackend,
@@ -16,7 +18,6 @@ use burn_wgpu::{WgpuDevice, WgpuRuntime};
 use rand::SeedableRng;
 use tracing::{trace_span, Instrument};
 use web_time::Instant;
-use zip::ZipArchive;
 
 use crate::viewer::ViewerMessage;
 
@@ -27,7 +28,7 @@ pub enum TrainMessage {
 }
 
 pub(crate) fn train_loop(
-    zip_data: ZipData,
+    data: Vec<u8>,
     device: WgpuDevice,
     receiver: Receiver<TrainMessage>,
     load_data_args: LoadDatasetArgs,
@@ -35,20 +36,21 @@ pub(crate) fn train_loop(
     config: TrainConfig,
 ) -> impl Stream<Item = anyhow::Result<ViewerMessage>> {
     try_fn_stream(|emitter| async move {
+        let zip_data = DatasetZip::from_data(data)?;
+
         let batch_size = 1;
 
         // Maybe good if the seed would be configurable.
         let seed = 42;
         <PrimaryBackend as burn::prelude::Backend>::seed(seed);
         let mut rng = rand::rngs::StdRng::from_seed([seed as u8; 32]);
-        let archive = ZipArchive::new(zip_data.open_for_read())?;
 
         // Load initial splats if included
         let mut initial_splats = None;
         let mut splat_stream =
-            brush_dataset::read_dataset_init(archive.clone(), &device, &load_init_args);
+            brush_dataset::load_initial_splat(zip_data.clone(), &device, &load_init_args);
 
-        if let Ok(splat_stream) = splat_stream.as_mut() {
+        if let Some(splat_stream) = splat_stream.as_mut() {
             while let Some(splats) = splat_stream.next().await {
                 let splats = splats?;
                 let msg = ViewerMessage::Splats {
@@ -61,8 +63,7 @@ pub(crate) fn train_loop(
         }
 
         let mut dataset = Dataset::empty();
-        let data_stream = brush_dataset::read_dataset_views(archive.clone(), &load_data_args)?;
-        let mut data_stream = std::pin::pin!(data_stream);
+        let mut data_stream = brush_dataset::load_dataset(zip_data.clone(), &load_data_args)?;
         while let Some(d) = data_stream.next().await {
             dataset = d?;
 

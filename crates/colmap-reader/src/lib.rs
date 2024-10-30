@@ -7,7 +7,7 @@ use std::io::{self, BufRead, Read};
 // TODO: Really these should each hold their respective params but bit of an annoying refactor. We just need
 // basic params.
 #[derive(Debug, Clone)]
-pub(crate) enum CameraModel {
+pub enum CameraModel {
     SimplePinhole,
     Pinhole,
     SimpleRadial,
@@ -57,7 +57,7 @@ impl CameraModel {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct Camera {
+pub struct Camera {
     pub id: i32,
     pub model: CameraModel,
     pub width: u64,
@@ -66,7 +66,7 @@ pub(crate) struct Camera {
 }
 
 #[derive(Debug)]
-pub(crate) struct Image {
+pub struct Image {
     pub tvec: glam::Vec3,
     pub quat: glam::Quat,
     pub camera_id: i32,
@@ -76,7 +76,7 @@ pub(crate) struct Image {
 }
 
 #[derive(Debug)]
-pub(crate) struct Point3D {
+pub struct Point3D {
     pub xyz: glam::Vec3,
     pub rgb: [u8; 3],
     pub error: f64,
@@ -85,7 +85,7 @@ pub(crate) struct Point3D {
 }
 
 impl Camera {
-    pub(crate) fn focal(&self) -> glam::Vec2 {
+    pub fn focal(&self) -> glam::Vec2 {
         let x = self.params[0] as f32;
         let y = self.params[match self.model {
             CameraModel::SimplePinhole => 0,
@@ -103,7 +103,7 @@ impl Camera {
         glam::vec2(x, y)
     }
 
-    pub(crate) fn principal_point(&self) -> glam::Vec2 {
+    pub fn principal_point(&self) -> glam::Vec2 {
         let x = self.params[match self.model {
             CameraModel::SimplePinhole => 1,
             CameraModel::Pinhole => 2,
@@ -139,7 +139,7 @@ fn parse<T: std::str::FromStr>(s: &str) -> io::Result<T> {
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "Parse error"))
 }
 
-pub(crate) fn read_cameras_text<R: Read>(reader: &mut R) -> io::Result<HashMap<i32, Camera>> {
+fn read_cameras_text<R: Read>(reader: &mut R) -> io::Result<HashMap<i32, Camera>> {
     let mut cameras = HashMap::new();
     let mut buf_reader = io::BufReader::new(reader);
     let mut line = String::new();
@@ -191,7 +191,7 @@ pub(crate) fn read_cameras_text<R: Read>(reader: &mut R) -> io::Result<HashMap<i
     Ok(cameras)
 }
 
-pub(crate) fn read_cameras_binary<R: Read>(reader: &mut R) -> io::Result<HashMap<i32, Camera>> {
+fn read_cameras_binary<R: Read>(reader: &mut R) -> io::Result<HashMap<i32, Camera>> {
     let mut cameras = HashMap::new();
     let num_cameras = reader.read_u64::<LittleEndian>()?;
 
@@ -225,7 +225,7 @@ pub(crate) fn read_cameras_binary<R: Read>(reader: &mut R) -> io::Result<HashMap
     Ok(cameras)
 }
 
-pub(crate) fn read_images_text<R: Read>(reader: &mut R) -> io::Result<HashMap<i32, Image>> {
+fn read_images_text<R: Read>(reader: &mut R) -> io::Result<HashMap<i32, Image>> {
     let mut images = HashMap::new();
     let mut buf_reader = io::BufReader::new(reader);
     let mut line = String::new();
@@ -288,7 +288,7 @@ pub(crate) fn read_images_text<R: Read>(reader: &mut R) -> io::Result<HashMap<i3
     Ok(images)
 }
 
-pub(crate) fn read_images_binary<R: BufRead>(reader: &mut R) -> io::Result<HashMap<i32, Image>> {
+fn read_images_binary<R: BufRead>(reader: &mut R) -> io::Result<HashMap<i32, Image>> {
     let mut images = HashMap::new();
     let num_images = reader.read_u64::<LittleEndian>()?;
 
@@ -344,7 +344,7 @@ pub(crate) fn read_images_binary<R: BufRead>(reader: &mut R) -> io::Result<HashM
     Ok(images)
 }
 
-pub(crate) fn read_points3d_text<R: Read>(reader: &mut R) -> io::Result<HashMap<i64, Point3D>> {
+fn read_points3d_text<R: Read>(reader: &mut R) -> io::Result<HashMap<i64, Point3D>> {
     let mut points3d = HashMap::new();
     let mut buf_reader = io::BufReader::new(reader);
     let mut line = String::new();
@@ -402,7 +402,7 @@ pub(crate) fn read_points3d_text<R: Read>(reader: &mut R) -> io::Result<HashMap<
     Ok(points3d)
 }
 
-pub(crate) fn read_points3d_binary<R: Read>(reader: &mut R) -> io::Result<HashMap<i64, Point3D>> {
+fn read_points3d_binary<R: Read>(reader: &mut R) -> io::Result<HashMap<i64, Point3D>> {
     let mut points3d = HashMap::new();
     let num_points = reader.read_u64::<LittleEndian>()?;
 
@@ -440,10 +440,7 @@ pub(crate) fn read_points3d_binary<R: Read>(reader: &mut R) -> io::Result<HashMa
     Ok(points3d)
 }
 
-pub(crate) fn read_cameras<R: Read>(
-    reader: &mut R,
-    binary: bool,
-) -> io::Result<HashMap<i32, Camera>> {
+pub fn read_cameras<R: Read>(reader: &mut R, binary: bool) -> io::Result<HashMap<i32, Camera>> {
     if binary {
         read_cameras_binary(reader)
     } else {
@@ -451,10 +448,7 @@ pub(crate) fn read_cameras<R: Read>(
     }
 }
 
-pub(crate) fn read_images<R: BufRead>(
-    reader: &mut R,
-    binary: bool,
-) -> io::Result<HashMap<i32, Image>> {
+pub fn read_images<R: BufRead>(reader: &mut R, binary: bool) -> io::Result<HashMap<i32, Image>> {
     if binary {
         read_images_binary(reader)
     } else {
@@ -462,10 +456,7 @@ pub(crate) fn read_images<R: BufRead>(
     }
 }
 
-pub(crate) fn read_points3d<R: Read>(
-    reader: &mut R,
-    binary: bool,
-) -> io::Result<HashMap<i64, Point3D>> {
+pub fn read_points3d<R: Read>(reader: &mut R, binary: bool) -> io::Result<HashMap<i64, Point3D>> {
     if binary {
         read_points3d_binary(reader)
     } else {

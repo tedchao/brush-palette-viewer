@@ -1,18 +1,14 @@
+use super::DatasetZip;
+use super::LoadDatasetArgs;
+use crate::{clamp_img_to_max_size, DataStream, Dataset};
 use anyhow::Context;
 use anyhow::Result;
 use async_fn_stream::try_fn_stream;
-use brush_render::camera;
-use brush_render::camera::Camera;
+use brush_render::camera::{focal_to_fov, fov_to_focal, Camera};
 use brush_train::scene::SceneView;
 use std::future::Future;
-use std::io::Cursor;
 use std::io::Read;
 use std::sync::Arc;
-use zip::ZipArchive;
-
-use crate::archive_file_at_path;
-use crate::find_base_path;
-use crate::{clamp_img_to_max_size, DataStream, Dataset, LoadDatasetArgs, ZipData};
 
 #[derive(serde::Deserialize)]
 struct SyntheticScene {
@@ -27,24 +23,23 @@ struct FrameData {
 }
 
 fn read_transforms_file(
-    mut archive: ZipArchive<Cursor<ZipData>>,
+    mut archive: DatasetZip,
     name: &'static str,
     load_args: &LoadDatasetArgs,
 ) -> Result<Vec<impl Future<Output = anyhow::Result<SceneView>>>> {
-    let base_path = find_base_path(name, &archive);
-
-    let Some(base_path) = base_path else {
-        anyhow::bail!("No transforms file found")
-    };
+    let base_path = archive
+        .find_base_path(name)
+        .context("No transforms file found")?;
 
     let transform_path = base_path.join(name);
 
     let transform_buf = {
-        let mut transforms_file = archive_file_at_path(&transform_path, &mut archive)?;
+        let mut transforms_file = archive.file_at_path(&transform_path)?;
         let mut transform_buf = String::new();
         transforms_file.read_to_string(&mut transform_buf)?;
         transform_buf
     };
+
     let scene_train: SyntheticScene = serde_json::from_str(&transform_buf)?;
     let fovx = scene_train.camera_angle_x;
 
@@ -75,9 +70,7 @@ fn read_transforms_file(
                 let image_path = &base_path.join(frame.file_path.to_owned() + ".png");
 
                 let comp_span = tracing::trace_span!("Decompress image").entered();
-                let img_buffer = archive_file_at_path(image_path, &mut archive)?
-                    .bytes()
-                    .collect::<Result<Vec<_>, _>>()?;
+                let img_buffer = archive.read_bytes_at_path(image_path)?;
                 drop(comp_span);
 
                 // Create a cursor from the buffer
@@ -88,7 +81,8 @@ fn read_transforms_file(
                     image = clamp_img_to_max_size(image, max_resolution);
                 }
 
-                // Blend in white background to image
+                // Blend in white background.
+                // TODO: Probably could be done a bit faster.
                 if image.color().has_alpha() {
                     let _span = tracing::trace_span!("Blend image").entered();
                     let rgba_image = image.as_rgba8().context("Unsupported image")?;
@@ -103,8 +97,7 @@ fn read_transforms_file(
                     image = rgb_image.into();
                 }
 
-                let fovy =
-                    camera::focal_to_fov(camera::fov_to_focal(fovx, image.width()), image.height());
+                let fovy = focal_to_fov(fov_to_focal(fovx, image.width()), image.height());
 
                 let view = SceneView {
                     name: image_path.to_str().context("Invalid filename")?.to_owned(),
@@ -123,10 +116,12 @@ fn read_transforms_file(
     Ok(iter.collect())
 }
 
-pub fn read_dataset_views(
-    archive: ZipArchive<Cursor<ZipData>>,
+pub fn read_dataset(
+    archive: DatasetZip,
     load_args: &LoadDatasetArgs,
 ) -> Result<DataStream<Dataset>> {
+    log::info!("Loading nerf synthetic dataset");
+
     // Assume nerf synthetic has a white background. Maybe add a custom json field to customize this
     // or something.
     let background = glam::Vec3::ONE;

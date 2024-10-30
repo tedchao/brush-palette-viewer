@@ -5,7 +5,7 @@ use async_std::{
     channel::{Receiver, Sender, TrySendError},
     stream::{Stream, StreamExt},
 };
-use brush_dataset::{self, splat_import, Dataset, LoadDatasetArgs, LoadInitArgs, ZipData};
+use brush_dataset::{self, splat_import, Dataset, LoadDatasetArgs, LoadInitArgs};
 use brush_render::camera::Camera;
 use brush_render::gaussian_splats::Splats;
 use brush_render::PrimaryBackend;
@@ -130,7 +130,7 @@ fn process_loop(
                 .await;
 
             let stream = train_loop::train_loop(
-                ZipData::from(data),
+                data,
                 device,
                 train_receiver,
                 load_data_args,
