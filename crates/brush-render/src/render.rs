@@ -299,7 +299,7 @@ fn render_forward(
 
     // Record the final visible splat per tile.
     let final_index =
-        create_tensor::<u32, 2, _>([img_size.x as usize, img_size.y as usize], device, client);
+        create_tensor::<u32, 2, _>([img_size.y as usize, img_size.x as usize], device, client);
 
     if !raster_u32 {
         handles.push(final_index.handle.clone().binding());
@@ -485,6 +485,7 @@ impl Backward<PrimaryBackend, 7> for RenderBackwards {
             checkpointer.retrieve_node_output::<FloatTensor<PrimaryBackend>>(state.raw_opac);
 
         let num_points = means.shape.dims[0];
+        let num_visible = aux.num_visible;
 
         let (v_xys, v_xys_global, v_xys_norm, v_conics, v_coeffs, v_opacities) = {
             let tile_bounds = uvec2(
@@ -524,21 +525,18 @@ impl Backward<PrimaryBackend, 7> for RenderBackwards {
                 );
             });
 
-            let v_coeffs = PrimaryBackend::float_zeros(
-                [
-                    num_points,
-                    sh_coeffs_for_degree(state.sh_degree) as usize,
-                    3,
-                ]
-                .into(),
-                device,
-            );
+            let v_coeffs_shape = [
+                num_points,
+                sh_coeffs_for_degree(state.sh_degree) as usize,
+                3,
+            ];
+            let v_coeffs = PrimaryBackend::float_zeros(v_coeffs_shape.into(), device);
             let v_opacities = PrimaryBackend::float_zeros([num_points].into(), device);
 
             let _span = tracing::trace_span!("GatherGrads", sync_burn = true).entered();
 
             let num_vis_wg = create_dispatch_buffer(
-                bitcast_tensor(aux.num_visible.clone()),
+                bitcast_tensor(num_visible.clone()),
                 GatherGrads::WORKGROUP_SIZE,
             );
 
@@ -670,7 +668,7 @@ mod tests {
             glam::vec2(0.5, 0.5),
         );
         let img_size = glam::uvec2(32, 32);
-        let device = WgpuDevice::BestAvailable;
+        let device = WgpuDevice::DefaultDevice;
         let num_points = 8;
         let means = Tensor::<DiffBack, 2, _>::zeros([num_points, 3], &device);
         let xy_dummy = Tensor::<DiffBack, 2, _>::zeros([num_points, 2], &device);
@@ -704,7 +702,7 @@ mod tests {
 
     #[test]
     fn test_reference() -> Result<()> {
-        let device = WgpuDevice::BestAvailable;
+        let device = WgpuDevice::DefaultDevice;
 
         let crab_img = image::open("./test_cases/crab.png")?;
         // Convert the image to RGB format

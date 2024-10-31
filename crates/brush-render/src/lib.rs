@@ -2,7 +2,8 @@
 #![allow(clippy::single_range_in_vec_init)]
 use brush_kernel::bitcast_tensor;
 use burn::backend::Autodiff;
-use burn::tensor::{ElementConversion, Int, Tensor};
+use burn::prelude::Tensor;
+use burn::tensor::{ElementConversion, Int};
 use burn_jit::JitBackend;
 use burn_wgpu::{JitTensor, WgpuRuntime};
 use camera::Camera;
