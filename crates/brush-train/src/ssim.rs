@@ -45,15 +45,15 @@ impl<B: Backend> Ssim<B> {
         let img2 = img2.permute([0, 3, 1, 2]).clamp(0.0, 1.0);
 
         let [channels, _, _, window_size] = self.weights.dims();
-        let padding = window_size / 2;
+        let padding = window_size.div_ceil(2);
         let conv_options = ConvOptions::new([1, 1], [padding, padding], [1, 1], channels);
-        let mu1 = conv2d(
+        let mu_x = conv2d(
             img1.clone(),
             self.weights.clone(),
             None,
             conv_options.clone(),
         );
-        let mu2 = conv2d(
+        let mu_y = conv2d(
             img2.clone(),
             self.weights.clone(),
             None,
@@ -62,39 +62,42 @@ impl<B: Backend> Ssim<B> {
 
         // let mu1 = gaussian_blur(img1.clone(), window.clone());
         // let mu2 = gaussian_blur(img1.clone(), window.clone());
-        let mu1_sq = mu1.clone().powi_scalar(2);
-        let mu2_sq = mu2.clone().powi_scalar(2);
-        let mu1_mu2 = mu1 * mu2;
+        let mu_xx = mu_x.clone() * mu_x.clone();
+        let mu_yy = mu_y.clone() * mu_y.clone();
+        let mu_xy = mu_x * mu_y;
 
         // let sigma1_sq = gaussian_blur(img1.clone().powf_scalar(2.0), window.clone()) - mu1_sq.clone();
         // let sigma2_sq = gaussian_blur(img2.clone().powf_scalar(2.0), window.clone()) - mu2_sq.clone();
         // let sigma12 = gaussian_blur(img1.clone() * img2.clone(), window) - mu1_mu2.clone();
-        let sigma1_sq = conv2d(
-            img1.clone().powi_scalar(2.0),
+        let sigma_xx = conv2d(
+            img1.clone() * img1.clone(),
             self.weights.clone(),
             None,
             conv_options.clone(),
-        ) - mu1_sq.clone();
+        ) - mu_xx.clone();
 
-        let sigma2_sq = conv2d(
-            img2.clone().powi_scalar(2.0),
+        let sigma_xx = sigma_xx.clamp_min(0.0);
+
+        let sigma_yy = conv2d(
+            img2.clone() * img2.clone(),
             self.weights.clone(),
             None,
             conv_options.clone(),
-        ) - mu2_sq.clone();
+        ) - mu_yy.clone();
+        let sigma_yy = sigma_yy.clamp_min(0.0);
 
-        let sigma12 = conv2d(
+        let sigma_xy = conv2d(
             img1.clone() * img2.clone(),
             self.weights.clone(),
             None,
             conv_options.clone(),
-        ) - mu1_mu2.clone();
+        ) - mu_xy.clone();
 
         let c1: f32 = 0.01f32.powf(2.0);
         let c2: f32 = 0.03f32.powf(2.0);
 
-        let ssim_map = ((mu1_mu2 * 2.0 + c1) * (sigma12 * 2.0 + c2))
-            / ((mu1_sq + mu2_sq + c1) * (sigma1_sq + sigma2_sq + c2));
+        let ssim_map = ((mu_xy * 2.0 + c1) * (sigma_xy * 2.0 + c2))
+            / ((mu_xx + mu_yy + c1) * (sigma_xx + sigma_yy + c2));
         ssim_map.mean()
     }
 }
