@@ -501,7 +501,9 @@ impl Backward<PrimaryBackend, 7> for RenderBackwards {
 
             // TODO: Properly register hardware atomic floats as a cube feature when
             // https://github.com/gfx-rs/wgpu/pull/6234 lands.
-            let hard_floats = false;
+            //
+            // On mac, this is needed as our wgpu version doesn't support CAS on metal yet...
+            let hard_floats = cfg!(target_os = "macos");
 
             tracing::trace_span!("RasterizeBackwards", sync_burn = true).in_scope(|| unsafe {
                 client.execute_unchecked(
