@@ -102,7 +102,7 @@ Quality is similair, but for now still somewhat lagging behind the original GS i
 
 [**gSplat**](https://github.com/nerfstudio-project/gsplat), for their reference version of the kernels
 
-**Peter Hedman & George Kopanas**, for the many discussions & pointers.
+**Peter Hedman, George Kopanas & Bernhard Kerbl**, for the many discussions & pointers.
 
 **The Burn team**, for help & improvements to Burn along the way
 
