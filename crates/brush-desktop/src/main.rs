@@ -26,7 +26,7 @@ fn main() -> anyhow::Result<()> {
         };
 
         eframe::run_native(
-            "Brush 🖌️",
+            "Brush",
             native_options,
             Box::new(move |cc| Ok(Box::new(brush_viewer::viewer::Viewer::new(cc)))),
         )

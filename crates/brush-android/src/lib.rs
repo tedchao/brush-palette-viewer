@@ -22,7 +22,7 @@ fn android_main(app: winit::platform::android::activity::AndroidApp) {
     );
 
     eframe::run_native(
-        "Brush 🖌️",
+        "Brush",
         eframe::NativeOptions {
             event_loop_builder: Some(Box::new(|builder| {
                 builder.with_android_app(app);
