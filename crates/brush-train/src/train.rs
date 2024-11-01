@@ -44,7 +44,7 @@ pub struct TrainConfig {
     cull_scale_thresh: f32,
 
     // Every this many refinement steps, reset the alpha
-    #[config(default = 15)]
+    #[config(default = 30)]
     reset_alpha_every_refine: u32,
 
     // threshold of positional gradient norm for densifying gaussians
