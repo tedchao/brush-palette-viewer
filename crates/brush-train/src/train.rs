@@ -59,8 +59,7 @@ pub struct TrainConfig {
     #[config(default = 0.2)]
     ssim_weight: f32,
 
-    // TODO: Up this to 11 when convolutions aren't as slow anymore
-    #[config(default = 5)]
+    #[config(default = 11)]
     ssim_window_size: usize,
 
     #[config(default = true)]
