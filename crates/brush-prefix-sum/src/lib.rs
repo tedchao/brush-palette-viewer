@@ -14,7 +14,7 @@ kernel_source_gen!(PrefixSumAddScannedSums {}, prefix_sum_add_scanned_sums);
 
 use burn_wgpu::JitTensor;
 
-pub fn prefix_sum(input: JitTensor<WgpuRuntime, u32>) -> JitTensor<WgpuRuntime, u32> {
+pub fn prefix_sum(input: JitTensor<WgpuRuntime, i32>) -> JitTensor<WgpuRuntime, i32> {
     let threads_per_group = shaders::prefix_sum_helpers::THREADS_PER_GROUP as usize;
     let num = input.shape.dims[0];
     let client = &input.client;
@@ -104,7 +104,6 @@ pub fn prefix_sum(input: JitTensor<WgpuRuntime, u32>) -> JitTensor<WgpuRuntime, 
 #[cfg(all(test, not(target_family = "wasm")))]
 mod tests {
     use crate::prefix_sum;
-    use brush_kernel::bitcast_tensor;
     use burn::tensor::{Int, Tensor};
     use burn_wgpu::{JitBackend, WgpuRuntime};
 
@@ -113,9 +112,8 @@ mod tests {
         type Backend = JitBackend<WgpuRuntime, f32, i32>;
         let device = Default::default();
         let keys = Tensor::<Backend, 1, Int>::from_data([1, 1, 1, 1], &device).into_primitive();
-        let keys = bitcast_tensor(keys);
         let summed = prefix_sum(keys.clone());
-        let summed = Tensor::<Backend, 1, Int>::from_primitive(bitcast_tensor(summed)).to_data();
+        let summed = Tensor::<Backend, 1, Int>::from_primitive(summed).to_data();
         let summed = summed.as_slice::<i32>().unwrap();
         assert_eq!(summed.len(), 4);
         assert_eq!(summed, [1, 2, 3, 4])
@@ -131,9 +129,8 @@ mod tests {
         type Backend = JitBackend<WgpuRuntime, f32, i32>;
         let device = Default::default();
         let keys = Tensor::<Backend, 1, Int>::from_data(data.as_slice(), &device).into_primitive();
-        let keys = bitcast_tensor(keys);
         let summed = prefix_sum(keys.clone());
-        let summed = Tensor::<Backend, 1, Int>::from_primitive(bitcast_tensor(summed)).to_data();
+        let summed = Tensor::<Backend, 1, Int>::from_primitive(summed).to_data();
         let prefix_sum_ref: Vec<_> = data
             .into_iter()
             .scan(0, |x, y| {
@@ -161,9 +158,8 @@ mod tests {
         type Backend = JitBackend<WgpuRuntime, f32, i32>;
         let device = Default::default();
         let keys = Tensor::<Backend, 1, Int>::from_data(data.as_slice(), &device).into_primitive();
-        let keys = bitcast_tensor(keys);
         let summed = prefix_sum(keys.clone());
-        let summed = Tensor::<Backend, 1, Int>::from_primitive(bitcast_tensor(summed)).to_data();
+        let summed = Tensor::<Backend, 1, Int>::from_primitive(summed).to_data();
 
         let prefix_sum_ref: Vec<_> = data
             .into_iter()

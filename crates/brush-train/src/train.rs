@@ -109,7 +109,7 @@ pub struct TrainStepStats<B: AutodiffBackend> {
     pub pred_images: Tensor<B, 4>,
     pub gt_images: Tensor<B, 4>,
     pub gt_views: Vec<SceneView>,
-    pub auxes: Vec<RenderAux>,
+    pub auxes: Vec<RenderAux<B>>,
     pub loss: Tensor<B, 1>,
     pub lr_mean: f64,
     pub lr_rotation: f64,
@@ -219,6 +219,11 @@ where
         background_color: glam::Vec3,
         splats: Splats<B>,
     ) -> Result<(Splats<B>, TrainStepStats<B>), anyhow::Error> {
+        assert!(
+            batch.gt_views.len() == 1,
+            "Bigger batches aren't yet supported"
+        );
+
         let mut splats = splats;
 
         let [batch_size, img_h, img_w, _] = batch.gt_images.dims();
@@ -280,18 +285,36 @@ where
 
         trace_span!("Housekeeping", sync_burn = true).in_scope(|| {
             // Get the xy gradient norm from the dummy tensor.
-            let xy_norm_grad = Tensor::from_inner(
+            let xys_grad = Tensor::from_inner(
                 splats
-                    .xys_norm_dummy
+                    .xys_dummy
                     .grad_remove(&mut grads)
                     .expect("XY gradients need to be calculated."),
             );
 
+            let gs_ids = Tensor::from_primitive(auxes[0].global_from_compact_gid.clone());
+
+            let [_, h, w, _] = pred_images.dims();
+            let device = batch.gt_images.device();
+            let xys_grad = xys_grad
+                * Tensor::<_, 1>::from_floats([w as f32 / 2.0, h as f32 / 2.0], &device)
+                    .reshape([1, 2]);
+
+            let xys_grad_norm = (xys_grad.clone() * xys_grad).sum_dim(1).squeeze(1).sqrt();
+
             // TODO: Burn really should implement +=
             if self.iter > self.config.warmup_steps {
-                self.grad_2d_accum = self.grad_2d_accum.clone() + xy_norm_grad.clone();
+                let ones = Tensor::ones(xys_grad_norm.dims(), &device);
                 self.xy_grad_counts =
-                    self.xy_grad_counts.clone() + xy_norm_grad.greater_elem(0.0).int();
+                    self.xy_grad_counts
+                        .clone()
+                        .select_assign(0, gs_ids.clone(), ones);
+
+                self.grad_2d_accum = self.grad_2d_accum.clone().select_assign(
+                    0,
+                    gs_ids.clone(),
+                    xys_grad_norm.clone(),
+                );
             }
         });
 
@@ -381,8 +404,7 @@ where
         let mut splats_post_step = post_step_splat.clone();
 
         // Otherwise, do refinement, but do the split/clone on gaussians with no grads applied.
-        let grads =
-            self.grad_2d_accum.clone() / self.xy_grad_counts.clone().clamp(1, i32::MAX).float();
+        let grads = self.grad_2d_accum.clone() / self.xy_grad_counts.clone().clamp_min(1).float();
 
         let big_grad_mask = grads.greater_equal_elem(self.config.densify_grad_thresh);
         let split_clone_size_mask = splats_post_step

@@ -15,7 +15,7 @@ pub struct EvalView<B: Backend> {
     // but would complicate displaying things in the stats panel a bit.
     pub psnr: f32,
     pub ssim: f32,
-    pub aux: RenderAux,
+    pub aux: RenderAux<B>,
 }
 
 #[derive(Clone)]

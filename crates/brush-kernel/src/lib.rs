@@ -121,20 +121,6 @@ macro_rules! kernel_source_gen {
     };
 }
 
-// Convert a tensors type. This only reinterprets the data, and doesn't
-// do any actual conversions.
-pub fn bitcast_tensor<R: JitRuntime, EIn: JitElement, EOut: JitElement>(
-    tensor: JitTensor<R, EIn>,
-) -> JitTensor<R, EOut> {
-    JitTensor::new(
-        tensor.client,
-        tensor.handle,
-        tensor.shape,
-        tensor.device,
-        tensor.strides,
-    )
-}
-
 // Reserve a buffer from the client for the given shape.
 pub fn create_tensor<E: JitElement, const D: usize, R: JitRuntime>(
     shape: [usize; D],
@@ -143,19 +129,23 @@ pub fn create_tensor<E: JitElement, const D: usize, R: JitRuntime>(
 ) -> JitTensor<R, E> {
     let shape = Shape::from(shape.to_vec());
     let bufsize = shape.num_elements() * core::mem::size_of::<E>();
-    let buffer = client.empty(bufsize);
+    let mut buffer = client.empty(bufsize);
 
-    #[cfg(test)]
-    {
+    if cfg!(test) {
         use burn::tensor::ops::FloatTensorOps;
         use burn_jit::JitBackend;
         // for tests - make doubly sure we're not accidentally relying on values
         // being initialized to zero by adding in some random noise.
-        let f = JitTensor::<R, f32>::new_contiguous(client.clone(), device.clone(), shape, buffer);
-        bitcast_tensor(JitBackend::<R, f32, i32>::float_add_scalar(f, -12345.0))
+        let f = JitTensor::<R, f32>::new_contiguous(
+            client.clone(),
+            device.clone(),
+            shape.clone(),
+            buffer,
+        );
+        let noised = JitBackend::<R, f32, i32>::float_add_scalar(f, -12345.0);
+        buffer = noised.handle;
     }
 
-    #[cfg(not(test))]
     JitTensor::new_contiguous(client.clone(), device.clone(), shape, buffer)
 }
 
@@ -163,7 +153,7 @@ pub fn create_uniform_buffer<R: JitRuntime, T: Pod>(
     val: T,
     device: &R::Device,
     client: &ComputeClient<R::Server, R::Channel>,
-) -> JitTensor<R, u32> {
+) -> JitTensor<R, i32> {
     let bytes = bytemuck::bytes_of(&val);
     let shape = bytes.len() / 4;
 
@@ -195,9 +185,9 @@ impl<C: Compiler> CubeTask<C> for CreateDispatchBuffer {
 }
 
 pub fn create_dispatch_buffer<R: JitRuntime>(
-    thread_nums: JitTensor<R, u32>,
+    thread_nums: JitTensor<R, i32>,
     wg_size: [u32; 3],
-) -> JitTensor<R, u32> {
+) -> JitTensor<R, i32> {
     let client = thread_nums.client;
     let uniforms_buffer = create_uniform_buffer::<R, _>(
         wg::Uniforms {

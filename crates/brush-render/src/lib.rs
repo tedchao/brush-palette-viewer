@@ -1,11 +1,10 @@
 #![allow(clippy::too_many_arguments)]
 #![allow(clippy::single_range_in_vec_init)]
-use brush_kernel::bitcast_tensor;
 use burn::backend::Autodiff;
 use burn::prelude::Tensor;
 use burn::tensor::{ElementConversion, Int};
 use burn_jit::JitBackend;
-use burn_wgpu::{JitTensor, WgpuRuntime};
+use burn_wgpu::WgpuRuntime;
 use camera::Camera;
 
 mod dim_check;
@@ -19,16 +18,18 @@ pub mod gaussian_splats;
 pub mod render;
 
 #[derive(Debug, Clone)]
-pub struct RenderAux {
-    pub uniforms_buffer: JitTensor<WgpuRuntime, u32>,
-    pub projected_splats: JitTensor<WgpuRuntime, f32>,
-    pub num_intersections: JitTensor<WgpuRuntime, u32>,
-    pub num_visible: JitTensor<WgpuRuntime, u32>,
-    pub final_index: JitTensor<WgpuRuntime, u32>,
-    pub cum_tiles_hit: JitTensor<WgpuRuntime, u32>,
-    pub tile_bins: JitTensor<WgpuRuntime, u32>,
-    pub compact_gid_from_isect: JitTensor<WgpuRuntime, u32>,
-    pub global_from_compact_gid: JitTensor<WgpuRuntime, u32>,
+pub struct RenderAux<B: Backend> {
+    /// The packed projected splat information, see ProjectedSplat in helpers.wgsl
+    pub projected_splats: B::FloatTensorPrimitive,
+
+    pub uniforms_buffer: B::IntTensorPrimitive,
+    pub num_intersections: B::IntTensorPrimitive,
+    pub num_visible: B::IntTensorPrimitive,
+    pub final_index: B::IntTensorPrimitive,
+    pub cum_tiles_hit: B::IntTensorPrimitive,
+    pub tile_bins: B::IntTensorPrimitive,
+    pub compact_gid_from_isect: B::IntTensorPrimitive,
+    pub global_from_compact_gid: B::IntTensorPrimitive,
 }
 
 #[derive(Debug, Clone)]
@@ -37,27 +38,23 @@ pub struct RenderStats {
     pub num_intersections: u32,
 }
 
-impl RenderAux {
+impl<B: Backend> RenderAux<B> {
     pub async fn read_num_visible(&self) -> u32 {
-        Tensor::<JitBackend<WgpuRuntime, f32, i32>, 1, Int>::from_primitive(bitcast_tensor(
-            self.num_visible.clone(),
-        ))
-        .into_scalar_async()
-        .await
-        .elem()
+        Tensor::<B, 1, Int>::from_primitive(self.num_visible.clone())
+            .into_scalar_async()
+            .await
+            .elem()
     }
 
     pub async fn read_num_intersections(&self) -> u32 {
-        Tensor::<JitBackend<WgpuRuntime, f32, i32>, 1, Int>::from_primitive(bitcast_tensor(
-            self.num_intersections.clone(),
-        ))
-        .into_scalar_async()
-        .await
-        .elem()
+        Tensor::<B, 1, Int>::from_primitive(self.num_intersections.clone())
+            .into_scalar_async()
+            .await
+            .elem()
     }
 
-    pub fn read_tile_depth(&self) -> Tensor<JitBackend<WgpuRuntime, f32, i32>, 2, Int> {
-        let bins = Tensor::from_primitive(bitcast_tensor(self.tile_bins.clone()));
+    pub fn read_tile_depth(&self) -> Tensor<B, 2, Int> {
+        let bins = Tensor::from_primitive(self.tile_bins.clone());
         let [ty, tx, _] = bins.dims();
         let max = bins.clone().slice([0..ty, 0..tx, 1..2]).squeeze(2);
         let min = bins.clone().slice([0..ty, 0..tx, 0..1]).squeeze(2);
@@ -80,14 +77,13 @@ pub trait Backend: burn::tensor::backend::Backend {
         img_size: glam::UVec2,
         means: Tensor<Self, 2>,
         xy_grad_dummy: Tensor<Self, 2>,
-        xy_grad_norm_dummy: Tensor<Self, 1>,
         log_scales: Tensor<Self, 2>,
         quats: Tensor<Self, 2>,
         sh_coeffs: Tensor<Self, 3>,
         raw_opacity: Tensor<Self, 1>,
         background: glam::Vec3,
         render_u32_buffer: bool,
-    ) -> (Tensor<Self, 3>, RenderAux);
+    ) -> (Tensor<Self, 3>, RenderAux<Self>);
 }
 
 pub trait AutodiffBackend: burn::tensor::backend::AutodiffBackend + Backend {}

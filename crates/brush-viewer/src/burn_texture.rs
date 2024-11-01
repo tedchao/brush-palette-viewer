@@ -1,34 +1,34 @@
 use std::sync::Arc;
 
 use brush_render::PrimaryBackend;
-use burn::tensor::{Int, Tensor};
-use burn_wgpu::{JitTensor, WgpuRuntime};
+use burn::tensor::Tensor;
 use eframe::egui_wgpu::Renderer;
 use egui::epaint::mutex::RwLock as EguiRwLock;
 use egui::TextureId;
 use wgpu::ImageDataLayout;
 
 fn copy_buffer_to_texture(
-    img: JitTensor<WgpuRuntime, i32>,
+    img: Tensor<PrimaryBackend, 3>,
     texture: &wgpu::Texture,
     encoder: &mut wgpu::CommandEncoder,
 ) {
-    let [height, width, c] = img.shape.dims();
+    let [height, width, c] = img.dims();
 
     let padded_shape = vec![height, width.div_ceil(64) * 64, c];
 
     // Create padded tensor if needed. The bytes_per_row needs to be divisible
     // by 256 in WebGPU, so 4 bytes per pixel means width needs to be disible by 64.
     let padded = if width % 64 != 0 {
-        let padded = Tensor::<PrimaryBackend, 3, Int>::zeros(&padded_shape, &img.device);
-        let padded = padded.slice_assign([0..height, 0..width], Tensor::from_primitive(img));
-        padded.into_primitive()
+        let padded = Tensor::<PrimaryBackend, 3>::zeros(&padded_shape, &img.device());
+        padded.slice_assign([0..height, 0..width], img)
     } else {
         img
     };
 
-    padded.client.flush();
-    let img_res = padded.client.get_resource(padded.handle.clone().binding());
+    let prim = padded.clone().into_primitive().tensor();
+    let client = &prim.client;
+    client.flush();
+    let img_res = client.get_resource(prim.handle.clone().binding());
 
     // Put compute passes in encoder before copying the buffer.
     let bytes_per_row = Some(4 * padded_shape[1] as u32);
@@ -131,13 +131,7 @@ impl BurnTexture {
             unreachable!("Somehow failed to initialize")
         };
 
-        let prim_tensor = tensor.into_primitive().tensor();
-
-        copy_buffer_to_texture(
-            brush_kernel::bitcast_tensor(prim_tensor),
-            &s.texture,
-            encoder,
-        );
+        copy_buffer_to_texture(tensor, &s.texture, encoder);
         s.id
     }
 

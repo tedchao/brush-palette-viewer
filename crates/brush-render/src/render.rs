@@ -13,23 +13,25 @@ use crate::{
 };
 
 use brush_kernel::{
-    bitcast_tensor, calc_cube_count, create_dispatch_buffer, create_tensor, create_uniform_buffer,
-    CubeCount,
+    calc_cube_count, create_dispatch_buffer, create_tensor, create_uniform_buffer, CubeCount,
 };
 use brush_prefix_sum::prefix_sum;
 use brush_sort::radix_argsort;
-use burn::backend::autodiff::NodeID;
-use burn::backend::{
-    autodiff::{
-        checkpoint::{base::Checkpointer, strategy::CheckpointStrategy},
-        grads::Gradients,
-        ops::{Backward, Ops, OpsKind},
-    },
-    Autodiff,
-};
 use burn::tensor::ops::IntTensorOps;
 use burn::tensor::ops::{FloatTensor, FloatTensorOps};
 use burn::tensor::{Tensor, TensorPrimitive};
+use burn::{backend::autodiff::NodeID, tensor::BasicAutodiffOps};
+use burn::{
+    backend::{
+        autodiff::{
+            checkpoint::{base::Checkpointer, strategy::CheckpointStrategy},
+            grads::Gradients,
+            ops::{Backward, Ops, OpsKind},
+        },
+        Autodiff,
+    },
+    tensor::Float,
+};
 use burn_wgpu::{JitTensor, WgpuRuntime};
 use glam::uvec2;
 
@@ -60,7 +62,7 @@ fn render_forward(
     raw_opacities: JitTensor<WgpuRuntime, f32>,
     background: glam::Vec3,
     raster_u32: bool,
-) -> (JitTensor<WgpuRuntime, f32>, RenderAux) {
+) -> (JitTensor<WgpuRuntime, f32>, RenderAux<PrimaryBackend>) {
     let device = &means.device.clone();
     let client = means.client.clone();
 
@@ -121,7 +123,7 @@ fn render_forward(
     let client = &means.client.clone();
 
     let (global_from_compact_gid, num_visible) = {
-        let global_from_presort_gid = create_tensor([num_points], device, client);
+        let global_from_presort_gid = create_tensor::<i32, 1, _>([num_points], device, client);
         let depths = create_tensor::<f32, 1, _>([num_points], device, client);
 
         tracing::trace_span!("ProjectSplats", sync_burn = true).in_scope(||
@@ -143,21 +145,16 @@ fn render_forward(
 
         // Get just the number of visible splats from the uniforms buffer.
         let num_vis_field_offset = offset_of!(shaders::helpers::RenderUniforms, num_visible) / 4;
-        let num_visible = bitcast_tensor(PrimaryBackend::int_slice(
-            bitcast_tensor(uniforms_buffer.clone()),
+        let num_visible = PrimaryBackend::int_slice(
+            uniforms_buffer.clone(),
             &[num_vis_field_offset..num_vis_field_offset + 1],
-        ));
+        );
 
         let (_, global_from_compact_gid) = tracing::trace_span!("DepthSort", sync_burn = true)
             .in_scope(|| {
                 // Interpret the depth as a u32. This is fine for a radix sort, as long as the depth > 0.0,
                 // which we know to be the case given how we cull splats.
-                radix_argsort(
-                    bitcast_tensor(depths),
-                    global_from_presort_gid,
-                    num_visible.clone(),
-                    32,
-                )
+                radix_argsort(depths, global_from_presort_gid, num_visible.clone(), 32)
             });
 
         (global_from_compact_gid, num_visible)
@@ -167,7 +164,7 @@ fn render_forward(
     let projected_splats = create_tensor::<f32, 2, _>([num_points, projected_size], device, client);
 
     // Number of tiles hit per splat. Has to be zerod as we later sum over this.
-    let num_tiles_hit = bitcast_tensor(PrimaryBackend::int_zeros([num_points].into(), device));
+    let num_tiles_hit = PrimaryBackend::int_zeros([num_points].into(), device);
     let num_vis_wg = create_dispatch_buffer(num_visible.clone(), [shaders::helpers::MAIN_WG, 1, 1]);
 
     tracing::trace_span!("ProjectVisibile", sync_burn = true).in_scope(|| unsafe {
@@ -193,10 +190,8 @@ fn render_forward(
         prefix_sum(num_tiles_hit)
     });
 
-    let num_intersections = bitcast_tensor(PrimaryBackend::int_slice(
-        bitcast_tensor(cum_tiles_hit.clone()),
-        &[num_points - 1..num_points],
-    ));
+    let num_intersections =
+        PrimaryBackend::int_slice(cum_tiles_hit.clone(), &[num_points - 1..num_points]);
 
     let num_tiles = tile_bounds[0] * tile_bounds[1];
 
@@ -212,8 +207,8 @@ fn render_forward(
             .saturating_mul(num_tiles as usize)
             .min(128 * 65535);
 
-        let tile_id_from_isect = create_tensor::<u32, 1, _>([max_intersects], device, client);
-        let compact_gid_from_isect = create_tensor::<u32, 1, _>([max_intersects], device, client);
+        let tile_id_from_isect = create_tensor::<i32, 1, _>([max_intersects], device, client);
+        let compact_gid_from_isect = create_tensor::<i32, 1, _>([max_intersects], device, client);
 
         tracing::trace_span!("MapGaussiansToIntersect", sync_burn = true).in_scope(|| unsafe {
             client.execute_unchecked(
@@ -245,10 +240,10 @@ fn render_forward(
 
         let _span = tracing::trace_span!("GetTileBinEdges", sync_burn = true).entered();
 
-        let tile_bins = bitcast_tensor(PrimaryBackend::int_zeros(
+        let tile_bins = PrimaryBackend::int_zeros(
             [tile_bounds.y as usize, tile_bounds.x as usize, 2].into(),
             device,
-        ));
+        );
         unsafe {
             client.execute_unchecked(
                 GetTileBinEdges::task(),
@@ -299,7 +294,7 @@ fn render_forward(
 
     // Record the final visible splat per tile.
     let final_index =
-        create_tensor::<u32, 2, _>([img_size.y as usize, img_size.x as usize], device, client);
+        create_tensor::<i32, 2, _>([img_size.y as usize, img_size.x as usize], device, client);
 
     if !raster_u32 {
         handles.push(final_index.handle.clone().binding());
@@ -335,14 +330,13 @@ impl Backend for PrimaryBackend {
         img_size: glam::UVec2,
         means: Tensor<Self, 2>,
         _xy_dummy: Tensor<Self, 2>,
-        _xy_norm_dummy: Tensor<Self, 1>,
         log_scales: Tensor<Self, 2>,
         quats: Tensor<Self, 2>,
         sh_coeffs: Tensor<Self, 3>,
         raw_opacity: Tensor<Self, 1>,
         background: glam::Vec3,
         render_u32_buffer: bool,
-    ) -> (Tensor<Self, 3>, RenderAux) {
+    ) -> (Tensor<Self, 3>, RenderAux<Self>) {
         let (out_img, aux) = render_forward(
             camera,
             img_size,
@@ -360,14 +354,14 @@ impl Backend for PrimaryBackend {
 }
 
 #[derive(Debug, Clone)]
-struct GaussianBackwardState {
+struct GaussianBackwardState<B: Backend> {
     means: NodeID,
     log_scales: NodeID,
     quats: NodeID,
     raw_opac: NodeID,
     sh_degree: u32,
-    out_img: JitTensor<WgpuRuntime, f32>,
-    aux: RenderAux,
+    out_img: B::FloatTensorPrimitive,
+    aux: RenderAux<B>,
 }
 
 #[derive(Debug)]
@@ -379,19 +373,17 @@ impl<C: CheckpointStrategy> Backend for Autodiff<PrimaryBackend, C> {
         img_size: glam::UVec2,
         means: Tensor<Self, 2>,
         xy_dummy: Tensor<Self, 2>,
-        xy_norm_dummy: Tensor<Self, 1>,
         log_scales: Tensor<Self, 2>,
         quats: Tensor<Self, 2>,
         sh_coeffs: Tensor<Self, 3>,
         raw_opacity: Tensor<Self, 1>,
         background: glam::Vec3,
         render_u32_buffer: bool,
-    ) -> (Tensor<Self, 3>, RenderAux) {
+    ) -> (Tensor<Self, 3>, RenderAux<Self>) {
         // Get backend tensors & dequantize if needed. Could try and support quantized inputs
         // in the future.
         let means = means.into_primitive().tensor();
         let xy_dummy = xy_dummy.into_primitive().tensor();
-        let xy_norm_dummy = xy_norm_dummy.into_primitive().tensor();
         let log_scales = log_scales.into_primitive().tensor();
         let quats = quats.into_primitive().tensor();
         let sh_coeffs = sh_coeffs.into_primitive().tensor();
@@ -410,12 +402,30 @@ impl<C: CheckpointStrategy> Backend for Autodiff<PrimaryBackend, C> {
             render_u32_buffer,
         );
 
+        // Not sure why going into the autodiff float tensor type is so verbose.
+        let diff_proj = <Float as BasicAutodiffOps<Self>>::from_inner(TensorPrimitive::Float(
+            aux.projected_splats.clone(),
+        ))
+        .tensor();
+
+        let auxc = aux.clone();
+        let wrapped_aux = RenderAux::<Self> {
+            projected_splats: diff_proj,
+            uniforms_buffer: aux.uniforms_buffer,
+            num_intersections: aux.num_intersections,
+            num_visible: aux.num_visible,
+            final_index: aux.final_index,
+            cum_tiles_hit: aux.cum_tiles_hit,
+            tile_bins: aux.tile_bins,
+            compact_gid_from_isect: aux.compact_gid_from_isect,
+            global_from_compact_gid: aux.global_from_compact_gid,
+        };
+
         // Prepare backward pass, and check if we even need to do it. Store nodes that need gradients.
         let prep_nodes = RenderBackwards
             .prepare::<C>([
                 means.clone().node,
                 xy_dummy.clone().node,
-                xy_norm_dummy.clone().node,
                 log_scales.clone().node,
                 quats.clone().node,
                 sh_coeffs.clone().node,
@@ -435,13 +445,15 @@ impl<C: CheckpointStrategy> Backend for Autodiff<PrimaryBackend, C> {
                     quats: prep.checkpoint(&quats),
                     raw_opac: prep.checkpoint(&raw_opacity),
                     sh_degree,
-                    aux: aux.clone(),
+                    aux: auxc,
                     out_img: out_img.clone(),
                 };
 
+                let finish = prep.finish(state, out_img);
+
                 (
-                    Tensor::from_primitive(TensorPrimitive::Float(prep.finish(state, out_img))),
-                    aux,
+                    Tensor::from_primitive(TensorPrimitive::Float(finish)),
+                    wrapped_aux,
                 )
             }
             OpsKind::UnTracked(prep) => {
@@ -449,19 +461,19 @@ impl<C: CheckpointStrategy> Backend for Autodiff<PrimaryBackend, C> {
                 // keeping any state.
                 (
                     Tensor::from_primitive(TensorPrimitive::Float(prep.finish(out_img))),
-                    aux,
+                    wrapped_aux,
                 )
             }
         }
     }
 }
 
-impl Backward<PrimaryBackend, 7> for RenderBackwards {
-    type State = GaussianBackwardState;
+impl Backward<PrimaryBackend, 6> for RenderBackwards {
+    type State = GaussianBackwardState<PrimaryBackend>;
 
     fn backward(
         self,
-        ops: Ops<Self::State, 7>,
+        ops: Ops<Self::State, 6>,
         grads: &mut Gradients,
         checkpointer: &mut Checkpointer,
     ) {
@@ -487,7 +499,7 @@ impl Backward<PrimaryBackend, 7> for RenderBackwards {
         let num_points = means.shape.dims[0];
         let num_visible = aux.num_visible;
 
-        let (v_xys, v_xys_global, v_xys_norm, v_conics, v_coeffs, v_opacities) = {
+        let (v_xys, v_xys_global, v_conics, v_coeffs, v_opacities) = {
             let tile_bounds = uvec2(
                 img_size.x.div_ceil(shaders::helpers::TILE_WIDTH),
                 img_size.y.div_ceil(shaders::helpers::TILE_WIDTH),
@@ -535,13 +547,10 @@ impl Backward<PrimaryBackend, 7> for RenderBackwards {
 
             let _span = tracing::trace_span!("GatherGrads", sync_burn = true).entered();
 
-            let num_vis_wg = create_dispatch_buffer(
-                bitcast_tensor(num_visible.clone()),
-                GatherGrads::WORKGROUP_SIZE,
-            );
+            let num_vis_wg =
+                create_dispatch_buffer(num_visible.clone(), GatherGrads::WORKGROUP_SIZE);
 
             let v_xys_global = PrimaryBackend::float_zeros([num_points, 2].into(), device);
-            let v_xys_norm = PrimaryBackend::float_zeros([num_points].into(), device);
             unsafe {
                 client.execute_unchecked(
                     GatherGrads::task(),
@@ -556,19 +565,11 @@ impl Backward<PrimaryBackend, 7> for RenderBackwards {
                         v_coeffs.handle.clone().binding(),
                         v_opacities.handle.clone().binding(),
                         v_xys_global.handle.clone().binding(),
-                        v_xys_norm.handle.clone().binding(),
                     ],
                 );
             }
 
-            (
-                v_xys_local,
-                v_xys_global,
-                v_xys_norm,
-                v_conics,
-                v_coeffs,
-                v_opacities,
-            )
+            (v_xys_local, v_xys_global, v_conics, v_coeffs, v_opacities)
         };
 
         // Create tensors to hold gradients.
@@ -600,7 +601,7 @@ impl Backward<PrimaryBackend, 7> for RenderBackwards {
 
         // Register gradients for parent nodes (This code is already skipped entirely
         // if no parent nodes require gradients).
-        let [mean_parent, xys_parent, xys_norm_parent, log_scales_parent, quats_parent, coeffs_parent, raw_opacity_parent] =
+        let [mean_parent, xys_parent, log_scales_parent, quats_parent, coeffs_parent, raw_opacity_parent] =
             ops.parents;
 
         if let Some(node) = mean_parent {
@@ -610,10 +611,6 @@ impl Backward<PrimaryBackend, 7> for RenderBackwards {
         // Register the gradients for the dummy xy input.
         if let Some(node) = xys_parent {
             grads.register::<PrimaryBackend>(node.id, v_xys_global);
-        }
-
-        if let Some(node) = xys_norm_parent {
-            grads.register::<PrimaryBackend>(node.id, v_xys_norm);
         }
 
         if let Some(node) = log_scales_parent {
@@ -672,7 +669,6 @@ mod tests {
         let num_points = 8;
         let means = Tensor::<DiffBack, 2, _>::zeros([num_points, 3], &device);
         let xy_dummy = Tensor::<DiffBack, 2, _>::zeros([num_points, 2], &device);
-        let xy_norm_dummy = Tensor::<DiffBack, 1, _>::zeros([num_points], &device);
         let log_scales = Tensor::ones([num_points, 3], &device) * 2.0;
         let quats = Tensor::<_, 1, _>::from_floats(glam::Quat::IDENTITY.to_array(), &device)
             .unsqueeze_dim(0)
@@ -684,7 +680,6 @@ mod tests {
             img_size,
             means,
             xy_dummy,
-            xy_norm_dummy,
             log_scales,
             quats,
             sh_coeffs,
@@ -780,13 +775,12 @@ mod tests {
                 Tensor::from_primitive(TensorPrimitive::Float(aux.projected_splats.clone()));
 
             let xys: Tensor<DiffBack, 2, Float> =
-                Tensor::from_inner(projected_splats.clone().slice([0..num_visible, 0..2]));
+                projected_splats.clone().slice([0..num_visible, 0..2]);
             let conics: Tensor<DiffBack, 2, Float> =
-                Tensor::from_inner(projected_splats.clone().slice([0..num_visible, 2..5]));
+                projected_splats.clone().slice([0..num_visible, 2..5]);
 
-            let perm = Tensor::<DiffBack, 1, Int>::from_primitive(bitcast_tensor(
-                aux.global_from_compact_gid.clone(),
-            ));
+            let perm =
+                Tensor::<DiffBack, 1, Int>::from_primitive(aux.global_from_compact_gid.clone());
 
             let xys_ref = xys_ref.select(0, perm.clone()).slice([0..num_visible]);
             let conics_ref = conics_ref.select(0, perm.clone()).slice([0..num_visible]);
