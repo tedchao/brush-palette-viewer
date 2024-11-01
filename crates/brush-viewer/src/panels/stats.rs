@@ -122,11 +122,13 @@ impl ViewerPanel for StatsPanel {
                     ui.label(format!("{:.1}", self.train_iter_per_s));
                     ui.end_row();
 
-                    if let Some(psnr) = self.last_eval_psnr {
-                        ui.label("Last eval PSNR");
-                        ui.label(format!("{:.}", psnr));
-                        ui.end_row();
-                    }
+                    ui.label("Last eval PSNR");
+                    ui.label(if let Some(psnr) = self.last_eval_psnr {
+                        format!("{:.}", psnr)
+                    } else {
+                        "--".to_owned()
+                    });
+                    ui.end_row();
                 }
 
                 let client = WgpuRuntime::client(&self.device);
@@ -150,8 +152,6 @@ impl ViewerPanel for StatsPanel {
 
         // On WASM, adapter info is mostly private, not worth showing.
         if !cfg!(target_family = "wasm") {
-            ui.label("GPU");
-
             egui::Grid::new("gpu_grid")
                 .num_columns(2)
                 .spacing([40.0, 4.0])
