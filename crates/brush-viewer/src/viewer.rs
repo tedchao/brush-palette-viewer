@@ -283,7 +283,10 @@ impl Viewer {
         let mut sides = vec![
             tiles.insert_pane(Box::new(LoadDataPanel::new())),
             tiles.insert_pane(Box::new(PresetsPanel::new())),
-            tiles.insert_pane(Box::new(StatsPanel::new(device.clone()))),
+            tiles.insert_pane(Box::new(StatsPanel::new(
+                device.clone(),
+                state.adapter.clone(),
+            ))),
         ];
 
         #[cfg(not(target_family = "wasm"))]

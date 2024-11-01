@@ -4,8 +4,9 @@ use crate::{
 };
 use burn_jit::cubecl::Runtime;
 use burn_wgpu::{WgpuDevice, WgpuRuntime};
-use std::collections::VecDeque;
+use std::{collections::VecDeque, sync::Arc};
 use web_time::Instant;
+use wgpu::AdapterInfo;
 
 pub(crate) struct StatsPanel {
     device: WgpuDevice,
@@ -17,10 +18,13 @@ pub(crate) struct StatsPanel {
 
     training_started: bool,
     num_splats: usize,
+
+    adapter_info: AdapterInfo,
 }
 
 impl StatsPanel {
-    pub(crate) fn new(device: WgpuDevice) -> Self {
+    pub(crate) fn new(device: WgpuDevice, adapter: Arc<wgpu::Adapter>) -> Self {
+        let adapter_info = adapter.get_info();
         Self {
             device,
             last_train_step: (Instant::now(), 0),
@@ -29,6 +33,7 @@ impl StatsPanel {
             last_eval_psnr: None,
             training_started: false,
             num_splats: 0,
+            adapter_info,
         }
     }
 }
@@ -142,5 +147,34 @@ impl ViewerPanel for StatsPanel {
                 ui.label(format!("{}", memory.number_allocs));
                 ui.end_row();
             });
+
+        // On WASM, adapter info is mostly private, not worth showing.
+        if !cfg!(target_family = "wasm") {
+            ui.label("GPU");
+
+            egui::Grid::new("gpu_grid")
+                .num_columns(2)
+                .spacing([40.0, 4.0])
+                .striped(true)
+                .show(ui, |ui| {
+                    ui.label("GPU");
+                    ui.end_row();
+
+                    ui.label("Name");
+                    ui.label(&self.adapter_info.name);
+                    ui.end_row();
+
+                    ui.label("Type");
+                    ui.label(format!("{:?}", self.adapter_info.device_type));
+                    ui.end_row();
+
+                    ui.label("Driver");
+                    ui.label(format!(
+                        "{}, {}",
+                        self.adapter_info.driver, self.adapter_info.driver_info
+                    ));
+                    ui.end_row();
+                });
+        }
     }
 }
