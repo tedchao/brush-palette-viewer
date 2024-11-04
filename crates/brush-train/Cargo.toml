@@ -10,9 +10,11 @@ brush-render.path = "../brush-render"
 anyhow.workspace = true
 image.workspace = true
 glam.workspace = true
-burn.workspace = true
 rand.workspace = true
 tracing.workspace = true
 parking_lot.workspace = true
 log.workspace = true
 async-std.workspace = true
+
+burn.workspace = true
+burn-wgpu.workspace = true

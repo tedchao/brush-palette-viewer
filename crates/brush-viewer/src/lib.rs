@@ -13,7 +13,6 @@ mod panels;
 mod train_loop;
 
 pub mod viewer;
-pub mod wgpu_config;
 
 trait ViewerPanel {
     fn title(&self) -> String;

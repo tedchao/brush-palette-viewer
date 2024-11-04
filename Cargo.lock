@@ -888,6 +888,7 @@ dependencies = [
  "async-std",
  "brush-render",
  "burn",
+ "burn-wgpu",
  "glam",
  "image",
  "log",

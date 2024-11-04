@@ -1,10 +1,21 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 
+use brush_train::create_wgpu_setup;
+use eframe::egui_wgpu::{WgpuConfiguration, WgpuSetup};
+
 fn main() -> anyhow::Result<()> {
     #[cfg(not(target_family = "wasm"))]
     {
-        let wgpu_options =
-            async_std::task::block_on(brush_viewer::wgpu_config::create_wgpu_egui_config());
+        let setup = async_std::task::block_on(create_wgpu_setup());
+        let wgpu_options = WgpuConfiguration {
+            wgpu_setup: WgpuSetup::Existing {
+                instance: setup.instance,
+                adapter: setup.adapter,
+                device: setup.device,
+                queue: setup.queue,
+            },
+            ..Default::default()
+        };
 
         env_logger::init();
 
@@ -47,9 +58,18 @@ fn main() -> anyhow::Result<()> {
 
         // On wasm, run as a local task.
         async_std::task::spawn_local(async {
-            let wgpu_options = brush_viewer::wgpu_config::create_wgpu_egui_config().await;
+            let setup = create_wgpu_setup().await;
+
             let web_options = eframe::WebOptions {
-                wgpu_options,
+                wgpu_options: WgpuConfiguration {
+                    wgpu_setup: WgpuSetup::Existing {
+                        instance: setup.instance,
+                        adapter: setup.adapter,
+                        device: setup.device,
+                        queue: setup.queue,
+                    },
+                    ..Default::default()
+                },
                 ..Default::default()
             };
 
