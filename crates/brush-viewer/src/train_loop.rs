@@ -182,8 +182,6 @@ pub(crate) fn train_loop(
                 let client = WgpuRuntime::client(&device);
                 client.sync().await;
             }
-
-            task::yield_now().await;
         }
 
         Ok(())
