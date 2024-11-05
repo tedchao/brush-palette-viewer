@@ -1,3 +1,4 @@
+
 # Brush - universal splats
 
 https://github.com/user-attachments/assets/b7f55b9c-8632-49f9-b34b-d5de52a7a8b0
@@ -8,6 +9,8 @@ Brush is a 3D reconstruction engine, using [Gaussian splatting](https://repo-sam
 ](https://arthurbrussee.github.io/brush-demo)
 
 _NOTE: This only works on desktop Chrome 129+ currently (Oct 2024). Firefox and Safari are hopefully supported [soon](https://caniuse.com/webgpu), but currently even firefox nightly and safari technical preview do not work_
+
+[![](https://dcbadge.limes.pink/api/server/https://discord.gg/gFuPzR7z)](https://discord.gg/gFuPzR7z)
 
 ## Features
 
