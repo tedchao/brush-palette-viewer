@@ -653,6 +653,8 @@ mod tests {
     use anyhow::{Context, Result};
     use safetensors::SafeTensors;
 
+    const USE_RERUN: bool = false;
+
     #[test]
     fn renders_at_all() {
         // Check if rendering doesn't hard crash or anything.
@@ -661,7 +663,8 @@ mod tests {
         let cam = Camera::new(
             glam::vec3(0.0, 0.0, 0.0),
             glam::Quat::IDENTITY,
-            glam::vec2(0.5, 0.5),
+            0.5,
+            0.5,
             glam::vec2(0.5, 0.5),
         );
         let img_size = glam::uvec2(32, 32);
@@ -713,7 +716,13 @@ mod tests {
         )
         .reshape([crab_img.height() as usize, crab_img.width() as usize, 3]);
 
-        let rec = rerun::RecordingStreamBuilder::new("render test").connect();
+        let rec = if USE_RERUN {
+            rerun::RecordingStreamBuilder::new("render test")
+                .connect()
+                .ok()
+        } else {
+            None
+        };
 
         for (i, path) in ["tiny_case", "basic_case", "mix_case"].iter().enumerate() {
             println!("path {path}");
@@ -730,7 +739,7 @@ mod tests {
             let img_ref = safetensor_to_burn::<DiffBack, 3>(tensors.tensor("out_img")?, &device);
             let [h, w, _] = img_ref.dims();
 
-            let fov = std::f32::consts::PI * 0.5;
+            let fov = std::f64::consts::PI * 0.5;
 
             let focal = fov_to_focal(fov, w as u32);
             let fov_x = focal_to_fov(focal, w as u32);
@@ -739,9 +748,12 @@ mod tests {
             let cam = Camera::new(
                 glam::vec3(0.0, 0.0, -8.0),
                 glam::Quat::IDENTITY,
-                glam::vec2(fov_x, fov_y),
+                fov_x,
+                fov_y,
                 glam::vec2(0.5, 0.5),
             );
+
+            println!("{:.20?}", cam.focal(glam::uvec2(w as u32, h as u32)));
 
             let (out, aux) = splats.render(
                 &cam,
@@ -751,7 +763,7 @@ mod tests {
             );
 
             let out_rgb = out.clone().slice([0..h, 0..w, 0..3]);
-            if let Ok(rec) = rec.as_ref() {
+            if let Some(rec) = rec.as_ref() {
                 task::block_on::<_, anyhow::Result<()>>(async {
                     rec.set_time_sequence("test case", i as i64);
                     rec.log("img/render", &out_rgb.clone().into_rerun_image().await)?;
@@ -776,6 +788,7 @@ mod tests {
 
             let xys: Tensor<DiffBack, 2, Float> =
                 projected_splats.clone().slice([0..num_visible, 0..2]);
+
             let conics: Tensor<DiffBack, 2, Float> =
                 projected_splats.clone().slice([0..num_visible, 2..5]);
 
@@ -814,18 +827,22 @@ mod tests {
                 safetensor_to_burn::<DiffBack, 2>(tensors.tensor("v_xy")?, &device).inner();
             let v_xys = splats.xys_dummy.grad(&grads).context("no xys grad")?;
 
-            assert!(xys.all_close(xys_ref, Some(1e-5), Some(1e-5)));
-            assert!(conics.all_close(conics_ref, Some(1e-5), Some(1e-6)));
+            assert!(xys.all_close(xys_ref, Some(1e-4), Some(1e-10)));
+
+            // TODO: Annoying that these aren't as close.
+            assert!(conics.all_close(conics_ref, Some(1e-4), Some(5e-7)));
 
             // Slightly less precise than other values. This might be because
             // gSplat uses halfs for the image blending.
-            assert!(out_rgb.all_close(img_ref, Some(1e-5), Some(1e-4)));
-            assert!(v_xys.all_close(v_xys_ref, Some(1e-5), Some(1e-6)));
-            assert!(v_opacities.all_close(v_opacities_ref, Some(1e-5), Some(1e-6)));
-            assert!(v_coeffs.all_close(v_coeffs_ref, Some(1e-5), Some(1e-6)));
-            assert!(v_quats.all_close(v_quats_ref, Some(1e-5), Some(1e-6)));
-            assert!(v_scales.all_close(v_scales_ref, Some(1e-5), Some(1e-6)));
-            assert!(v_means.all_close(v_means_ref, Some(1e-5), Some(1e-6)));
+            assert!(out_rgb.all_close(img_ref, Some(1e-4), Some(1e-9)));
+            assert!(v_xys.all_close(v_xys_ref, Some(1e-4), Some(1e-9)));
+            assert!(v_opacities.all_close(v_opacities_ref, Some(1e-4), Some(1e-10)));
+            assert!(v_coeffs.all_close(v_coeffs_ref, Some(1e-4), Some(1e-9)));
+            assert!(v_scales.all_close(v_scales_ref, Some(1e-4), Some(1e-9)));
+            assert!(v_means.all_close(v_means_ref, Some(1e-4), Some(1e-9)));
+
+            // TODO: Less close than others, maybe because of quat normalization.
+            assert!(v_quats.all_close(v_quats_ref, Some(1e-4), Some(1e-8)));
         }
         Ok(())
     }

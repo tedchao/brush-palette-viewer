@@ -72,8 +72,8 @@ fn read_views(
             async move {
                 let focal = cam_data.focal();
 
-                let fovx = camera::focal_to_fov(focal.x, cam_data.width as u32);
-                let fovy = camera::focal_to_fov(focal.y, cam_data.height as u32);
+                let fovx = camera::focal_to_fov(focal.0, cam_data.width as u32);
+                let fovy = camera::focal_to_fov(focal.1, cam_data.height as u32);
 
                 let center = cam_data.principal_point();
                 let center_uv = center / glam::vec2(cam_data.width as f32, cam_data.height as f32);
@@ -93,7 +93,7 @@ fn read_views(
                 let cam_to_world = world_to_cam.inverse();
                 let (_, quat, translation) = cam_to_world.to_scale_rotation_translation();
 
-                let camera = Camera::new(translation, quat, glam::vec2(fovx, fovy), center_uv);
+                let camera = Camera::new(translation, quat, fovx, fovy, center_uv);
 
                 let view = SceneView {
                     name: img_path.to_str().context("Invalid file name")?.to_owned(),

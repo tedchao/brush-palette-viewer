@@ -284,37 +284,33 @@ where
         );
 
         trace_span!("Housekeeping", sync_burn = true).in_scope(|| {
-            // Get the xy gradient norm from the dummy tensor.
-            let xys_grad = Tensor::from_inner(
-                splats
-                    .xys_dummy
-                    .grad_remove(&mut grads)
-                    .expect("XY gradients need to be calculated."),
-            );
-
-            let gs_ids = Tensor::from_primitive(auxes[0].global_from_compact_gid.clone());
-
-            let [_, h, w, _] = pred_images.dims();
-            let device = batch.gt_images.device();
-            let xys_grad = xys_grad
-                * Tensor::<_, 1>::from_floats([w as f32 / 2.0, h as f32 / 2.0], &device)
-                    .reshape([1, 2]);
-
-            let xys_grad_norm = (xys_grad.clone() * xys_grad).sum_dim(1).squeeze(1).sqrt();
-
             // TODO: Burn really should implement +=
             if self.iter > self.config.warmup_steps {
+                // Get the xy gradient norm from the dummy tensor.
+                let xys_grad = Tensor::from_inner(
+                    splats
+                        .xys_dummy
+                        .grad_remove(&mut grads)
+                        .expect("XY gradients need to be calculated."),
+                );
+
+                let gs_ids = Tensor::from_primitive(auxes[0].global_from_compact_gid.clone());
+
+                let [_, h, w, _] = pred_images.dims();
+                let device = batch.gt_images.device();
+                let xys_grad = xys_grad
+                    * Tensor::<_, 1>::from_floats([w as f32 / 2.0, h as f32 / 2.0], &device)
+                        .reshape([1, 2]);
+
+                let xys_grad_norm = (xys_grad.clone() * xys_grad).sum_dim(1).squeeze(1).sqrt();
+
                 let ones = Tensor::ones(xys_grad_norm.dims(), &device);
                 self.xy_grad_counts =
                     self.xy_grad_counts
                         .clone()
                         .select_assign(0, gs_ids.clone(), ones);
 
-                self.grad_2d_accum = self.grad_2d_accum.clone().select_assign(
-                    0,
-                    gs_ids.clone(),
-                    xys_grad_norm.clone(),
-                );
+                self.grad_2d_accum = self.grad_2d_accum.clone() + xys_grad_norm;
             }
         });
 

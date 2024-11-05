@@ -85,8 +85,8 @@ pub struct Point3D {
 }
 
 impl Camera {
-    pub fn focal(&self) -> glam::Vec2 {
-        let x = self.params[0] as f32;
+    pub fn focal(&self) -> (f64, f64) {
+        let x = self.params[0];
         let y = self.params[match self.model {
             CameraModel::SimplePinhole => 0,
             CameraModel::Pinhole => 1,
@@ -99,8 +99,8 @@ impl Camera {
             CameraModel::SimpleRadialFisheye => 0,
             CameraModel::RadialFisheye => 0,
             CameraModel::ThinPrismFisheye => 1,
-        }] as f32;
-        glam::vec2(x, y)
+        }];
+        (x, y)
     }
 
     pub fn principal_point(&self) -> glam::Vec2 {

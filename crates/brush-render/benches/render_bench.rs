@@ -161,14 +161,15 @@ fn bench_general(
         &device,
     );
     let [w, h] = resolution.into();
-    let fov = std::f32::consts::PI * 0.5;
+    let fov = std::f64::consts::PI * 0.5;
     let focal = fov_to_focal(fov, w);
     let fov_x = focal_to_fov(focal, w);
     let fov_y = focal_to_fov(focal, h);
     let camera = Camera::new(
         glam::vec3(0.0, 0.0, -8.0),
         glam::Quat::IDENTITY,
-        glam::vec2(fov_x, fov_y),
+        fov_x,
+        fov_y,
         glam::vec2(0.5, 0.5),
     );
 

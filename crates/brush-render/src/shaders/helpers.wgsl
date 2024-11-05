@@ -90,22 +90,32 @@ fn quat_to_rotmat(quat: vec4f) -> mat3x3f {
     let y = quat.z;
     let z = quat.w;
 
+    let x2 = x * x;
+    let y2 = y * y;
+    let z2 = z * z;
+    let xy = x * y;
+    let xz = x * z;
+    let yz = y * z;
+    let wx = w * x;
+    let wy = w * y;
+    let wz = w * z;
+
     // See https://www.songho.ca/opengl/gl_quaternion.html
     return mat3x3f(
         vec3f(
-            1.0 - 2.0 * (y * y + z * z),
-            2.0 * (x * y + w * z),
-            2.0 * (x * z - w * y),
+            (1.0 - 2.0 * (y2 + z2)),
+            (2.0 * (xy + wz)),
+            (2.0 * (xz - wy)), // 1st col
         ),
         vec3f(
-            2.0 * (x * y - w * z),
-            1.0 - 2.0 * (x * x + z * z),
-            2.0 * (y * z + w * x),
+            (2.0 * (xy - wz)),
+            (1.0 - 2.0 * (x2 + z2)),
+            (2.0 * (yz + wx)), // 2nd col
         ),
         vec3f(
-            2.0 * (x * z + w * y),
-            2.0 * (y * z - w * x),
-            1.0 - 2.0 * (x * x + y * y)
+            (2.0 * (xz + wy)),
+            (2.0 * (yz - wx)),
+            (1.0 - 2.0 * (x2 + y2)) // 3rd col
         ),
     );
 }
@@ -119,49 +129,50 @@ fn scale_to_mat(scale: vec3f) -> mat3x3f {
 }
 
 fn project_pix(fxfy: vec2f, p_view: vec3f, pp: vec2f) -> vec2f {
-    let p_proj = p_view.xy / (p_view.z + 1e-6f);
+    let p_proj = p_view.xy / p_view.z;
     return p_proj * fxfy + pp;
 }
 
 fn calc_cov2d(focal: vec2f, img_size: vec2u, pixel_center: vec2f, viewmat: mat4x4f, p_view: vec3f, scale: vec3f, quat: vec4f) -> vec3f {
     let tan_fov = 0.5 * vec2f(img_size.xy) / focal;
 
-    let lims_neg = pixel_center / focal + 0.3f * tan_fov;
     let lims_pos = (vec2f(img_size.xy) - pixel_center) / focal + 0.3f * tan_fov;
+    let lims_neg = pixel_center / focal + 0.3f * tan_fov;
 
-    let lims = 1.3 * tan_fov;
+    let rz = 1.0 / p_view.z;
+    let rz2 = rz * rz;
 
     // Get ndc coords +- clipped to the frustum.
-    let t = p_view.z * clamp(p_view.xy / p_view.z, -lims_neg, lims_pos);
+    let t = p_view.z * clamp(p_view.xy * rz, -lims_neg, lims_pos);
 
     var M = quat_to_rotmat(quat);
     M[0] *= scale.x;
     M[1] *= scale.y;
     M[2] *= scale.z;
-    var V = M * transpose(M);
 
-    let J = mat3x3f(
-        vec3f(focal.x, 0.0, 0.0),
-        vec3f(0.0, focal.y, 0.0),
-        vec3f(-focal * t / p_view.z, 0.0)
-    ) * (1.0 / p_view.z);
+    let J = mat3x2f(
+        vec2f(focal.x * rz, 0.0),
+        vec2f(0.0, focal.y * rz),
+        -focal * t * rz2
+    );
 
     let W = mat3x3f(viewmat[0].xyz, viewmat[1].xyz, viewmat[2].xyz);
+
+    let V = M * transpose(M);
     let T = J * W;
     let cov = T * V * transpose(T);
 
+    // add a little blur along axes and save upper triangular elements
     let c00 = cov[0][0] + COV_BLUR;
     let c11 = cov[1][1] + COV_BLUR;
     let c01 = cov[0][1];
-
-    // add a little blur along axes and save upper triangular elements
-    let cov2d = vec3f(c00, c01, c11);
-    return cov2d;
+    return vec3f(c00, c01, c11);
 }
 
 fn cov_to_conic(cov2d: vec3f) -> vec3f {
     let det = cov2d.x * cov2d.z - cov2d.y * cov2d.y;
-    return vec3f(cov2d.z, -cov2d.y, cov2d.x) / det;
+    let inv_det = 1.0 / det;
+    return vec3f(cov2d.z, -cov2d.y, cov2d.x) * inv_det;
 }
 
 const COV_BLUR: f32 = 0.3;

@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 #[derive(serde::Deserialize)]
 struct SyntheticScene {
-    camera_angle_x: f32,
+    camera_angle_x: f64,
     frames: Vec<FrameData>,
 }
 
@@ -101,12 +101,7 @@ fn read_transforms_file(
 
                 let view = SceneView {
                     name: image_path.to_str().context("Invalid filename")?.to_owned(),
-                    camera: Camera::new(
-                        translation,
-                        rotation,
-                        glam::vec2(fovx, fovy),
-                        glam::vec2(0.5, 0.5),
-                    ),
+                    camera: Camera::new(translation, rotation, fovx, fovy, glam::vec2(0.5, 0.5)),
                     image: Arc::new(image),
                 };
                 anyhow::Result::<SceneView>::Ok(view)
