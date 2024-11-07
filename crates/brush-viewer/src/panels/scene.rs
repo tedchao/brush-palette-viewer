@@ -120,6 +120,8 @@ impl ScenePanel {
             self.backbuffer
                 .update_texture(img, &self.device, self.renderer.clone(), &mut encoder);
             self.queue.submit([encoder.finish()]);
+
+            self.dirty = false;
         }
 
         if let Some(id) = self.backbuffer.id() {
