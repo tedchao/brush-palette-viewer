@@ -6,7 +6,7 @@ use std::sync::Arc;
 use brush_render::gaussian_splats::Splats;
 use eframe::egui_wgpu::Renderer;
 use egui::{Color32, Rect};
-use glam::Vec2;
+use glam::{Affine3A, Vec2};
 use tracing::trace_span;
 use web_time::Instant;
 
@@ -26,6 +26,7 @@ pub(crate) struct ScenePanel {
     live_update: bool,
     paused: bool,
 
+    last_cam_trans: Affine3A,
     dirty: bool,
 
     queue: Arc<wgpu::Queue>,
@@ -45,7 +46,8 @@ impl ScenePanel {
             last_message: None,
             live_update: true,
             paused: false,
-            dirty: false,
+            dirty: true,
+            last_cam_trans: Affine3A::IDENTITY,
             is_loading: false,
             is_training: false,
             queue,
@@ -197,6 +199,15 @@ runs consider using the native app."#,
             return;
         }
 
+        if self.last_cam_trans
+            != glam::Affine3A::from_rotation_translation(
+                context.camera.rotation,
+                context.camera.position,
+            )
+        {
+            self.dirty = true;
+        }
+
         if let Some(message) = self.last_message.clone() {
             match message {
                 ViewerMessage::Error(e) => {
@@ -273,11 +284,6 @@ runs consider using the native app."#,
                 }
                 _ => {}
             }
-        }
-
-        if context.controls.is_animating() {
-            self.dirty = true;
-            ui.ctx().request_repaint();
         }
     }
 }
