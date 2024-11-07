@@ -1,4 +1,4 @@
-#[derive(Clone, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Copy, serde::Deserialize, serde::Serialize)]
 pub struct BoundingBox {
     pub center: glam::Vec3,
     pub extent: glam::Vec3,

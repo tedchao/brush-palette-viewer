@@ -5,7 +5,7 @@ use async_std::{
     task,
 };
 use brush_dataset::{
-    scene_batch::SceneLoader, zip::DatasetZip, Dataset, LoadDatasetArgs, LoadInitArgs,
+    scene_loader::SceneLoader, zip::DatasetZip, Dataset, LoadDatasetArgs, LoadInitArgs,
 };
 use brush_render::{
     gaussian_splats::{RandomSplatsConfig, Splats},
@@ -95,7 +95,7 @@ pub(crate) fn train_loop(
         let eval_scene = dataset.eval.clone();
 
         let mut dataloader = SceneLoader::new(&train_scene, batch_size, seed, &device);
-        let mut trainer = SplatTrainer::new(splats.num_splats(), &config, &splats);
+        let mut trainer = SplatTrainer::new(splats.num_splats(), &config, &device);
 
         let mut is_paused = false;
 

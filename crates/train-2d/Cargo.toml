@@ -1,0 +1,22 @@
+[package]
+name = "train-2d"
+edition.workspace = true
+version.workspace = true
+readme.workspace = true
+license.workspace = true
+
+[dependencies]
+burn.workspace = true
+brush-train.path = "../brush-train"
+brush-render.path = "../brush-render"
+brush-ui.path = "../brush-ui"
+
+async-std.workspace = true
+env_logger.workspace = true
+async-fn-stream.workspace = true
+rand.workspace = true
+glam.workspace = true
+image.workspace = true
+
+eframe.workspace = true
+egui.workspace = true

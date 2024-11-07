@@ -18,9 +18,6 @@ use crate::ssim::Ssim;
 
 #[derive(Config)]
 pub struct TrainConfig {
-    #[config(default = 30000)]
-    total_steps: usize,
-
     // period of steps where refinement is turned off
     #[config(default = 500)]
     warmup_steps: u32,
@@ -29,8 +26,8 @@ pub struct TrainConfig {
     #[config(default = 100)]
     refine_every: u32,
 
-    #[config(default = 0.5)]
-    stop_refine_percent: f32,
+    #[config(default = 15000)]
+    max_refine_step: u32,
 
     #[config(default = 0.004)]
     reset_alpha_value: f32,
@@ -183,11 +180,9 @@ impl<B: AutodiffBackend> SplatTrainer<B>
 where
     B::InnerBackend: Backend,
 {
-    pub fn new(num_points: usize, config: &TrainConfig, splats: &Splats<B>) -> Self {
+    pub fn new(num_points: usize, config: &TrainConfig, device: &B::Device) -> Self {
         let opt_config = AdamConfig::new().with_epsilon(1e-15);
         let optim = opt_config.init::<B, Splats<B>>();
-
-        let device = &splats.means.device();
 
         let ssim = Ssim::new(config.ssim_window_size, 3, device);
         Self {
@@ -268,9 +263,6 @@ where
 
             (pred_images, auxes, loss)
         };
-
-        let max_refine_step =
-            (self.config.stop_refine_percent * self.config.total_steps as f32) as u32;
 
         let mut grads = trace_span!("Backward pass", sync_burn = true).in_scope(|| loss.backward());
 
@@ -358,7 +350,7 @@ where
 
         let mut refine_stats = None;
 
-        let do_refine = self.iter < max_refine_step
+        let do_refine = self.iter < self.config.max_refine_step
             && self.iter >= self.config.warmup_steps
             && self.iter % self.config.refine_every == 1;
 

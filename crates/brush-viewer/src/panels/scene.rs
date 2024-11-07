@@ -1,4 +1,5 @@
 use brush_dataset::splat_export;
+use brush_ui::burn_texture::BurnTexture;
 use egui::epaint::mutex::RwLock as EguiRwLock;
 use std::sync::Arc;
 
@@ -8,10 +9,8 @@ use egui::{Color32, Rect};
 use glam::Vec2;
 use tracing::trace_span;
 use web_time::Instant;
-use wgpu::CommandEncoderDescriptor;
 
 use crate::{
-    burn_texture::BurnTexture,
     train_loop::TrainMessage,
     viewer::{ViewerContext, ViewerMessage},
     ViewerPanel,
@@ -41,7 +40,7 @@ impl ScenePanel {
         renderer: Arc<EguiRwLock<Renderer>>,
     ) -> Self {
         Self {
-            backbuffer: BurnTexture::new(),
+            backbuffer: BurnTexture::new(device.clone(), queue.clone()),
             last_draw: None,
             last_message: None,
             live_update: true,
@@ -111,16 +110,7 @@ impl ScenePanel {
         if ui.ctx().has_requested_repaint() && self.dirty {
             let _span = trace_span!("Render splats").entered();
             let (img, _) = splats.render(&context.camera, size, background, true);
-
-            let mut encoder = self
-                .device
-                .create_command_encoder(&CommandEncoderDescriptor {
-                    label: Some("viewer encoder"),
-                });
-            self.backbuffer
-                .update_texture(img, &self.device, self.renderer.clone(), &mut encoder);
-            self.queue.submit([encoder.finish()]);
-
+            self.backbuffer.update_texture(img, self.renderer.clone());
             self.dirty = false;
         }
 

@@ -23,9 +23,6 @@ impl<B: Backend> SceneLoader<B> {
         let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
 
         let fut = async move {
-            // Nb: Index works as a "seed" to the dataloader.
-            let mut index = seed;
-
             loop {
                 let indices: Vec<_> = (0..batch_size)
                     .map(|_| rng.gen_range(0..scene.views.len()))
@@ -47,8 +44,6 @@ impl<B: Backend> SceneLoader<B> {
                 if tx.send(scene_batch).await.is_err() {
                     break;
                 }
-
-                index = index.wrapping_add(1);
             }
         };
 

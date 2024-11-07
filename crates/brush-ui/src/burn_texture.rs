@@ -5,7 +5,7 @@ use burn::tensor::Tensor;
 use eframe::egui_wgpu::Renderer;
 use egui::epaint::mutex::RwLock as EguiRwLock;
 use egui::TextureId;
-use wgpu::ImageDataLayout;
+use wgpu::{CommandEncoderDescriptor, ImageDataLayout};
 
 fn copy_buffer_to_texture(
     img: Tensor<PrimaryBackend, 3>,
@@ -64,6 +64,8 @@ struct TextureState {
 
 pub struct BurnTexture {
     state: Option<TextureState>,
+    device: Arc<wgpu::Device>,
+    queue: Arc<wgpu::Queue>,
 }
 
 fn create_texture(size: glam::UVec2, device: &wgpu::Device) -> wgpu::Texture {
@@ -84,17 +86,25 @@ fn create_texture(size: glam::UVec2, device: &wgpu::Device) -> wgpu::Texture {
 }
 
 impl BurnTexture {
-    pub fn new() -> Self {
-        Self { state: None }
+    pub fn new(device: Arc<wgpu::Device>, queue: Arc<wgpu::Queue>) -> Self {
+        Self {
+            state: None,
+            device,
+            queue,
+        }
     }
 
     pub fn update_texture(
         &mut self,
         tensor: Tensor<PrimaryBackend, 3>,
-        device: &wgpu::Device,
         renderer: Arc<EguiRwLock<Renderer>>,
-        encoder: &mut wgpu::CommandEncoder,
     ) -> TextureId {
+        let mut encoder = self
+            .device
+            .create_command_encoder(&CommandEncoderDescriptor {
+                label: Some("viewer encoder"),
+            });
+
         let [h, w, _] = tensor.shape().dims();
         let size = glam::uvec2(w as u32, h as u32);
 
@@ -105,20 +115,20 @@ impl BurnTexture {
         };
 
         if dirty {
-            let texture = create_texture(glam::uvec2(w as u32, h as u32), device);
+            let texture = create_texture(glam::uvec2(w as u32, h as u32), &self.device);
 
             if let Some(s) = self.state.as_mut() {
                 s.texture = texture;
 
                 renderer.write().update_egui_texture_from_wgpu_texture(
-                    device,
+                    &self.device,
                     &s.texture.create_view(&Default::default()),
                     wgpu::FilterMode::Linear,
                     s.id,
                 );
             } else {
                 let id = renderer.write().register_native_texture(
-                    device,
+                    &self.device,
                     &texture.create_view(&Default::default()),
                     wgpu::FilterMode::Linear,
                 );
@@ -131,11 +141,14 @@ impl BurnTexture {
             unreachable!("Somehow failed to initialize")
         };
 
-        copy_buffer_to_texture(tensor, &s.texture, encoder);
+        copy_buffer_to_texture(tensor, &s.texture, &mut encoder);
+
+        self.queue.submit([encoder.finish()]);
+
         s.id
     }
 
-    pub(crate) fn id(&self) -> Option<TextureId> {
+    pub fn id(&self) -> Option<TextureId> {
         self.state.as_ref().map(|s| s.id)
     }
 }
