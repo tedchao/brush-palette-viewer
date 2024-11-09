@@ -18,7 +18,7 @@ impl<B: Backend> SceneLoader<B> {
         // The bounded size == number of batches to prefetch.
         let (tx, rx) = async_std::channel::bounded(5);
         let device = device.clone();
-        let scene_extent = scene.bounds(0.0, 0.0).extent.length() as f64;
+        let scene_extent = scene.bounds(0.0, 0.0).extent.max_element() as f64;
 
         let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
 

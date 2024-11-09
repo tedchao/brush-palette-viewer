@@ -76,10 +76,10 @@ pub struct TrainConfig {
     #[config(default = 0.05)]
     lr_opac: f64,
 
-    #[config(default = 0.0075)]
+    #[config(default = 0.01)]
     lr_scale: f64,
 
-    #[config(default = 0.001)]
+    #[config(default = 0.002)]
     lr_rotation: f64,
 
     #[config(default = 42)]
@@ -255,8 +255,8 @@ where
 
             let loss = (pred_rgb.clone() - gt_rgb.clone()).abs().mean();
             let loss = if self.config.ssim_weight > 0.0 {
-                let ssim_loss = -self.ssim.ssim(pred_rgb.clone(), gt_rgb.clone()) + 1.0;
-                loss * (1.0 - self.config.ssim_weight) + ssim_loss * self.config.ssim_weight
+                let ssim_loss = self.ssim.ssim(pred_rgb, gt_rgb);
+                loss * (1.0 - self.config.ssim_weight) - ssim_loss * self.config.ssim_weight
             } else {
                 loss
             };
@@ -286,7 +286,8 @@ where
                         .expect("XY gradients need to be calculated."),
                 );
 
-                let gs_ids = Tensor::from_primitive(auxes[0].global_from_compact_gid.clone());
+                let aux = &auxes[0];
+                let gs_ids = Tensor::from_primitive(aux.global_from_compact_gid.clone());
 
                 let [_, h, w, _] = pred_images.dims();
                 let device = batch.gt_images.device();
@@ -294,13 +295,15 @@ where
                     * Tensor::<_, 1>::from_floats([w as f32 / 2.0, h as f32 / 2.0], &device)
                         .reshape([1, 2]);
 
-                let xys_grad_norm = (xys_grad.clone() * xys_grad).sum_dim(1).squeeze(1).sqrt();
+                let xys_grad_norm = xys_grad.powi_scalar(2).sum_dim(1).squeeze(1).sqrt();
 
-                let ones = Tensor::ones(xys_grad_norm.dims(), &device);
+                let num_vis = Tensor::from_primitive(aux.num_visible.clone());
+                let valid = Tensor::arange(0..splats.num_splats() as i64, &device).lower(num_vis);
+
                 self.xy_grad_counts =
                     self.xy_grad_counts
                         .clone()
-                        .select_assign(0, gs_ids.clone(), ones);
+                        .select_assign(0, gs_ids.clone(), valid.int());
 
                 self.grad_2d_accum = self.grad_2d_accum.clone() + xys_grad_norm;
             }
@@ -327,11 +330,13 @@ where
             // (Adam Update rule is theta_{t + 1} = theta_{t} - lr * step)
             if sh_num > 1 {
                 Splats::map_param(&mut splats.sh_coeffs, |coeffs| {
-                    let coeff_step = coeffs.clone() - old_coeffs.clone();
+                    let lerp_alpha = 1.0 / self.config.lr_coeffs_sh_scale;
                     let scaled_coeffs =
-                        old_coeffs.clone() + coeff_step / self.config.lr_coeffs_sh_scale;
+                        old_coeffs.clone() * (1.0 - lerp_alpha) + coeffs.clone() * lerp_alpha;
+
                     let base = coeffs.slice([0..num_splats, 0..1]);
                     let scaled = scaled_coeffs.slice([0..num_splats, 1..sh_num]);
+
                     Tensor::cat(vec![base, scaled], 1)
                 });
             }
@@ -344,7 +349,6 @@ where
             splats = self.optim.step(lr_scale, splats, grad_scale);
 
             // Make sure rotations are still valid after optimization step.
-            splats.norm_rotations();
             splats
         });
 
@@ -539,9 +543,7 @@ where
 
         // Delete Gaussians with too large of a radius in world-units.
         let scale_mask = splats
-            .log_scales
-            .val()
-            .exp()
+            .scales()
             .max_dim(1)
             .squeeze(1)
             .greater_elem(self.config.cull_scale_thresh);

@@ -123,7 +123,7 @@ fn render_forward(
     let client = &means.client.clone();
 
     let (global_from_compact_gid, num_visible) = {
-        let global_from_presort_gid = create_tensor::<i32, 1, _>([num_points], device, client);
+        let global_from_presort_gid = PrimaryBackend::int_zeros([num_points].into(), device);
         let depths = create_tensor::<f32, 1, _>([num_points], device, client);
 
         tracing::trace_span!("ProjectSplats", sync_burn = true).in_scope(||
