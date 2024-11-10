@@ -188,7 +188,6 @@ impl VisualizeTools {
                 let eval_render = tensor_into_image(samp.rendered.into_data_async().await);
 
                 let rendered = eval_render.to_rgb8();
-                let gt = samp.view.image.as_rgb8().unwrap();
 
                 let [w, h] = [rendered.width(), rendered.height()];
                 rec.log(
@@ -205,10 +204,15 @@ impl VisualizeTools {
                         glam::vec2(w as f32, h as f32),
                     ),
                 )?;
-                rec.log(
-                    format!("world/eval/view_{i}/ground_truth"),
-                    &rerun::Image::from_rgb24(gt.to_vec(), [w, h]),
-                )?;
+
+                let gt_img = samp.view.image;
+                let gt_rerun_img = if gt_img.color().has_alpha() {
+                    rerun::Image::from_rgba32(gt_img.to_rgba8().into_vec(), [w, h])
+                } else {
+                    rerun::Image::from_rgb24(gt_img.to_rgb8().into_vec(), [w, h])
+                };
+
+                rec.log(format!("world/eval/view_{i}/ground_truth"), &gt_rerun_img)?;
                 rec.log(
                     format!("world/eval/view_{i}/render"),
                     &rerun::Image::from_rgb24(rendered.to_vec(), [w, h]),

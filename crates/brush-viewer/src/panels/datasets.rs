@@ -3,7 +3,7 @@ use crate::{
     ViewerPanel,
 };
 use brush_train::scene::{Scene, ViewType};
-use egui::{Slider, TextureHandle, TextureOptions};
+use egui::{pos2, Slider, TextureHandle, TextureOptions};
 
 pub(crate) struct DatasetPanel {
     view_type: ViewType,
@@ -79,11 +79,13 @@ impl ViewerPanel for DatasetPanel {
 
             if dirty {
                 let image = &self.selected_scene(context).views[*nearest].image;
+                let img_size = [image.width() as usize, image.height() as usize];
+                let color_img = if image.color().has_alpha() {
+                    egui::ColorImage::from_rgba_unmultiplied(img_size, &image.to_rgba8().into_vec())
+                } else {
+                    egui::ColorImage::from_rgb(img_size, &image.to_rgb8().into_vec())
+                };
 
-                let color_img = egui::ColorImage::from_rgb(
-                    [image.width() as usize, image.height() as usize],
-                    &image.to_rgb8().into_vec(),
-                );
                 self.selected_view = Some((
                     *nearest,
                     self.view_type,
@@ -95,7 +97,21 @@ impl ViewerPanel for DatasetPanel {
             let view_count = self.selected_scene(context).views.len();
 
             if let Some(selected) = self.selected_view.as_ref() {
-                ui.add(egui::Image::new(&selected.2).shrink_to_fit());
+                let size = egui::Image::new(&selected.2)
+                    .shrink_to_fit()
+                    .calc_size(ui.available_size(), None);
+                let min = ui.cursor().min;
+                let rect = egui::Rect::from_min_size(min, size);
+
+                brush_ui::draw_checkerboard(ui, rect);
+                ui.painter().image(
+                    selected.2.id(),
+                    rect,
+                    egui::Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)),
+                    egui::Color32::WHITE,
+                );
+
+                ui.allocate_rect(rect, egui::Sense::click());
             }
 
             ui.horizontal(|ui| {

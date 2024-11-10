@@ -132,15 +132,7 @@ pub(crate) fn load_dataset(
                 train_views.push(view?);
             }
 
-            // 'real' colmap scenes are assumed to be opaque and not have a background, aka
-            // a black background.
-            let background = Vec3::ZERO;
-
-            Ok(Dataset::from_views(
-                train_views.clone(),
-                eval_views.clone(),
-                background,
-            ))
+            Ok(Dataset::from_views(train_views.clone(), eval_views.clone()))
         });
 
     Ok(Box::pin(stream))

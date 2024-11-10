@@ -176,7 +176,7 @@ fn bench_general(
     if grad {
         bencher.bench_local(move || {
             for _ in 0..INTERNAL_ITERS {
-                let out = splats.render(&camera, resolution, glam::vec3(0.0, 0.0, 0.0), false);
+                let out = splats.render(&camera, resolution, false);
                 let _ = out.0.mean().backward();
             }
             // Wait for GPU work.
@@ -188,7 +188,7 @@ fn bench_general(
 
         bencher.bench_local(move || {
             for _ in 0..INTERNAL_ITERS {
-                let _ = splats.render(&camera, resolution, glam::vec3(0.0, 0.0, 0.0), true);
+                let _ = splats.render(&camera, resolution, true);
             }
             // Wait for GPU work.
             <PrimaryBackend as burn::prelude::Backend>::sync(&WgpuDevice::DefaultDevice);

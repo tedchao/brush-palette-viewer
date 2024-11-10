@@ -6,24 +6,15 @@ const MAIN_WG: u32 = 256u;
 
 struct RenderUniforms {
     // View matrix transform world to view position.
-    // Offset 0.
     viewmat: mat4x4f,
     // Focal of camera (fx, fy)
-    // offset 64
     focal: vec2f,
     // Img resolution (w, h)
-    // offset 72
     img_size: vec2u,
-    // offset 80
     tile_bounds: vec2u,
     // Camera center (cx, cy).
-    // offset 88
     pixel_center: vec2f,
-    // Background color of the scene.
-    // Offset 96.
-    background: vec4f,
     // Degree of sh coeffecients used.
-    // Offset 112
     sh_degree: u32,
 #ifdef UNIFORM_WRITE
     // Number of visible gaussians, written by project_forward.
@@ -32,12 +23,9 @@ struct RenderUniforms {
     num_visible: atomic<u32>,
 #else
     // Number of visible gaussians.
-    // Offset 116
     num_visible: u32,
 #endif
-    // Offset 120
     total_splats: u32,
-    // Offset 124
     padding: u32,
 }
 

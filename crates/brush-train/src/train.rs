@@ -211,7 +211,6 @@ where
     pub async fn step(
         &mut self,
         batch: SceneBatch<B>,
-        background_color: glam::Vec3,
         splats: Splats<B>,
     ) -> Result<(Splats<B>, TrainStepStats<B>), anyhow::Error> {
         assert!(
@@ -230,12 +229,8 @@ where
             for i in 0..batch.gt_views.len() {
                 let camera = &batch.gt_views[i].camera;
 
-                let (pred_image, aux) = splats.render(
-                    camera,
-                    glam::uvec2(img_w as u32, img_h as u32),
-                    background_color,
-                    false,
-                );
+                let (pred_image, aux) =
+                    splats.render(camera, glam::uvec2(img_w as u32, img_h as u32), false);
 
                 renders.push(pred_image);
                 auxes.push(aux);
@@ -248,13 +243,24 @@ where
             let pred_rgb = pred_images
                 .clone()
                 .slice([0..batch_size, 0..img_h, 0..img_w, 0..3]);
-            let gt_rgb = batch
-                .gt_images
-                .clone()
-                .slice([0..batch_size, 0..img_h, 0..img_w, 0..3]);
 
-            let loss = (pred_rgb.clone() - gt_rgb.clone()).abs().mean();
+            // This is wrong if the batch has mixed transparent and non-transparent images,
+            // but that's ok for now.
+            let pred_compare = if batch.gt_views[0].image.color().has_alpha() {
+                pred_images.clone()
+            } else {
+                pred_rgb.clone()
+            };
+
+            let loss = (pred_compare - batch.gt_images.clone()).abs().mean();
+
             let loss = if self.config.ssim_weight > 0.0 {
+                let gt_rgb =
+                    batch
+                        .gt_images
+                        .clone()
+                        .slice([0..batch_size, 0..img_h, 0..img_w, 0..3]);
+
                 let ssim_loss = self.ssim.ssim(pred_rgb, gt_rgb);
                 loss * (1.0 - self.config.ssim_weight) - ssim_loss * self.config.ssim_weight
             } else {
@@ -532,7 +538,6 @@ where
 
         // Do some more processing. Important to do this last as otherwise you might mess up the correspondence
         // of gradient <-> splat.
-
         let start_count = splats.num_splats();
 
         // Remove barely visible gaussians.

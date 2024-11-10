@@ -1,6 +1,7 @@
 use brush_render::RenderAux;
 use brush_render::{gaussian_splats::Splats, Backend};
 use burn::tensor::{ElementConversion, Tensor};
+use image::DynamicImage;
 use rand::seq::IteratorRandom;
 
 use crate::image::image_to_tensor;
@@ -44,11 +45,12 @@ pub async fn eval_stats<B: Backend>(
     let mut ret = vec![];
 
     for view in eval_views {
-        let ground_truth = view.image.clone();
+        // Compare MSE in RGB only, not sure if this should include alpha.
+        let ground_truth: DynamicImage = view.image.clone().to_rgb8().into();
         let res = glam::uvec2(ground_truth.width(), ground_truth.height());
 
         let gt_tensor = image_to_tensor::<B>(&ground_truth, device);
-        let (rendered, aux) = splats.render(&view.camera, res, eval_scene.background, false);
+        let (rendered, aux) = splats.render(&view.camera, res, false);
 
         let render_rgb = rendered.slice([0..res.y as usize, 0..res.x as usize, 0..3]);
         let mse = (render_rgb.clone() - gt_tensor.clone())

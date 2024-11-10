@@ -61,7 +61,6 @@ impl ScenePanel {
         ui: &mut egui::Ui,
         context: &mut ViewerContext,
         splats: &Splats<brush_render::PrimaryBackend>,
-        background: glam::Vec3,
     ) {
         let mut size = ui.available_size();
         let focal = context.camera.focal(glam::uvec2(1, 1));
@@ -111,14 +110,28 @@ impl ScenePanel {
         // If this viewport is re-rendering.
         if ui.ctx().has_requested_repaint() && self.dirty {
             let _span = trace_span!("Render splats").entered();
-            let (img, _) = splats.render(&context.camera, size, background, true);
+            let (img, _) = splats.render(&context.camera, size, true);
             self.backbuffer.update_texture(img, self.renderer.clone());
             self.dirty = false;
         }
 
         if let Some(id) = self.backbuffer.id() {
             ui.scope(|ui| {
-                ui.painter().rect_filled(rect, 0.0, Color32::BLACK);
+                if context
+                    .dataset
+                    .train
+                    .views
+                    .first()
+                    .map(|view| view.image.color().has_alpha())
+                    .unwrap_or(false)
+                {
+                    // if training views have alpha, show a background checker.
+                    brush_ui::draw_checkerboard(ui, rect);
+                } else {
+                    // If a scene is opaque, it assumes a black background.
+                    ui.painter().rect_filled(rect, 0.0, Color32::BLACK);
+                };
+
                 ui.painter().image(
                     id,
                     rect,
@@ -214,7 +227,7 @@ runs consider using the native app."#,
                     ui.label("Error: ".to_owned() + &e.to_string());
                 }
                 ViewerMessage::Splats { iter: _, splats } => {
-                    self.draw_splats(ui, context, &splats, context.dataset.train.background);
+                    self.draw_splats(ui, context, &splats);
 
                     ui.horizontal(|ui| {
                         if self.is_training {

@@ -11,7 +11,6 @@ use async_fn_stream::fn_stream;
 use async_std::stream::Stream;
 use async_std::task::{self, JoinHandle};
 use brush_train::scene::{Scene, SceneView};
-use glam::Vec3;
 use image::DynamicImage;
 use std::future::Future;
 use std::num::NonZero;
@@ -38,22 +37,18 @@ pub struct Dataset {
 impl Dataset {
     pub fn empty() -> Self {
         Dataset {
-            train: Scene::new(vec![], Vec3::ZERO),
+            train: Scene::new(vec![]),
             eval: None,
         }
     }
 
-    pub fn from_views(
-        train_views: Vec<SceneView>,
-        eval_views: Vec<SceneView>,
-        background: glam::Vec3,
-    ) -> Self {
+    pub fn from_views(train_views: Vec<SceneView>, eval_views: Vec<SceneView>) -> Self {
         Dataset {
-            train: Scene::new(train_views, background),
+            train: Scene::new(train_views),
             eval: if eval_views.is_empty() {
                 None
             } else {
-                Some(Scene::new(eval_views.clone(), background))
+                Some(Scene::new(eval_views.clone()))
             },
         }
     }

@@ -7,10 +7,13 @@ use image::{DynamicImage, Rgb32FImage, Rgba32FImage};
 // Converts an image to a tensor. The tensor will be a floating point image with a [0, 1] image.
 pub fn image_to_tensor<B: Backend>(image: &DynamicImage, device: &B::Device) -> Tensor<B, 3> {
     let (w, h) = (image.width(), image.height());
-    let num_channels = image.color().channel_count();
 
-    let data = image.to_rgb32f().into_vec();
-    let tensor_data = TensorData::new(data, [h as usize, w as usize, num_channels as usize]);
+    let tensor_data = if image.color().has_alpha() {
+        TensorData::new(image.to_rgba32f().into_vec(), [h as usize, w as usize, 4])
+    } else {
+        TensorData::new(image.to_rgb32f().into_vec(), [h as usize, w as usize, 3])
+    };
+
     Tensor::from_data(tensor_data, device)
 }
 

@@ -146,7 +146,6 @@ fn main(
     @builtin(subgroup_size) subgroup_size: u32,
     @builtin(subgroup_invocation_id) subgroup_invocation_id: u32
 ) {
-    let background = uniforms.background.xyz;
     let img_size = uniforms.img_size;
     let tile_bounds = uniforms.tile_bounds;
 
@@ -251,10 +250,8 @@ fn main(
                         let fac = alpha * T;
 
                         // contribution from this pixel
-                        var v_alpha = dot(color.rgb * T - buffer * ra, v_out.xyz);
-                        v_alpha += T_final * ra * v_out.w;
-                        // contribution from background pixel
-                        v_alpha -= dot(T_final * ra * background, v_out.xyz);
+                        var v_alpha = dot(color.rgb * T - buffer * ra, v_out.rgb);
+                        v_alpha += T_final * ra * v_out.a;
 
                         // update the running sum
                         buffer += color.xyz * fac;
@@ -270,7 +267,7 @@ fn main(
                                                         v_sigma * delta.x * delta.y,
                                                         0.5f * v_sigma * delta.y * delta.y);
 
-                        v_colors = vec4f(fac * v_out.xyz, vis * v_alpha);
+                        v_colors = vec4f(fac * v_out.rgb, vis * v_alpha);
                     }
                 }
 

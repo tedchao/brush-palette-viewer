@@ -22,7 +22,6 @@ pub struct SceneView {
 #[derive(Debug, Clone)]
 pub struct Scene {
     pub views: Arc<Vec<SceneView>>,
-    pub background: Vec3,
 }
 
 fn camera_similarity_score(cam: &Camera, reference: &Camera) -> f32 {
@@ -33,10 +32,9 @@ fn camera_similarity_score(cam: &Camera, reference: &Camera) -> f32 {
 }
 
 impl Scene {
-    pub fn new(views: Vec<SceneView>, background: Vec3) -> Self {
+    pub fn new(views: Vec<SceneView>) -> Self {
         Scene {
             views: Arc::new(views),
-            background,
         }
     }
 

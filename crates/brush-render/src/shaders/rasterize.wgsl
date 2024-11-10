@@ -24,7 +24,6 @@ fn main(
     @builtin(local_invocation_index) local_idx: u32,
     @builtin(workgroup_id) workgroup_id: vec3u,
 ) {
-    let background = uniforms.background;
     let img_size = uniforms.img_size;
 
     // Get index of tile being drawn.
@@ -102,7 +101,8 @@ fn main(
     }
 
     if inside {
-        let final_color = vec4f(pix_out + T * background.xyz, 1.0 - T);
+        let img_alpha = (1.0 - T);
+        let final_color = vec4f(pix_out, img_alpha);
         #ifdef RASTER_U32
             let colors_u = vec4u(clamp(final_color * 255.0, vec4f(0.0), vec4f(255.0)));
             let packed: u32 = colors_u.x | (colors_u.y << 8u) | (colors_u.z << 16u) | (colors_u.w << 24u);

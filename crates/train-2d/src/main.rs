@@ -67,13 +67,8 @@ fn spawn_train_loop(
             scene_extent: 1.0,
         };
 
-        let background = Vec3::ZERO;
-
         loop {
-            let (new_splats, _) = trainer
-                .step(batch.clone(), background, splats)
-                .await
-                .unwrap();
+            let (new_splats, _) = trainer.step(batch.clone(), splats).await.unwrap();
             splats = new_splats;
 
             ctx.request_repaint();
@@ -136,12 +131,10 @@ impl eframe::App for App {
             };
 
             let image = &self.view.image;
-            let background = Vec3::ZERO;
 
             let (img, _) = msg.splats.render(
                 &self.view.camera,
                 glam::uvec2(image.width(), image.height()),
-                background,
                 true,
             );
 

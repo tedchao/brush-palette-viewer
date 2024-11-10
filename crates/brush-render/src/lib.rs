@@ -81,7 +81,6 @@ pub trait Backend: burn::tensor::backend::Backend {
         quats: Tensor<Self, 2>,
         sh_coeffs: Tensor<Self, 3>,
         raw_opacity: Tensor<Self, 1>,
-        background: glam::Vec3,
         render_u32_buffer: bool,
     ) -> (Tensor<Self, 3>, RenderAux<Self>);
 }

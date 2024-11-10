@@ -81,22 +81,6 @@ fn read_transforms_file(
                     image = clamp_img_to_max_size(image, max_resolution);
                 }
 
-                // Blend in white background.
-                // TODO: Probably could be done a bit faster.
-                if image.color().has_alpha() {
-                    let _span = tracing::trace_span!("Blend image").entered();
-                    let rgba_image = image.as_rgba8().context("Unsupported image")?;
-                    let mut rgb_image = image::RgbImage::new(image.width(), image.height());
-                    for (rgb, rgba) in rgb_image.pixels_mut().zip(rgba_image.pixels()) {
-                        let alpha = rgba.0[3] as u32;
-                        let r = ((255 - alpha) * 255 + alpha * rgba.0[0] as u32) / 255;
-                        let g = ((255 - alpha) * 255 + alpha * rgba.0[1] as u32) / 255;
-                        let b = ((255 - alpha) * 255 + alpha * rgba.0[2] as u32) / 255;
-                        *rgb = image::Rgb([r as u8, g as u8, b as u8]);
-                    }
-                    image = rgb_image.into();
-                }
-
                 let fovy = focal_to_fov(fov_to_focal(fovx, image.width()), image.height());
 
                 let view = SceneView {
@@ -116,10 +100,6 @@ pub fn read_dataset(
     load_args: &LoadDatasetArgs,
 ) -> Result<DataStream<Dataset>> {
     log::info!("Loading nerf synthetic dataset");
-
-    // Assume nerf synthetic has a white background. Maybe add a custom json field to customize this
-    // or something.
-    let background = glam::Vec3::ONE;
 
     let load_args = load_args.clone();
     let train_handles = read_transforms_file(archive.clone(), "transforms_train.json", &load_args)?;
@@ -145,11 +125,7 @@ pub fn read_dataset(
             }
 
             emitter
-                .emit(Dataset::from_views(
-                    train_views.clone(),
-                    eval_views.clone(),
-                    background,
-                ))
+                .emit(Dataset::from_views(train_views.clone(), eval_views.clone()))
                 .await;
         }
 
@@ -157,11 +133,7 @@ pub fn read_dataset(
             for handle in val_stream {
                 eval_views.push(handle.await?);
                 emitter
-                    .emit(Dataset::from_views(
-                        train_views.clone(),
-                        eval_views.clone(),
-                        background,
-                    ))
+                    .emit(Dataset::from_views(train_views.clone(), eval_views.clone()))
                     .await;
             }
         }

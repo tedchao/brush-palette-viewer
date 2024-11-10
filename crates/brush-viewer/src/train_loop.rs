@@ -147,7 +147,7 @@ pub(crate) fn train_loop(
                         .await;
 
                     let (new_splats, stats) = trainer
-                        .step(batch, train_scene.background, splats)
+                        .step(batch, splats)
                         .instrument(trace_span!("Train step"))
                         .await?;
                     splats = new_splats;
