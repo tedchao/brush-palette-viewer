@@ -1,16 +1,16 @@
-use crate::{viewer::ViewerContext, ViewerPane};
+use crate::{viewer::ViewerContext, ViewerPanel};
 
 #[derive(Default)]
 pub(crate) struct TracingPanel {
     constant_redraw: bool,
 }
 
-impl ViewerPane for TracingPanel {
+impl ViewerPanel for TracingPanel {
     fn title(&self) -> String {
         "Load data".to_owned()
     }
 
-    fn ui(&mut self, ui: &mut egui::Ui, _: &mut ViewerContext) -> egui_tiles::UiResponse {
+    fn ui(&mut self, ui: &mut egui::Ui, _: &mut ViewerContext) {
         ui.checkbox(&mut self.constant_redraw, "Constant redraw");
         let mut checked = sync_span::is_enabled();
         ui.checkbox(&mut checked, "Sync scopes");
@@ -20,7 +20,5 @@ impl ViewerPane for TracingPanel {
         if self.constant_redraw {
             ui.ctx().request_repaint();
         }
-
-        egui_tiles::UiResponse::None
     }
 }

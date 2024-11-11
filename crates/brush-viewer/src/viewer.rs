@@ -20,7 +20,7 @@ use web_time::Instant;
 
 use crate::{
     orbit_controls::OrbitControls,
-    panels::{DatasetPanel, LoadDataPanel, PresetsPanel, ScenePanel, StatsPanel},
+    panels::{DatasetPanel, LoadDataPanel, PresetsPanel, ScenePanel, StatsPanel, TracingPanel},
     train_loop::{self, TrainMessage},
     PaneType, ViewerTree,
 };
@@ -295,8 +295,7 @@ impl Viewer {
             sides.push(tiles.insert_pane(Box::new(crate::panels::RerunPanel::new(device.clone()))));
         }
 
-        #[cfg(feature = "tracing")]
-        {
+        if cfg!(feature = "tracing") {
             sides.push(tiles.insert_pane(Box::new(TracingPanel::default())));
         }
 
