@@ -97,9 +97,11 @@ impl ViewerPanel for DatasetPanel {
             let view_count = self.selected_scene(context).views.len();
 
             if let Some(selected) = self.selected_view.as_ref() {
-                let size = egui::Image::new(&selected.2)
-                    .shrink_to_fit()
-                    .calc_size(ui.available_size(), None);
+                let img_size = selected.2.size();
+                let size = egui::Image::new(&selected.2).shrink_to_fit().calc_size(
+                    ui.available_size(),
+                    Some(egui::vec2(img_size[0] as f32, img_size[1] as f32)),
+                );
                 let min = ui.cursor().min;
                 let rect = egui::Rect::from_min_size(min, size);
 
