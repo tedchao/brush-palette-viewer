@@ -178,13 +178,16 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     let opac = sigmoid(raw_opacities[global_gid]);
 
     let viewmat = uniforms.viewmat;
-    let W = mat3x3f(viewmat[0].xyz, viewmat[1].xyz, viewmat[2].xyz);
-    let p_view = W * mean + viewmat[3].xyz;
-    let cov2d = helpers::calc_cov2d(uniforms.focal, uniforms.img_size, uniforms.pixel_center, viewmat, p_view, scale, quat);
-    let conic = helpers::cov_to_conic(cov2d);
+    let R = mat3x3f(viewmat[0].xyz, viewmat[1].xyz, viewmat[2].xyz);
+    let mean_c = R * mean + viewmat[3].xyz;
+
+    let covar = helpers::calc_cov3d(scale, quat);
+    let cov2d = helpers::calc_cov2d(covar, mean_c, uniforms.focal, uniforms.img_size, uniforms.pixel_center, viewmat);
+    let conic = helpers::inverse_symmetric(cov2d);
 
     // compute the projected mean
-    let xy = helpers::project_pix(uniforms.focal, p_view, uniforms.pixel_center);
+    let rz = 1.0 / mean_c.z;
+    let mean2d = uniforms.focal * mean_c.xy * rz + uniforms.pixel_center;
 
     let sh_degree = uniforms.sh_degree;
     let num_coeffs = num_sh_coeffs(sh_degree);
@@ -229,28 +232,29 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         }
     }
 
-    let camera_pos = uniforms.viewmat[3].xyz;
+    let camera_pos = -uniforms.viewmat[3].xyz;
     let viewdir = normalize(mean - camera_pos);
 
-    let color = sh_coeffs_to_color(sh_degree, viewdir, sh) + vec3f(0.5);
+    var color = sh_coeffs_to_color(sh_degree, viewdir, sh) + vec3f(0.5);
+    // color = max(color, vec3f(0.0));
 
-    let radius = helpers::radius_from_conic(conic, opac);
+    let radius = helpers::radius_from_cov(cov2d, opac);
 
-    let tile_minmax = helpers::get_tile_bbox(xy, radius, uniforms.tile_bounds);
+    let tile_minmax = helpers::get_tile_bbox(mean2d, radius, uniforms.tile_bounds);
     let tile_min = tile_minmax.xy;
     let tile_max = tile_minmax.zw;
     var tile_area = 0u;
 
     for (var ty = tile_min.y; ty < tile_max.y; ty++) {
         for (var tx = tile_min.x; tx < tile_max.x; tx++) {
-            if helpers::can_be_visible(vec2u(tx, ty), xy, conic, opac) {
+            if helpers::can_be_visible(vec2u(tx, ty), mean2d, conic, opac) {
                 tile_area += 1u;
             }
         }
     }
 
     projected[compact_gid] = helpers::create_projected_splat(
-        xy,
+        mean2d,
         conic,
         vec4f(color, opac)
     );

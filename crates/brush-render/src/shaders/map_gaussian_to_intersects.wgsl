@@ -20,9 +20,12 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
     // get the tile bbox for gaussian
     let xy = vec2f(projected.xy_x, projected.xy_y);
     let conic = vec3f(projected.conic_x, projected.conic_y, projected.conic_z);
+    let invDet = 1.0 / (conic.x * conic.z - conic.y * conic.y);
+    let cov2d = vec3f(conic.z * invDet, -conic.y * invDet, conic.x * invDet);
+
     let opac = projected.color_a;
 
-    let radius = helpers::radius_from_conic(conic, opac);
+    let radius = helpers::radius_from_cov(cov2d, opac);
     let tile_bounds = uniforms.tile_bounds;
 
     let tile_minmax = helpers::get_tile_bbox(xy, radius, tile_bounds);

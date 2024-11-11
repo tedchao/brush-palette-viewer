@@ -179,7 +179,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
 
     let mean = helpers::as_vec(means[global_gid]);
 
-    let camera_pos = uniforms.viewmat[3].xyz;
+    let camera_pos = -uniforms.viewmat[3].xyz;
     let viewdir = normalize(mean - camera_pos);
 
     let sh_degree = uniforms.sh_degree;

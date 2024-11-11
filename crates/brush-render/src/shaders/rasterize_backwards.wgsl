@@ -264,8 +264,8 @@ fn main(
                         );
 
                         v_conic = vec3f(0.5f * v_sigma * delta.x * delta.x,
-                                                        v_sigma * delta.x * delta.y,
-                                                        0.5f * v_sigma * delta.y * delta.y);
+                                               v_sigma * delta.x * delta.y,
+                                        0.5f * v_sigma * delta.y * delta.y);
 
                         v_colors = vec4f(fac * v_out.rgb, vis * v_alpha);
                     }

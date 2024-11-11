@@ -61,17 +61,16 @@ fn get_bbox(center: vec2f, dims: vec2f, bounds: vec2u) -> vec4u {
     return vec4u(min, max);
 }
 
-fn get_tile_bbox(pix_center: vec2f, pix_radius: u32, tile_bounds: vec2u) -> vec4u {
+fn get_tile_bbox(pix_center: vec2f, pix_radius: f32, tile_bounds: vec2u) -> vec4u {
     // gets gaussian dimensions in tile space, i.e. the span of a gaussian in
     // tile_grid (image divided into tiles)
     let tile_center = pix_center / f32(TILE_WIDTH);
-    let tile_radius = f32(pix_radius) / f32(TILE_WIDTH);
-
+    let tile_radius = pix_radius / f32(TILE_WIDTH);
     return get_bbox(tile_center, vec2f(tile_radius, tile_radius), tile_bounds);
 }
 
 // device helper to get 3D covariance from scale and quat parameters
-fn quat_to_rotmat(quat: vec4f) -> mat3x3f {
+fn quat_to_mat(quat: vec4f) -> mat3x3f {
     // quat to rotation matrix
     let w = quat.x;
     let x = quat.y;
@@ -116,27 +115,22 @@ fn scale_to_mat(scale: vec3f) -> mat3x3f {
     );
 }
 
-fn project_pix(fxfy: vec2f, p_view: vec3f, pp: vec2f) -> vec2f {
-    let p_proj = p_view.xy / p_view.z;
-    return p_proj * fxfy + pp;
+fn calc_cov3d(scale: vec3f, quat: vec4f) -> mat3x3f {
+    let M = quat_to_mat(quat) * scale_to_mat(scale);
+    return M * transpose(M);
 }
 
-fn calc_cov2d(focal: vec2f, img_size: vec2u, pixel_center: vec2f, viewmat: mat4x4f, p_view: vec3f, scale: vec3f, quat: vec4f) -> vec3f {
+fn calc_cam_J(mean_c: vec3f, focal: vec2f, img_size: vec2u, pixel_center: vec2f) -> mat3x2f {
     let tan_fov = 0.5 * vec2f(img_size.xy) / focal;
 
     let lims_pos = (vec2f(img_size.xy) - pixel_center) / focal + 0.3f * tan_fov;
     let lims_neg = pixel_center / focal + 0.3f * tan_fov;
 
-    let rz = 1.0 / p_view.z;
+    let rz = 1.0 / mean_c.z;
     let rz2 = rz * rz;
 
     // Get ndc coords +- clipped to the frustum.
-    let t = p_view.z * clamp(p_view.xy * rz, -lims_neg, lims_pos);
-
-    var M = quat_to_rotmat(quat);
-    M[0] *= scale.x;
-    M[1] *= scale.y;
-    M[2] *= scale.z;
+    let t = mean_c.z * clamp(mean_c.xy * rz, -lims_neg, lims_pos);
 
     let J = mat3x2f(
         vec2f(focal.x * rz, 0.0),
@@ -144,23 +138,28 @@ fn calc_cov2d(focal: vec2f, img_size: vec2u, pixel_center: vec2f, viewmat: mat4x
         -focal * t * rz2
     );
 
-    let W = mat3x3f(viewmat[0].xyz, viewmat[1].xyz, viewmat[2].xyz);
+    return J;
+}
 
-    let V = M * transpose(M);
-    let T = J * W;
-    let cov = T * V * transpose(T);
+fn calc_cov2d(cov3d: mat3x3f, mean_c: vec3f, focal: vec2f, img_size: vec2u, pixel_center: vec2f, viewmat: mat4x4f) -> vec3f {
+    let R = mat3x3f(viewmat[0].xyz, viewmat[1].xyz, viewmat[2].xyz);
+    let covar_cam = R * cov3d * transpose(R);
+
+    let J = calc_cam_J(mean_c, focal, img_size, pixel_center);
+
+    let cov2d = J * covar_cam * transpose(J);
 
     // add a little blur along axes and save upper triangular elements
-    let c00 = cov[0][0] + COV_BLUR;
-    let c11 = cov[1][1] + COV_BLUR;
-    let c01 = cov[0][1];
+    let c00 = cov2d[0][0] + COV_BLUR;
+    let c11 = cov2d[1][1] + COV_BLUR;
+    let c01 = cov2d[0][1];
     return vec3f(c00, c01, c11);
 }
 
-fn cov_to_conic(cov2d: vec3f) -> vec3f {
-    let det = cov2d.x * cov2d.z - cov2d.y * cov2d.y;
+fn inverse_symmetric(mat: vec3f) -> vec3f {
+    let det = mat.x * mat.z - mat.y * mat.y;
     let inv_det = 1.0 / det;
-    return vec3f(cov2d.z, -cov2d.y, cov2d.x) * inv_det;
+    return vec3f(mat.z, -mat.y, mat.x) * inv_det;
 }
 
 const COV_BLUR: f32 = 0.3;
@@ -189,16 +188,12 @@ fn inverse(m: mat2x2f) -> mat2x2f {
     );
 }
 
-fn radius_from_conic(conic: vec3f, opac: f32) -> u32 {
-    // Calculate tbe pixel radius.
-    // Original implementation:
-    let det = 1.0 / (conic.x * conic.z - conic.y * conic.y);
-    let cov2d = vec3f(conic.z, -conic.y, conic.x) * det;
-    let b = 0.5 * (cov2d.x + cov2d.z);
-    let v1 = b + sqrt(max(0.1f, b * b - det));
-    let v2 = b - sqrt(max(0.1f, b * b - det));
-    let radius = 3.0 * sqrt(max(0.0, max(v1, v2)));
-    return u32(ceil(radius));
+fn radius_from_cov(cov2d: vec3f, opac: f32) -> f32 {
+    let det = (cov2d.x * cov2d.z - cov2d.y * cov2d.y);
+    let b = 0.5f * (cov2d.x + cov2d.z);
+    let v1 = b + sqrt(max(0.01f, b * b - det));
+    let radius = ceil(3.f * sqrt(v1));
+    return radius;
 
     // I think we can do better and derive an exact bound when we hit some eps threshold.
     // Also, we should take into account the opoacity of the gaussian.

@@ -493,7 +493,7 @@ impl Backward<PrimaryBackend, 6> for RenderBackwards {
         let num_points = means.shape.dims[0];
         let num_visible = aux.num_visible;
 
-        let (v_xys, v_xys_global, v_conics, v_coeffs, v_opacities) = {
+        let (v_xys_local, v_xys_global, v_conics, v_coeffs, v_opacities) = {
             let tile_bounds = uvec2(
                 img_size.x.div_ceil(shaders::helpers::TILE_WIDTH),
                 img_size.y.div_ceil(shaders::helpers::TILE_WIDTH),
@@ -584,7 +584,7 @@ impl Backward<PrimaryBackend, 6> for RenderBackwards {
                     log_scales.handle.binding(),
                     quats.handle.binding(),
                     aux.global_from_compact_gid.handle.binding(),
-                    v_xys.handle.clone().binding(),
+                    v_xys_local.handle.clone().binding(),
                     v_conics.handle.binding(),
                     v_means.handle.clone().binding(),
                     v_scales.handle.clone().binding(),
@@ -709,6 +709,17 @@ mod tests {
             &device,
         )
         .reshape([crab_img.height() as usize, crab_img.width() as usize, 3]);
+        // Concat alpha to tensor.
+        let crab_tens = Tensor::cat(
+            vec![
+                crab_tens,
+                Tensor::zeros(
+                    [crab_img.height() as usize, crab_img.width() as usize, 1],
+                    &device,
+                ),
+            ],
+            2,
+        );
 
         let rec = if USE_RERUN {
             rerun::RecordingStreamBuilder::new("render test")
@@ -719,6 +730,8 @@ mod tests {
         };
 
         for (i, path) in ["tiny_case", "basic_case", "mix_case"].iter().enumerate() {
+            println!("Checking path {}", path);
+
             let mut buffer = Vec::new();
             let _ =
                 File::open(format!("./test_cases/{path}.safetensors"))?.read_to_end(&mut buffer)?;
@@ -726,8 +739,6 @@ mod tests {
             let tensors = SafeTensors::deserialize(&buffer)?;
             let splats = Splats::<DiffBack>::from_safetensors(&tensors, &device)?;
 
-            let xys_ref = safetensor_to_burn::<DiffBack, 2>(tensors.tensor("xys")?, &device);
-            let conics_ref = safetensor_to_burn::<DiffBack, 2>(tensors.tensor("conics")?, &device);
             let img_ref = safetensor_to_burn::<DiffBack, 3>(tensors.tensor("out_img")?, &device);
             let [h, w, _] = img_ref.dims();
 
@@ -747,15 +758,14 @@ mod tests {
 
             let (out, aux) = splats.render(&cam, glam::uvec2(w as u32, h as u32), false);
 
-            let out_rgb = out.clone().slice([0..h, 0..w, 0..3]);
             if let Some(rec) = rec.as_ref() {
                 task::block_on::<_, anyhow::Result<()>>(async {
                     rec.set_time_sequence("test case", i as i64);
-                    rec.log("img/render", &out_rgb.clone().into_rerun_image().await)?;
+                    rec.log("img/render", &out.clone().into_rerun_image().await)?;
                     rec.log("img/ref", &img_ref.clone().into_rerun_image().await)?;
                     rec.log(
                         "img/dif",
-                        &(img_ref.clone() - out_rgb.clone()).into_rerun().await,
+                        &(img_ref.clone() - out.clone()).into_rerun().await,
                     )?;
                     rec.log(
                         "images/tile depth",
@@ -766,68 +776,78 @@ mod tests {
                 })?;
             }
 
-            let num_visible = task::block_on(aux.read_num_visible()) as usize;
+            // Check if images match.
+            assert!(out.clone().all_close(img_ref, Some(1e-5), Some(1e-6)));
 
+            let num_visible = task::block_on(aux.read_num_visible()) as usize;
             let projected_splats =
                 Tensor::from_primitive(TensorPrimitive::Float(aux.projected_splats.clone()));
 
+            let gs_ids =
+                Tensor::<DiffBack, 1, Int>::from_primitive(aux.global_from_compact_gid.clone());
+
             let xys: Tensor<DiffBack, 2, Float> =
                 projected_splats.clone().slice([0..num_visible, 0..2]);
+            let xys_ref = safetensor_to_burn::<DiffBack, 2>(tensors.tensor("xys")?, &device);
+            let xys_ref = xys_ref.select(0, gs_ids.clone()).slice([0..num_visible]);
+
+            assert!(xys.all_close(xys_ref, Some(1e-1), Some(1e-6)));
 
             let conics: Tensor<DiffBack, 2, Float> =
                 projected_splats.clone().slice([0..num_visible, 2..5]);
+            let conics_ref = safetensor_to_burn::<DiffBack, 2>(tensors.tensor("conics")?, &device);
+            let conics_ref = conics_ref.select(0, gs_ids.clone()).slice([0..num_visible]);
 
-            let perm =
-                Tensor::<DiffBack, 1, Int>::from_primitive(aux.global_from_compact_gid.clone());
+            assert!(conics.all_close(conics_ref, Some(1e-3), Some(1e-6)));
 
-            let xys_ref = xys_ref.select(0, perm.clone()).slice([0..num_visible]);
-            let conics_ref = conics_ref.select(0, perm.clone()).slice([0..num_visible]);
-
-            let grads = (out_rgb.clone() - crab_tens.clone())
-                .powf_scalar(2.0)
+            let grads = (out.clone() - crab_tens.clone())
+                .powi_scalar(2.0)
                 .mean()
                 .backward();
+
+            let v_xys_ref =
+                safetensor_to_burn::<DiffBack, 2>(tensors.tensor("v_xy")?, &device).inner();
+            let v_xys = splats.xys_dummy.grad(&grads).context("no xys grad")?;
+            assert!(v_xys.all_close(v_xys_ref, Some(1e-5), Some(1e-10)));
 
             let v_opacities_ref =
                 safetensor_to_burn::<DiffBack, 1>(tensors.tensor("v_opacities")?, &device).inner();
             let v_opacities = splats.raw_opacity.grad(&grads).context("opacities grad")?;
+            assert!(v_opacities.all_close(v_opacities_ref, Some(1e-5), Some(1e-10)));
 
             let v_coeffs_ref =
                 safetensor_to_burn::<DiffBack, 3>(tensors.tensor("v_coeffs")?, &device).inner();
             let v_coeffs = splats.sh_coeffs.grad(&grads).context("coeffs grad")?;
 
-            let v_quats = splats.rotation.grad(&grads).context("quats grad")?;
-            let v_quats_ref =
-                safetensor_to_burn::<DiffBack, 2>(tensors.tensor("v_quats")?, &device).inner();
+            let v_coeffs_data = v_coeffs.to_data().to_vec::<f32>().unwrap();
+            let v_coeffs_ref_data = v_coeffs_ref.to_data().to_vec::<f32>().unwrap();
 
-            let v_scales = splats.log_scales.grad(&grads).context("scales grad")?;
-            let v_scales_ref =
-                safetensor_to_burn::<DiffBack, 2>(tensors.tensor("v_scales")?, &device).inner();
+            for (i, (coeff, ref_coeff)) in v_coeffs_data
+                .iter()
+                .zip(v_coeffs_ref_data.iter())
+                .enumerate()
+            {
+                if (coeff - ref_coeff).abs() > 1e-8 {
+                    println!("coeff[{}] {:.12} != ref {:.12}", i, coeff, ref_coeff);
+                }
+            }
+
+            assert!(v_coeffs.all_close(v_coeffs_ref, Some(1e-4), Some(1e-9)));
 
             let v_means_ref =
                 safetensor_to_burn::<DiffBack, 2>(tensors.tensor("v_means")?, &device).inner();
             let v_means = splats.means.grad(&grads).context("means grad")?;
-
-            let v_xys_ref =
-                safetensor_to_burn::<DiffBack, 2>(tensors.tensor("v_xy")?, &device).inner();
-            let v_xys = splats.xys_dummy.grad(&grads).context("no xys grad")?;
-
-            assert!(xys.all_close(xys_ref, Some(1e-4), Some(1e-10)));
-
-            // TODO: Annoying that these aren't as close.
-            assert!(conics.all_close(conics_ref, Some(1e-4), Some(5e-7)));
-
-            // Slightly less precise than other values. This might be because
-            // gSplat uses halfs for the image blending.
-            assert!(out_rgb.all_close(img_ref, Some(1e-4), Some(1e-9)));
-            assert!(v_xys.all_close(v_xys_ref, Some(1e-4), Some(1e-9)));
-            assert!(v_opacities.all_close(v_opacities_ref, Some(1e-4), Some(1e-10)));
-            assert!(v_coeffs.all_close(v_coeffs_ref, Some(1e-4), Some(1e-9)));
-            assert!(v_scales.all_close(v_scales_ref, Some(1e-4), Some(1e-9)));
             assert!(v_means.all_close(v_means_ref, Some(1e-4), Some(1e-9)));
 
-            // TODO: Fix this test.
-            assert!(v_quats.all_close(v_quats_ref, Some(1e-1), Some(1e-1)));
+            let v_quats = splats.rotation.grad(&grads).context("quats grad")?;
+            let v_quats_ref =
+                safetensor_to_burn::<DiffBack, 2>(tensors.tensor("v_quats")?, &device).inner();
+            assert!(v_quats.all_close(v_quats_ref, Some(1e-4), Some(1e-9)));
+
+            let v_scales = splats.log_scales.grad(&grads).context("scales grad")?;
+            let v_scales_ref =
+                safetensor_to_burn::<DiffBack, 2>(tensors.tensor("v_scales")?, &device).inner();
+            assert!(v_scales.all_close(v_scales_ref, Some(1e-4), Some(1e-9)));
         }
         Ok(())
     }

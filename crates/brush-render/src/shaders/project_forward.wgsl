@@ -26,10 +26,10 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
 
     let img_size = uniforms.img_size;
     let viewmat = uniforms.viewmat;
-    let W = mat3x3f(viewmat[0].xyz, viewmat[1].xyz, viewmat[2].xyz);
-    let p_view = W * mean + viewmat[3].xyz;
+    let R = mat3x3f(viewmat[0].xyz, viewmat[1].xyz, viewmat[2].xyz);
+    let mean_c = R * mean + viewmat[3].xyz;
 
-    if p_view.z <= 0.01 {
+    if mean_c.z < 0.01 || mean_c.z > 1e12 {
         return;
     }
 
@@ -37,32 +37,41 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
     let scale = exp(helpers::as_vec(log_scales[global_gid]));
     let quat = quats[global_gid];
 
-    let cov2d = helpers::calc_cov2d(uniforms.focal, uniforms.img_size, uniforms.pixel_center, viewmat, p_view, scale, quat);
+    let cov3d = helpers::calc_cov3d(scale, quat);
+    let cov2d = helpers::calc_cov2d(cov3d, mean_c, uniforms.focal, uniforms.img_size, uniforms.pixel_center, viewmat);
     let det = cov2d.x * cov2d.z - cov2d.y * cov2d.y;
 
-    if det == 0.0 {
+    if det <= 0.0 {
         return;
     }
 
     // Calculate ellipse conic.
-    let conic = helpers::cov_to_conic(cov2d);
+    let conic = helpers::inverse_symmetric(cov2d);
 
     // compute the projected mean
-    let xy = helpers::project_pix(uniforms.focal, p_view, uniforms.pixel_center);
+    let mean2d = uniforms.focal * mean_c.xy * (1.0 / mean_c.z) + uniforms.pixel_center;
 
     // TODO: Include opacity here or is this ok?
-    let radius = helpers::radius_from_conic(conic, 1.0);
+    let radius = helpers::radius_from_cov(cov2d, 1.0);
 
-    let tile_minmax = helpers::get_tile_bbox(xy, radius, uniforms.tile_bounds);
-    let tile_min = tile_minmax.xy;
-    let tile_max = tile_minmax.zw;
-
-    if (tile_max.x - tile_min.x) == 0u || (tile_max.y - tile_min.y) == 0u {
+    if (radius <= 0) {
         return;
     }
+
+    let radius_f = f32(radius);
+
+    // mask out gaussians outside the image region
+    if (mean2d.x + radius_f <= 0 || mean2d.x - radius_f >= f32(uniforms.img_size.x) ||
+        mean2d.y + radius_f <= 0 || mean2d.y - radius_f >= f32(uniforms.img_size.y)) {
+        return;
+    }
+
+    let tile_minmax = helpers::get_tile_bbox(mean2d, radius, uniforms.tile_bounds);
+    let tile_min = tile_minmax.xy;
+    let tile_max = tile_minmax.zw;
 
     // Now write all the data to the buffers.
     let write_id = atomicAdd(&uniforms.num_visible, 1u);
     global_from_compact_gid[write_id] = global_gid;
-    depths[write_id] = p_view.z;
+    depths[write_id] = mean_c.z;
 }
