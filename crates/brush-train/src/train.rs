@@ -29,7 +29,7 @@ pub struct TrainConfig {
     #[config(default = 15000)]
     max_refine_step: u32,
 
-    #[config(default = 0.004)]
+    #[config(default = 0.01)]
     reset_alpha_value: f32,
 
     // threshold of opacity for culling gaussians. One can set it to a lower value (e.g. 0.005) for higher quality
