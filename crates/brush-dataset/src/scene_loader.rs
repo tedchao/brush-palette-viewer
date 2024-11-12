@@ -4,7 +4,7 @@ use brush_train::image::image_to_tensor;
 use brush_train::scene::Scene;
 use brush_train::train::SceneBatch;
 use burn::tensor::Tensor;
-use rand::{Rng, SeedableRng};
+use rand::{seq::SliceRandom, SeedableRng};
 
 use crate::spawn_future;
 
@@ -23,15 +23,20 @@ impl<B: Backend> SceneLoader<B> {
         let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
 
         let fut = async move {
+            let mut shuf_indices = vec![];
+
             loop {
-                let indices: Vec<_> = (0..batch_size)
-                    .map(|_| rng.gen_range(0..scene.views.len()))
-                    .collect();
-                let gt_views: Vec<_> = indices.iter().map(|&x| scene.views[x].clone()).collect();
-                let selected_tensors: Vec<_> = gt_views
-                    .iter()
-                    .map(|view| image_to_tensor(&view.image, &device))
-                    .collect();
+                let (selected_tensors, gt_views) = (0..batch_size)
+                    .map(|_| {
+                        let index = shuf_indices.pop().unwrap_or_else(|| {
+                            shuf_indices = (0..scene.views.len()).collect();
+                            shuf_indices.shuffle(&mut rng);
+                            shuf_indices.pop().unwrap()
+                        });
+                        let view = scene.views[index].clone();
+                        (image_to_tensor(&view.image, &device), view)
+                    })
+                    .unzip();
 
                 let batch_tensor = Tensor::stack(selected_tensors, 0);
 
