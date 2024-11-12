@@ -1,9 +1,10 @@
-
 # Brush - universal splats
 
 https://github.com/user-attachments/assets/b7f55b9c-8632-49f9-b34b-d5de52a7a8b0
 
-Brush is a 3D reconstruction engine, using [Gaussian splatting](https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/). It aims to be highly portable, flexible and fast. 3D reconstruction shouldn't require special hardware. Brush can render and train on a wide range of systems: **macOS/windows/linux**, **AMD/Nvidia** cards, **Android**, and in a **browser**. To achieve this, brush is built using WebGPU compatible tech, that can run practically anywhere! It uses the [Burn](https://github.com/tracel-ai/burn) framework, which has a portable [`wgpu`](https://github.com/gfx-rs/wgpu) backend. This project is currently still a proof of concept, and doesn't yet implement any of the extensions to gaussian splatting that have been developed, nor is the performance optimal yet.
+Brush is a 3D reconstruction engine, using [Gaussian splatting](https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/). It aims to be highly portable, flexible and fast. 3D reconstruction should be accessible to everyone!
+
+Brush works on a wide range of systems: **macOS/windows/linux**, **AMD/Nvidia** cards, **Android**, and in a **browser**. To achieve this, it uses WebGPU compatible tech, like the [Burn](https://github.com/tracel-ai/burn) machine learning framework, which has a portable [`wgpu`](https://github.com/gfx-rs/wgpu) backend. This project is currently still a proof of concept, and doesn't yet implement the many extensions to gaussian splatting that have been developed, nor is performance optimal yet.
 
 [**Try the (experimental) web demo** <img src="https://cdn-icons-png.flaticon.com/256/888/888846.png" alt="chrome logo" width="24"/>
 ](https://arthurbrussee.github.io/brush-demo)
@@ -18,7 +19,7 @@ The demo can load pretrained ply splats, and can load datasets to train on. Curr
 - A transform_train.json and images, like the synthetic nerf scene dataset.
 - An `images` & `sparse` folder with [`COLMAP`](https://github.com/colmap/colmap) data
 
-While training you can interact with the splats and see their training dynamics live, and compare the current rendering to training / eval views as the training progresses.
+While training you can interact with the scene and see the training dynamics live, and compare the current rendering to training / eval views as the training progresses.
 
 ## Web
 
@@ -34,11 +35,11 @@ While training, additional data can be visualized with the excellent [rerun](htt
 
 https://github.com/user-attachments/assets/d6751cb3-ff58-45a4-8321-77d3b0a7b051
 
-Live training on a pixel 7
+Training on a pixel 7
 
 # Why
 
-Machine learning for real time rendering has a lot of potential, but at the same time, most popular ML tools don't align well with r. Rendering requires low latency, usually involve dynamic shapes, and it's not pleasant to attempt to ship apps with large PyTorch/Jax/CUDA deps calling out to python in a rendering loop. The usual fix is to write a seperate training and inference application. Brush on the other hand, written in rust using `wgpu` and `burn`, can produce simple dependency free binaries, and can run on nearly all devices.
+Machine learning for real time rendering has a lot of potential, but most popular ML tools don't align well with it. Rendering requires low latency, usually involve dynamic shapes, and it's not pleasant to attempt to ship apps with large PyTorch/Jax/CUDA deps calling out to python in a rendering loop. The usual fix is to write a seperate training and inference application. Brush on the other hand, written in rust using `wgpu` and `burn`, can produce simple dependency free binaries, and can run on nearly all devices.
 
 # Getting started
 Install rust 1.81+ and run `cargo run` or `cargo run --release`. You can run tests with `cargo test --all`. Brush uses the wonderful [rerun](rerun.io) for additional visualizations while training.
@@ -97,9 +98,9 @@ Quality is similair, but for now still somewhat lagging behind the original GS i
 
 | Scene      | Brush   | GS paper|
 |------------|---------|---------|
-| Bicycle@7K | 23.2    | 23.604  |
-| Garden@7k  | 25.8    | 26.245  |
-| Stump@7k   | 24.9    | 25.709  |
+| Bicycle@7K | 23.4    | 23.604  |
+| Garden@7k  | 26.1    | 26.245  |
+| Stump@7k   | 25.3    | 25.709  |
 
 # Acknowledgements
 
