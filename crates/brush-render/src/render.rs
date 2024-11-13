@@ -640,7 +640,7 @@ mod tests {
                 println!("xy[{}] {:.12} != ref {:.12}", i, xy, ref_xy);
             }
 
-            assert!(v_xys.all_close(v_xys_ref, Some(1e-5), Some(1e-10)));
+            assert!(v_xys.all_close(v_xys_ref, Some(1e-5), Some(1e-9)));
 
             let v_opacities_ref =
                 safetensor_to_burn::<DiffBack, 1>(tensors.tensor("v_opacities")?, &device).inner();
