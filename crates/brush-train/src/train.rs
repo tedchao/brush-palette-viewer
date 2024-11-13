@@ -53,7 +53,7 @@ pub struct TrainConfig {
     #[config(default = 0.005)]
     densify_size_thresh: f32,
 
-    #[config(default = 0.2)]
+    #[config(default = 0.1)]
     ssim_weight: f32,
 
     #[config(default = 11)]
@@ -65,21 +65,24 @@ pub struct TrainConfig {
     // Learning rates.
     lr_mean: ExponentialLrSchedulerConfig,
 
+    #[config(default = 0.9999)]
+    lr_global_decay: f64,
+
     // Learning rate for the basic coefficients.
-    #[config(default = 0.004)]
+    #[config(default = 0.006)]
     lr_coeffs_dc: f64,
 
     // How much to divide the learning rate by for higher SH orders.
-    #[config(default = 20.0)]
+    #[config(default = 15.0)]
     lr_coeffs_sh_scale: f64,
 
-    #[config(default = 0.05)]
+    #[config(default = 0.1)]
     lr_opac: f64,
 
-    #[config(default = 0.01)]
+    #[config(default = 0.02)]
     lr_scale: f64,
 
-    #[config(default = 0.002)]
+    #[config(default = 0.01)]
     lr_rotation: f64,
 
     #[config(default = 42)]
@@ -279,6 +282,16 @@ where
             self.config.lr_scale,
             self.config.lr_coeffs_dc,
             self.config.lr_opac,
+        );
+
+        let global_decay = self.config.lr_global_decay.powf(self.iter as f64);
+
+        let (lr_mean, lr_rotation, lr_scale, lr_coeffs, lr_opac) = (
+            lr_mean * global_decay,
+            lr_rotation * global_decay,
+            lr_scale * global_decay,
+            lr_coeffs * global_decay,
+            lr_opac * global_decay,
         );
 
         trace_span!("Housekeeping", sync_burn = true).in_scope(|| {
