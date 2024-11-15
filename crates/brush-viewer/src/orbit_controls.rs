@@ -68,4 +68,8 @@ impl OrbitControls {
         let rot_matrix = Mat3::from_quat(camera.rotation);
         camera.position = self.focus + rot_matrix.mul_vec3(Vec3::new(0.0, 0.0, -radius));
     }
+
+    pub fn is_animating(&self) -> bool {
+        self.pan_momentum.length_squared() > 0.001 || self.rotate_momentum.length_squared() > 0.001
+    }
 }

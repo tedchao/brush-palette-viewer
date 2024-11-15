@@ -109,8 +109,13 @@ impl ScenePanel {
         }
         self.last_draw = Some(cur_time);
 
+        // Also redraw next frame, need to check if we're still animating.
+        if self.dirty {
+            ui.ctx().request_repaint();
+        }
+
         // If this viewport is re-rendering.
-        if ui.ctx().has_requested_repaint() && self.dirty {
+        if ui.ctx().has_requested_repaint() {
             let _span = trace_span!("Render splats").entered();
             let (img, _) = splats.render(&context.camera, size, true);
             self.backbuffer.update_texture(img, self.renderer.clone());
@@ -220,6 +225,7 @@ For bigger training runs consider using the native app."#,
                 context.camera.rotation,
                 context.camera.position,
             )
+            || context.controls.is_animating()
         {
             self.dirty = true;
         }
