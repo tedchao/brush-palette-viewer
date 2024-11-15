@@ -11,7 +11,7 @@ Brush works on a wide range of systems: **macOS/windows/linux**, **AMD/Nvidia** 
 
 _NOTE: This only works on desktop Chrome 129+ currently (Oct 2024). Firefox and Safari are hopefully supported [soon](https://caniuse.com/webgpu), but currently even firefox nightly and safari technical preview do not work_
 
-[![](https://dcbadge.limes.pink/api/server/https://discord.gg/r6jukQBK96)](https://discord.gg/r6jukQBK96)
+[![](https://dcbadge.limes.pink/api/server/https://discord.gg/TbxJST2BbC)](https://discord.gg/TbxJST2BbC)
 
 ## Features
 
