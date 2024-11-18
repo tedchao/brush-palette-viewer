@@ -115,7 +115,7 @@ impl ScenePanel {
         }
 
         // If this viewport is re-rendering.
-        if ui.ctx().has_requested_repaint() {
+        if ui.ctx().has_requested_repaint() && size.x > 0 && size.y > 0 {
             let _span = trace_span!("Render splats").entered();
             let (img, _) = splats.render(&context.camera, size, true);
             self.backbuffer.update_texture(img, self.renderer.clone());
@@ -198,7 +198,7 @@ impl ViewerPanel for ScenePanel {
 Load a pretrained .ply file to view it
 
 Or load a dataset to train on. These are zip files with:
-    - a transform_train.json and images, like the synthetic NeRF dataset format.
+    - a transforms.json and images, like the nerfstudio dataset format.
     - COLMAP data, containing the `images` & `sparse` folder."#,
             );
 
