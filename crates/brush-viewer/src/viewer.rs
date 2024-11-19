@@ -339,10 +339,15 @@ impl Viewer {
             state.renderer.clone(),
         );
 
-        #[allow(unused_mut)]
-        let mut sides = vec![
+        let loading_subs = vec![
             tiles.insert_pane(Box::new(LoadDataPanel::new())),
             tiles.insert_pane(Box::new(PresetsPanel::new())),
+        ];
+        let loading_pane = tiles.insert_tab_tile(loading_subs);
+
+        #[allow(unused_mut)]
+        let mut sides = vec![
+            loading_pane,
             tiles.insert_pane(Box::new(StatsPanel::new(
                 device.clone(),
                 state.adapter.clone(),
