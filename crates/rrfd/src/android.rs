@@ -1,21 +1,18 @@
-use anyhow::{anyhow, Result};
-use jni::objects::{GlobalRef, JByteArray, JClass, JStaticMethodID, JString};
+use anyhow::{anyhow, Context, Result};
+use jni::objects::{GlobalRef, JClass, JStaticMethodID};
 use jni::signature::Primitive;
+use jni::sys::jint;
 use jni::JNIEnv;
 use lazy_static::lazy_static;
+use std::os::fd::FromRawFd;
 use std::sync::Arc;
 use std::sync::RwLock;
+use tokio::fs::File;
 use tokio::sync::mpsc::Sender;
-
-#[derive(Clone, Debug)]
-pub struct PickedFile {
-    pub data: Vec<u8>,
-    pub file_name: String,
-}
 
 lazy_static! {
     static ref VM: RwLock<Option<Arc<jni::JavaVM>>> = RwLock::new(None);
-    static ref CHANNEL: RwLock<Option<Sender<Result<PickedFile>>>> = RwLock::new(None);
+    static ref CHANNEL: RwLock<Option<Sender<Option<File>>>> = RwLock::new(None);
     static ref START_FILE_PICKER: RwLock<Option<JStaticMethodID>> = RwLock::new(None);
     static ref FILE_PICKER_CLASS: RwLock<Option<GlobalRef>> = RwLock::new(None);
 }
@@ -37,7 +34,7 @@ pub fn jni_initialize(vm: Arc<jni::JavaVM>) {
 }
 
 #[allow(unused)]
-pub(crate) async fn pick_file() -> Result<PickedFile> {
+pub(crate) async fn pick_file() -> Result<File> {
     let (sender, mut receiver) = tokio::sync::mpsc::channel(1);
     {
         let channel = CHANNEL.write();
@@ -76,31 +73,34 @@ pub(crate) async fn pick_file() -> Result<PickedFile> {
         }?;
     }
 
-    receiver
+    let file = receiver
         .recv()
         .await
-        .ok_or(anyhow!("Failed to receive anything"))?
+        .ok_or(anyhow!("Failed to receive anything"));
+
+    let file = file?;
+    file.context("No file selected")
 }
 
 #[no_mangle]
 extern "system" fn Java_com_splats_app_FilePicker_onFilePickerResult<'local>(
-    mut env: JNIEnv<'local>,
+    _env: JNIEnv<'local>,
     _class: JClass<'local>,
-    data: JByteArray<'local>,
-    file_name: JString<'local>,
+    fd: jint,
 ) {
+    let file = if fd < 0 {
+        None
+    } else {
+        // Convert the raw file descriptor into a Rust File
+        // SAFETY: Pray that JNI gets us a valid file. It will be open
+        // when passed to us.
+        Some(unsafe { tokio::fs::File::from_raw_fd(fd) })
+    };
+
     // Channel can be gone before the callback if other parts of pick_file fail.
     if let Ok(ch) = CHANNEL.read() {
         if let Some(ch) = ch.as_ref() {
-            let picked_file = if data.is_null() {
-                Err(jni::errors::Error::NullPtr("No file selected"))
-            } else {
-                env.convert_byte_array(data).and_then(|data| {
-                    let file_name = env.get_string(&file_name)?.into();
-                    Ok(PickedFile { data, file_name })
-                })
-            };
-            ch.try_send(picked_file.map_err(|err| err.into()))
+            ch.try_send(file)
                 .expect("Failed to send file picking result");
         }
     }

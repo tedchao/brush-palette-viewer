@@ -7,9 +7,13 @@ import androidx.core.view.WindowInsetsControllerCompat;
 import com.google.androidgamesdk.GameActivity;
 
 import android.content.Intent;
+import android.net.Uri;
 import android.os.Bundle;
+import android.os.ParcelFileDescriptor;
 import android.view.View;
 import android.view.WindowManager;
+
+import java.io.IOException;
 
 public class MainActivity extends GameActivity {
     static {
@@ -35,7 +39,25 @@ public class MainActivity extends GameActivity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         if (requestCode == FilePicker.REQUEST_CODE_PICK_FILE) {
-            FilePicker.onActivityResult(resultCode, data);
+            int fd = -1;
+
+            try {
+                Uri uri = data.getData();
+
+                if (uri == null) {
+                    throw new IOException("Failed to open URI");
+                }
+                ParcelFileDescriptor parcelFileDescriptor = getContentResolver()
+                        .openFileDescriptor(uri, "r");
+                if (parcelFileDescriptor == null) {
+                    throw new IOException("Failed to open ParcelFileDescriptor");
+                }
+                // Detach and get the raw file descriptor
+                fd = parcelFileDescriptor.detachFd();
+            } catch (IOException ignored) {
+            } finally {
+                FilePicker.onPicked(requestCode, fd);
+            }
         }
         super.onActivityResult(requestCode, resultCode, data);
     }

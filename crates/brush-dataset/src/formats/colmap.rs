@@ -129,16 +129,18 @@ pub(crate) fn load_dataset<B: Backend>(
 
     let mut i = 0;
     let stream = stream_fut_parallel(handles).map(move |view| {
-        // I cannot wait for let chains.
-        if let Some(eval_period) = load_args.eval_split_every {
-            if i % eval_period == 0 {
-                log::info!("Adding split eval view");
-                eval_views.push(view?);
+        if let Ok(view) = view {
+            // I cannot wait for let chains.
+            if let Some(eval_period) = load_args.eval_split_every {
+                if i % eval_period == 0 {
+                    log::info!("Adding split eval view");
+                    eval_views.push(view);
+                } else {
+                    train_views.push(view);
+                }
             } else {
-                train_views.push(view?);
+                train_views.push(view);
             }
-        } else {
-            train_views.push(view?);
         }
 
         i += 1;

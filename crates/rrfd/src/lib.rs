@@ -3,22 +3,15 @@ pub mod android;
 #[allow(unused)]
 use anyhow::Context;
 use anyhow::Result;
+use tokio::io::AsyncReadExt;
 
 pub enum FileHandle {
     #[cfg(not(target_os = "android"))]
     Rfd(rfd::FileHandle),
-    Android(android::PickedFile),
+    Android(tokio::fs::File),
 }
 
 impl FileHandle {
-    pub fn file_name(&self) -> String {
-        match self {
-            #[cfg(not(target_os = "android"))]
-            FileHandle::Rfd(file_handle) => file_handle.file_name(),
-            FileHandle::Android(picked_file) => picked_file.file_name.clone(),
-        }
-    }
-
     pub async fn write(&self, data: &[u8]) -> std::io::Result<()> {
         match self {
             #[cfg(not(target_os = "android"))]
@@ -30,11 +23,15 @@ impl FileHandle {
         }
     }
 
-    pub async fn read(&self) -> Vec<u8> {
-        match self {
+    pub async fn read(mut self) -> Vec<u8> {
+        match &mut self {
             #[cfg(not(target_os = "android"))]
             FileHandle::Rfd(file_handle) => file_handle.read().await,
-            FileHandle::Android(picked_file) => picked_file.data.clone(),
+            FileHandle::Android(file) => {
+                let mut buf = vec![];
+                file.read_to_end(&mut buf).await.unwrap();
+                buf
+            }
         }
     }
 }
