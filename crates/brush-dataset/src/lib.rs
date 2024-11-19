@@ -88,6 +88,8 @@ pub(crate) fn stream_fut_parallel<T: Send + 'static>(
             .get()
     };
 
+    log::info!("Loading steam with {parallel} threads");
+
     let mut futures = futures;
     fn_stream(|emitter| async move {
         while !futures.is_empty() {
