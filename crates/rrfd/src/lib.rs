@@ -1,13 +1,14 @@
+#[cfg(target_os = "android")]
 pub mod android;
 
 #[allow(unused)]
 use anyhow::Context;
 use anyhow::Result;
-use tokio::io::AsyncReadExt;
 
 pub enum FileHandle {
     #[cfg(not(target_os = "android"))]
     Rfd(rfd::FileHandle),
+    #[cfg(target_os = "android")]
     Android(tokio::fs::File),
 }
 
@@ -16,6 +17,7 @@ impl FileHandle {
         match self {
             #[cfg(not(target_os = "android"))]
             FileHandle::Rfd(file_handle) => file_handle.write(data).await,
+            #[cfg(target_os = "android")]
             FileHandle::Android(_) => {
                 let _ = data;
                 unimplemented!("No saving on Android yet.")
@@ -27,7 +29,10 @@ impl FileHandle {
         match &mut self {
             #[cfg(not(target_os = "android"))]
             FileHandle::Rfd(file_handle) => file_handle.read().await,
+            #[cfg(target_os = "android")]
             FileHandle::Android(file) => {
+                use tokio::io::AsyncReadExt;
+
                 let mut buf = vec![];
                 file.read_to_end(&mut buf).await.unwrap();
                 buf
@@ -47,6 +52,7 @@ pub async fn pick_file() -> Result<FileHandle> {
 
         Ok(FileHandle::Rfd(file))
     }
+
     #[cfg(target_os = "android")]
     {
         android::pick_file().await.map(FileHandle::Android)
@@ -66,6 +72,7 @@ pub async fn save_file(default_name: &str) -> Result<FileHandle> {
             .context("No file selected")?;
         Ok(FileHandle::Rfd(file))
     }
+
     #[cfg(target_os = "android")]
     {
         let _ = default_name;
