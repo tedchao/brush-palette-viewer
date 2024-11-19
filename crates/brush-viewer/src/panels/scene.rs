@@ -7,7 +7,7 @@ use std::sync::Arc;
 use brush_render::gaussian_splats::Splats;
 use eframe::egui_wgpu::Renderer;
 use egui::{Color32, Rect};
-use glam::{Affine3A, Vec2};
+use glam::Vec2;
 use tokio_with_wasm::alias as tokio;
 use tracing::trace_span;
 use web_time::Instant;
