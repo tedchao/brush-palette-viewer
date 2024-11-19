@@ -20,6 +20,8 @@ use web_time::Instant;
 
 use crate::viewer::ViewerMessage;
 
+const UPDATE_EVERY: u32 = 5;
+
 #[derive(Debug, Clone)]
 pub enum TrainMessage {
     Paused(bool),
@@ -152,20 +154,22 @@ pub(crate) fn train_loop<T: AsyncRead + Unpin + 'static>(
                         .await?;
                     splats = new_splats;
 
-                    // Log out train stats.
-                    emitter
-                        .emit(ViewerMessage::Splats {
-                            iter: trainer.iter,
-                            splats: Box::new(splats.valid()),
-                        })
-                        .await;
-                    emitter
-                        .emit(ViewerMessage::TrainStep {
-                            stats: Box::new(stats),
-                            iter: trainer.iter,
-                            timestamp: Instant::now(),
-                        })
-                        .await;
+                    if trainer.iter % UPDATE_EVERY == 0 {
+                        // Log out train stats.
+                        emitter
+                            .emit(ViewerMessage::Splats {
+                                iter: trainer.iter,
+                                splats: Box::new(splats.valid()),
+                            })
+                            .await;
+                        emitter
+                            .emit(ViewerMessage::TrainStep {
+                                stats: Box::new(stats),
+                                iter: trainer.iter,
+                                timestamp: Instant::now(),
+                            })
+                            .await;
+                    }
                 }
             }
 
