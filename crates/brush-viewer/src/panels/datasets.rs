@@ -39,20 +39,20 @@ impl ViewerPanel for DatasetPanel {
         "Dataset".to_owned()
     }
 
-    fn on_message(&mut self, message: ViewerMessage, context: &mut ViewerContext) {
+    fn on_message(&mut self, message: &ViewerMessage, context: &mut ViewerContext) {
         match message {
             ViewerMessage::NewSource => {
                 self.loading = false;
             }
             ViewerMessage::StartLoading { training } => {
-                self.loading = training;
+                self.loading = *training;
             }
             ViewerMessage::Dataset { data: d } => {
                 // Set train view to last loaded camera.
                 if let Some(view) = d.train.views.last() {
                     context.focus_view(&view.camera);
                 }
-                context.dataset = d;
+                context.dataset = d.clone();
             }
             ViewerMessage::DoneLoading { training: _ } => {
                 self.loading = false;

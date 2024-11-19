@@ -2,7 +2,7 @@ use std::{future::Future, pin::Pin, sync::Arc};
 
 use crate::{
     train_loop::TrainMessage,
-    viewer::{ViewerContext, ViewerMessage},
+    viewer::{self, ViewerContext, ViewerMessage},
     ViewerPanel,
 };
 
@@ -364,10 +364,10 @@ impl ViewerPanel for RerunPanel {
         "Rerun".to_owned()
     }
 
-    fn on_message(&mut self, message: crate::viewer::ViewerMessage, context: &mut ViewerContext) {
+    fn on_message(&mut self, message: &ViewerMessage, context: &mut ViewerContext) {
         match message {
-            crate::viewer::ViewerMessage::StartLoading { training } => {
-                if training {
+            ViewerMessage::StartLoading { training } => {
+                if *training {
                     if self.visualize.is_some() {
                         self.visualize = Some(Arc::new(VisualizeTools::new()));
                     }
@@ -375,23 +375,23 @@ impl ViewerPanel for RerunPanel {
                     self.visualize = None;
                 }
             }
-            crate::viewer::ViewerMessage::DoneLoading { training } => {
-                if training {
+            ViewerMessage::DoneLoading { training } => {
+                if *training {
                     self.ready_to_log_dataset = true;
                 }
             }
-            crate::viewer::ViewerMessage::Splats { iter, splats } => {
+            ViewerMessage::Splats { iter, splats } => {
                 let Some(visualize) = self.visualize.clone() else {
                     return;
                 };
 
                 if let Some(every) = self.visualize_splats_every {
                     if iter % every == 0 {
-                        visualize.log_splats(*splats);
+                        visualize.log_splats(*splats.clone());
                     }
                 }
             }
-            crate::viewer::ViewerMessage::TrainStep {
+            viewer::ViewerMessage::TrainStep {
                 stats,
                 iter,
                 timestamp: _,
@@ -411,7 +411,7 @@ impl ViewerPanel for RerunPanel {
                 // HACK: Always log on a refine step, as they can happen off beat.
                 // Not sure how to best handle this properly.
                 if iter % self.log_train_stats_every == 0 || stats.refine.is_some() {
-                    visualize.log_train_stats(iter, *stats);
+                    visualize.log_train_stats(*iter, *stats.clone());
                 }
             }
             ViewerMessage::EvalResult { iter, eval } => {
@@ -419,7 +419,7 @@ impl ViewerPanel for RerunPanel {
                     return;
                 };
 
-                visualize.log_eval_stats(iter, eval);
+                visualize.log_eval_stats(*iter, eval.clone());
             }
 
             _ => {}

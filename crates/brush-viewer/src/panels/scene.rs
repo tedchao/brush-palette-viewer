@@ -95,7 +95,7 @@ impl ScenePanel {
         let scrolled = ui.input(|r| r.smooth_scroll_delta).y;
         let cur_time = Instant::now();
 
-        if let Some(last_draw) = self.last_draw {
+        self.dirty |= if let Some(last_draw) = self.last_draw {
             let delta_time = cur_time - last_draw;
 
             context.controls.pan_orbit_camera(
@@ -105,8 +105,12 @@ impl ScenePanel {
                 scrolled * 0.01,
                 glam::vec2(rect.size().x, rect.size().y),
                 delta_time.as_secs_f32(),
-            );
-        }
+            )
+        } else {
+            false
+        };
+        context.controls.dirty = false;
+
         self.last_draw = Some(cur_time);
 
         // Also redraw next frame, need to check if we're still animating.
@@ -115,7 +119,7 @@ impl ScenePanel {
         }
 
         // If this viewport is re-rendering.
-        if ui.ctx().has_requested_repaint() && size.x > 0 && size.y > 0 {
+        if ui.ctx().has_requested_repaint() && size.x > 0 && size.y > 0 && self.dirty {
             let _span = trace_span!("Render splats").entered();
             let (img, _) = splats.render(&context.camera, size, true);
             self.backbuffer.update_texture(img, self.renderer.clone());
@@ -158,7 +162,11 @@ impl ViewerPanel for ScenePanel {
         "Scene".to_owned()
     }
 
-    fn on_message(&mut self, message: ViewerMessage, _: &mut ViewerContext) {
+    fn on_message(&mut self, message: &ViewerMessage, _: &mut ViewerContext) {
+        if self.live_update {
+            self.dirty = true;
+        }
+
         match message.clone() {
             ViewerMessage::NewSource => {
                 self.last_message = None;
@@ -176,12 +184,11 @@ impl ViewerPanel for ScenePanel {
             }
             ViewerMessage::Splats { iter: _, splats: _ } => {
                 if self.live_update {
-                    self.dirty = true;
-                    self.last_message = Some(message);
+                    self.last_message = Some(message.clone());
                 }
             }
             ViewerMessage::Error(_) => {
-                self.last_message = Some(message);
+                self.last_message = Some(message.clone());
             }
             _ => {}
         }
@@ -218,16 +225,6 @@ For bigger training runs consider using the native app."#,
             });
 
             return;
-        }
-
-        if self.last_cam_trans
-            != glam::Affine3A::from_rotation_translation(
-                context.camera.rotation,
-                context.camera.position,
-            )
-            || context.controls.is_animating()
-        {
-            self.dirty = true;
         }
 
         if let Some(message) = self.last_message.clone() {

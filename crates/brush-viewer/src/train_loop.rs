@@ -153,8 +153,6 @@ pub(crate) fn train_loop<T: AsyncRead + Unpin + 'static>(
                     splats = new_splats;
 
                     // Log out train stats.
-                    // HACK: Always emit events that do a refine,
-                    // as stats might want to log them.
                     emitter
                         .emit(ViewerMessage::Splats {
                             iter: trainer.iter,

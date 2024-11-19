@@ -3,6 +3,7 @@ use glam::{Mat3, Quat, Vec2, Vec3};
 
 pub struct OrbitControls {
     pub focus: Vec3,
+    pub dirty: bool,
     pan_momentum: Vec2,
     rotate_momentum: Vec2,
 }
@@ -13,6 +14,7 @@ impl OrbitControls {
             focus: Vec3::ZERO,
             pan_momentum: Vec2::ZERO,
             rotate_momentum: Vec2::ZERO,
+            dirty: false,
         }
     }
 
@@ -24,7 +26,7 @@ impl OrbitControls {
         scroll: f32,
         window: Vec2,
         delta_time: f32,
-    ) {
+    ) -> bool {
         let mut radius = (camera.position - self.focus).length();
         // Adjust momentum with the new input
         self.pan_momentum += pan;
@@ -67,9 +69,12 @@ impl OrbitControls {
 
         let rot_matrix = Mat3::from_quat(camera.rotation);
         camera.position = self.focus + rot_matrix.mul_vec3(Vec3::new(0.0, 0.0, -radius));
-    }
 
-    pub fn is_animating(&self) -> bool {
-        self.pan_momentum.length_squared() > 0.001 || self.rotate_momentum.length_squared() > 0.001
+        scroll.abs() > 0.0
+            || pan.length_squared() > 0.0
+            || rotate.length_squared() > 0.0
+            || self.pan_momentum.length_squared() > 0.001
+            || self.rotate_momentum.length_squared() > 0.001
+            || self.dirty
     }
 }

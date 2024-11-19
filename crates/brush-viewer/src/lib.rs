@@ -15,7 +15,7 @@ pub mod viewer;
 trait ViewerPanel {
     fn title(&self) -> String;
     fn ui(&mut self, ui: &mut egui::Ui, controls: &mut ViewerContext);
-    fn on_message(&mut self, message: ViewerMessage, context: &mut ViewerContext) {
+    fn on_message(&mut self, message: &ViewerMessage, context: &mut ViewerContext) {
         let _ = message;
         let _ = context;
     }

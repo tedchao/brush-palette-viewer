@@ -221,6 +221,7 @@ impl ViewerContext {
                 * glam::Vec3::Z
                 * self.dataset.train.bounds(0.0, 0.0).extent.length()
                 * 0.5;
+        self.controls.dirty = true;
     }
 
     pub(crate) fn start_data_load(
@@ -414,7 +415,7 @@ impl eframe::App for Viewer {
                 for (_, pane) in self.tree.tiles.iter_mut() {
                     match pane {
                         Tile::Pane(pane) => {
-                            pane.on_message(message.clone(), &mut self.tree_ctx.context);
+                            pane.on_message(&message, &mut self.tree_ctx.context);
                         }
                         Tile::Container(_) => {}
                     }
