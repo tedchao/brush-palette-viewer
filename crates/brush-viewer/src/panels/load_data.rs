@@ -68,8 +68,10 @@ impl ViewerPanel for LoadDataPanel {
                 let mut config = TrainConfig::default();
                 if matches!(self.quality, Quality::Low) {
                     config = config
-                        .with_densify_grad_thresh(0.00035)
-                        .with_refine_every(200);
+                        .with_densify_grad_thresh(0.0003)
+                        .with_refine_every(150)
+                        .with_ssim_weight(0.0)
+                        .with_cull_alpha_thresh(0.01);
                 }
 
                 let source = if file {
