@@ -159,27 +159,34 @@ pub(crate) fn load_dataset<B: Backend>(
         // Extract COLMAP sfm points.
         let points_data = {
             let mut points_file = archive.file_at_path(&points_path)?;
-            colmap_reader::read_points3d(&mut points_file, is_binary)?
+            colmap_reader::read_points3d(&mut points_file, is_binary)
         };
 
-        let positions = points_data.values().map(|p| p.xyz).collect();
+        // Ignore empty points data.
+        if let Ok(points_data) = points_data {
+            if !points_data.is_empty() {
+                log::info!("Starting from colmap points {}", points_data.len());
 
-        let colors = points_data
-            .values()
-            .flat_map(|p| {
-                [
-                    rgb_to_sh(p.rgb[0] as f32 / 255.0),
-                    rgb_to_sh(p.rgb[1] as f32 / 255.0),
-                    rgb_to_sh(p.rgb[2] as f32 / 255.0),
-                ]
-            })
-            .collect();
+                let positions = points_data.values().map(|p| p.xyz).collect();
 
-        let init_ply = Splats::from_raw(positions, None, None, Some(colors), None, &device);
-        emitter.emit(init_ply).await;
+                let colors = points_data
+                    .values()
+                    .flat_map(|p| {
+                        [
+                            rgb_to_sh(p.rgb[0] as f32 / 255.0),
+                            rgb_to_sh(p.rgb[1] as f32 / 255.0),
+                            rgb_to_sh(p.rgb[2] as f32 / 255.0),
+                        ]
+                    })
+                    .collect();
+
+                let init_ply = Splats::from_raw(positions, None, None, Some(colors), None, &device);
+                emitter.emit(init_ply).await;
+            }
+        }
+
         Ok(())
     });
-    let init_stream = Box::pin(init_stream);
 
-    Ok((init_stream, Box::pin(stream)))
+    Ok((Box::pin(init_stream), Box::pin(stream)))
 }

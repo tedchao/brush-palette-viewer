@@ -139,7 +139,7 @@ fn parse<T: std::str::FromStr>(s: &str) -> io::Result<T> {
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "Parse error"))
 }
 
-fn read_cameras_text<R: Read>(reader: &mut R) -> io::Result<HashMap<i32, Camera>> {
+fn read_cameras_text<R: Read>(reader: R) -> io::Result<HashMap<i32, Camera>> {
     let mut cameras = HashMap::new();
     let mut buf_reader = io::BufReader::new(reader);
     let mut line = String::new();
@@ -191,7 +191,7 @@ fn read_cameras_text<R: Read>(reader: &mut R) -> io::Result<HashMap<i32, Camera>
     Ok(cameras)
 }
 
-fn read_cameras_binary<R: Read>(reader: &mut R) -> io::Result<HashMap<i32, Camera>> {
+fn read_cameras_binary<R: Read>(mut reader: R) -> io::Result<HashMap<i32, Camera>> {
     let mut cameras = HashMap::new();
     let num_cameras = reader.read_u64::<LittleEndian>()?;
 
@@ -225,7 +225,7 @@ fn read_cameras_binary<R: Read>(reader: &mut R) -> io::Result<HashMap<i32, Camer
     Ok(cameras)
 }
 
-fn read_images_text<R: Read>(reader: &mut R) -> io::Result<HashMap<i32, Image>> {
+fn read_images_text<R: Read>(mut reader: R) -> io::Result<HashMap<i32, Image>> {
     let mut images = HashMap::new();
     let mut buf_reader = io::BufReader::new(reader);
     let mut line = String::new();
@@ -288,7 +288,7 @@ fn read_images_text<R: Read>(reader: &mut R) -> io::Result<HashMap<i32, Image>> 
     Ok(images)
 }
 
-fn read_images_binary<R: BufRead>(reader: &mut R) -> io::Result<HashMap<i32, Image>> {
+fn read_images_binary<R: BufRead>(mut reader: R) -> io::Result<HashMap<i32, Image>> {
     let mut images = HashMap::new();
     let num_images = reader.read_u64::<LittleEndian>()?;
 
@@ -344,7 +344,7 @@ fn read_images_binary<R: BufRead>(reader: &mut R) -> io::Result<HashMap<i32, Ima
     Ok(images)
 }
 
-fn read_points3d_text<R: Read>(reader: &mut R) -> io::Result<HashMap<i64, Point3D>> {
+fn read_points3d_text<R: Read>(mut reader: R) -> io::Result<HashMap<i64, Point3D>> {
     let mut points3d = HashMap::new();
     let mut buf_reader = io::BufReader::new(reader);
     let mut line = String::new();
@@ -402,7 +402,7 @@ fn read_points3d_text<R: Read>(reader: &mut R) -> io::Result<HashMap<i64, Point3
     Ok(points3d)
 }
 
-fn read_points3d_binary<R: Read>(reader: &mut R) -> io::Result<HashMap<i64, Point3D>> {
+fn read_points3d_binary<R: Read>(mut reader: R) -> io::Result<HashMap<i64, Point3D>> {
     let mut points3d = HashMap::new();
     let num_points = reader.read_u64::<LittleEndian>()?;
 
@@ -440,7 +440,7 @@ fn read_points3d_binary<R: Read>(reader: &mut R) -> io::Result<HashMap<i64, Poin
     Ok(points3d)
 }
 
-pub fn read_cameras<R: Read>(reader: &mut R, binary: bool) -> io::Result<HashMap<i32, Camera>> {
+pub fn read_cameras<R: Read>(mut reader: R, binary: bool) -> io::Result<HashMap<i32, Camera>> {
     if binary {
         read_cameras_binary(reader)
     } else {
@@ -448,7 +448,7 @@ pub fn read_cameras<R: Read>(reader: &mut R, binary: bool) -> io::Result<HashMap
     }
 }
 
-pub fn read_images<R: BufRead>(reader: &mut R, binary: bool) -> io::Result<HashMap<i32, Image>> {
+pub fn read_images<R: BufRead>(reader: R, binary: bool) -> io::Result<HashMap<i32, Image>> {
     if binary {
         read_images_binary(reader)
     } else {
@@ -456,7 +456,7 @@ pub fn read_images<R: BufRead>(reader: &mut R, binary: bool) -> io::Result<HashM
     }
 }
 
-pub fn read_points3d<R: Read>(reader: &mut R, binary: bool) -> io::Result<HashMap<i64, Point3D>> {
+pub fn read_points3d<R: Read>(reader: R, binary: bool) -> io::Result<HashMap<i64, Point3D>> {
     if binary {
         read_points3d_binary(reader)
     } else {

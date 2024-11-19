@@ -1,7 +1,7 @@
 use crate::{splat_import::load_splat_from_ply, zip::DatasetZip, Dataset, LoadDatasetArgs};
 use anyhow::Result;
 use brush_render::{gaussian_splats::Splats, Backend};
-use std::{io::Cursor, path::Path, pin::Pin};
+use std::{io::Cursor, pin::Pin};
 use tokio_stream::Stream;
 
 pub mod colmap;
@@ -23,10 +23,12 @@ pub fn load_dataset<B: Backend>(
     };
 
     // If there's an init.ply definitey override the init stream with that.
-    let init_ply = archive.read_bytes_at_path(Path::new("init.ply"));
+    let init_path = archive.find_with_extension(".ply", "init");
 
-    let init_stream = if let Ok(data) = init_ply {
-        let splat_stream = load_splat_from_ply(Cursor::new(data), device.clone());
+    let init_stream = if let Ok(path) = init_path {
+        let ply_data = archive.read_bytes_at_path(&path)?;
+        log::info!("Using {path:?} as initial point cloud.");
+        let splat_stream = load_splat_from_ply(Cursor::new(ply_data), device.clone());
         Box::pin(splat_stream)
     } else {
         streams.0
