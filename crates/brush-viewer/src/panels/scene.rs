@@ -28,7 +28,7 @@ pub(crate) struct ScenePanel {
     live_update: bool,
     paused: bool,
 
-    last_cam_trans: Affine3A,
+    last_size: glam::UVec2,
     dirty: bool,
 
     queue: Arc<wgpu::Queue>,
@@ -49,7 +49,7 @@ impl ScenePanel {
             live_update: true,
             paused: false,
             dirty: true,
-            last_cam_trans: Affine3A::IDENTITY,
+            last_size: glam::UVec2::ZERO,
             is_loading: false,
             is_training: false,
             queue,
@@ -109,6 +109,8 @@ impl ScenePanel {
         } else {
             false
         };
+
+        self.dirty |= self.last_size != size;
         context.controls.dirty = false;
 
         self.last_draw = Some(cur_time);
@@ -124,6 +126,7 @@ impl ScenePanel {
             let (img, _) = splats.render(&context.camera, size, true);
             self.backbuffer.update_texture(img, self.renderer.clone());
             self.dirty = false;
+            self.last_size = size;
         }
 
         if let Some(id) = self.backbuffer.id() {
