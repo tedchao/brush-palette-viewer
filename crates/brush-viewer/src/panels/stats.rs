@@ -4,7 +4,7 @@ use crate::{
 };
 use burn_jit::cubecl::Runtime;
 use burn_wgpu::{WgpuDevice, WgpuRuntime};
-use std::{collections::VecDeque, sync::Arc};
+use std::{collections::VecDeque, sync::Arc, time::Duration};
 use web_time::Instant;
 use wgpu::AdapterInfo;
 
@@ -19,6 +19,7 @@ pub(crate) struct StatsPanel {
     training_started: bool,
     num_splats: usize,
 
+    start_load_time: Instant,
     adapter_info: AdapterInfo,
 }
 
@@ -33,6 +34,7 @@ impl StatsPanel {
             last_eval_psnr: None,
             training_started: false,
             num_splats: 0,
+            start_load_time: Instant::now(),
             adapter_info,
         }
     }
@@ -66,6 +68,7 @@ impl ViewerPanel for StatsPanel {
     fn on_message(&mut self, message: crate::viewer::ViewerMessage, _: &mut ViewerContext) {
         match message {
             ViewerMessage::StartLoading { training } => {
+                self.start_load_time = Instant::now();
                 self.last_train_step = (Instant::now(), 0);
                 self.train_iter_per_s = 0.0;
                 self.train_iter_history.clear();
@@ -128,6 +131,13 @@ impl ViewerPanel for StatsPanel {
                     } else {
                         "--".to_owned()
                     });
+                    ui.end_row();
+
+                    ui.label("Training time");
+                    // Round duration to seconds.
+                    let elapsed =
+                        Duration::from_secs((Instant::now() - self.start_load_time).as_secs());
+                    ui.label(format!("{}", humantime::Duration::from(elapsed)));
                     ui.end_row();
                 }
 

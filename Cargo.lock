@@ -864,6 +864,7 @@ dependencies = [
  "egui_tiles",
  "glam",
  "gloo-timers",
+ "humantime",
  "image",
  "log",
  "parking_lot",
