@@ -119,7 +119,9 @@ fn process_loop(
             let _ = emitter
                 .emit(ViewerMessage::StartLoading { training: false })
                 .await;
-            let splat_stream = splat_import::load_splat_from_ply(data, device.clone());
+
+            let subsample = None; // Subsampling a trained ply doesn't really make sense.
+            let splat_stream = splat_import::load_splat_from_ply(data, subsample, device.clone());
 
             let mut splat_stream = std::pin::pin!(splat_stream);
             while let Some(splats) = splat_stream.next().await {

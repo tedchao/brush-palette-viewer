@@ -11,6 +11,7 @@ use brush_render::{
     Backend,
 };
 use brush_train::scene::SceneView;
+use glam::Vec3;
 use tokio_stream::StreamExt;
 
 fn read_views(
@@ -114,7 +115,11 @@ pub(crate) fn load_dataset<B: Backend>(
     load_args: &LoadDatasetArgs,
     device: &B::Device,
 ) -> Result<(DataStream<Splats<B>>, DataStream<Dataset>)> {
-    let handles = read_views(archive.clone(), load_args)?;
+    let mut handles = read_views(archive.clone(), load_args)?;
+
+    if let Some(subsample) = load_args.subsample_frames {
+        handles = handles.into_iter().step_by(subsample as usize).collect();
+    }
 
     let mut train_views = vec![];
     let mut eval_views = vec![];
@@ -167,9 +172,8 @@ pub(crate) fn load_dataset<B: Backend>(
             if !points_data.is_empty() {
                 log::info!("Starting from colmap points {}", points_data.len());
 
-                let positions = points_data.values().map(|p| p.xyz).collect();
-
-                let colors = points_data
+                let mut positions: Vec<Vec3> = points_data.values().map(|p| p.xyz).collect();
+                let mut colors: Vec<f32> = points_data
                     .values()
                     .flat_map(|p| {
                         [
@@ -179,6 +183,13 @@ pub(crate) fn load_dataset<B: Backend>(
                         ]
                     })
                     .collect();
+
+                // Other dataloaders handle subsampling in the ply import. Here just
+                // do it manually, maybe nice to unify at some point.
+                if let Some(subsample) = load_args.subsample_points {
+                    positions = positions.into_iter().step_by(subsample as usize).collect();
+                    colors = colors.into_iter().step_by(subsample as usize * 3).collect();
+                }
 
                 let init_ply = Splats::from_raw(positions, None, None, Some(colors), None, &device);
                 emitter.emit(init_ply).await;

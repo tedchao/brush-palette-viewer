@@ -22,6 +22,8 @@ pub struct LoadDatasetArgs {
     pub max_frames: Option<usize>,
     pub max_resolution: Option<u32>,
     pub eval_split_every: Option<usize>,
+    pub subsample_frames: Option<u32>,
+    pub subsample_points: Option<u32>,
 }
 
 #[derive(Clone)]

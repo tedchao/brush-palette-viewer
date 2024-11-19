@@ -125,6 +125,7 @@ fn interleave_coeffs(sh_dc: [f32; 3], sh_rest: &[f32]) -> Vec<f32> {
 
 pub fn load_splat_from_ply<T: AsyncRead + Unpin + 'static, B: Backend>(
     reader: T,
+    subsample_points: Option<u32>,
     device: B::Device,
 ) -> impl Stream<Item = Result<Splats<B>>> + 'static {
     // set up a reader, in this case a file.
@@ -173,6 +174,25 @@ pub fn load_splat_from_ply<T: AsyncRead + Unpin + 'static, B: Backend>(
                 let mut ascii_line = String::new();
 
                 for i in 0..element.count {
+                    // Ocassionally yield.
+                    if i % 500 == 0 {
+                        tokio::task::yield_now().await;
+                    }
+
+                    // Occasionally send some updated splats.
+                    if i % update_every == update_every - 1 {
+                        let splats = Splats::from_raw(
+                            means.clone(),
+                            rotation.clone(),
+                            scales.clone(),
+                            sh_coeffs.clone(),
+                            opacity.clone(),
+                            &device,
+                        );
+
+                        emitter.emit(splats).await;
+                    }
+
                     let splat = match header.encoding {
                         ply_rs::ply::Encoding::Ascii => {
                             reader.read_line(&mut ascii_line).await?;
@@ -192,6 +212,14 @@ pub fn load_splat_from_ply<T: AsyncRead + Unpin + 'static, B: Backend>(
                         }
                     };
 
+                    // Doing this after first reading and parsing the points is quite wasteful, but
+                    // we do need to advance the reader.
+                    if let Some(subsample) = subsample_points {
+                        if i % subsample as usize != 0 {
+                            continue;
+                        }
+                    }
+
                     means.push(splat.means);
                     if let Some(scales) = scales.as_mut() {
                         scales.push(splat.scale);
@@ -206,25 +234,6 @@ pub fn load_splat_from_ply<T: AsyncRead + Unpin + 'static, B: Backend>(
                         let sh_coeffs_interleaved =
                             interleave_coeffs(splat.sh_dc, &splat.sh_coeffs_rest);
                         sh_coeffs.extend(sh_coeffs_interleaved);
-                    }
-
-                    // Occasionally send some updated splats.
-                    if i % update_every == update_every - 1 {
-                        let splats = Splats::from_raw(
-                            means.clone(),
-                            rotation.clone(),
-                            scales.clone(),
-                            sh_coeffs.clone(),
-                            opacity.clone(),
-                            &device,
-                        );
-
-                        emitter.emit(splats).await;
-                    }
-
-                    // Ocassionally yield.
-                    if i % 500 == 0 {
-                        tokio::task::yield_now().await;
                     }
                 }
 

@@ -180,15 +180,22 @@ pub fn read_dataset<B: Backend>(
 
     let transforms_path = archive.find_with_extension(".json", "_train")?;
     let train_scene: JsonScene = serde_json::from_reader(archive.file_at_path(&transforms_path)?)?;
-    let train_handles = read_transforms_file(
+    let mut train_handles = read_transforms_file(
         train_scene.clone(),
         transforms_path.clone(),
         archive.clone(),
         load_args,
     )?;
 
-    let load_args = load_args.clone();
-    let mut archive_move = archive.clone();
+    if let Some(subsample) = load_args.subsample_frames {
+        train_handles = train_handles
+            .into_iter()
+            .step_by(subsample as usize)
+            .collect();
+    }
+
+    let load_args_clone = load_args.clone();
+    let mut archive_clone = archive.clone();
 
     let transforms_path_clone = transforms_path.clone();
 
@@ -196,12 +203,12 @@ pub fn read_dataset<B: Backend>(
         let mut train_views = vec![];
         let mut eval_views = vec![];
 
-        let eval_trans_path = archive_move.find_with_extension(".json", "_val")?;
+        let eval_trans_path = archive_clone.find_with_extension(".json", "_val")?;
 
         // If a seperate eval file is specified, read it.
         let val_stream = if eval_trans_path != transforms_path_clone {
-            let val_scene = serde_json::from_reader(archive_move.file_at_path(&eval_trans_path)?)?;
-            read_transforms_file(val_scene, eval_trans_path, archive_move, &load_args).ok()
+            let val_scene = serde_json::from_reader(archive_clone.file_at_path(&eval_trans_path)?)?;
+            read_transforms_file(val_scene, eval_trans_path, archive_clone, &load_args_clone).ok()
         } else {
             None
         };
@@ -215,7 +222,7 @@ pub fn read_dataset<B: Backend>(
 
         let mut i = 0;
         while let Some(view) = train_handles.next().await {
-            if let Some(eval_period) = load_args.eval_split_every {
+            if let Some(eval_period) = load_args_clone.eval_split_every {
                 // Include extra eval images only when the dataset doesn't have them.
                 if i % eval_period == 0 && val_stream.is_some() {
                     eval_views.push(view?);
@@ -248,6 +255,7 @@ pub fn read_dataset<B: Backend>(
     });
 
     let device = device.clone();
+    let load_args = load_args.clone();
 
     let splat_stream = try_fn_stream(|emitter| async move {
         if let Some(init) = train_scene.ply_file_path {
@@ -255,7 +263,11 @@ pub fn read_dataset<B: Backend>(
             let ply_data = archive.read_bytes_at_path(&init_path);
 
             if let Ok(ply_data) = ply_data {
-                let splat_stream = load_splat_from_ply(Cursor::new(ply_data), device.clone());
+                let splat_stream = load_splat_from_ply(
+                    Cursor::new(ply_data),
+                    load_args.subsample_points,
+                    device.clone(),
+                );
 
                 let mut splat_stream = std::pin::pin!(splat_stream);
 

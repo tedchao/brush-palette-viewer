@@ -28,7 +28,11 @@ pub fn load_dataset<B: Backend>(
     let init_stream = if let Ok(path) = init_path {
         let ply_data = archive.read_bytes_at_path(&path)?;
         log::info!("Using {path:?} as initial point cloud.");
-        let splat_stream = load_splat_from_ply(Cursor::new(ply_data), device.clone());
+        let splat_stream = load_splat_from_ply(
+            Cursor::new(ply_data),
+            load_args.subsample_points,
+            device.clone(),
+        );
         Box::pin(splat_stream)
     } else {
         streams.0
