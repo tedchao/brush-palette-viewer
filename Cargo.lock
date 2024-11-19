@@ -673,11 +673,14 @@ name = "brush-android"
 version = "0.1.0"
 dependencies = [
  "android_logger",
+ "brush-train",
  "brush-viewer",
  "eframe",
  "jni",
  "log",
  "rrfd",
+ "tokio",
+ "tokio_with_wasm",
  "winit",
 ]
 
