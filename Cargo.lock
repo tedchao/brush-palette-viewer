@@ -673,9 +673,10 @@ name = "brush-android"
 version = "0.1.0"
 dependencies = [
  "android_logger",
- "brush-train",
+ "brush-ui",
  "brush-viewer",
  "eframe",
+ "egui",
  "jni",
  "log",
  "rrfd",

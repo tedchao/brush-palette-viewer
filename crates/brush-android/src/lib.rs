@@ -1,11 +1,8 @@
 #![cfg(target_os = "android")]
 
-use brush_train::create_wgpu_setup;
 use jni::sys::{jint, JNI_VERSION_1_6};
 use std::os::raw::c_void;
 use std::sync::Arc;
-
-use eframe::egui_wgpu::{WgpuConfiguration, WgpuSetup};
 use tokio_with_wasm::alias as tokio;
 
 #[allow(non_snake_case)]
@@ -20,24 +17,20 @@ pub extern "system" fn JNI_OnLoad(vm: jni::JavaVM, _: *mut c_void) -> jint {
 fn android_main(app: winit::platform::android::activity::AndroidApp) {
     use winit::platform::android::EventLoopBuilderExtAndroid;
 
+    let wgpu_options = brush_ui::create_egui_options();
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
         .unwrap();
 
+    // NB: Load carrying icon. egui at head fails when no icon is included
+    // as the built-in one is git-lfs which cargo doesn't clone properly.
+    let icon = eframe::icon_data::from_png_bytes(
+        &include_bytes!("../../brush-desktop/assets/icon-256.png")[..],
+    )
+    .unwrap();
+
     runtime.block_on(async {
-        let setup = create_wgpu_setup().await;
-
-        let wgpu_options = WgpuConfiguration {
-            wgpu_setup: WgpuSetup::Existing {
-                instance: setup.instance,
-                adapter: setup.adapter,
-                device: setup.device,
-                queue: setup.queue,
-            },
-            ..Default::default()
-        };
-
         android_logger::init_once(
             android_logger::Config::default().with_max_level(log::LevelFilter::Info),
         );
@@ -45,6 +38,8 @@ fn android_main(app: winit::platform::android::activity::AndroidApp) {
         eframe::run_native(
             "Brush",
             eframe::NativeOptions {
+                // Build app display.
+                viewport: egui::ViewportBuilder::default().with_icon(std::sync::Arc::new(icon)),
                 event_loop_builder: Some(Box::new(|builder| {
                     builder.with_android_app(app);
                 })),
