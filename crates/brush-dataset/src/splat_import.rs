@@ -38,22 +38,24 @@ impl PropertyAccess for GaussianData {
     }
 
     fn set_property(&mut self, key: &str, property: Property) {
+        let ascii = key.as_bytes();
+
         if let Property::Float(value) = property {
-            match key {
-                "x" => self.means[0] = value,
-                "y" => self.means[1] = value,
-                "z" => self.means[2] = value,
-                "scale_0" => self.scale[0] = value,
-                "scale_1" => self.scale[1] = value,
-                "scale_2" => self.scale[2] = value,
-                "opacity" => self.opacity = value,
-                "rot_0" => self.rotation.w = value,
-                "rot_1" => self.rotation.x = value,
-                "rot_2" => self.rotation.y = value,
-                "rot_3" => self.rotation.z = value,
-                "f_dc_0" => self.sh_dc[0] = value,
-                "f_dc_1" => self.sh_dc[1] = value,
-                "f_dc_2" => self.sh_dc[2] = value,
+            match ascii {
+                b"x" => self.means[0] = value,
+                b"y" => self.means[1] = value,
+                b"z" => self.means[2] = value,
+                b"scale_0" => self.scale[0] = value,
+                b"scale_1" => self.scale[1] = value,
+                b"scale_2" => self.scale[2] = value,
+                b"opacity" => self.opacity = value,
+                b"rot_0" => self.rotation.w = value,
+                b"rot_1" => self.rotation.x = value,
+                b"rot_2" => self.rotation.y = value,
+                b"rot_3" => self.rotation.z = value,
+                b"f_dc_0" => self.sh_dc[0] = value,
+                b"f_dc_1" => self.sh_dc[1] = value,
+                b"f_dc_2" => self.sh_dc[2] = value,
                 _ if key.starts_with("f_rest_") => {
                     if let Ok(idx) = key["f_rest_".len()..].parse::<u32>() {
                         if idx >= self.sh_coeffs_rest.len() as u32 {
@@ -65,10 +67,10 @@ impl PropertyAccess for GaussianData {
                 _ => (),
             }
         } else if let Property::UChar(value) = property {
-            match key {
-                "red" => self.sh_dc[0] = rgb_to_sh(value as f32 / 255.0),
-                "green" => self.sh_dc[1] = rgb_to_sh(value as f32 / 255.0),
-                "blue" => self.sh_dc[2] = rgb_to_sh(value as f32 / 255.0),
+            match ascii {
+                b"red" => self.sh_dc[0] = rgb_to_sh(value as f32 / 255.0),
+                b"green" => self.sh_dc[1] = rgb_to_sh(value as f32 / 255.0),
+                b"blue" => self.sh_dc[2] = rgb_to_sh(value as f32 / 255.0),
                 _ => {}
             }
         } else {
@@ -77,21 +79,23 @@ impl PropertyAccess for GaussianData {
     }
 
     fn get_float(&self, key: &str) -> Option<f32> {
-        match key {
-            "x" => Some(self.means[0]),
-            "y" => Some(self.means[1]),
-            "z" => Some(self.means[2]),
-            "scale_0" => Some(self.scale[0]),
-            "scale_1" => Some(self.scale[1]),
-            "scale_2" => Some(self.scale[2]),
-            "opacity" => Some(self.opacity),
-            "rot_0" => Some(self.rotation.w),
-            "rot_1" => Some(self.rotation.x),
-            "rot_2" => Some(self.rotation.y),
-            "rot_3" => Some(self.rotation.z),
-            "f_dc_0" => Some(self.sh_dc[0]),
-            "f_dc_1" => Some(self.sh_dc[1]),
-            "f_dc_2" => Some(self.sh_dc[2]),
+        let ascii = key.as_bytes();
+
+        match ascii {
+            b"x" => Some(self.means[0]),
+            b"y" => Some(self.means[1]),
+            b"z" => Some(self.means[2]),
+            b"scale_0" => Some(self.scale[0]),
+            b"scale_1" => Some(self.scale[1]),
+            b"scale_2" => Some(self.scale[2]),
+            b"opacity" => Some(self.opacity),
+            b"rot_0" => Some(self.rotation.w),
+            b"rot_1" => Some(self.rotation.x),
+            b"rot_2" => Some(self.rotation.y),
+            b"rot_3" => Some(self.rotation.z),
+            b"f_dc_0" => Some(self.sh_dc[0]),
+            b"f_dc_1" => Some(self.sh_dc[1]),
+            b"f_dc_2" => Some(self.sh_dc[2]),
             _ if key.starts_with("f_rest_") => {
                 if let Ok(idx) = key["f_rest_".len()..].parse::<usize>() {
                     self.sh_coeffs_rest.get(idx).copied()
@@ -126,7 +130,7 @@ pub fn load_splat_from_ply<T: AsyncRead + Unpin + 'static, B: Backend>(
     // set up a reader, in this case a file.
     let mut reader = BufReader::new(reader);
 
-    let update_every = 10000;
+    let update_every = 25000;
     let _span = trace_span!("Read splats").entered();
     let gaussian_parser = Parser::<GaussianData>::new();
 
@@ -166,12 +170,15 @@ pub fn load_splat_from_ply<T: AsyncRead + Unpin + 'static, B: Backend>(
                     .contains("opacity")
                     .then(|| Vec::with_capacity(element.count));
 
+                let mut ascii_line = String::new();
+
                 for i in 0..element.count {
                     let splat = match header.encoding {
                         ply_rs::ply::Encoding::Ascii => {
-                            let mut line = String::new();
-                            reader.read_line(&mut line).await?;
-                            gaussian_parser.read_ascii_element(&line, element)?
+                            reader.read_line(&mut ascii_line).await?;
+                            let elem = gaussian_parser.read_ascii_element(&ascii_line, element)?;
+                            ascii_line.clear();
+                            elem
                         }
                         ply_rs::ply::Encoding::BinaryBigEndian => {
                             gaussian_parser
@@ -185,9 +192,6 @@ pub fn load_splat_from_ply<T: AsyncRead + Unpin + 'static, B: Backend>(
                         }
                     };
 
-                    let sh_coeffs_interleaved =
-                        interleave_coeffs(splat.sh_dc, &splat.sh_coeffs_rest);
-
                     means.push(splat.means);
                     if let Some(scales) = scales.as_mut() {
                         scales.push(splat.scale);
@@ -199,6 +203,8 @@ pub fn load_splat_from_ply<T: AsyncRead + Unpin + 'static, B: Backend>(
                         opacity.push(splat.opacity);
                     }
                     if let Some(sh_coeffs) = sh_coeffs.as_mut() {
+                        let sh_coeffs_interleaved =
+                            interleave_coeffs(splat.sh_dc, &splat.sh_coeffs_rest);
                         sh_coeffs.extend(sh_coeffs_interleaved);
                     }
 
@@ -217,7 +223,7 @@ pub fn load_splat_from_ply<T: AsyncRead + Unpin + 'static, B: Backend>(
                     }
 
                     // Ocassionally yield.
-                    if i % 250 == 0 {
+                    if i % 500 == 0 {
                         tokio::task::yield_now().await;
                     }
                 }
