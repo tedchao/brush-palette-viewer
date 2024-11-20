@@ -232,8 +232,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         }
     }
 
-    let camera_pos = -uniforms.viewmat[3].xyz;
-    let viewdir = normalize(mean - camera_pos);
+    let viewdir = normalize(mean - uniforms.camera_position.xyz);
 
     var color = sh_coeffs_to_color(sh_degree, viewdir, sh) + vec3f(0.5);
     // color = max(color, vec3f(0.0));

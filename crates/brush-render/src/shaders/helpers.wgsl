@@ -7,6 +7,8 @@ const MAIN_WG: u32 = 256u;
 struct RenderUniforms {
     // View matrix transform world to view position.
     viewmat: mat4x4f,
+    // Position of camera (xyz + pad)
+    camera_position: vec4f,
     // Focal of camera (fx, fy)
     focal: vec2f,
     // Img resolution (w, h)

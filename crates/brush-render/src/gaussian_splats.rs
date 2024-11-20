@@ -175,6 +175,10 @@ impl<B: Backend> Splats<B> {
         sh_coeffs: Tensor<B, 3>,
         raw_opacity: Tensor<B, 1>,
     ) -> Self {
+        assert_eq!(means.dims()[1], 3);
+        assert_eq!(rotation.dims()[1], 4);
+        assert_eq!(log_scales.dims()[1], 3);
+
         let num_points = means.shape().dims[0];
         let device = means.device();
 
@@ -253,8 +257,8 @@ impl<B: Backend> Splats<B> {
     pub fn from_safetensors(tensors: &SafeTensors, device: &B::Device) -> anyhow::Result<Self> {
         Ok(Self::from_tensor_data(
             safetensor_to_burn::<B, 2>(tensors.tensor("means")?, device),
-            safetensor_to_burn::<B, 2>(tensors.tensor("scales")?, device),
             safetensor_to_burn::<B, 2>(tensors.tensor("quats")?, device),
+            safetensor_to_burn::<B, 2>(tensors.tensor("scales")?, device),
             safetensor_to_burn::<B, 3>(tensors.tensor("coeffs")?, device),
             safetensor_to_burn::<B, 1>(tensors.tensor("opacities")?, device),
         ))

@@ -178,9 +178,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     let global_gid = global_from_compact_gid[compact_gid];
 
     let mean = helpers::as_vec(means[global_gid]);
-
-    let camera_pos = -uniforms.viewmat[3].xyz;
-    let viewdir = normalize(mean - camera_pos);
+    let viewdir = normalize(mean - uniforms.camera_position.xyz);
 
     let sh_degree = uniforms.sh_degree;
     let v_coeff = sh_coeffs_to_color_fast_vjp(sh_degree, viewdir, v_color.xyz);
