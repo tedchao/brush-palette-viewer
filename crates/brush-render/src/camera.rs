@@ -1,8 +1,7 @@
 #[derive(Debug, Default, Clone)]
 pub struct Camera {
-    fov_x: f64,
-    fov_y: f64,
-
+    pub fov_x: f64,
+    pub fov_y: f64,
     pub center_uv: glam::Vec2,
     pub position: glam::Vec3,
     pub rotation: glam::Quat,

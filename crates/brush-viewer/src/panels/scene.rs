@@ -4,7 +4,10 @@ use burn_wgpu::Wgpu;
 use egui::epaint::mutex::RwLock as EguiRwLock;
 use std::{sync::Arc, time::Duration};
 
-use brush_render::gaussian_splats::Splats;
+use brush_render::{
+    camera::{focal_to_fov, fov_to_focal},
+    gaussian_splats::Splats,
+};
 use eframe::egui_wgpu::Renderer;
 use egui::{Color32, Rect};
 use glam::Vec2;
@@ -72,12 +75,20 @@ impl ScenePanel {
         delta_time: web_time::Duration,
     ) {
         let mut size = ui.available_size();
-        let focal = context.camera.focal(glam::uvec2(1, 1));
-        let aspect_ratio = focal.y / focal.x;
-        if size.x / size.y > aspect_ratio {
-            size.x = size.y * aspect_ratio;
+        // Always keep some margin at the bottom
+        size.y -= 50.0;
+
+        if self.is_training {
+            let focal = context.camera.focal(glam::uvec2(1, 1));
+            let aspect_ratio = focal.y / focal.x;
+            if size.x / size.y > aspect_ratio {
+                size.x = size.y * aspect_ratio;
+            } else {
+                size.y = size.x / aspect_ratio;
+            }
         } else {
-            size.y = size.x / aspect_ratio;
+            let focal_y = fov_to_focal(context.camera.fov_y, size.y as u32) as f32;
+            context.camera.fov_x = focal_to_fov(focal_y as f64, size.x as u32);
         }
         // Round to 64 pixels. Necesarry for buffer sizes to align.
         let size = glam::uvec2(size.x.round() as u32, size.y.round() as u32);
@@ -252,22 +263,31 @@ For bigger training runs consider using the native app."#,
 
             self.draw_splats(ui, context, &splats, delta_time);
 
+            if self.is_loading {
+                ui.horizontal(|ui| {
+                    ui.label("Loading... Please wait.");
+                    ui.spinner();
+                });
+            }
+
             if self.view_splats.len() > 1 {
                 self.dirty = true;
 
-                let label = if self.paused {
-                    "⏸ paused"
-                } else {
-                    "⏵ playing"
-                };
+                if !self.is_loading {
+                    let label = if self.paused {
+                        "⏸ paused"
+                    } else {
+                        "⏵ playing"
+                    };
 
-                if ui.selectable_label(!self.paused, label).clicked() {
-                    self.paused = !self.paused;
-                }
+                    if ui.selectable_label(!self.paused, label).clicked() {
+                        self.paused = !self.paused;
+                    }
 
-                if !self.paused && !self.is_loading {
-                    self.frame += delta_time.as_secs_f32();
-                    self.dirty = true;
+                    if !self.paused {
+                        self.frame += delta_time.as_secs_f32();
+                        self.dirty = true;
+                    }
                 }
             }
 
