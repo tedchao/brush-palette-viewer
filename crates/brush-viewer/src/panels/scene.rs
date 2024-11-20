@@ -183,6 +183,7 @@ impl ViewerPanel for ScenePanel {
                     self.view_splats.truncate(*frame);
                     log::info!("Received splat at {frame}");
                     self.view_splats.push(*splats.clone());
+                    self.frame = *frame as f32 - 0.5;
                 }
             }
             ViewerMessage::TrainStep {
@@ -264,7 +265,7 @@ For bigger training runs consider using the native app."#,
                     self.paused = !self.paused;
                 }
 
-                if !self.paused {
+                if !self.paused && !self.is_loading {
                     self.frame += delta_time.as_secs_f32();
                     self.dirty = true;
                 }

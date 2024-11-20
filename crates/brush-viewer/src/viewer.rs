@@ -148,6 +148,10 @@ fn process_loop(
                     })
                     .await;
             }
+
+            emitter
+                .emit(ViewerMessage::DoneLoading { training: true })
+                .await;
         } else if peek.starts_with("PK".as_bytes()) {
             log::info!("Attempting to load data as .zip data");
 
