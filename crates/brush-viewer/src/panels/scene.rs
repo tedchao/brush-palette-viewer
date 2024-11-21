@@ -1,6 +1,7 @@
 use brush_dataset::splat_export;
 use brush_ui::burn_texture::BurnTexture;
 use burn_wgpu::Wgpu;
+use core::f32;
 use egui::epaint::mutex::RwLock as EguiRwLock;
 use std::{sync::Arc, time::Duration};
 
@@ -120,9 +121,9 @@ impl ScenePanel {
             glam::vec2(rect.size().x, rect.size().y),
             delta_time.as_secs_f32(),
         );
+        context.controls.dirty = false;
 
         self.dirty |= self.last_size != size;
-        context.controls.dirty = false;
 
         // If this viewport is re-rendering.
         if ui.ctx().has_requested_repaint() && size.x > 0 && size.y > 0 && self.dirty {

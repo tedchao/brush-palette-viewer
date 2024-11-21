@@ -11,7 +11,7 @@ use burn::backend::Autodiff;
 use burn_wgpu::{Wgpu, WgpuDevice};
 use eframe::egui;
 use egui_tiles::{Container, Tile, TileId, Tiles};
-use glam::{Quat, Vec3};
+use glam::{Mat4, Quat, Vec3};
 use tokio_with_wasm::alias as tokio;
 
 use ::tokio::io::AsyncReadExt;
@@ -218,16 +218,18 @@ impl DataSource {
 }
 
 impl ViewerContext {
-    fn new(device: WgpuDevice, ctx: egui::Context) -> Self {
+    fn new(device: WgpuDevice, ctx: egui::Context, up_axis: Vec3) -> Self {
+        let rotation = Quat::from_rotation_arc(Vec3::Y, up_axis);
+        let model = glam::Affine3A::from_rotation_translation(rotation, Vec3::ZERO).inverse();
+        let controls = OrbitControls::new(model);
+        let start_transform = Mat4::from_rotation_translation(Quat::IDENTITY, -Vec3::Z * 10.0);
+        let transform = controls.base_transform * start_transform;
+        let (_, rotation, position) = transform.to_scale_rotation_translation();
+        let camera = Camera::new(position, rotation, 0.35, 0.35, glam::vec2(0.5, 0.5));
+
         Self {
-            camera: Camera::new(
-                -Vec3::Z * 5.0,
-                Quat::IDENTITY,
-                0.5,
-                0.5,
-                glam::vec2(0.5, 0.5),
-            ),
-            controls: OrbitControls::new(),
+            camera,
+            controls,
             device,
             ctx,
             dataset: Dataset::empty(),
@@ -237,10 +239,16 @@ impl ViewerContext {
     }
 
     pub fn focus_view(&mut self, cam: &Camera) {
-        self.camera = cam.clone();
+        let mut camera = cam.clone();
+        let start_transform = Mat4::from_rotation_translation(cam.rotation, cam.position);
+        let transform = self.controls.base_transform * start_transform;
+        let (_, rotation, position) = transform.to_scale_rotation_translation();
+        camera.position = position;
+        camera.rotation = rotation;
+        self.camera = camera;
         self.controls.focus = self.camera.position
             + self.camera.rotation
-                * glam::Vec3::Z
+                * self.controls.forward()
                 * self.dataset.train.bounds(0.0, 0.0).extent.length()
                 * 0.5;
         self.controls.dirty = true;
@@ -355,8 +363,8 @@ impl Viewer {
         }
 
         let mut tiles: Tiles<PaneType> = egui_tiles::Tiles::default();
-
-        let context = ViewerContext::new(device.clone(), cc.egui_ctx.clone());
+        let up_axis = Vec3::Y;
+        let context = ViewerContext::new(device.clone(), cc.egui_ctx.clone(), up_axis);
 
         let scene_pane = ScenePanel::new(
             state.queue.clone(),
