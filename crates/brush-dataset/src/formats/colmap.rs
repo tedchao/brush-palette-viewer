@@ -1,7 +1,7 @@
 use std::{future::Future, sync::Arc};
 
 use super::{DataStream, DatasetZip, LoadDatasetArgs};
-use crate::{stream_fut_parallel, Dataset};
+use crate::{splat_import::SplatMessage, stream_fut_parallel, Dataset};
 use anyhow::{Context, Result};
 use async_fn_stream::try_fn_stream;
 use brush_render::{
@@ -114,7 +114,7 @@ pub(crate) fn load_dataset<B: Backend>(
     mut archive: DatasetZip,
     load_args: &LoadDatasetArgs,
     device: &B::Device,
-) -> Result<(DataStream<Splats<B>>, DataStream<Dataset>)> {
+) -> Result<(DataStream<SplatMessage<B>>, DataStream<Dataset>)> {
     let mut handles = read_views(archive.clone(), load_args)?;
 
     if let Some(subsample) = load_args.subsample_frames {
@@ -193,8 +193,19 @@ pub(crate) fn load_dataset<B: Backend>(
                     colors = colors.into_iter().step_by(subsample as usize * 3).collect();
                 }
 
-                let init_ply = Splats::from_raw(positions, None, None, Some(colors), None, &device);
-                emitter.emit(init_ply).await;
+                let init_splat =
+                    Splats::from_raw(positions, None, None, Some(colors), None, &device);
+                emitter
+                    .emit(SplatMessage {
+                        meta: crate::splat_import::SplatMetadata {
+                            up_axis: Vec3::Y,
+                            total_splats: init_splat.num_splats(),
+                            frame_count: 1,
+                            current_frame: 0,
+                        },
+                        splats: init_splat,
+                    })
+                    .await;
             }
         }
 

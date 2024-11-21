@@ -11,7 +11,7 @@ use burn::backend::Autodiff;
 use burn_wgpu::{Wgpu, WgpuDevice};
 use eframe::egui;
 use egui_tiles::{Container, Tile, TileId, Tiles};
-use glam::{Mat4, Quat, Vec3};
+use glam::{Affine3A, Quat, Vec3, Vec3A};
 use tokio_with_wasm::alias as tokio;
 
 use ::tokio::io::AsyncReadExt;
@@ -51,6 +51,7 @@ pub(crate) enum ViewerMessage {
     /// Nb: This includes all the intermediately loaded splats.
     /// Nb: Animated splats will have the 'frame' number set.
     ViewSplats {
+        up_axis: Vec3,
         splats: Box<Splats<Backend>>,
         frame: usize,
     },
@@ -87,6 +88,9 @@ pub(crate) struct ViewerContext {
     pub dataset: Dataset,
     pub camera: Camera,
     pub controls: OrbitControls,
+
+    pub model_transform: glam::Affine3A,
+
     device: WgpuDevice,
     ctx: egui::Context,
 
@@ -127,24 +131,13 @@ fn process_loop(
 
             let mut splat_stream = std::pin::pin!(splat_stream);
 
-            let mut last_count = 0;
-            let mut frame = 0;
-
-            while let Some(splats) = splat_stream.next().await {
-                let splats = splats?;
-
-                // HACK: Assume the splat stream is animated if the new splats coming out have.
-                // The actual stream should probably tell you about this but that's a bigger refactor.
-                if splats.num_splats() == last_count {
-                    frame += 1;
-                }
-
-                last_count = splats.num_splats();
-
+            while let Some(message) = splat_stream.next().await {
+                let message = message?;
                 emitter
                     .emit(ViewerMessage::ViewSplats {
-                        splats: Box::new(splats),
-                        frame,
+                        up_axis: message.meta.up_axis,
+                        splats: Box::new(message.splats),
+                        frame: message.meta.current_frame,
                     })
                     .await;
             }
@@ -220,16 +213,18 @@ impl DataSource {
 impl ViewerContext {
     fn new(device: WgpuDevice, ctx: egui::Context, up_axis: Vec3) -> Self {
         let rotation = Quat::from_rotation_arc(Vec3::Y, up_axis);
-        let model = glam::Affine3A::from_rotation_translation(rotation, Vec3::ZERO).inverse();
-        let controls = OrbitControls::new(model);
-        let start_transform = Mat4::from_rotation_translation(Quat::IDENTITY, -Vec3::Z * 10.0);
-        let transform = controls.base_transform * start_transform;
-        let (_, rotation, position) = transform.to_scale_rotation_translation();
-        let camera = Camera::new(position, rotation, 0.35, 0.35, glam::vec2(0.5, 0.5));
+
+        let model_transform =
+            glam::Affine3A::from_rotation_translation(rotation, Vec3::ZERO).inverse();
+        let controls = OrbitControls::new(glam::Affine3A::from_translation(-Vec3::Z * 10.0));
+
+        // Camera position will be controller by controls.
+        let camera = Camera::new(Vec3::ZERO, Quat::IDENTITY, 0.35, 0.35, glam::vec2(0.5, 0.5));
 
         Self {
             camera,
             controls,
+            model_transform,
             device,
             ctx,
             dataset: Dataset::empty(),
@@ -238,20 +233,25 @@ impl ViewerContext {
         }
     }
 
+    pub fn set_up_axis(&mut self, up_axis: Vec3) {
+        let rotation = Quat::from_rotation_arc(Vec3::Y, up_axis);
+        let model_transform =
+            glam::Affine3A::from_rotation_translation(rotation, Vec3::ZERO).inverse();
+        self.model_transform = model_transform;
+    }
+
     pub fn focus_view(&mut self, cam: &Camera) {
-        let mut camera = cam.clone();
-        let start_transform = Mat4::from_rotation_translation(cam.rotation, cam.position);
-        let transform = self.controls.base_transform * start_transform;
-        let (_, rotation, position) = transform.to_scale_rotation_translation();
-        camera.position = position;
-        camera.rotation = rotation;
-        self.camera = camera;
-        self.controls.focus = self.camera.position
-            + self.camera.rotation
-                * self.controls.forward()
+        // set the controls transform.
+        let cam_transform = Affine3A::from_rotation_translation(cam.rotation, cam.position);
+        self.controls.transform = self.model_transform.inverse() * cam_transform;
+        // Copy the camera, mostly to copy over the intrinsics and such.
+        self.controls.focus = self.controls.transform.translation
+            + self.controls.transform.matrix3
+                * Vec3A::Z
                 * self.dataset.train.bounds(0.0, 0.0).extent.length()
                 * 0.5;
         self.controls.dirty = true;
+        self.camera = cam.clone();
     }
 
     pub(crate) fn start_data_load(

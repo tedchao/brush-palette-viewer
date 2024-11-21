@@ -147,21 +147,56 @@ async fn decode_splat<T: AsyncBufRead + Unpin + 'static>(
     }
 }
 
+pub struct SplatMetadata {
+    pub up_axis: Vec3,
+    pub total_splats: usize,
+    pub frame_count: usize,
+    pub current_frame: usize,
+}
+
+pub struct SplatMessage<B: Backend> {
+    pub meta: SplatMetadata,
+    pub splats: Splats<B>,
+}
+
 pub fn load_splat_from_ply<T: AsyncRead + Unpin + 'static, B: Backend>(
     reader: T,
     subsample_points: Option<u32>,
     device: B::Device,
-) -> impl Stream<Item = Result<Splats<B>>> + 'static {
+) -> impl Stream<Item = Result<SplatMessage<B>>> + 'static {
     // set up a reader, in this case a file.
     let mut reader = BufReader::new(reader);
 
     let update_every = 25000;
     let _span = trace_span!("Read splats").entered();
-    let gaussian_parser = Parser::<GaussianData>::new();
 
     try_fn_stream(|emitter| async move {
+        let gaussian_parser = Parser::<GaussianData>::new();
+
         let header = gaussian_parser.read_header(&mut reader).await?;
+
+        log::info!("Got hrader!");
+
+        let up_axis = header
+            .comments
+            .iter()
+            .filter_map(|c| match c.to_lowercase().strip_prefix("vertical axis: ") {
+                Some("x") => Some(Vec3::X),
+                Some("y") => Some(Vec3::Y),
+                Some("z") => Some(Vec3::Z),
+                _ => None,
+            })
+            .last()
+            .unwrap_or(Vec3::Y);
+
+        let frame_count = header
+            .elements
+            .iter()
+            .filter(|e| e.name.starts_with("delta_vertex_"))
+            .count();
+
         let mut final_splat = None;
+        let mut frame = 0;
 
         for element in &header.elements {
             let properties: HashSet<_> =
@@ -213,7 +248,17 @@ pub fn load_splat_from_ply<T: AsyncRead + Unpin + 'static, B: Backend>(
                             &device,
                         );
 
-                        emitter.emit(splats).await;
+                        emitter
+                            .emit(SplatMessage {
+                                meta: SplatMetadata {
+                                    total_splats: element.count,
+                                    up_axis,
+                                    frame_count,
+                                    current_frame: frame,
+                                },
+                                splats,
+                            })
+                            .await;
                     }
 
                     // Doing this after first reading and parsing the points is quite wasteful, but
@@ -247,7 +292,17 @@ pub fn load_splat_from_ply<T: AsyncRead + Unpin + 'static, B: Backend>(
                 let splats =
                     Splats::from_raw(means, rotations, log_scales, sh_coeffs, opacity, &device);
                 final_splat = Some(splats.clone());
-                emitter.emit(splats).await;
+                emitter
+                    .emit(SplatMessage {
+                        meta: SplatMetadata {
+                            total_splats: element.count,
+                            up_axis,
+                            frame_count,
+                            current_frame: frame,
+                        },
+                        splats,
+                    })
+                    .await;
             } else if element.name.starts_with("delta_vertex_") {
                 let Some(splats) = final_splat.clone() else {
                     anyhow::bail!("Need to read base splat first.");
@@ -310,7 +365,19 @@ pub fn load_splat_from_ply<T: AsyncRead + Unpin + 'static, B: Backend>(
                 new_splat.norm_rotations();
 
                 // Emit newly animated splat.
-                emitter.emit(new_splat).await;
+                emitter
+                    .emit(SplatMessage {
+                        meta: SplatMetadata {
+                            total_splats: element.count,
+                            up_axis,
+                            frame_count,
+                            current_frame: frame,
+                        },
+                        splats: new_splat,
+                    })
+                    .await;
+
+                frame += 1;
             }
         }
 

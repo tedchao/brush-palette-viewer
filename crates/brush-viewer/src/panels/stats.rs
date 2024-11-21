@@ -75,7 +75,11 @@ impl ViewerPanel for StatsPanel {
                 self.last_eval_psnr = None;
                 self.training_started = *training;
             }
-            ViewerMessage::ViewSplats { splats, frame } => {
+            ViewerMessage::ViewSplats {
+                up_axis: _,
+                splats,
+                frame,
+            } => {
                 self.num_splats = splats.num_splats();
                 self.frames = *frame;
             }

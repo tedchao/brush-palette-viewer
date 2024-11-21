@@ -1,13 +1,13 @@
 use super::DatasetZip;
 use super::LoadDatasetArgs;
 use crate::splat_import::load_splat_from_ply;
+use crate::splat_import::SplatMessage;
 use crate::stream_fut_parallel;
 use crate::{clamp_img_to_max_size, DataStream, Dataset};
 use anyhow::Context;
 use anyhow::Result;
 use async_fn_stream::try_fn_stream;
 use brush_render::camera::{focal_to_fov, fov_to_focal, Camera};
-use brush_render::gaussian_splats::Splats;
 use brush_render::Backend;
 use brush_train::scene::SceneView;
 use std::future::Future;
@@ -175,7 +175,7 @@ pub fn read_dataset<B: Backend>(
     mut archive: DatasetZip,
     load_args: &LoadDatasetArgs,
     device: &B::Device,
-) -> Result<(DataStream<Splats<B>>, DataStream<Dataset>)> {
+) -> Result<(DataStream<SplatMessage<B>>, DataStream<Dataset>)> {
     log::info!("Loading nerfstudio dataset");
 
     let transforms_path = archive.find_with_extension(".json", "_train")?;

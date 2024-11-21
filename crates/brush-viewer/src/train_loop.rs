@@ -57,10 +57,11 @@ pub(crate) fn train_loop<T: AsyncRead + Unpin + 'static>(
             brush_dataset::load_dataset(zip_data.clone(), &load_data_args, &device)?;
 
         // Read initial splats if any.
-        while let Some(splats) = splat_stream.next().await {
-            let splats = splats?;
-            let splats = splats.with_min_sh_degree(load_init_args.sh_degree);
+        while let Some(message) = splat_stream.next().await {
+            let message = message?;
+            let splats = message.splats.with_min_sh_degree(load_init_args.sh_degree);
             let msg = ViewerMessage::ViewSplats {
+                up_axis: message.meta.up_axis,
                 splats: Box::new(splats.valid()),
                 frame: 0,
             };

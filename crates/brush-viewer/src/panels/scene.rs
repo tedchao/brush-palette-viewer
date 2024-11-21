@@ -11,7 +11,7 @@ use brush_render::{
 };
 use eframe::egui_wgpu::Renderer;
 use egui::{Color32, Rect};
-use glam::Vec2;
+use glam::{Quat, Vec2};
 use tokio_with_wasm::alias as tokio;
 use tracing::trace_span;
 use web_time::Instant;
@@ -114,13 +114,17 @@ impl ScenePanel {
         let scrolled = ui.input(|r| r.smooth_scroll_delta).y;
 
         self.dirty |= context.controls.pan_orbit_camera(
-            &mut context.camera,
             pan * 5.0,
             rotate * 5.0,
             scrolled * 0.01,
             glam::vec2(rect.size().x, rect.size().y),
             delta_time.as_secs_f32(),
         );
+
+        let total_transform = context.model_transform * context.controls.transform;
+        context.camera.position = total_transform.translation.into();
+        context.camera.rotation = Quat::from_mat3a(&total_transform.matrix3);
+
         context.controls.dirty = false;
 
         self.dirty |= self.last_size != size;
@@ -170,7 +174,7 @@ impl ViewerPanel for ScenePanel {
         "Scene".to_owned()
     }
 
-    fn on_message(&mut self, message: &ViewerMessage, _: &mut ViewerContext) {
+    fn on_message(&mut self, message: &ViewerMessage, context: &mut ViewerContext) {
         if self.live_update {
             self.dirty = true;
         }
@@ -190,7 +194,13 @@ impl ViewerPanel for ScenePanel {
                 self.is_training = *training;
                 self.is_loading = true;
             }
-            ViewerMessage::ViewSplats { splats, frame } => {
+            ViewerMessage::ViewSplats {
+                up_axis,
+                splats,
+                frame,
+            } => {
+                context.set_up_axis(*up_axis);
+
                 if self.live_update {
                     self.view_splats.truncate(*frame);
                     log::info!("Received splat at {frame}");
