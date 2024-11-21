@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use async_fn_stream::try_fn_stream;
 use brush_render::{render::rgb_to_sh, Backend};
 use burn::tensor::{Tensor, TensorData};
-use glam::{Quat, Vec3};
+use glam::{Quat, Vec3, Vec4};
 use ply_rs::{
     parser::Parser,
     ply::{ElementDef, Header, Property, PropertyAccess},
@@ -41,42 +41,44 @@ impl PropertyAccess for GaussianData {
     fn set_property(&mut self, key: &str, property: Property) {
         let ascii = key.as_bytes();
 
-        if let Property::Float(value) = property {
-            match ascii {
-                b"x" => self.means[0] = value,
-                b"y" => self.means[1] = value,
-                b"z" => self.means[2] = value,
-                b"scale_0" => self.log_scale[0] = value,
-                b"scale_1" => self.log_scale[1] = value,
-                b"scale_2" => self.log_scale[2] = value,
-                b"opacity" => self.opacity = value,
-                b"rot_0" => self.rotation.w = value,
-                b"rot_1" => self.rotation.x = value,
-                b"rot_2" => self.rotation.y = value,
-                b"rot_3" => self.rotation.z = value,
-                b"f_dc_0" => self.sh_dc[0] = value,
-                b"f_dc_1" => self.sh_dc[1] = value,
-                b"f_dc_2" => self.sh_dc[2] = value,
-                _ if key.starts_with("f_rest_") => {
-                    if let Ok(idx) = key["f_rest_".len()..].parse::<u32>() {
-                        if idx >= self.sh_coeffs_rest.len() as u32 {
-                            self.sh_coeffs_rest.resize(idx as usize + 1, 0.0);
-                        }
-                        self.sh_coeffs_rest[idx as usize] = value;
-                    }
-                }
-                _ => (),
-            }
+        let value = if let Property::Float(value) = property {
+            value
         } else if let Property::UChar(value) = property {
-            match ascii {
-                b"red" => self.sh_dc[0] = rgb_to_sh(value as f32 / 255.0),
-                b"green" => self.sh_dc[1] = rgb_to_sh(value as f32 / 255.0),
-                b"blue" => self.sh_dc[2] = rgb_to_sh(value as f32 / 255.0),
-                _ => {}
-            }
+            (value as f32) / (u8::MAX as f32)
+        } else if let Property::UShort(value) = property {
+            (value as f32) / (u16::MAX as f32)
         } else {
             return;
         };
+
+        match ascii {
+            b"x" => self.means[0] = value,
+            b"y" => self.means[1] = value,
+            b"z" => self.means[2] = value,
+            b"scale_0" => self.log_scale[0] = value,
+            b"scale_1" => self.log_scale[1] = value,
+            b"scale_2" => self.log_scale[2] = value,
+            b"opacity" => self.opacity = value,
+            b"rot_0" => self.rotation.w = value,
+            b"rot_1" => self.rotation.x = value,
+            b"rot_2" => self.rotation.y = value,
+            b"rot_3" => self.rotation.z = value,
+            b"f_dc_0" => self.sh_dc[0] = value,
+            b"f_dc_1" => self.sh_dc[1] = value,
+            b"f_dc_2" => self.sh_dc[2] = value,
+            b"red" => self.sh_dc[0] = rgb_to_sh(value),
+            b"green" => self.sh_dc[1] = rgb_to_sh(value),
+            b"blue" => self.sh_dc[2] = rgb_to_sh(value),
+            _ if key.starts_with("f_rest_") => {
+                if let Ok(idx) = key["f_rest_".len()..].parse::<u32>() {
+                    if idx >= self.sh_coeffs_rest.len() as u32 {
+                        self.sh_coeffs_rest.resize(idx as usize + 1, 0.0);
+                    }
+                    self.sh_coeffs_rest[idx as usize] = value;
+                }
+            }
+            _ => (),
+        }
     }
 
     fn get_float(&self, key: &str) -> Option<f32> {
@@ -159,6 +161,13 @@ pub struct SplatMessage<B: Backend> {
     pub splats: Splats<B>,
 }
 
+#[derive(Debug)]
+struct QuantMeta {
+    mean: Vec3,
+    rotation: Vec4,
+    scale: Vec3,
+}
+
 pub fn load_splat_from_ply<T: AsyncRead + Unpin + 'static, B: Backend>(
     reader: T,
     subsample_points: Option<u32>,
@@ -174,8 +183,6 @@ pub fn load_splat_from_ply<T: AsyncRead + Unpin + 'static, B: Backend>(
         let gaussian_parser = Parser::<GaussianData>::new();
 
         let header = gaussian_parser.read_header(&mut reader).await?;
-
-        log::info!("Got hrader!");
 
         let up_axis = header
             .comments
@@ -198,6 +205,16 @@ pub fn load_splat_from_ply<T: AsyncRead + Unpin + 'static, B: Backend>(
         let mut final_splat = None;
         let mut frame = 0;
 
+        let mut meta_min = QuantMeta {
+            mean: Vec3::ZERO,
+            rotation: Vec4::ZERO,
+            scale: Vec3::ZERO,
+        };
+        let mut meta_max = QuantMeta {
+            mean: Vec3::ONE,
+            rotation: Vec4::ONE,
+            scale: Vec3::ONE,
+        };
         for element in &header.elements {
             let properties: HashSet<_> =
                 element.properties.iter().map(|x| x.name.clone()).collect();
@@ -303,6 +320,19 @@ pub fn load_splat_from_ply<T: AsyncRead + Unpin + 'static, B: Backend>(
                         splats,
                     })
                     .await;
+            } else if element.name.starts_with("meta_delta_min_") {
+                let splat = decode_splat(&mut reader, &gaussian_parser, &header, element).await?;
+
+                log::info!("Splat means:::: {:?}", splat.means);
+
+                meta_min.mean = splat.means;
+                meta_min.rotation = splat.rotation.into();
+                meta_min.scale = splat.log_scale;
+            } else if element.name.starts_with("meta_delta_max_") {
+                let splat = decode_splat(&mut reader, &gaussian_parser, &header, element).await?;
+                meta_max.mean = splat.means;
+                meta_max.rotation = splat.rotation.into();
+                meta_max.scale = splat.log_scale;
             } else if element.name.starts_with("delta_vertex_") {
                 let Some(splats) = final_splat.clone() else {
                     anyhow::bail!("Need to read base splat first.");
@@ -313,15 +343,25 @@ pub fn load_splat_from_ply<T: AsyncRead + Unpin + 'static, B: Backend>(
                     if i % 500 == 0 {
                         tokio::task::yield_now().await;
                     }
-                    let splat =
+                    // The splat we decode is normed to 0-1 (if quantized), so rescale to
+                    // actual values afterwards.
+                    let splat_enc =
                         decode_splat(&mut reader, &gaussian_parser, &header, element).await?;
+
                     // Let's only animate transforms for now.
-                    means.push(splat.means);
-                    if let Some(log_scales) = log_scales.as_mut() {
-                        log_scales.push(splat.log_scale);
-                    }
+                    means.push(splat_enc.means * (meta_max.mean - meta_min.mean) + meta_min.mean);
+
                     if let Some(rotation) = rotations.as_mut() {
-                        rotation.push(splat.rotation);
+                        let val: Vec4 = splat_enc.rotation.into();
+                        let val = val * (meta_max.rotation - meta_min.rotation) + meta_min.rotation;
+                        rotation.push(Quat::from_vec4(val));
+                    }
+
+                    if let Some(log_scales) = log_scales.as_mut() {
+                        log_scales.push(
+                            splat_enc.log_scale * (meta_max.scale - meta_min.scale)
+                                + meta_min.scale,
+                        );
                     }
                     // Don't emit any intermediate states as it looks strange to have a torn state.
                 }
@@ -331,6 +371,7 @@ pub fn load_splat_from_ply<T: AsyncRead + Unpin + 'static, B: Backend>(
                 let means =
                     Tensor::from_data(TensorData::new(means_tensor, [n_splats, 3]), &device)
                         + splats.means.val();
+
                 // The encoding is just delta encoding in floats - nothing fancy
                 // like actually considering the quaternion transform.
                 let rotations = if let Some(rotations) = rotations {
