@@ -23,6 +23,10 @@ impl OrbitControls {
         }
     }
 
+    pub fn radius(&self) -> f32 {
+        (self.transform.translation - self.focus).length()
+    }
+
     pub fn pan_orbit_camera(
         &mut self,
         pan: Vec2,

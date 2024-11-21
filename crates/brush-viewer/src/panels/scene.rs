@@ -111,7 +111,12 @@ impl ScenePanel {
             (Vec2::ZERO, Vec2::ZERO)
         };
 
-        let scrolled = ui.input(|r| r.smooth_scroll_delta).y;
+        let scrolled = ui.input(|r| {
+            r.smooth_scroll_delta.y
+                + r.multi_touch()
+                    .map(|t| (t.zoom_delta - 1.0) * context.controls.radius() * 5.0)
+                    .unwrap_or(0.0)
+        });
 
         self.dirty |= context.controls.pan_orbit_camera(
             pan * 5.0,
