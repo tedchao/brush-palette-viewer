@@ -24,7 +24,7 @@ fn main() {
             let native_options = eframe::NativeOptions {
                 // Build app display.
                 viewport: egui::ViewportBuilder::default()
-                    .with_inner_size(egui::Vec2::new(1450.0, 900.0))
+                    .with_inner_size(egui::Vec2::new(1450.0, 1200.0))
                     .with_active(true)
                     .with_icon(std::sync::Arc::new(icon)),
                 wgpu_options,
