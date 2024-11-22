@@ -29,7 +29,7 @@ pub struct TrainConfig {
     #[config(default = 15000)]
     max_refine_step: u32,
 
-    #[config(default = 0.01)]
+    #[config(default = 0.006)]
     reset_alpha_value: f32,
 
     // threshold of opacity for culling gaussians. One can set it to a lower value (e.g. 0.005) for higher quality
@@ -56,7 +56,7 @@ pub struct TrainConfig {
     #[config(default = 0.1)]
     ssim_weight: f32,
 
-    #[config(default = 11)]
+    #[config(default = 7)]
     ssim_window_size: usize,
 
     #[config(default = true)]
@@ -376,6 +376,8 @@ where
             let grad_scale =
                 GradientsParams::from_params(&mut grads, &splats, &[splats.log_scales.id]);
             splats = self.optim.step(lr_scale, splats, grad_scale);
+
+            splats.norm_rotations();
 
             // Make sure rotations are still valid after optimization step.
             splats
