@@ -309,8 +309,10 @@ impl Backend for Fusion<InnerWgpu> {
             final_index: client
                 .tensor_uninitialized(vec![img_size.y as usize, img_size.x as usize], DType::I32),
             cum_tiles_hit: client.tensor_uninitialized(vec![num_points], DType::I32),
-            tile_bins: client
-                .tensor_uninitialized(vec![img_size.y as usize, img_size.x as usize], DType::I32),
+            tile_bins: client.tensor_uninitialized(
+                vec![img_size.y as usize, img_size.x as usize, 2],
+                DType::I32,
+            ),
             compact_gid_from_isect: client.tensor_uninitialized(vec![max_intersects], DType::I32),
             global_from_compact_gid: client.tensor_uninitialized(vec![num_points], DType::I32),
         };
