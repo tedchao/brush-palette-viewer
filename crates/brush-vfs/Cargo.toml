@@ -1,0 +1,27 @@
+[package]
+name = "brush-vfs"
+edition.workspace = true
+version.workspace = true
+readme.workspace = true
+license.workspace = true
+
+[dependencies]
+rrfd.path = "../rrfd"
+
+anyhow.workspace = true
+zip.workspace = true
+
+tokio-stream.workspace = true
+path-clean = "1.0.1"
+reqwest.workspace = true
+tokio-util.workspace = true
+
+[target.'cfg(target_family = "wasm")'.dependencies]
+tokio = { workspace = true, features = ["io-util"] }
+web-sys.workspace = true
+
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+tokio = { workspace = true, features = ["io-util", "fs"] }
+
+[lints]
+workspace = true

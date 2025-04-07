@@ -1,5 +1,5 @@
 use burn::config::Config;
-use clap::{Args, arg};
+use clap::Args;
 
 #[derive(Config, Args)]
 pub struct TrainConfig {

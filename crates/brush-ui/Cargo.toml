@@ -6,15 +6,37 @@ readme.workspace = true
 license.workspace = true
 
 [dependencies]
+brush-dataset.path = "../brush-dataset"
+brush-render.path = "../brush-render"
+brush-vfs.path = "../brush-vfs"
+brush-process.path = "../brush-process"
+rrfd.path = "../rrfd"
+sync-span.path = "../sync-span"
+
+log.workspace = true
+anyhow.workspace = true
 burn.workspace = true
 burn-fusion.workspace = true
 burn-cubecl.workspace = true
-brush-render.path = "../brush-render"
-
+burn-wgpu.workspace = true
 glam.workspace = true
-eframe.workspace = true
 egui.workspace = true
+egui_tiles.workspace = true
+eframe.workspace = true
 wgpu.workspace = true
+urlencoding.workspace = true
+tokio_with_wasm = { workspace = true, features = ["rt"] }
+tokio = { workspace = true }
+tracing.workspace = true
+web-time.workspace = true
+humantime.workspace = true
 
 [lints]
 workspace = true
+
+[target.'cfg(target_family = "wasm")'.dependencies]
+web-sys.workspace = true
+
+[features]
+tracy = ["tracing"]
+tracing = []

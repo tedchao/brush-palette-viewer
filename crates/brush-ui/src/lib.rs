@@ -1,11 +1,51 @@
 #![recursion_limit = "256"]
 
+pub mod app;
+pub mod burn_texture;
+pub mod camera_controls;
+
 use std::sync::Arc;
 
+use app::CameraSettings;
+use brush_dataset::scene::SceneView;
+use brush_process::{config::ProcessArgs, message::ProcessMessage};
+use brush_render::camera::Camera;
+use brush_vfs::DataSource;
+use burn_wgpu::WgpuDevice;
 use eframe::egui_wgpu::WgpuConfiguration;
+use egui::Response;
+use glam::Vec3;
 use wgpu::{Adapter, Features};
 
-pub mod burn_texture;
+mod datasets;
+mod panels;
+mod scene;
+mod settings;
+mod stats;
+mod tracing_debug;
+
+// Two way communication with the UI.
+// These are used both from the GUI, and for the exposed JS API's.
+pub trait BrushUiProcess {
+    /// Whether any process is currently loading (be it a ply for viewing, or a data set for training).
+    fn is_loading(&self) -> bool;
+    /// Whether there is a current running training process.
+    fn is_training(&self) -> bool;
+    /// Get the current camera state. Nb: This might not have the exact FOV you expect.
+    fn current_camera(&self) -> Camera;
+    /// Update the camera controls given an egui response.
+    fn tick_controls(&self, response: &Response, ui: &egui::Ui);
+    fn model_local_to_world(&self) -> glam::Affine3A;
+    fn selected_view(&self) -> Option<SceneView>;
+    fn set_train_paused(&self, paused: bool);
+    fn set_camera(&self, cam: Camera);
+    fn set_cam_settings(&self, settings: CameraSettings);
+    fn focus_view(&self, view: &SceneView);
+    fn set_model_up(&self, up: Vec3);
+    fn start_new_process(&self, source: DataSource, args: ProcessArgs);
+    fn try_recv_message(&self) -> Option<anyhow::Result<ProcessMessage>>;
+    fn connect_device(&self, device: WgpuDevice, ctx: egui::Context);
+}
 
 pub fn create_egui_options() -> WgpuConfiguration {
     WgpuConfiguration {

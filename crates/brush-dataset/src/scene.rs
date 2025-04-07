@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use brush_render::{bounding_box::BoundingBox, camera::Camera};
+use brush_vfs::BrushVfs;
 use burn::{
     prelude::Backend,
     tensor::{Tensor, TensorData},
@@ -9,8 +10,6 @@ use image::{ColorType, DynamicImage, ImageDecoder, ImageReader};
 use std::{io::Cursor, path::PathBuf, sync::Arc};
 use tokio::io::{AsyncRead, AsyncReadExt};
 
-use crate::brush_vfs::BrushVfs;
-
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum ViewType {
     Train,
@@ -18,6 +17,7 @@ pub enum ViewType {
     Test,
 }
 
+#[derive(Clone)]
 pub struct LoadImage {
     pub vfs: Arc<BrushVfs>,
     pub path: PathBuf,
@@ -162,8 +162,14 @@ impl LoadImage {
     pub fn is_masked(&self) -> bool {
         self.mask_path.is_some()
     }
+
+    pub fn aspect_ratio(&self) -> f32 {
+        let dim = self.dimensions();
+        dim.x as f32 / dim.y as f32
+    }
 }
 
+#[derive(Clone)]
 pub struct SceneView {
     pub image: LoadImage,
     pub camera: Camera,
