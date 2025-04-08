@@ -20,17 +20,15 @@ pub enum DataSource {
 
 // Implement FromStr to allow Clap to parse string arguments into DataSource
 impl FromStr for DataSource {
-    type Err = String;
+    type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "pick-file" => Ok(Self::PickFile),
-            "pick-directory" | "dir" => Ok(Self::PickDirectory),
+        match s {
             s if s.starts_with("http://") || s.starts_with("https://") => {
                 Ok(Self::Url(s.to_owned()))
             }
             s if std::fs::exists(s).is_ok() => Ok(Self::Path(s.to_owned())),
-            s => Err(format!("Invalid data source. Can't find {s}")),
+            s => anyhow::bail!("Invalid data source. Can't find {s}"),
         }
     }
 }
@@ -64,13 +62,10 @@ impl DataSource {
                 .await
                 .map_err(|e| anyhow::anyhow!(e))
         } else if peek.starts_with(b"<!DOCTYPE html>") {
+            // TODO: Display HTML page on WASM maybe?
             anyhow::bail!("Failed to download data.")
-        } else if let Some(path_bytes) = peek.strip_prefix(b"BRUSH_PATH") {
-            let string = String::from_utf8(path_bytes.to_vec())?;
-            let path = Path::new(&string);
-            BrushVfs::from_directory(path).await
         } else {
-            anyhow::bail!("only zip and ply files are supported.")
+            anyhow::bail!("only zip and ply files are supported. Unknown data type.")
         }
     }
 

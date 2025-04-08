@@ -25,13 +25,12 @@ use std::collections::HashMap;
 
 fn find_base_path(archive: &BrushVfs, search_path: &str) -> Option<PathBuf> {
     for path in archive.file_names() {
-        if let Some(str) = path.to_str() {
-            if str.to_lowercase().ends_with(search_path) {
-                return path
-                    .ancestors()
-                    .nth(Path::new(search_path).components().count())
-                    .map(|x| x.to_owned());
-            }
+        // Nb: This will use case sensitivity from the OS.
+        if path.ends_with(search_path) {
+            return path
+                .ancestors()
+                .nth(Path::new(search_path).components().count())
+                .map(|x| x.to_owned());
         }
     }
     None
