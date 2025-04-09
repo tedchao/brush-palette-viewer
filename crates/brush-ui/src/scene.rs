@@ -193,19 +193,21 @@ impl AppPanel for ScenePanel {
                 if let Some(up_axis) = up_axis {
                     context.set_model_up(*up_axis);
                 }
-
-                if self.live_update {
-                    self.view_splats.truncate(*frame as usize);
-                    self.view_splats.push(*splats.clone());
-                }
+                self.view_splats.truncate(*frame as usize);
+                self.view_splats.push(*splats.clone());
                 self.frame_count = *total_frames;
-                self.last_state = None;
+
+                // Mark redraw as dirty if we're live updating.
+                if self.live_update {
+                    self.last_state = None;
+                }
             }
             ProcessMessage::TrainStep { splats, .. } => {
-                self.last_state = None;
                 let splats = *splats.clone();
+                self.view_splats = vec![splats];
+                // Mark redraw as dirty if we're live updating.
                 if self.live_update {
-                    self.view_splats = vec![splats];
+                    self.last_state = None;
                 }
             }
             _ => {}
