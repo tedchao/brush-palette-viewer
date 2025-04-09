@@ -59,7 +59,7 @@ Simply `cargo run` or `cargo run --release` from the workspace root. Brush can a
 ### Web
 This project uses [`trunk`](https://github.com/trunk-rs/trunk) to build for the web. Install trunk, and then run `trunk serve` or `trunk serve --release` to run a development server.
 
-WebGPU is still a new standard, and as such, only the latest versions of Chrome work currently. The public web demo is registered for the [subgroups origin trial](https://chromestatus.com/feature/5126409856221184). To run it yourself, please enable the "Unsafe WebGPU support" flag in Chrome.
+WebGPU is still a new standard, and as such, only Chrome 134+ work currently.
 
 ### Android
 
