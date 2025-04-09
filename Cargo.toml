@@ -283,7 +283,10 @@ iter_over_hash_type = "warn"
 missing_assert_message = "warn"
 should_panic_without_expect = "warn"
 unwrap_used = "warn"
-significant_drop_tightening = "warn"
+
+
+# Too many false positives
+significant_drop_tightening = "allow"
 
 # TODO: More docs
 missing_errors_doc = "allow"
