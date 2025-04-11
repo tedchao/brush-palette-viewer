@@ -192,12 +192,12 @@ pub async fn read_dataset<B: Backend>(
     let transforms_path = if json_files.len() == 1 {
         json_files.first().cloned().expect("Must have 1 json file")
     } else {
+        // If there's multiple options, only pick files which are either exactly
+        // transforms.json or end with transforms_train.json (a la transforms_train.json)
         json_files
             .iter()
-            .find(|x| {
-                x.file_name()
-                    .is_some_and(|p| p.to_string_lossy().contains("_train"))
-            })?
+            // Nb: this is using Path functions which means case sensitivity is platform-dependent
+            .find(|x| x.ends_with("transforms.json") || x.ends_with("transforms_train.json"))?
             .clone()
     };
 
@@ -225,18 +225,14 @@ async fn read_dataset_inner<B: Backend>(
     )
     .await?;
 
-    // Use transforms_val as eval, or _test if no _val is present. (Brush doesn't really have any notion of a test
+    // Use transforms_val as eval, or _test if no _val is present. (Brush doesn't really have any notion of a test set).
     let eval_trans_path = json_files
         .iter()
-        .find(|x| {
-            x.file_name()
-                .is_some_and(|p| p.to_string_lossy().contains("_val"))
-        })
+        .find(|x| x.ends_with("transforms_val.json"))
         .or_else(|| {
-            json_files.iter().find(|x| {
-                x.file_name()
-                    .is_some_and(|p| p.to_string_lossy().contains("_test"))
-            })
+            json_files
+                .iter()
+                .find(|x| x.ends_with("transforms_test.json"))
         });
     // If a separate eval file is specified, read it.
     let val_views = if let Some(eval_trans_path) = eval_trans_path {
