@@ -108,6 +108,7 @@ pub async fn process_ui(
         process_args.process_config.eval_every,
     ));
     stats_spinner.set_message("Starting up");
+    log::info!("Starting up");
 
     if cfg!(debug_assertions) {
         let _ =
@@ -146,9 +147,9 @@ pub async fn process_ui(
             ProcessMessage::Dataset { dataset } => {
                 let train_views = dataset.train.views.len();
                 let eval_views = dataset.eval.as_ref().map_or(0, |v| v.views.len());
-                log::info!("Loading data... {train_views} training, {eval_views} eval views",);
+                log::info!("Loaded dataset with {train_views} training, {eval_views} eval views",);
                 main_spinner.set_message(format!(
-                    "Loading data... {train_views} training, {eval_views} eval views",
+                    "Loading dataset with {train_views} training, {eval_views} eval views",
                 ));
                 if let Some(val) = dataset.eval.as_ref() {
                     eval_spinner.set_message(format!(
@@ -159,9 +160,9 @@ pub async fn process_ui(
                 }
             }
             ProcessMessage::DoneLoading => {
-                log::info!("Dataset loaded.");
-                main_spinner.set_message("Dataset loaded");
-                stats_spinner.set_message("Done loading");
+                log::info!("Completed loading.");
+                main_spinner.set_message("Completed loading");
+                stats_spinner.set_message("Completed loading");
             }
             ProcessMessage::TrainStep {
                 iter,
@@ -178,8 +179,6 @@ pub async fn process_ui(
                 ..
             } => {
                 stats_spinner.set_message(format!("Current splat count {cur_splat_count}"));
-                // Do we show this info somewhere?
-                //
                 log::info!("Refine iter {iter}, {cur_splat_count} splats.");
             }
             ProcessMessage::EvalResult {
@@ -201,6 +200,11 @@ pub async fn process_ui(
         "Training took {}",
         humantime::format_duration(duration_secs)
     ));
+
+    log::info!(
+        "Done training! Took {:?}.",
+        humantime::format_duration(duration_secs)
+    );
 
     Ok(())
 }
