@@ -124,7 +124,7 @@ pub(crate) fn render_forward(
         let depths = create_tensor([total_splats], device, client, DType::F32);
 
         tracing::trace_span!("ProjectSplats", sync_burn = true).in_scope(||
-            // SAFETY: Kernel checked to have no OOB.
+            // SAFETY: Kernel checked to have no OOB, bounded loops.
             unsafe {
             client.execute_unchecked(
                 ProjectSplats::task(),
@@ -174,14 +174,12 @@ pub(crate) fn render_forward(
     // Create a buffer to determine how many threads to dispatch for all visible splats.
     let num_vis_wg = create_dispatch_buffer(num_visible.clone(), [shaders::helpers::MAIN_WG, 1, 1]);
 
-    tracing::trace_span!("ProjectVisible", sync_burn = true).in_scope(||
-        // SAFETY: Kernel has to contain no OOB indexing.
-        unsafe {
-        client.execute_unchecked(
+    tracing::trace_span!("ProjectVisible", sync_burn = true).in_scope(|| {
+        // Normal execute as loops in here could be iffy.
+        client.execute(
             ProjectVisible::task(),
             CubeCount::Dynamic(num_vis_wg.clone().handle.binding()),
-            Bindings::new().with_buffers(
-            vec![
+            Bindings::new().with_buffers(vec![
                 uniforms_buffer.clone().handle.binding(),
                 means.handle.binding(),
                 log_scales.handle.binding(),
@@ -235,7 +233,7 @@ pub(crate) fn render_forward(
                 MapGaussiansToIntersect::WORKGROUP_SIZE,
             );
 
-            // SAFETY: Kernel has to contain no OOB indexing.
+            // SAFETY: Kernel has to contain no OOB indexing, bounded loops.
             unsafe {
                 client.execute_unchecked(
                     MapGaussiansToIntersect::task(),
@@ -328,14 +326,13 @@ pub(crate) fn render_forward(
     // see the BWD_INFO define in the rasterize shader.
     let raster_task = Rasterize::task(bwd_info);
 
-    // SAFETY: Kernel has to contain no OOB indexing.
-    unsafe {
-        client.execute_unchecked(
-            raster_task,
-            calc_cube_count([img_size.x, img_size.y], Rasterize::WORKGROUP_SIZE),
-            bindings,
-        );
-    }
+    // Use safe execution as kernel has some looping which might be unbounded (depending on overflow rules?
+    // idk, the slow down seems tiny anyway so might as well).
+    client.execute(
+        raster_task,
+        calc_cube_count([img_size.x, img_size.y], Rasterize::WORKGROUP_SIZE),
+        bindings,
+    );
 
     (
         out_img,

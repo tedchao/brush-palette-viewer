@@ -36,8 +36,6 @@ deny = [
 
 skip = [
     # common small deps.
-    { name = "bit-set" },
-    { name = "bit-vec" },
     { name = "bitflags" },
     { name = 'itertools' },
     { name = 'derive-new' },
@@ -82,7 +80,9 @@ skip = [
     { name = 'objc2-app-kit' },    # eframe & rfd
     { name = 'objc2' },            # eframe & rfd
 
-    { name = 'windows' },   # Wgpu & kiddo
+    { name = 'windows' },            # Wgpu & kiddo
+    { name = 'codespan-reporting' }, # Wgpu & naga_oil
+
     { name = 'hashbrown' },
 
     { name = 'colored' },
