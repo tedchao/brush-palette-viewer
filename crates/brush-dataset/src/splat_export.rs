@@ -27,7 +27,7 @@ async fn read_splat_data<B: Backend>(
     let sh_coeffs_num = splats.sh_coeffs.dims()[1];
 
     let splats = (0..splats.num_splats())
-        .map(|i| {
+        .filter_map(|i| {
             let i = i as usize;
             // Read SH data from [coeffs, channel] format to
             let sh_start = i * sh_coeffs_num * 3;
@@ -44,7 +44,7 @@ async fn read_splat_data<B: Backend>(
             let sh_dc = glam::vec3(sh_red[0], sh_green[0], sh_blue[0]);
             let sh_coeffs_rest = [&sh_red[1..], &sh_green[1..], &sh_blue[1..]].concat();
 
-            ParsedGaussian {
+            let splat = ParsedGaussian {
                 mean: Vec3::new(means[i * 3], means[i * 3 + 1], means[i * 3 + 2]),
                 log_scale: Vec3::new(
                     log_scales[i * 3],
@@ -60,7 +60,9 @@ async fn read_splat_data<B: Backend>(
                 ),
                 sh_dc,
                 sh_coeffs_rest,
-            }
+            };
+
+            splat.is_finite().then_some(splat)
         })
         .collect();
 
