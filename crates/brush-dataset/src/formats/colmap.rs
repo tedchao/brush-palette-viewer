@@ -1,6 +1,6 @@
 use std::{path::PathBuf, sync::Arc};
 
-use super::DataStream;
+use super::{DataStream, FormatError};
 use crate::{
     Dataset,
     config::LoadDataseConfig,
@@ -8,7 +8,6 @@ use crate::{
     scene::{LoadImage, SceneView},
     splat_import::SplatMessage,
 };
-use anyhow::{Context, Result};
 use async_fn_stream::try_fn_stream;
 use brush_render::{
     camera::{self, Camera},
@@ -20,13 +19,17 @@ use burn::backend::wgpu::WgpuDevice;
 use glam::Vec3;
 use std::collections::HashMap;
 
-fn find_mask_and_img(vfs: &BrushVfs, paths: &[PathBuf]) -> Result<(PathBuf, Option<PathBuf>)> {
+fn find_mask_and_img(vfs: &BrushVfs, name: &str) -> Option<(PathBuf, Option<PathBuf>)> {
+    // Colmap only specifies an image name, not a full path. We brute force
+    // search for the image in the archive.
+    let paths: Vec<_> = vfs.files_with_filename(name).collect();
+
     let mut path_masks = HashMap::new();
     let mut masks = vec![];
 
     // First pass: collect images & masks.
     for path in paths {
-        let mask = find_mask_path(vfs, path);
+        let mask = find_mask_path(vfs, &path);
         path_masks.insert(path.clone(), mask.clone());
         if let Some(mask_path) = mask {
             masks.push(mask_path);
@@ -39,17 +42,14 @@ fn find_mask_and_img(vfs: &BrushVfs, paths: &[PathBuf]) -> Result<(PathBuf, Opti
     }
 
     // Sort and return the first candidate (alphabetically).
-    path_masks
-        .into_iter()
-        .min_by_key(|kv| kv.0.clone())
-        .context("No candidates found")
+    path_masks.into_iter().min_by_key(|kv| kv.0.clone())
 }
 
 pub(crate) async fn load_dataset(
     vfs: Arc<BrushVfs>,
     load_args: &LoadDataseConfig,
     device: &WgpuDevice,
-) -> Option<Result<(DataStream<SplatMessage>, Dataset)>> {
+) -> Option<Result<(DataStream<SplatMessage>, Dataset), FormatError>> {
     log::info!("Loading colmap dataset");
 
     let (cam_path, img_path) = if let Some(path) = vfs.files_with_filename("cameras.bin").next() {
@@ -71,7 +71,7 @@ async fn load_dataset_inner(
     device: &WgpuDevice,
     cam_path: PathBuf,
     img_path: PathBuf,
-) -> Result<(DataStream<SplatMessage>, Dataset)> {
+) -> Result<(DataStream<SplatMessage>, Dataset), FormatError> {
     let is_binary = cam_path.ends_with("cameras.bin");
 
     let cam_model_data = {
@@ -111,11 +111,11 @@ async fn load_dataset_inner(
         let center = cam_data.principal_point();
         let center_uv = center / glam::vec2(cam_data.width as f32, cam_data.height as f32);
 
-        // Colmap only specifies an image name, not a full path. We brute force
-        // search for the image in the archive.
-        let img_paths: Vec<_> = vfs.files_with_filename(&img_info.name).collect();
-        let (path, mask_path) = find_mask_and_img(&vfs, &img_paths)
-            .with_context(|| format!("Failed to find image {}", img_info.name))?;
+        // If image isn't found, just ignore it. We can still train on the remaining images.
+        let Some((path, mask_path)) = find_mask_and_img(&vfs, &img_info.name) else {
+            log::warn!("Image not found: {}", img_info.name);
+            continue;
+        };
 
         // Convert w2c to c2w.
         let world_to_cam = glam::Affine3A::from_rotation_translation(img_info.quat, img_info.tvec);
@@ -127,7 +127,7 @@ async fn load_dataset_inner(
         log::info!("Loaded COLMAP image at path {path:?}");
 
         let load_img =
-            LoadImage::new(vfs.clone(), path, mask_path, load_args.max_resolution).await?;
+            LoadImage::new(vfs.clone(), &path, mask_path, load_args.max_resolution).await?;
 
         let view = SceneView {
             camera,
@@ -162,10 +162,8 @@ async fn load_dataset_inner(
 
         // Extract COLMAP sfm points.
         let points_data = {
-            let mut points_file = vfs
-                .reader_at_path(&points_path)
-                .await
-                .context("Failed to read COLMAP points file")?;
+            // At this point the VFS has said this file exists so just unwrap.
+            let mut points_file = vfs.reader_at_path(&points_path).await.expect("unreachable");
             colmap_reader::read_points3d(&mut points_file, is_binary).await
         };
 

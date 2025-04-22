@@ -8,7 +8,7 @@ license.workspace = true
 [dependencies]
 jni = "0.21.1"
 lazy_static = "1.5.0"
-anyhow.workspace = true
+thiserror.workspace = true
 
 [target.'cfg(not(target_os = "android"))'.dependencies]
 rfd = { version = "0.15.0", default-features = false, features = [

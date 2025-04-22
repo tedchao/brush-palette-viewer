@@ -1,4 +1,3 @@
-use anyhow::{Context, Result};
 use brush_render::{bounding_box::BoundingBox, camera::Camera};
 use brush_vfs::BrushVfs;
 use burn::{
@@ -7,7 +6,11 @@ use burn::{
 };
 use glam::{Affine3A, Vec3, vec3};
 use image::{ColorType, DynamicImage, ImageDecoder, ImageReader};
-use std::{io::Cursor, path::PathBuf, sync::Arc};
+use std::{
+    io::Cursor,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 use tokio::io::{AsyncRead, AsyncReadExt};
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -28,7 +31,7 @@ pub struct LoadImage {
 }
 
 /// Gets the dimensions of an image from an [`AsyncRead`] source
-pub async fn get_image_data<R>(reader: &mut R) -> Result<(glam::UVec2, ColorType)>
+pub async fn get_image_data<R>(reader: &mut R) -> std::io::Result<(glam::UVec2, ColorType)>
 where
     R: AsyncRead + Unpin,
 {
@@ -39,22 +42,20 @@ where
 
     let mut n = 0;
     loop {
-        let read = reader
-            .read_exact(&mut temp_buf[n..])
-            .await
-            .context("Failed to read from buffer")?;
+        let read = reader.read_exact(&mut temp_buf[n..]).await?;
 
         if read == 0 {
-            // We've hit EOF, bail.
-            anyhow::bail!("Could not decode image format after reading entire file");
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::UnexpectedEof,
+                "Reached end of file while trying to decode image format",
+            ));
         }
 
         n += read;
 
         // Try to decode with what we have (nb, no copying happens here).
         if let Ok(decoder) = ImageReader::new(Cursor::new(&temp_buf[..n]))
-            .with_guessed_format()
-            .context("Failed to guess format")?
+            .with_guessed_format()?
             .into_decoder()
         {
             return Ok((decoder.dimensions().into(), decoder.color_type()));
@@ -67,21 +68,16 @@ where
 impl LoadImage {
     pub async fn new(
         vfs: Arc<BrushVfs>,
-        path: PathBuf,
+        path: &Path,
         mask_path: Option<PathBuf>,
         max_resolution: u32,
-    ) -> Result<Self> {
-        let reader = &mut vfs
-            .reader_at_path(&path)
-            .await
-            .with_context(|| format!("Failed to get reader {}", path.display()))?;
-        let data = get_image_data(reader)
-            .await
-            .context("Failed to get image data.")?;
+    ) -> std::io::Result<Self> {
+        let reader = &mut vfs.reader_at_path(path).await?;
+        let data = get_image_data(reader).await?;
 
         Ok(Self {
             vfs,
-            path,
+            path: path.to_path_buf(),
             mask_path,
             max_resolution,
             size: data.0,
@@ -115,7 +111,7 @@ impl LoadImage {
         self.dimensions().y
     }
 
-    pub async fn load(&self) -> Result<DynamicImage> {
+    pub async fn load(&self) -> image::ImageResult<DynamicImage> {
         let mut img_bytes = vec![];
         self.vfs
             .reader_at_path(&self.path)

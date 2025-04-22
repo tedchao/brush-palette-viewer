@@ -1,4 +1,5 @@
 use super::DataStream;
+use super::FormatError;
 use super::find_mask_path;
 use crate::{
     Dataset,
@@ -6,7 +7,6 @@ use crate::{
     scene::{LoadImage, SceneView},
     splat_import::{SplatMessage, load_splat_from_ply},
 };
-use anyhow::Result;
 use async_fn_stream::try_fn_stream;
 use brush_render::camera::fov_to_focal;
 use brush_render::camera::{Camera, focal_to_fov};
@@ -105,7 +105,7 @@ async fn read_transforms_file(
     transforms_path: &Path,
     vfs: Arc<BrushVfs>,
     load_args: &LoadDataseConfig,
-) -> anyhow::Result<Vec<SceneView>> {
+) -> Result<Vec<SceneView>, FormatError> {
     let mut results = vec![];
     for frame in scene
         .frames
@@ -121,19 +121,27 @@ async fn read_transforms_file(
         transform.z_axis *= -1.0;
         let (_, rotation, translation) = transform.to_scale_rotation_translation();
 
-        // Read the imageat the specified path, fallback to default .png extension.
         let mut path = transforms_path
             .parent()
             .expect("Transforms path must be a filename")
             .join(&frame.file_path);
 
-        // Assume a default extension if none is specified.
+        // Assume png's by default if no extension is specified.
         if path.extension().is_none() {
             path = path.with_extension("png");
         }
         let mask_path = find_mask_path(&vfs, &path);
 
-        let image = LoadImage::new(vfs.clone(), path, mask_path, load_args.max_resolution).await?;
+        let image = LoadImage::new(vfs.clone(), &path, mask_path, load_args.max_resolution).await;
+
+        let image = match image {
+            Ok(image) => image,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                log::warn!("Image not found: {path:?}");
+                continue;
+            }
+            Err(e) => Err(e)?,
+        };
 
         let w = frame.w.or(scene.w).unwrap_or(image.width() as f64) as u32;
         let h = frame.h.or(scene.h).unwrap_or(image.height() as f64) as u32;
@@ -151,7 +159,9 @@ async fn read_transforms_file(
             .or(scene.fl_y.map(|fy| focal_to_fov(fy, h)));
 
         let (fovx, fovy) = match (fovx, fovy) {
-            (None, None) => anyhow::bail!("Must have some kind of focal length"),
+            (None, None) => Err(FormatError::InvalidCamera(
+                "Must have some kind of focal length",
+            ))?,
             (None, Some(fovy)) => {
                 let fovx = focal_to_fov(fov_to_focal(fovy, h), w);
                 (fovx, fovy)
@@ -181,7 +191,7 @@ pub async fn read_dataset(
     vfs: Arc<BrushVfs>,
     load_args: &LoadDataseConfig,
     device: &WgpuDevice,
-) -> Option<Result<(DataStream<SplatMessage>, Dataset)>> {
+) -> Option<Result<(DataStream<SplatMessage>, Dataset), FormatError>> {
     log::info!("Loading nerfstudio dataset");
 
     let json_files: Vec<_> = vfs.files_with_extension("json").collect();
@@ -205,7 +215,7 @@ async fn read_dataset_inner(
     device: &WgpuDevice,
     json_files: Vec<std::path::PathBuf>,
     transforms_path: std::path::PathBuf,
-) -> Result<(DataStream<SplatMessage>, Dataset)> {
+) -> Result<(DataStream<SplatMessage>, Dataset), FormatError> {
     let mut buf = String::new();
     vfs.reader_at_path(&transforms_path)
         .await?

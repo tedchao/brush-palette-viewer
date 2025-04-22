@@ -1,25 +1,24 @@
 use std::{collections::HashSet, pin::Pin};
 
 use async_fn_stream::try_fn_stream;
+use brush_render::gaussian_splats::Splats;
 use brush_render::{MainBackend, gaussian_splats::inverse_sigmoid, sh::rgb_to_sh};
 use brush_vfs::{DynStream, SendNotWasm};
 use burn::{
     backend::wgpu::{WgpuDevice, WgpuRuntime},
     tensor::{Tensor, TensorData},
 };
+use burn_cubecl::cubecl::Runtime;
 use glam::{Quat, Vec3, Vec4};
 use ply_rs::{
     parser::Parser,
     ply::{DefaultElement, ElementDef, Encoding, Header, Property, PropertyAccess},
 };
+use thiserror::Error;
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncRead, BufReader};
 use tokio_stream::{Stream, StreamExt};
 use tokio_with_wasm::alias as tokio_wasm;
 use tracing::trace_span;
-
-use anyhow::{Context, Result};
-use brush_render::gaussian_splats::Splats;
-use burn_cubecl::cubecl::Runtime;
 
 use crate::parsed_gaussian::ParsedGaussian;
 
@@ -100,11 +99,20 @@ impl TimeYield {
     }
 }
 
+#[derive(Debug, Error)]
+pub enum SplatImportError {
+    #[error("IO error while importing ply file.")]
+    Io(#[from] std::io::Error),
+
+    #[error("Invalid ply format")]
+    InvalidFormat,
+}
+
 pub fn load_splat_from_ply<T: AsyncRead + SendNotWasm + Unpin + 'static>(
     reader: T,
     subsample_points: Option<u32>,
     device: WgpuDevice,
-) -> impl DynStream<Result<SplatMessage>> {
+) -> impl DynStream<Result<SplatMessage, SplatImportError>> {
     // set up a reader, in this case a file.
     let mut reader = BufReader::new(reader);
 
@@ -139,10 +147,10 @@ pub fn load_splat_from_ply<T: AsyncRead + SendNotWasm + Unpin + 'static>(
         } else if has_vertex {
             PlyFormat::Ply
         } else {
-            anyhow::bail!("Couldn't decide format of Ply file. Unknown Ply format.")
+            return Err(SplatImportError::InvalidFormat);
         };
 
-        type SplatStream = Pin<Box<dyn DynStream<Result<SplatMessage>>>>;
+        type SplatStream = Pin<Box<dyn DynStream<Result<SplatMessage, SplatImportError>>>>;
 
         let mut sub_stream: SplatStream = match ply_type {
             PlyFormat::Ply => {
@@ -181,11 +189,15 @@ fn parse_ply<T: AsyncBufRead + Unpin + 'static>(
     device: WgpuDevice,
     header: Header,
     up_axis: Option<Vec3>,
-) -> impl Stream<Item = Result<SplatMessage>> + 'static {
+) -> impl Stream<Item = Result<SplatMessage, SplatImportError>> + 'static {
     try_fn_stream(|emitter| async move {
-        let vertex = header.elements.first().context("No elements in header")?;
+        let vertex = header
+            .elements
+            .first()
+            .ok_or(SplatImportError::InvalidFormat)?;
+
         if vertex.name != "vertex" {
-            anyhow::bail!("First element must be 'vertex'")
+            return Err(SplatImportError::InvalidFormat);
         }
 
         let parser = Parser::<ParsedGaussian<false>>::new();
@@ -276,7 +288,7 @@ fn parse_compressed_ply<T: AsyncBufRead + Unpin + 'static>(
     device: WgpuDevice,
     header: Header,
     up_axis: Option<Vec3>,
-) -> impl Stream<Item = Result<SplatMessage>> + 'static {
+) -> impl Stream<Item = Result<SplatMessage, SplatImportError>> + 'static {
     #[derive(Default)]
     struct MinMax {
         min: Vec3,
@@ -339,9 +351,10 @@ fn parse_compressed_ply<T: AsyncBufRead + Unpin + 'static>(
         let quant_elem = header
             .elements
             .first()
-            .context("Not enough elements in header")?;
+            .ok_or(SplatImportError::InvalidFormat)?;
+
         if quant_elem.name != "chunk" {
-            anyhow::bail!("First element should be chunk compression metadata!");
+            return Err(SplatImportError::InvalidFormat);
         }
 
         let mut yielder = TimeYield::new();
@@ -357,9 +370,9 @@ fn parse_compressed_ply<T: AsyncBufRead + Unpin + 'static>(
         let vertex = header
             .elements
             .get(1)
-            .context("Not enough elements in header")?;
+            .ok_or(SplatImportError::InvalidFormat)?;
         if vertex.name != "vertex" {
-            anyhow::bail!("Second element should be vertex compression metadata!");
+            return Err(SplatImportError::InvalidFormat);
         }
 
         let parser = Parser::<ParsedGaussian<true>>::new();
@@ -389,7 +402,7 @@ fn parse_compressed_ply<T: AsyncBufRead + Unpin + 'static>(
 
             let quant_data = quant_metas
                 .get(i / 256)
-                .context("not enough quantization data to parse ply")?;
+                .ok_or(SplatImportError::InvalidFormat)?;
 
             let splat = parse_elem(&mut reader, &parser, header.encoding, vertex).await?;
 
@@ -441,7 +454,7 @@ fn parse_compressed_ply<T: AsyncBufRead + Unpin + 'static>(
             let parser = Parser::<ParsedGaussian<false>>::new();
 
             if sh_vals.name != "sh" {
-                anyhow::bail!("Second element should be SH compression metadata!");
+                return Err(SplatImportError::InvalidFormat);
             }
 
             let mut splat_index = 0;
@@ -499,7 +512,7 @@ fn parse_delta_ply<T: AsyncBufRead + Unpin + 'static>(
     device: WgpuDevice,
     header: Header,
     up_axis: Option<Vec3>,
-) -> impl Stream<Item = Result<SplatMessage>> + 'static {
+) -> impl Stream<Item = Result<SplatMessage, SplatImportError>> + 'static {
     try_fn_stream(|emitter| async move {
         let parser = Parser::<ParsedGaussian<false>>::new();
         let mut yielder = TimeYield::new();
@@ -633,9 +646,8 @@ fn parse_delta_ply<T: AsyncBufRead + Unpin + 'static>(
                 meta_max.scale = splat.log_scale;
             } else if element.name.starts_with("delta_vertex_") {
                 let Some(splats) = final_splat.clone() else {
-                    anyhow::bail!("Need to read base splat first.");
+                    return Err(SplatImportError::InvalidFormat);
                 };
-
                 for _ in 0..element.count {
                     yielder.try_yield().await;
 

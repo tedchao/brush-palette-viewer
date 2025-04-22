@@ -874,7 +874,6 @@ dependencies = [
 name = "brush-dataset"
 version = "0.2.0"
 dependencies = [
- "anyhow",
  "async-fn-stream",
  "brush-render",
  "brush-vfs",
@@ -890,6 +889,7 @@ dependencies = [
  "rand 0.9.0",
  "serde",
  "serde_json",
+ "thiserror 1.0.69",
  "tokio",
  "tokio-stream",
  "tokio_with_wasm",
@@ -1072,10 +1072,10 @@ dependencies = [
 name = "brush-vfs"
 version = "0.2.0"
 dependencies = [
- "anyhow",
  "path-clean",
  "reqwest",
  "rrfd",
+ "thiserror 1.0.69",
  "tokio",
  "tokio-stream",
  "tokio-util",
@@ -1093,7 +1093,7 @@ dependencies = [
  "pathdiff",
  "regex",
  "regex-syntax 0.8.5",
- "thiserror 2.0.12",
+ "thiserror 1.0.69",
  "wgpu",
 ]
 
@@ -7194,10 +7194,10 @@ dependencies = [
 name = "rrfd"
 version = "0.2.0"
 dependencies = [
- "anyhow",
  "jni",
  "lazy_static",
  "rfd",
+ "thiserror 1.0.69",
  "tokio",
 ]
 

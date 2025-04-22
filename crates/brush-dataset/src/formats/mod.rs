@@ -1,9 +1,8 @@
 use crate::{
     Dataset,
     config::LoadDataseConfig,
-    splat_import::{SplatMessage, load_splat_from_ply},
+    splat_import::{SplatImportError, SplatMessage, load_splat_from_ply},
 };
-use anyhow::Context;
 use brush_vfs::{BrushVfs, DynStream};
 use burn::backend::wgpu::WgpuDevice;
 use path_clean::PathClean;
@@ -16,22 +15,48 @@ use std::{
 pub mod colmap;
 pub mod nerfstudio;
 
-pub type DataStream<T> = Pin<Box<dyn DynStream<anyhow::Result<T>>>>;
+pub type DataStream<T> = Pin<Box<dyn DynStream<Result<T, SplatImportError>>>>;
+
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+pub enum FormatError {
+    #[error("IO error while loading dataset.")]
+    Io(#[from] std::io::Error),
+
+    #[error("Error decoding JSON file.")]
+    Json(#[from] serde_json::Error),
+
+    #[error("Error decoding camera parameters: {0}")]
+    InvalidCamera(&'static str),
+}
+
+#[derive(Debug, Error)]
+pub enum DatasetError {
+    #[error("Failed to load format.")]
+    FormatError(#[from] FormatError),
+
+    #[error("Failed to load initial point cloud.")]
+    InitialPointCloudError(#[from] SplatImportError),
+
+    #[error("Format not recognized: Only colmap and nerfstudio json are supported.")]
+    FormatNotSupported,
+}
 
 pub async fn load_dataset(
     vfs: Arc<BrushVfs>,
     load_args: &LoadDataseConfig,
     device: &WgpuDevice,
-) -> anyhow::Result<(DataStream<SplatMessage>, Dataset)> {
-    let data_read = nerfstudio::read_dataset(vfs.clone(), load_args, device).await;
+) -> Result<(DataStream<SplatMessage>, Dataset), DatasetError> {
+    let nerfstudio_fmt = nerfstudio::read_dataset(vfs.clone(), load_args, device).await;
 
-    let data_read = if let Some(data_read) = data_read {
-        data_read.context("Failed to load as json format.")?
+    let format = if let Some(fmt) = nerfstudio_fmt {
+        fmt?
     } else {
-        let stream = colmap::load_dataset(vfs.clone(), load_args, device)
-            .await
-            .context("Dataset was neither in nerfstudio or COLMAP format.")?;
-        stream.context("Failed to load as COLMAP format.")?
+        let Some(stream) = colmap::load_dataset(vfs.clone(), load_args, device).await else {
+            return Err(DatasetError::FormatNotSupported);
+        };
+        stream?
     };
 
     // If there's an initial ply file, override the init stream with that.
@@ -41,17 +66,20 @@ pub async fn load_dataset(
         let main_path = path.first().expect("unreachable");
         log::info!("Using ply {main_path:?} as initial point cloud.");
 
-        let reader = vfs.reader_at_path(main_path).await?;
+        let reader = vfs
+            .reader_at_path(main_path)
+            .await
+            .map_err(SplatImportError::Io)?;
         Box::pin(load_splat_from_ply(
             reader,
             load_args.subsample_points,
             device.clone(),
         ))
     } else {
-        data_read.0
+        format.0
     };
 
-    Ok((init_stream, data_read.1))
+    Ok((init_stream, format.1))
 }
 
 fn find_mask_path(vfs: &BrushVfs, path: &Path) -> Option<PathBuf> {

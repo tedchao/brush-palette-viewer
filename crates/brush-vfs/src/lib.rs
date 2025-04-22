@@ -7,12 +7,11 @@ mod data_source;
 // rfd on wasm, nor is drag-and-dropping folders in egui.
 use std::{
     collections::HashMap,
-    io::{Cursor, Read},
+    io::{self, Cursor, Error, Read},
     path::{Path, PathBuf},
     sync::Arc,
 };
 
-use anyhow::Context;
 use path_clean::PathClean;
 use tokio::{
     io::{AsyncRead, AsyncReadExt, BufReader},
@@ -75,10 +74,7 @@ impl AsRef<[u8]> for ZipData {
     }
 }
 
-async fn read_at_most<R: AsyncRead + Unpin>(
-    reader: &mut R,
-    limit: usize,
-) -> std::io::Result<Vec<u8>> {
+async fn read_at_most<R: AsyncRead + Unpin>(reader: &mut R, limit: usize) -> io::Result<Vec<u8>> {
     let mut buffer = vec![0; limit];
     let bytes_read = reader.read(&mut buffer).await?;
     buffer.truncate(bytes_read);
@@ -121,6 +117,22 @@ fn lookup_from_paths(paths: &[PathBuf]) -> HashMap<PathKey, PathBuf> {
     result
 }
 
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum VfsConstructError {
+    #[error("I/O error while constructing BrushVfs.")]
+    IoError(#[from] std::io::Error),
+    #[error("Zip creation failed while constructing BrushVfs.")]
+    ZipError(#[from] zip::result::ZipError),
+
+    #[error("Got a status page instead of content: \n\n {0}")]
+    InvalidHtml(String),
+
+    #[error("Unknown data type. Only zip and ply files are supported")]
+    UnknownDataType,
+}
+
 impl BrushVfs {
     pub fn file_count(&self) -> usize {
         self.lookup.len()
@@ -132,7 +144,7 @@ impl BrushVfs {
 
     pub async fn from_reader(
         reader: impl AsyncRead + SendNotWasm + Unpin + 'static,
-    ) -> anyhow::Result<Self> {
+    ) -> Result<Self, VfsConstructError> {
         // Small hack to peek some bytes: Read them
         // and add them at the start again.
         let mut data = BufReader::new(reader);
@@ -163,24 +175,24 @@ impl BrushVfs {
         } else if peek.starts_with(b"<!DOCTYPE html>") {
             let mut html = String::new();
             reader.read_to_string(&mut html).await?;
-
-            // TODO: On WASM, display the actual HTML? Idk.
-            anyhow::bail!("Failed to download data. \n\n {html}")
+            Err(VfsConstructError::InvalidHtml(html))
         } else {
-            anyhow::bail!("only zip and ply files are supported. Unknown data type.")
+            Err(VfsConstructError::UnknownDataType)
         }
     }
 
-    pub async fn from_path(dir: &Path) -> anyhow::Result<Self> {
+    pub async fn from_path(dir: &Path) -> Result<Self, VfsConstructError> {
         #[cfg(not(target_family = "wasm"))]
         {
             if dir.is_file() {
+                // Construct a reader. This is needed for zip files, as
+                // it's not really just a single path.
                 let file = tokio::fs::File::open(dir).await?;
                 let reader = BufReader::new(file);
                 Self::from_reader(reader).await
             } else {
                 // Make a VFS with all files contained in the directory.
-                async fn walk_dir(dir: impl AsRef<Path>) -> std::io::Result<Vec<PathBuf>> {
+                async fn walk_dir(dir: impl AsRef<Path>) -> io::Result<Vec<PathBuf>> {
                     let dir = PathBuf::from(dir.as_ref());
 
                     let mut paths = Vec::new();
@@ -196,7 +208,7 @@ impl BrushVfs {
                             } else {
                                 let path = path
                                     .strip_prefix(dir.clone())
-                                    .map_err(|_e| std::io::ErrorKind::InvalidInput)?
+                                    .map_err(|_e| io::ErrorKind::InvalidInput)?
                                     .to_path_buf();
                                 paths.push(path);
                             }
@@ -262,9 +274,14 @@ impl BrushVfs {
         })
     }
 
-    pub async fn reader_at_path(&self, path: &Path) -> anyhow::Result<Box<dyn DynRead>> {
+    pub async fn reader_at_path(&self, path: &Path) -> io::Result<Box<dyn DynRead>> {
         let key = PathKey::from_path(path);
-        let path = self.lookup.get(&key).context("File not found")?;
+        let path = self.lookup.get(&key).ok_or_else(|| {
+            Error::new(
+                io::ErrorKind::NotFound,
+                format!("File not found: {}", path.display()),
+            )
+        })?;
 
         match &self.container {
             VfsContainer::Zip { archive } => {
@@ -281,9 +298,14 @@ impl BrushVfs {
                 // Readers get taken out of the map as they are not cloneable.
                 // This means that unlike other methods this path can only be loaded
                 // once.
-                let reader_mut = readers.get(path).context("File not found")?;
+                let reader_mut = readers.get(path).expect("Unreachable");
                 let reader = reader_mut.lock().await.take();
-                reader.context("Missing reader")
+                reader.ok_or_else(|| {
+                    Error::new(
+                        io::ErrorKind::NotFound,
+                        format!("File not found: {}", path.display()),
+                    )
+                })
             }
             #[cfg(not(target_family = "wasm"))]
             VfsContainer::Directory { base_path: dir } => {

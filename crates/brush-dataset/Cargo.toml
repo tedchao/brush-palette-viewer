@@ -13,7 +13,7 @@ colmap-reader.path = "../colmap-reader"
 burn.workspace = true
 burn-cubecl.workspace = true
 
-anyhow.workspace = true
+thiserror = { workspace = true }
 image.workspace = true
 serde.workspace = true
 serde_json.workspace = true

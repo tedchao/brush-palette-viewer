@@ -1,32 +1,53 @@
 use crate::parsed_gaussian::ParsedGaussian;
-use anyhow::anyhow;
 use brush_render::gaussian_splats::Splats;
-use burn::{prelude::Backend, tensor::DataError};
+use burn::prelude::Backend;
 use glam::{Quat, Vec3};
 use ply_rs::{
     ply::{self, Ply, PropertyDef, PropertyType, ScalarType},
     writer::Writer,
 };
 
-async fn read_splat_data<B: Backend>(
-    splats: Splats<B>,
-) -> Result<Vec<ParsedGaussian<false>>, DataError> {
-    let means = splats.means.val().into_data_async().await.to_vec()?;
-    let log_scales = splats.log_scales.val().into_data_async().await.to_vec()?;
-    let rotations = splats.rotation.val().into_data_async().await.to_vec()?;
-    let opacities = splats.raw_opacity.val().into_data_async().await.to_vec()?;
-
+async fn read_splat_data<B: Backend>(splats: Splats<B>) -> Vec<ParsedGaussian<false>> {
+    let means = splats
+        .means
+        .val()
+        .into_data_async()
+        .await
+        .to_vec()
+        .expect("Unreachable");
+    let log_scales = splats
+        .log_scales
+        .val()
+        .into_data_async()
+        .await
+        .to_vec()
+        .expect("Unreachable");
+    let rotations = splats
+        .rotation
+        .val()
+        .into_data_async()
+        .await
+        .to_vec()
+        .expect("Unreachable");
+    let opacities = splats
+        .raw_opacity
+        .val()
+        .into_data_async()
+        .await
+        .to_vec()
+        .expect("Unreachable");
     let sh_coeffs = splats
         .sh_coeffs
         .val()
         .permute([0, 2, 1]) // Permute to inria format ([n, channel, coeffs]).
         .into_data_async()
         .await
-        .to_vec()?;
+        .to_vec()
+        .expect("Unreachable");
 
     let sh_coeffs_num = splats.sh_coeffs.dims()[1];
 
-    let splats = (0..splats.num_splats())
+    (0..splats.num_splats())
         .filter_map(|i| {
             let i = i as usize;
             // Read SH data from [coeffs, channel] format to
@@ -64,17 +85,13 @@ async fn read_splat_data<B: Backend>(
 
             splat.is_finite().then_some(splat)
         })
-        .collect();
-
-    Ok(splats)
+        .collect()
 }
 
-pub async fn splat_to_ply<B: Backend>(splats: Splats<B>) -> anyhow::Result<Vec<u8>> {
+pub async fn splat_to_ply<B: Backend>(splats: Splats<B>) -> std::io::Result<Vec<u8>> {
     let splats = splats.with_normed_rotations();
 
-    let data = read_splat_data(splats.clone())
-        .await
-        .map_err(|e| anyhow!("Failed to read data from splat {e:?}"))?;
+    let data = read_splat_data(splats.clone()).await;
 
     let property_names = vec![
         "x", "y", "z", "scale_0", "scale_1", "scale_2", "opacity", "rot_0", "rot_1", "rot_2",

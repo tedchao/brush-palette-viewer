@@ -1,5 +1,5 @@
-use crate::BrushVfs;
-use anyhow::anyhow;
+use crate::{BrushVfs, VfsConstructError};
+use rrfd::PickFileError;
 use std::{path::Path, str::FromStr};
 use tokio_stream::StreamExt;
 use tokio_util::io::StreamReader;
@@ -14,29 +14,40 @@ pub enum DataSource {
 
 // Implement FromStr to allow Clap to parse string arguments into DataSource
 impl FromStr for DataSource {
-    type Err = anyhow::Error;
+    type Err = String; // TODO: Really is a never type but meh.
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             s if s.starts_with("http://") || s.starts_with("https://") => {
                 Ok(Self::Url(s.to_owned()))
             }
-            s if std::fs::exists(s).is_ok() => Ok(Self::Path(s.to_owned())),
-            s => anyhow::bail!("Invalid data source. Can't find {s}"),
+            // This path might not exist but that's ok, rather find that out later.
+            s => Ok(Self::Path(s.to_owned())),
         }
     }
 }
 
+use thiserror::Error;
+#[derive(Debug, Error)]
+pub enum DataSourceError {
+    #[error(transparent)]
+    FilePicking(#[from] PickFileError),
+    #[error(transparent)]
+    VfsError(#[from] VfsConstructError),
+    #[error(transparent)]
+    ReqwestError(#[from] reqwest::Error),
+}
+
 impl DataSource {
-    pub async fn into_vfs(self) -> anyhow::Result<BrushVfs> {
+    pub async fn into_vfs(self) -> Result<BrushVfs, DataSourceError> {
         match self {
             Self::PickFile => {
-                let reader = rrfd::pick_file().await.map_err(|e| anyhow!(e))?;
-                BrushVfs::from_reader(reader).await
+                let reader = rrfd::pick_file().await?;
+                Ok(BrushVfs::from_reader(reader).await?)
             }
             Self::PickDirectory => {
-                let picked = rrfd::pick_directory().await.map_err(|e| anyhow!(e))?;
-                BrushVfs::from_path(&picked).await
+                let picked = rrfd::pick_directory().await?;
+                Ok(BrushVfs::from_path(&picked).await?)
             }
             Self::Url(url) => {
                 let mut url = url.clone();
@@ -61,17 +72,14 @@ impl DataSource {
                     url = format!("https://{url}");
                 }
 
-                let response = reqwest::get(url)
-                    .await
-                    .map_err(|e| anyhow!(e))?
-                    .bytes_stream();
+                let response = reqwest::get(url).await?.bytes_stream();
 
                 let response =
                     response.map(|b| b.map_err(|_e| std::io::ErrorKind::ConnectionAborted));
                 let reader = StreamReader::new(response);
-                BrushVfs::from_reader(reader).await
+                Ok(BrushVfs::from_reader(reader).await?)
             }
-            Self::Path(path) => BrushVfs::from_path(Path::new(&path)).await,
+            Self::Path(path) => Ok(BrushVfs::from_path(Path::new(&path)).await?),
         }
     }
 }
