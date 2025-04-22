@@ -249,17 +249,11 @@ impl BrushVfs {
         })
     }
 
-    pub fn files_with_filename<'a>(
-        &'a self,
-        filename: &'a str,
-    ) -> impl Iterator<Item = PathBuf> + 'a {
-        let filename = filename.to_lowercase();
+    pub fn files_ending_in<'a>(&'a self, end_path: &'a str) -> impl Iterator<Item = PathBuf> + 'a {
+        let end_path = end_path.to_lowercase().replace('\\', "/");
         self.lookup.values().filter_map(move |path| {
-            let name = path
-                .file_name()
-                .and_then(|name| name.to_str())?
-                .to_lowercase();
-            (name == filename).then(|| path.clone())
+            let full_path = path.to_str()?.to_lowercase().replace('\\', "/");
+            full_path.ends_with(&end_path).then(|| path.clone())
         })
     }
 

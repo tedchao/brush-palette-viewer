@@ -22,7 +22,7 @@ use std::collections::HashMap;
 fn find_mask_and_img(vfs: &BrushVfs, name: &str) -> Option<(PathBuf, Option<PathBuf>)> {
     // Colmap only specifies an image name, not a full path. We brute force
     // search for the image in the archive.
-    let paths: Vec<_> = vfs.files_with_filename(name).collect();
+    let paths: Vec<_> = vfs.files_ending_in(name).collect();
 
     let mut path_masks = HashMap::new();
     let mut masks = vec![];
@@ -52,10 +52,10 @@ pub(crate) async fn load_dataset(
 ) -> Option<Result<(DataStream<SplatMessage>, Dataset), FormatError>> {
     log::info!("Loading colmap dataset");
 
-    let (cam_path, img_path) = if let Some(path) = vfs.files_with_filename("cameras.bin").next() {
+    let (cam_path, img_path) = if let Some(path) = vfs.files_ending_in("cameras.bin").next() {
         let path = path.parent().expect("unreachable");
         (path.join("cameras.bin"), path.join("images.bin"))
-    } else if let Some(path) = vfs.files_with_filename("cameras.txt").next() {
+    } else if let Some(path) = vfs.files_ending_in("cameras.txt").next() {
         let path = path.parent().expect("unreachable");
         (path.join("cameras.txt"), path.join("images.txt"))
     } else {
@@ -148,8 +148,8 @@ async fn load_dataset_inner(
     let device = device.clone();
     let load_args = load_args.clone();
     let init_stream = try_fn_stream(|emitter| async move {
-        let points_path = { vfs.files_with_filename("points3d.txt").next() }
-            .or_else(|| vfs.files_with_filename("points3d.bin").next());
+        let points_path = { vfs.files_ending_in("points3d.txt").next() }
+            .or_else(|| vfs.files_ending_in("points3d.bin").next());
 
         let Some(points_path) = points_path else {
             return Ok(());

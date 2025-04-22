@@ -201,9 +201,9 @@ pub async fn read_dataset(
     } else {
         // If there's multiple options, only pick files which are either exactly
         // transforms.json or end with transforms_train.json (a la transforms_train.json)
-        vfs.files_with_filename("transforms.json")
+        vfs.files_ending_in("transforms.json")
             .next()
-            .or_else(|| vfs.files_with_filename("transforms_train.json").next())?
+            .or_else(|| vfs.files_ending_in("transforms_train.json").next())?
     };
 
     Some(read_dataset_inner(vfs, load_args, device, json_files, transforms_path).await)
