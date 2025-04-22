@@ -11,7 +11,7 @@ use async_fn_stream::try_fn_stream;
 use brush_render::camera::fov_to_focal;
 use brush_render::camera::{Camera, focal_to_fov};
 use brush_vfs::BrushVfs;
-use burn::prelude::Backend;
+use burn::backend::wgpu::WgpuDevice;
 use std::path::Path;
 use std::sync::Arc;
 use tokio::io::AsyncReadExt;
@@ -177,40 +177,35 @@ async fn read_transforms_file(
     Ok(results)
 }
 
-pub async fn read_dataset<B: Backend>(
+pub async fn read_dataset(
     vfs: Arc<BrushVfs>,
     load_args: &LoadDataseConfig,
-    device: &B::Device,
-) -> Option<Result<(DataStream<SplatMessage<B>>, Dataset)>> {
+    device: &WgpuDevice,
+) -> Option<Result<(DataStream<SplatMessage>, Dataset)>> {
     log::info!("Loading nerfstudio dataset");
 
-    let json_files: Vec<_> = vfs
-        .file_names()
-        .filter(|n| n.extension().is_some_and(|p| p == "json"))
-        .collect();
+    let json_files: Vec<_> = vfs.files_with_extension("json").collect();
 
     let transforms_path = if json_files.len() == 1 {
-        json_files.first().cloned().expect("Must have 1 json file")
+        json_files.first().cloned()?
     } else {
         // If there's multiple options, only pick files which are either exactly
         // transforms.json or end with transforms_train.json (a la transforms_train.json)
-        json_files
-            .iter()
-            // Nb: this is using Path functions which means case sensitivity is platform-dependent
-            .find(|x| x.ends_with("transforms.json") || x.ends_with("transforms_train.json"))?
-            .clone()
+        vfs.files_with_filename("transforms.json")
+            .next()
+            .or_else(|| vfs.files_with_filename("transforms_train.json").next())?
     };
 
     Some(read_dataset_inner(vfs, load_args, device, json_files, transforms_path).await)
 }
 
-async fn read_dataset_inner<B: Backend>(
+async fn read_dataset_inner(
     vfs: Arc<BrushVfs>,
     load_args: &LoadDataseConfig,
-    device: &<B as Backend>::Device,
+    device: &WgpuDevice,
     json_files: Vec<std::path::PathBuf>,
     transforms_path: std::path::PathBuf,
-) -> Result<(DataStream<SplatMessage<B>>, Dataset)> {
+) -> Result<(DataStream<SplatMessage>, Dataset)> {
     let mut buf = String::new();
     vfs.reader_at_path(&transforms_path)
         .await?
