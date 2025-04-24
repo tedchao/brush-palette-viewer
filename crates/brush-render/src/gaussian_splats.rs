@@ -10,7 +10,9 @@ use burn::{
     config::Config,
     module::{Module, Param, ParamId},
     prelude::Backend,
-    tensor::{Tensor, TensorData, TensorPrimitive, activation::sigmoid, backend::AutodiffBackend},
+    tensor::{
+        Tensor, TensorData, TensorPrimitive, activation::sigmoid, backend::AutodiffBackend, s,
+    },
 };
 use glam::{Quat, Vec3};
 use rand::Rng;
@@ -182,7 +184,7 @@ impl<B: Backend> Splats<B> {
                     1,
                 )
             } else {
-                coeffs.slice([0..n, 0..n_coeffs])
+                coeffs.slice(s![.., 0..n_coeffs])
             };
             tens.detach().require_grad()
         });

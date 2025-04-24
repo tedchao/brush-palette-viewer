@@ -29,7 +29,7 @@ use burn::{
     prelude::Backend,
     tensor::{
         Bool, Distribution, Tensor, TensorData, TensorPrimitive, activation::sigmoid,
-        backend::AutodiffBackend,
+        backend::AutodiffBackend, s,
     },
 };
 use burn_cubecl::cubecl::Runtime;
@@ -125,13 +125,13 @@ impl SplatTrainer {
 
         let _span = trace_span!("Calculate losses", sync_burn = true).entered();
 
-        let pred_rgb = pred_image.clone().slice([0..img_h, 0..img_w, 0..3]);
-        let gt_rgb = batch.img_tensor.clone().slice([0..img_h, 0..img_w, 0..3]);
+        let pred_rgb = pred_image.clone().slice(s![.., .., 0..3]);
+        let gt_rgb = batch.img_tensor.clone().slice(s![.., .., 0..3]);
 
         let l1_rgb = (pred_rgb.clone() - gt_rgb).abs();
 
         let total_err = if self.config.ssim_weight > 0.0 {
-            let gt_rgb = batch.img_tensor.clone().slice([0..img_h, 0..img_w, 0..3]);
+            let gt_rgb = batch.img_tensor.clone().slice(s![.., .., 0..3]);
             let ssim_err = -self.ssim.ssim(pred_rgb, gt_rgb);
             l1_rgb * (1.0 - self.config.ssim_weight) + ssim_err * self.config.ssim_weight
         } else {
@@ -139,12 +139,12 @@ impl SplatTrainer {
         };
 
         let loss = if batch.has_alpha() {
-            let alpha_input = batch.img_tensor.clone().slice([0..img_h, 0..img_w, 3..4]);
+            let alpha_input = batch.img_tensor.clone().slice(s![.., .., 3..4]);
 
             if batch.alpha_is_mask {
                 (total_err * alpha_input).mean()
             } else {
-                let pred_alpha = pred_image.clone().slice([0..img_h, 0..img_w, 3..4]);
+                let pred_alpha = pred_image.clone().slice(s![.., .., 3..4]);
                 total_err.mean()
                     + (alpha_input - pred_alpha).abs().mean() * self.config.match_alpha_weight
             }

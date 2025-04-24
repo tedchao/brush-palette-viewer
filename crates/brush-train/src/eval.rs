@@ -4,7 +4,7 @@ use brush_render::SplatForward;
 use brush_render::gaussian_splats::Splats;
 use brush_render::render_aux::RenderAux;
 use burn::prelude::Backend;
-use burn::tensor::Tensor;
+use burn::tensor::{Tensor, s};
 use image::DynamicImage;
 
 use crate::ssim::Ssim;
@@ -32,10 +32,10 @@ pub async fn eval_stats<B: Backend + SplatForward<B>>(
         device,
     );
 
-    let gt_rgb = gt_tensor.slice([0..res.y as usize, 0..res.x as usize, 0..3]);
+    let gt_rgb = gt_tensor.slice(s![.., .., 0..3]);
 
     let (rendered, aux) = splats.render(&eval_view.camera, res, true);
-    let render_rgb = rendered.slice([0..res.y as usize, 0..res.x as usize, 0..3]);
+    let render_rgb = rendered.slice(s![.., .., 0..3]);
 
     // Simulate an 8-bit roundtrip for fair comparison.
     let render_rgb = (render_rgb * 255.0).round() / 255.0;

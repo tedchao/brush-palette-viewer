@@ -16,7 +16,7 @@ mod visualize_tools_impl {
     use brush_train::msg::{RefineStats, TrainStepStats};
     use burn::prelude::Backend;
     use burn::tensor::backend::AutodiffBackend;
-    use burn::tensor::{DType, TensorData};
+    use burn::tensor::{DType, TensorData, s};
     use burn::tensor::{ElementConversion, activation::sigmoid};
 
     use anyhow::Result;
@@ -58,13 +58,12 @@ mod visualize_tools_impl {
                     .expect("Wrong type");
                 let means = means.chunks(3).map(|c| glam::vec3(c[0], c[1], c[2]));
 
-                let base_rgb =
-                    splats
-                        .sh_coeffs
-                        .val()
-                        .slice([0..splats.num_splats() as usize, 0..1, 0..3])
-                        * SH_C0
-                        + 0.5;
+                let base_rgb = splats
+                    .sh_coeffs
+                    .val()
+                    .slice([0..splats.num_splats() as usize, 0..1])
+                    * SH_C0
+                    + 0.5;
 
                 let transparency = splats.opacities();
 
@@ -271,7 +270,7 @@ mod visualize_tools_impl {
                 )?;
 
                 let [img_h, img_w, _] = stats.pred_image.dims();
-                let pred_rgb = stats.pred_image.clone().slice([0..img_h, 0..img_w, 0..3]);
+                let pred_rgb = stats.pred_image.clone().slice(s![.., .., 0..3]);
 
                 self.rec.log(
                     "losses/main",

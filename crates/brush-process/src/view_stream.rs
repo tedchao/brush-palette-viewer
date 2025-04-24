@@ -15,7 +15,8 @@ pub(crate) async fn view_stream(
 ) -> anyhow::Result<()> {
     emitter.emit(ProcessMessage::NewSource).await;
 
-    let paths: Vec<_> = vfs.file_paths().collect();
+    let mut paths: Vec<_> = vfs.file_paths().collect();
+    alphanumeric_sort::sort_path_slice(&mut paths);
 
     for (i, path) in paths.iter().enumerate() {
         log::info!("Loading single ply file");

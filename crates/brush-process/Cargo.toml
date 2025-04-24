@@ -14,7 +14,7 @@ brush-vfs.path = "../brush-vfs"
 
 burn-wgpu.workspace = true
 
-# Workspace deps.
+alphanumeric-sort.workspace = true
 anyhow.workspace = true
 async-fn-stream.workspace = true
 burn.workspace = true

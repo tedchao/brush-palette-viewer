@@ -105,6 +105,8 @@ urlencoding = "2.1"
 hashbrown = "0.15"
 parking_lot = "0.12"
 
+alphanumeric-sort = "1.5.3"
+
 # # Uncomment this to use local burn.
 # [patch."https://github.com/tracel-ai/burn"]
 # burn = { path = "../burn/crates/burn" }
