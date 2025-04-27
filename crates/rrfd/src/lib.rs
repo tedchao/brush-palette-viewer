@@ -77,7 +77,7 @@ pub async fn save_file(default_name: &str, data: Vec<u8>) -> Result<(), PickFile
         tokio::fs::write(file.path(), data).await?;
 
         #[cfg(target_family = "wasm")]
-        file.write(&data);
+        file.write(&data).await?;
 
         Ok(())
     }
