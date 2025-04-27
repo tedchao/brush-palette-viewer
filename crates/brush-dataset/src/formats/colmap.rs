@@ -22,6 +22,11 @@ use std::collections::HashMap;
 fn find_mask_and_img(vfs: &BrushVfs, name: &str) -> Option<(PathBuf, Option<PathBuf>)> {
     // Colmap only specifies an image name, not a full path. We brute force
     // search for the image in the archive.
+    //
+    // Make sure this path doesn't start with a '/' as the files_ending_in expects
+    // things in that format (like a "filename with slashes").
+    let name = name.strip_prefix('/').unwrap_or(name);
+
     let paths: Vec<_> = vfs.files_ending_in(name).collect();
 
     let mut path_masks = HashMap::new();

@@ -54,12 +54,18 @@ struct PathKey(String);
 
 impl PathKey {
     fn from_path(path: &Path) -> Self {
-        Self(
-            path.clean()
-                .to_str()
-                .expect("Path is not valid ascii")
-                .to_lowercase(),
-        )
+        let key = path
+            .clean()
+            .to_str()
+            .expect("Path is not valid ascii")
+            .to_lowercase()
+            .replace('\\', "/");
+        let key = if key.starts_with('/') {
+            key
+        } else {
+            '/'.to_string() + &key
+        };
+        Self(key)
     }
 }
 
@@ -250,11 +256,12 @@ impl BrushVfs {
     }
 
     pub fn files_ending_in<'a>(&'a self, end_path: &'a str) -> impl Iterator<Item = PathBuf> + 'a {
-        let end_path = end_path.to_lowercase().replace('\\', "/");
-        self.lookup.values().filter_map(move |path| {
-            let full_path = path.to_str()?.to_lowercase().replace('\\', "/");
-            full_path.ends_with(&end_path).then(|| path.clone())
-        })
+        let end_keyed = PathKey::from_path(Path::new(end_path)).0;
+
+        self.lookup
+            .iter()
+            .filter(move |kv| kv.0.0.ends_with(&end_keyed))
+            .map(|kv| kv.1.clone())
     }
 
     pub fn files_with_stem<'a>(&'a self, filestem: &'a str) -> impl Iterator<Item = PathBuf> + 'a {
