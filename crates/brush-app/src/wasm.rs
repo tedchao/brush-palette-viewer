@@ -13,6 +13,8 @@ pub fn wasm_app(canvas_name: &str, start_uri: Option<&str>) -> anyhow::Result<Ar
     use anyhow::Context;
     use wasm_bindgen::JsCast;
 
+    wasm_log::init(wasm_log::Config::default());
+
     let context = Arc::new(UiProcess::new());
 
     let wgpu_options = brush_ui::create_egui_options();
