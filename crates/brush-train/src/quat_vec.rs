@@ -17,10 +17,10 @@ pub(crate) fn quaternion_vec_multiply<B: Backend>(
     let vz = vectors.slice([0..num_points, 2..3]);
 
     // Common terms
-    let qw2 = qw.clone().powf_scalar(2.0);
-    let qx2 = qx.clone().powf_scalar(2.0);
-    let qy2 = qy.clone().powf_scalar(2.0);
-    let qz2 = qz.clone().powf_scalar(2.0);
+    let qw2 = qw.clone().powi_scalar(2);
+    let qx2 = qx.clone().powi_scalar(2);
+    let qy2 = qy.clone().powi_scalar(2);
+    let qz2 = qz.clone().powi_scalar(2);
 
     // Cross products (multiplied by 2.0 later)
     let xy = qx.clone() * qy.clone();

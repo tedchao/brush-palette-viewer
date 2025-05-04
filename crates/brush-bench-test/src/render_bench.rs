@@ -78,8 +78,8 @@ fn generate_bench_data() -> anyhow::Result<()> {
 
     let quats = Tensor::cat(
         vec![
-            Tensor::sqrt(-u.clone() + 1.0) * Tensor::sin(v.clone()),
-            Tensor::sqrt(-u.clone() + 1.0) * Tensor::cos(v),
+            Tensor::sqrt(1.0 - u.clone()) * Tensor::sin(v.clone()),
+            Tensor::sqrt(1.0 - u.clone()) * Tensor::cos(v),
             Tensor::sqrt(u.clone()) * Tensor::sin(w.clone()),
             Tensor::sqrt(u) * Tensor::cos(w),
         ],

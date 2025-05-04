@@ -66,11 +66,13 @@ skip = [
     { name = 'windows_x86_64_gnu' },  # Old version from winit.
     { name = 'windows-targets' },     # Old version from winit.
     { name = 'windows-sys' },         # Old version from winit.
-    { name = 'windows-core' },        # Wgpu & rerun
-    { name = 'windows-strings' },     # Wgpu & rerun
-    { name = 'windows-result' },      # Wgpu & rerun
-    { name = 'windows-interface' },   # Wgpu & rerun
-    { name = 'windows-implement' },   # Wgpu & rerun
+
+    { name = 'windows-core' },      # Wgpu & rerun
+    { name = 'windows-strings' },   # Wgpu & rerun
+    { name = 'windows-result' },    # Wgpu & rerun
+    { name = 'windows-interface' }, # Wgpu & rerun
+    { name = 'windows-implement' }, # Wgpu & rerun
+
 
     { name = 'rustix' },        # Winit & clap
     { name = 'linux-raw-sys' }, # Winit & clap
@@ -80,8 +82,7 @@ skip = [
     { name = 'objc2-app-kit' },    # eframe & rfd
     { name = 'objc2' },            # eframe & rfd
 
-    { name = 'windows' },            # Wgpu & kiddo
-    { name = 'codespan-reporting' }, # Wgpu & naga_oil
+    { name = 'windows' }, # Wgpu & kiddo
 
     { name = 'hashbrown' },
 
@@ -111,6 +112,7 @@ allow = [
     "Zlib",                           # https://tldrlegal.com/license/zlib-libpng-license-(zlib)
     "Unlicense",                      # https://www.tldrlegal.com/license/unlicense
     "Unicode-3.0",
+    "CDLA-Permissive-2.0",
 ]
 
 [[licenses.clarify]]

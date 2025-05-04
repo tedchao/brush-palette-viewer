@@ -40,9 +40,7 @@ pub async fn eval_stats<B: Backend + SplatForward<B>>(
     // Simulate an 8-bit roundtrip for fair comparison.
     let render_rgb = (render_rgb * 255.0).round() / 255.0;
 
-    let mse = (render_rgb.clone() - gt_rgb.clone())
-        .powf_scalar(2.0)
-        .mean();
+    let mse = (render_rgb.clone() - gt_rgb.clone()).powi_scalar(2).mean();
 
     let psnr = mse.recip().log() * 10.0 / std::f32::consts::LN_10;
     let ssim_measure = Ssim::new(11, 3, device);

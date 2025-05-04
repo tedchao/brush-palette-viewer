@@ -52,7 +52,7 @@ pub struct SplatTrainer {
 }
 
 fn inv_sigmoid<B: Backend>(x: Tensor<B, 1>) -> Tensor<B, 1> {
-    (x.clone() / (-x + 1.0)).log()
+    (x.clone() / (1.0f32 - x)).log()
 }
 
 fn create_default_optimizer() -> OptimizerType {
@@ -117,8 +117,8 @@ impl SplatTrainer {
 
         let total_err = if self.config.ssim_weight > 0.0 {
             let gt_rgb = batch.img_tensor.clone().slice(s![.., .., 0..3]);
-            let ssim_err = -self.ssim.ssim(pred_rgb, gt_rgb);
-            l1_rgb * (1.0 - self.config.ssim_weight) + ssim_err * self.config.ssim_weight
+            let ssim_err = self.ssim.ssim(pred_rgb, gt_rgb);
+            l1_rgb * (1.0 - self.config.ssim_weight) - (ssim_err * self.config.ssim_weight)
         } else {
             l1_rgb
         };

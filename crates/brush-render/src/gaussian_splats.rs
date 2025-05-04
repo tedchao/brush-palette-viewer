@@ -33,10 +33,8 @@ pub struct Splats<B: Backend> {
 }
 
 fn norm_vec<B: Backend>(vec: Tensor<B, 2>) -> Tensor<B, 2> {
-    let magnitudes = Tensor::clamp_min(
-        Tensor::sum_dim(vec.clone().powf_scalar(2.0), 1).sqrt(),
-        1e-32,
-    );
+    let magnitudes =
+        Tensor::clamp_min(Tensor::sum_dim(vec.clone().powi_scalar(2), 1).sqrt(), 1e-32);
     vec / magnitudes
 }
 
