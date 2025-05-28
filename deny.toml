@@ -71,9 +71,6 @@ skip = [
     { name = 'windows-interface' }, # Wgpu & rerun
     { name = 'windows-implement' }, # Wgpu & rerun
 
-
-    { name = "webpki-roots" },
-
     { name = 'rustix' },        # Winit & clap
     { name = 'linux-raw-sys' }, # Winit & clap
 
@@ -88,6 +85,9 @@ skip = [
 
     { name = 'colored' },
     { name = 'spin' },
+
+    { name = "tower-http" },
+    { name = "rustc-hash" },
 
     { name = 'tower' },
     { name = 'indexmap' },
