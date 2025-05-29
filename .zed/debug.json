@@ -1,0 +1,17 @@
+[
+  {
+    "label": "Debug run",
+    "adapter": "CodeLLDB",
+    "program": "$ZED_WORKTREE_ROOT\\target\\debug\\brush_app.exe",
+    "request": "launch",
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "build": {
+      "label": "Build",
+      "command": "cargo build",
+      "args": [],
+      "options": {
+        "cwd": "$ZED_WORKTREE_ROOT"
+      }
+    }
+  }
+]
