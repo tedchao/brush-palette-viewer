@@ -32,6 +32,7 @@ use burn::{
         backend::AutodiffBackend, s,
     },
 };
+
 use burn_cubecl::cubecl::Runtime;
 use hashbrown::{HashMap, HashSet};
 use std::f64::consts::SQRT_2;

@@ -21,7 +21,7 @@ use burn::tensor::{
     ops::{FloatTensorOps, IntTensorOps},
 };
 
-use burn_cubecl::cubecl::server::Bindings;
+use burn_cubecl::{cubecl::server::Bindings, kernel::into_contiguous};
 use burn_wgpu::CubeTensor;
 use burn_wgpu::WgpuRuntime;
 use glam::uvec2;
@@ -40,16 +40,13 @@ pub(crate) fn calc_tile_bounds(img_size: glam::UVec2) -> glam::UVec2 {
 // dispatch to avoid this.
 // Estimating the max number of intersects can be a bad hack though... The worst case sceneario is so massive
 // that it's easy to run out of memory... How do we actually properly deal with this :/
-pub(crate) fn max_intersections(img_size: glam::UVec2, num_splats: u32) -> u32 {
+pub fn max_intersections(img_size: glam::UVec2, num_splats: u32) -> u32 {
     // Divide screen into tiles.
     let tile_bounds = calc_tile_bounds(img_size);
     // Assume on average each splat is maximally covering half x half the screen,
     // and adjust for the variance such that we're fairly certain we have enough intersections.
     let num_tiles = tile_bounds[0] * tile_bounds[1];
-
-    let expected_intersections = (num_tiles / 8)
-        .saturating_mul(num_splats)
-        .saturating_add(5 * (num_tiles.isqrt().saturating_mul(num_splats.isqrt())));
+    let expected_intersections = 64 * (num_tiles.saturating_mul(num_splats.isqrt()));
     // clamp to max nr. of dispatches.
     expected_intersections.min(INTERSECTS_UPPER_BOUND)
 }
@@ -77,13 +74,19 @@ pub(crate) fn render_forward(
 
     let _span = tracing::trace_span!("render_forward", sync_burn = true).entered();
 
+    let means = into_contiguous(means);
+    let log_scales = into_contiguous(log_scales);
+    let quats = into_contiguous(quats);
+    let sh_coeffs = into_contiguous(sh_coeffs);
+    let opacities = into_contiguous(opacities);
+
     // Check whether input dimensions are valid.
     DimCheck::new()
-        .check_dims(&means, &["D".into(), 3.into()])
-        .check_dims(&log_scales, &["D".into(), 3.into()])
-        .check_dims(&quats, &["D".into(), 4.into()])
-        .check_dims(&sh_coeffs, &["D".into(), "C".into(), 3.into()])
-        .check_dims(&opacities, &["D".into()]);
+        .check_dims("means", &means, &["D".into(), 3.into()])
+        .check_dims("log_scales", &log_scales, &["D".into(), 3.into()])
+        .check_dims("quats", &quats, &["D".into(), 4.into()])
+        .check_dims("sh_coeffs", &sh_coeffs, &["D".into(), "C".into(), 3.into()])
+        .check_dims("opacities", &opacities, &["D".into()]);
 
     // Divide screen into tiles.
     let tile_bounds = calc_tile_bounds(img_size);
@@ -171,14 +174,17 @@ pub(crate) fn render_forward(
     let projected_splats =
         create_tensor::<2, _>([total_splats, projected_size], device, client, DType::F32);
 
-    // Create a buffer to determine how many threads to dispatch for all visible splats.
-    let num_vis_wg = create_dispatch_buffer(num_visible, [shaders::helpers::MAIN_WG, 1, 1]);
-
     tracing::trace_span!("ProjectVisible", sync_burn = true).in_scope(|| {
+        // Create a buffer to determine how many threads to dispatch for all visible splats.
+        let num_vis_wg = create_dispatch_buffer(
+            num_visible.clone(),
+            shaders::project_visible::WORKGROUP_SIZE,
+        );
+
         // Normal execute as loops in here could be iffy.
         client.execute(
             ProjectVisible::task(),
-            CubeCount::Dynamic(num_vis_wg.clone().handle.binding()),
+            CubeCount::Dynamic(num_vis_wg.handle.binding()),
             Bindings::new().with_buffers(vec![
                 uniforms_buffer.clone().handle.binding(),
                 means.handle.binding(),
@@ -202,11 +208,16 @@ pub(crate) fn render_forward(
             MainBackendBase::int_zeros([num_tiles as usize + 1].into(), device);
         let splat_intersect_counts = MainBackendBase::int_zeros([total_splats + 1].into(), device);
 
+        let num_vis_map_wg = create_dispatch_buffer(
+            num_visible,
+            shaders::map_gaussian_to_intersects::WORKGROUP_SIZE,
+        );
+
         // First do a prepass to compute the tile counts, then fill in intersection counts.
         tracing::trace_span!("MapGaussiansToIntersectPrepass", sync_burn = true).in_scope(|| {
             client.execute(
                 MapGaussiansToIntersect::task(true),
-                CubeCount::Dynamic(num_vis_wg.clone().handle.binding()),
+                CubeCount::Dynamic(num_vis_map_wg.clone().handle.binding()),
                 Bindings::new().with_buffers(vec![
                     uniforms_buffer.clone().handle.binding(),
                     projected_splats.clone().handle.binding(),
@@ -228,7 +239,7 @@ pub(crate) fn render_forward(
         tracing::trace_span!("MapGaussiansToIntersect", sync_burn = true).in_scope(|| {
             client.execute(
                 MapGaussiansToIntersect::task(false),
-                CubeCount::Dynamic(num_vis_wg.clone().handle.binding()),
+                CubeCount::Dynamic(num_vis_map_wg.clone().handle.binding()),
                 Bindings::new().with_buffers(vec![
                     uniforms_buffer.clone().handle.binding(),
                     projected_splats.clone().handle.binding(),
@@ -287,11 +298,11 @@ pub(crate) fn render_forward(
         out_img.handle.clone().binding(),
     ]);
 
-    let (visible, final_index) = if bwd_info {
+    let (visible, final_idx) = if bwd_info {
         let visible = MainBackendBase::float_zeros([total_splats].into(), device);
 
         // Buffer containing the final visible splat per tile.
-        let final_index = create_tensor::<2, _>(
+        let final_idx = create_tensor::<2, _>(
             [img_size.y as usize, img_size.x as usize],
             device,
             client,
@@ -301,17 +312,15 @@ pub(crate) fn render_forward(
         // Add the buffer to the bindings
         bindings = bindings.with_buffers(vec![
             global_from_compact_gid.handle.clone().binding(),
-            final_index.handle.clone().binding(),
+            final_idx.handle.clone().binding(),
             visible.handle.clone().binding(),
         ]);
 
-        (visible, final_index)
+        (visible, final_idx)
     } else {
         let visible = create_tensor::<1, _>([1], device, client, DType::F32);
-
-        // Buffer containing the final visible splat per tile.
-        let final_index = create_tensor::<2, _>([1, 1], device, client, DType::I32);
-        (visible, final_index)
+        let final_idx = create_tensor::<2, _>([1, 1], device, client, DType::I32);
+        (visible, final_idx)
     };
 
     // Compile the kernel, including/excluding info for backwards pass.
@@ -335,7 +344,7 @@ pub(crate) fn render_forward(
             compact_gid_from_isect,
             global_from_compact_gid,
             visible,
-            final_index,
+            final_idx,
         },
     )
 }

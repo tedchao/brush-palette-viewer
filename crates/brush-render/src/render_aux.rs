@@ -23,14 +23,14 @@ pub struct RenderAux<B: Backend> {
     pub compact_gid_from_isect: IntTensor<B>,
     pub global_from_compact_gid: IntTensor<B>,
     pub visible: FloatTensor<B>,
-    pub final_index: IntTensor<B>,
+    pub final_idx: IntTensor<B>,
 }
 
 impl<B: Backend> RenderAux<B> {
     #[allow(clippy::single_range_in_vec_init)]
     pub fn calc_tile_depth(&self) -> Tensor<B, 2, Int> {
         let tile_offsets: Tensor<B, 1, Int> = Tensor::from_primitive(self.tile_offsets.clone());
-        let final_index: Tensor<B, 2, Int> = Tensor::from_primitive(self.final_index.clone());
+        let final_index: Tensor<B, 2, Int> = Tensor::from_primitive(self.final_idx.clone());
 
         let n_bins = tile_offsets.dims()[0];
         let max = tile_offsets.clone().slice([1..n_bins]);
@@ -76,8 +76,8 @@ impl<B: Backend> RenderAux<B> {
             "Brush doesn't support this many gaussians currently. {num_visible} > {GAUSSIANS_UPPER_BOUND}"
         );
 
-        if self.final_index.shape().dims() != [1, 1] {
-            let final_index: Tensor<B, 2, Int> = Tensor::from_primitive(self.final_index.clone());
+        if self.final_idx.shape().dims() != [1, 1] {
+            let final_index: Tensor<B, 2, Int> = Tensor::from_primitive(self.final_idx.clone());
             let final_index = final_index
                 .into_data()
                 .to_vec::<i32>()

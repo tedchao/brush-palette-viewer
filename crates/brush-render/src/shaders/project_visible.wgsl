@@ -165,7 +165,7 @@ fn read_coeffs(base_id: ptr<function, u32>) -> vec3f {
 }
 
 @compute
-@workgroup_size(helpers::MAIN_WG, 1, 1)
+@workgroup_size(512, 1, 1)
 fn main(@builtin(global_invocation_id) gid: vec3u) {
     let compact_gid = i32(gid.x);
 

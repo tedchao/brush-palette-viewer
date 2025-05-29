@@ -22,26 +22,38 @@ impl<R: CubeRuntime> DimCheck<'_, R> {
         }
     }
 
-    pub fn check_dims(mut self, tensor: &CubeTensor<R>, bounds: &[DimBound]) -> Self {
+    pub fn check_dims(mut self, name: &str, tensor: &CubeTensor<R>, bounds: &[DimBound]) -> Self {
         let dims = &tensor.shape.dims;
 
         match self.device.as_ref() {
             None => self.device = Some(tensor.device.clone()),
             Some(d) => assert_eq!(
                 d, &tensor.device,
-                "Tensors should be on same device to start with."
+                "Tensors {name} should be on same device to start with."
             ),
         }
+        assert!(
+            tensor.is_contiguous(),
+            "Tensor {name} must be contiguous {:?} {:?}",
+            tensor.strides,
+            tensor.shape
+        );
 
         for (cur_dim, bound) in dims.iter().zip(bounds) {
             match bound {
                 DimBound::Exact(dim) => {
-                    assert_eq!(cur_dim, dim, "Dimension mismatch:: {cur_dim} != {dim}");
+                    assert_eq!(
+                        cur_dim, dim,
+                        "Dimension mismatch in {name} :: {cur_dim} != {dim}"
+                    );
                 }
                 DimBound::Any => (),
                 DimBound::Matching(id) => {
                     let dim = self.bound.entry(id).or_insert(*cur_dim);
-                    assert_eq!(cur_dim, dim, "Dimension mismatch:: {cur_dim} != {dim}");
+                    assert_eq!(
+                        cur_dim, dim,
+                        "Dimension mismatch in {name} :: {cur_dim} != {dim}"
+                    );
                 }
             }
         }

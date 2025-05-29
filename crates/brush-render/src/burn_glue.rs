@@ -64,7 +64,7 @@ impl SplatForward<Self> for Fusion<MainBackendBase> {
                     global_from_compact_gid,
                     out_img,
                     visible,
-                    final_index,
+                    final_idx,
                 ] = outputs;
 
                 let (img, aux) = MainBackendBase::render_splats(
@@ -96,7 +96,7 @@ impl SplatForward<Self> for Fusion<MainBackendBase> {
                 );
 
                 h.register_float_tensor::<MainBackendBase>(&visible.id, aux.visible);
-                h.register_int_tensor::<MainBackendBase>(&final_index.id, aux.final_index);
+                h.register_int_tensor::<MainBackendBase>(&final_idx.id, aux.final_idx);
             }
         }
 
@@ -137,7 +137,7 @@ impl SplatForward<Self> for Fusion<MainBackendBase> {
                 .tensor_uninitialized(vec![max_intersects as usize], DType::I32),
             global_from_compact_gid: client.tensor_uninitialized(vec![num_points], DType::I32),
             visible: client.tensor_uninitialized(visible_shape, DType::F32),
-            final_index: client.tensor_uninitialized(final_index_shape, DType::I32),
+            final_idx: client.tensor_uninitialized(final_index_shape, DType::I32),
         };
 
         let desc = CustomOpIr::new(
@@ -157,7 +157,7 @@ impl SplatForward<Self> for Fusion<MainBackendBase> {
                 aux.global_from_compact_gid.to_ir_out(),
                 out_img.to_ir_out(),
                 aux.visible.to_ir_out(),
-                aux.final_index.to_ir_out(),
+                aux.final_idx.to_ir_out(),
             ],
         );
 
