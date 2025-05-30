@@ -23,7 +23,6 @@ brush-render.path = "../brush-render"
 brush-dataset.path = "../brush-dataset"
 brush-process.path = "../brush-process"
 brush-vfs.path = "../brush-vfs"
-sync-span.path = "../sync-span"
 
 burn-wgpu.workspace = true
 burn-cubecl.workspace = true
@@ -66,7 +65,8 @@ tokio = { workspace = true, features = ["io-util", "rt", "rt-multi-thread"] }
 
 
 [target.'cfg(target_family = "wasm")'.dependencies]
-tracing-wasm.workspace = true
+tracing-wasm = { workspace = true, optional = true }
+tracing-subscriber = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["io-util", "rt"] }
 wasm-bindgen.workspace = true
 web-sys.workspace = true
@@ -90,5 +90,5 @@ workspace = true
 
 
 [features]
-tracy = ["brush-ui/tracy", "dep:tracing-tracy"]
-tracing = ["brush-ui/tracing", "dep:tracing-subscriber"]
+tracy = ["dep:tracing-tracy"]
+tracing = ["dep:tracing-subscriber"]
