@@ -1,4 +1,3 @@
-#![allow(clippy::single_range_in_vec_init)]
 #![recursion_limit = "256"]
 
 mod safetensor_utils;

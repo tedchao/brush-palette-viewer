@@ -27,7 +27,6 @@ pub struct RenderAux<B: Backend> {
 }
 
 impl<B: Backend> RenderAux<B> {
-    #[allow(clippy::single_range_in_vec_init)]
     pub fn calc_tile_depth(&self) -> Tensor<B, 2, Int> {
         let tile_offsets: Tensor<B, 1, Int> = Tensor::from_primitive(self.tile_offsets.clone());
         let final_index: Tensor<B, 2, Int> = Tensor::from_primitive(self.final_idx.clone());
