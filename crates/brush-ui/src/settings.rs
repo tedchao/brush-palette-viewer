@@ -254,14 +254,16 @@ impl AppPanel for SettingsPanel {
                     load_option = Some(DataSource::PickDirectory);
                 }
 
-                if ui
-                    .add(
-                        egui::Button::new("URL")
-                            .min_size(egui::vec2(50.0, 32.0))
-                            .fill(egui::Color32::from_rgb(70, 130, 180))
-                            .stroke(egui::Stroke::NONE),
-                    )
-                    .clicked()
+                let can_url = !cfg!(target_os = "android");
+                if can_url
+                    && ui
+                        .add(
+                            egui::Button::new("URL")
+                                .min_size(egui::vec2(50.0, 32.0))
+                                .fill(egui::Color32::from_rgb(70, 130, 180))
+                                .stroke(egui::Stroke::NONE),
+                        )
+                        .clicked()
                 {
                     self.show_url_dialog = true;
                 }
@@ -345,6 +347,7 @@ fn slider<T>(
     ui.add(s);
 }
 
+#[allow(unused)]
 fn text_input(ui: &mut Ui, label: &str, text: &mut String) {
     let label = ui.label(label);
     ui.text_edit_singleline(text).labelled_by(label.id);

@@ -40,7 +40,7 @@ pub async fn pick_file() -> Result<impl AsyncRead + Unpin, PickFileError> {
     #[cfg(target_os = "android")]
     {
         let file = android::pick_file().await?;
-        tokio::io::BufReader::new(file)
+        Ok(tokio::io::BufReader::new(file))
     }
 }
 
@@ -85,6 +85,7 @@ pub async fn save_file(default_name: &str, data: Vec<u8>) -> Result<(), PickFile
     #[cfg(target_os = "android")]
     {
         let _ = default_name;
+        let _ = data;
         panic!("No saving on Android yet.")
     }
 }

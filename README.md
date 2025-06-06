@@ -69,10 +69,10 @@ As a one time setup, make sure you have the Android SDK & NDK installed.
 - Install cargo-ndk to manage building a lib `cargo install cargo-ndk`
 
 Each time you change the rust code, run
-- `cargo ndk -t arm64-v8a -o app/src/main/jniLibs/ build`
+- `cargo ndk -t arm64-v8a -o crates/brush-app/app/src/main/jniLibs/ build`
 - Nb:  Nb, for best performance, build in release mode. This is separate
   from the Android Studio app build configuration.
-- `cargo ndk -t arm64-v8a -o app/src/main/jniLibs/  build --release`
+- `cargo ndk -t arm64-v8a -o crates/brush-app/app/src/main/jniLibs/  build --release`
 
 You can now either run the project from Android Studio (Android Studio does NOT build the rust code), or run it from the command line:
 ```

@@ -1,4 +1,3 @@
-use anyhow::{Context, Result, anyhow};
 use jni::JNIEnv;
 use jni::objects::{GlobalRef, JClass, JStaticMethodID};
 use jni::signature::Primitive;
@@ -34,14 +33,17 @@ pub fn jni_initialize(vm: Arc<jni::JavaVM>) {
 }
 
 #[allow(unused)]
-pub(crate) async fn pick_file() -> Result<File> {
+pub(crate) async fn pick_file() -> std::io::Result<File> {
     let (sender, mut receiver) = tokio::sync::mpsc::channel(1);
     {
         let channel = CHANNEL.write();
         if let Ok(mut channel) = channel {
             *channel = Some(sender);
         } else {
-            anyhow::bail!("Failed to initialize file picker");
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "Failed to initialize file picker channel",
+            ));
         }
     }
 
@@ -52,7 +54,9 @@ pub(crate) async fn pick_file() -> Result<File> {
             .unwrap()
             .clone()
             .expect("Failed to initialize Java VM");
-        let mut env = java_vm.attach_current_thread()?;
+        let mut env = java_vm.attach_current_thread().map_err(|e| {
+            std::io::Error::new(std::io::ErrorKind::Other, format!("JNI error: {:?}", e))
+        })?;
 
         let class = FILE_PICKER_CLASS
             .read()
@@ -70,16 +74,26 @@ pub(crate) async fn pick_file() -> Result<File> {
                 jni::signature::ReturnType::Primitive(Primitive::Void),
                 &[],
             )
-        }?;
+        }
+        .map_err(|e| {
+            std::io::Error::new(std::io::ErrorKind::Other, format!("JNI error: {:?}", e))
+        })?;
     }
+    let file = receiver.recv().await.ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "Failed to receive file picker result",
+        )
+    });
 
-    let file = receiver
-        .recv()
-        .await
-        .ok_or(anyhow!("Failed to receive anything"));
-
-    let file = file?;
-    file.context("No file selected")
+    match file {
+        Ok(Some(file)) => Ok(file),
+        Ok(None) => Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "No file selected",
+        )),
+        Err(e) => Err(e),
+    }
 }
 
 #[unsafe(no_mangle)]

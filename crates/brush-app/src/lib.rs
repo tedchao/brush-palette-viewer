@@ -3,6 +3,7 @@
 
 mod ui_process;
 
+use brush_ui::UiMode;
 use brush_ui::app::App;
 use jni::sys::{JNI_VERSION_1_6, jint};
 use std::os::raw::c_void;
@@ -19,7 +20,7 @@ pub extern "system" fn JNI_OnLoad(vm: jni::JavaVM, _: *mut c_void) -> jint {
 
 #[unsafe(no_mangle)]
 fn android_main(app: winit::platform::android::activity::AndroidApp) {
-    let context = Arc::new(UiProcess::new());
+    let context = Arc::new(UiProcess::new(UiMode::Full));
 
     let wgpu_options = brush_ui::create_egui_options();
     let runtime = tokio::runtime::Builder::new_multi_thread()
