@@ -7,12 +7,10 @@ use wgpu::AdapterInfo;
 
 pub struct StatsPanel {
     device: WgpuDevice,
-
     last_train_step: (Duration, u32),
     train_iter_per_s: f32,
     last_eval: Option<String>,
     cur_sh_degree: u32,
-
     training_started: bool,
     num_splats: u32,
     frames: u32,
@@ -107,97 +105,128 @@ impl AppPanel for StatsPanel {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _: &dyn BrushUiProcess) {
-        egui::Grid::new("stats_grid")
-            .num_columns(2)
-            .spacing([40.0, 4.0])
-            .striped(true)
-            .show(ui, |ui| {
-                ui.label("Splats");
-                ui.label(format!("{}", self.num_splats));
-                ui.end_row();
+        ui.vertical(|ui| {
+            // Model Stats
+            ui.heading("Model Stats");
+            ui.separator();
 
-                ui.label("SH Degree");
-                ui.label(format!("{}", self.cur_sh_degree));
-                ui.end_row();
-
-                if self.frames > 0 {
-                    ui.label("Frames");
-                    ui.label(format!("{}", self.frames));
-                    ui.end_row();
-                }
-
-                if self.training_started {
-                    ui.label("Train step");
-                    ui.label(format!("{}", self.last_train_step.1));
-                    ui.end_row();
-
-                    ui.label("Steps/s");
-                    ui.label(format!("{:.1}", self.train_iter_per_s));
-                    ui.end_row();
-
-                    ui.label("Last eval:");
-                    ui.label(if let Some(eval) = self.last_eval.as_ref() {
-                        eval
-                    } else {
-                        "--"
-                    });
-                    ui.end_row();
-
-                    ui.label("Training time");
-                    ui.label(format!(
-                        "{}",
-                        // Format in at most whole seconds.
-                        humantime::format_duration(Duration::from_secs(
-                            self.last_train_step.0.as_secs()
-                        ))
-                    ));
-                    ui.end_row();
-                }
-
-                let client = WgpuRuntime::client(&self.device);
-                let memory = client.memory_usage();
-
-                ui.label("GPU memory");
-                ui.end_row();
-
-                ui.label("Bytes in use");
-                ui.label(bytes_format(memory.bytes_in_use));
-                ui.end_row();
-
-                ui.label("Bytes reserved");
-                ui.label(bytes_format(memory.bytes_reserved));
-                ui.end_row();
-
-                ui.label("Active allocations");
-                ui.label(format!("{}", memory.number_allocs));
-                ui.end_row();
-            });
-
-        // On WASM, adapter info is mostly private, not worth showing.
-        if !cfg!(target_family = "wasm") {
-            egui::Grid::new("gpu_grid")
+            let first_col_width = ui.available_width() * 0.4;
+            egui::Grid::new("model_stats_grid")
                 .num_columns(2)
-                .spacing([40.0, 4.0])
+                .spacing([20.0, 4.0])
                 .striped(true)
+                .min_col_width(first_col_width)
+                .max_col_width(first_col_width)
                 .show(ui, |ui| {
-                    ui.label("GPU");
+                    ui.label("Splats");
+                    ui.label(format!("{}", self.num_splats));
                     ui.end_row();
 
-                    ui.label("Name");
-                    ui.label(&self.adapter_info.name);
+                    ui.label("SH Degree");
+                    ui.label(format!("{}", self.cur_sh_degree));
                     ui.end_row();
 
-                    ui.label("Type");
-                    ui.label(format!("{:?}", self.adapter_info.device_type));
+                    if self.frames > 0 {
+                        ui.label("Frames");
+                        ui.label(format!("{}", self.frames));
+                        ui.end_row();
+                    }
+                });
+
+            if self.training_started {
+                ui.add_space(10.0);
+                ui.heading("Training Stats");
+                ui.separator();
+
+                let first_col_width = ui.available_width() * 0.4;
+                egui::Grid::new("training_stats_grid")
+                    .num_columns(2)
+                    .spacing([20.0, 4.0])
+                    .striped(true)
+                    .min_col_width(first_col_width)
+                    .max_col_width(first_col_width)
+                    .show(ui, |ui| {
+                        ui.label("Train step");
+                        ui.label(format!("{}", self.last_train_step.1));
+                        ui.end_row();
+
+                        ui.label("Steps/s");
+                        ui.label(format!("{:.1}", self.train_iter_per_s));
+                        ui.end_row();
+
+                        ui.label("Last eval");
+                        ui.label(if let Some(eval) = self.last_eval.as_ref() {
+                            eval
+                        } else {
+                            "--"
+                        });
+                        ui.end_row();
+
+                        ui.label("Training time");
+                        ui.label(format!(
+                            "{}",
+                            humantime::format_duration(Duration::from_secs(
+                                self.last_train_step.0.as_secs()
+                            ))
+                        ));
+                        ui.end_row();
+                    });
+            }
+
+            ui.add_space(10.0);
+            ui.heading("GPU");
+            ui.separator();
+
+            let client = WgpuRuntime::client(&self.device);
+            let memory = client.memory_usage();
+
+            let first_col_width = ui.available_width() * 0.4;
+            egui::Grid::new("memory_stats_grid")
+                .num_columns(2)
+                .spacing([20.0, 4.0])
+                .striped(true)
+                .min_col_width(first_col_width)
+                .max_col_width(first_col_width)
+                .show(ui, |ui| {
+                    ui.label("Bytes in use");
+                    ui.label(bytes_format(memory.bytes_in_use));
                     ui.end_row();
 
-                    ui.label("Driver");
-                    ui.label(format!(
-                        "{}, {}",
-                        self.adapter_info.driver, self.adapter_info.driver_info
-                    ));
+                    ui.label("Bytes reserved");
+                    ui.label(bytes_format(memory.bytes_reserved));
+                    ui.end_row();
+
+                    ui.label("Active allocations");
+                    ui.label(format!("{}", memory.number_allocs));
                     ui.end_row();
                 });
-        }
+
+            // On WASM, adapter info is mostly private, not worth showing.
+            if !cfg!(target_family = "wasm") {
+                let first_col_width = ui.available_width() * 0.4;
+                egui::Grid::new("gpu_info_grid")
+                    .num_columns(2)
+                    .spacing([20.0, 4.0])
+                    .striped(true)
+                    .min_col_width(first_col_width)
+                    .max_col_width(first_col_width)
+                    .show(ui, |ui| {
+                        ui.label("Name");
+                        ui.label(&self.adapter_info.name);
+                        ui.end_row();
+
+                        ui.label("Type");
+                        ui.label(format!("{:?}", self.adapter_info.device_type));
+                        ui.end_row();
+
+                        ui.label("Driver");
+                        ui.label(format!(
+                            "{}, {}",
+                            self.adapter_info.driver, self.adapter_info.driver_info
+                        ));
+                        ui.end_row();
+                    });
+            }
+        });
     }
 }
