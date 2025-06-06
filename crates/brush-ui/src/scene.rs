@@ -177,7 +177,7 @@ impl AppPanel for ScenePanel {
                 self.view_splats = vec![];
                 self.frame_count = 0;
                 self.frame = 0.0;
-                self.live_update = false;
+                self.live_update = true;
                 self.paused = false;
                 self.err = None;
                 self.backbuffer.reset();
