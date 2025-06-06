@@ -1,6 +1,6 @@
 use glam::Affine3A;
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, PartialEq)]
 pub struct Camera {
     pub fov_x: f64,
     pub fov_y: f64,

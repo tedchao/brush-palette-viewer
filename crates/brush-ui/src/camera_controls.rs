@@ -19,13 +19,12 @@ pub struct CameraController {
     pub position: Vec3,
     pub rotation: Quat,
     pub focus_distance: f32,
-
-    clamping: CameraClamping,
+    pub speed_scale: f32,
+    pub clamping: CameraClamping,
 
     roll: Quat,
     fly_velocity: Vec3,
     orbit_velocity: Vec2,
-    speed_scale: f32,
 }
 
 pub fn smooth_orbit(

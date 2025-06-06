@@ -6,25 +6,25 @@ use std::sync::Arc;
 
 use brush_render::{
     MainBackend,
-    camera::{focal_to_fov, fov_to_focal},
+    camera::{Camera, focal_to_fov, fov_to_focal},
     gaussian_splats::Splats,
 };
 use eframe::egui_wgpu::Renderer;
-use egui::{Color32, Rect};
-use glam::{Affine3A, UVec2};
+use egui::{Color32, Rect, Slider};
+use glam::UVec2;
 use tokio_with_wasm::alias as tokio_wasm;
 use tracing::trace_span;
 use web_time::Instant;
 
 use crate::{
-    BrushUiProcess, UiMode, burn_texture::BurnTexture, draw_checkerboard, panels::AppPanel,
-    size_for_splat_view,
+    BrushUiProcess, UiMode, app::CameraSettings, burn_texture::BurnTexture, draw_checkerboard,
+    panels::AppPanel, size_for_splat_view,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 struct RenderState {
     size: UVec2,
-    cam_transform: Affine3A,
+    cam: Camera,
     frame: f32,
 }
 
@@ -108,11 +108,11 @@ impl ScenePanel {
 
         let state = RenderState {
             size,
-            cam_transform: camera.local_to_world(),
+            cam: camera.clone(),
             frame: self.frame,
         };
 
-        let dirty = self.last_state != Some(state);
+        let dirty = self.last_state != Some(state.clone());
 
         if dirty {
             self.last_state = Some(state);
@@ -373,6 +373,26 @@ For bigger training runs consider using the native app."#,
                 }
 
                 if self.ui_mode == UiMode::Full {
+                    ui.add_space(15.0);
+
+                    // FOV slider
+                    ui.label("Field of View:");
+                    let current_camera = process.current_camera();
+                    let mut fov_degrees = current_camera.fov_y.to_degrees() as f32;
+                    let response = ui.add(
+                        Slider::new(&mut fov_degrees, 10.0..=140.0)
+                            .suffix("°")
+                            .show_value(true)
+                            .custom_formatter(|val, _| format!("{val:.0}°")),
+                    );
+
+                    if response.changed() {
+                        process.set_cam_settings(CameraSettings {
+                            fov_y: fov_degrees.to_radians() as f64,
+                            ..process.get_cam_settings()
+                        });
+                    }
+
                     ui.selectable_label(false, "Controls")
                         .on_hover_ui_at_pointer(|ui| {
                             ui.heading("Controls");

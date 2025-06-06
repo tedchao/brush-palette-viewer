@@ -84,6 +84,24 @@ impl BrushUiProcess for UiProcess {
         }
     }
 
+    fn get_cam_settings(&self) -> CameraSettings {
+        let cam = self.current_camera();
+        let inner = self.inner.read();
+
+        CameraSettings {
+            fov_y: cam.fov_y,
+            position: cam.position,
+            rotation: cam.rotation,
+            focus_distance: inner.controls.focus_distance,
+            speed_scale: if inner.controls.speed_scale == 1.0 {
+                None
+            } else {
+                Some(inner.controls.speed_scale)
+            },
+            clamping: inner.controls.clamping.clone(),
+        }
+    }
+
     fn set_cam_settings(&self, settings: CameraSettings) {
         let mut inner = self.inner.write();
         inner.controls = CameraController::new(settings.clone());

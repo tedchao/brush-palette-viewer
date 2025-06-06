@@ -44,6 +44,7 @@ pub trait BrushUiProcess {
     fn model_local_to_world(&self) -> glam::Affine3A;
     fn selected_view(&self) -> Option<SceneView>;
     fn set_train_paused(&self, paused: bool);
+    fn get_cam_settings(&self) -> CameraSettings;
     fn set_cam_settings(&self, settings: CameraSettings);
     fn focus_view(&self, view: &SceneView);
     fn set_model_up(&self, up: Vec3);
