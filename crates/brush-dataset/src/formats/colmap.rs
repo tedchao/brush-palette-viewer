@@ -104,7 +104,15 @@ async fn load_dataset_inner(
         .step_by(load_args.subsample_frames.unwrap_or(1) as usize)
         .enumerate()
     {
-        let cam_data = cam_model_data[&img_info.camera_id].clone();
+        let cam_data = cam_model_data
+            .get(&img_info.camera_id)
+            .ok_or_else(|| {
+                FormatError::InvalidFormat(format!(
+                    "Image '{}' with ID {} references camera ID {} which doesn't exist in camera data",
+                    img_info.name, _img_id, img_info.camera_id
+                ))
+            })?
+            .clone();
         let vfs = vfs.clone();
 
         // Create a future to handle loading the image.

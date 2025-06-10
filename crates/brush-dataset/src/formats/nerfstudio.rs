@@ -160,7 +160,7 @@ async fn read_transforms_file(
 
         let (fovx, fovy) = match (fovx, fovy) {
             (None, None) => Err(FormatError::InvalidCamera(
-                "Must have some kind of focal length",
+                "Must have some kind of focal length".to_owned(),
             ))?,
             (None, Some(fovy)) => {
                 let fovx = focal_to_fov(fov_to_focal(fovy, h), w);

@@ -28,7 +28,10 @@ pub enum FormatError {
     Json(#[from] serde_json::Error),
 
     #[error("Error decoding camera parameters: {0}")]
-    InvalidCamera(&'static str),
+    InvalidCamera(String),
+
+    #[error("Error when decoding format: {0}")]
+    InvalidFormat(String),
 }
 
 #[derive(Debug, Error)]
