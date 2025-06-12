@@ -42,7 +42,7 @@ fn spawn_train_loop(
         let init_bounds = BoundingBox::from_min_max(-Vec3::ONE * 5.0, Vec3::ONE * 5.0);
 
         let mut splats = Splats::from_random_config(
-            &RandomSplatsConfig::new().with_init_count(32),
+            &RandomSplatsConfig::new().with_init_count(512),
             init_bounds,
             &mut rng,
             &device,
