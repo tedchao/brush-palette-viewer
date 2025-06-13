@@ -24,7 +24,8 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
 
     let projected = projected[compact_gid];
     let mean2d = vec2f(projected.xy_x, projected.xy_y);
-    let opac = 1.0;
+
+    let opac = projected.color_a;
 
     // Reconstruct conic matrix.
     let conic = mat2x2f(projected.conic_x, projected.conic_y, projected.conic_y, projected.conic_z);
