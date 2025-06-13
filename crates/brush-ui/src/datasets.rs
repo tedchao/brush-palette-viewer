@@ -67,6 +67,18 @@ impl AppPanel for DatasetPanel {
                 }
                 self.cur_dataset = dataset.clone();
             }
+            ProcessMessage::ViewSplats { up_axis, .. } => {
+                // Training does also handle this but in the dataset.
+                if process.is_training() {
+                    if let Some(up_axis) = up_axis {
+                        process.set_model_up(*up_axis);
+
+                        if let Some(view) = self.cur_dataset.train.views.first() {
+                            process.focus_view(view);
+                        }
+                    }
+                }
+            }
             _ => {}
         }
     }

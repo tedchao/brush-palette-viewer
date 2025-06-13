@@ -64,15 +64,17 @@ pub(crate) async fn train_stream(
 
     while let Some(message) = splat_stream.next().await {
         let message = message?;
-        let msg = ProcessMessage::ViewSplats {
-            // If the metadata has an up axis prefer that, otherwise estimate
-            // the up direction.
-            up_axis: message.meta.up_axis.or(Some(estimated_up)),
-            splats: Box::new(message.splats.clone()),
-            frame: 0,
-            total_frames: 0,
-        };
-        emitter.emit(msg).await;
+
+        emitter
+            .emit(ProcessMessage::ViewSplats {
+                // If the metadata has an up axis prefer that, otherwise estimate
+                // the up direction.
+                up_axis: message.meta.up_axis.or(Some(estimated_up)),
+                splats: Box::new(message.splats.clone()),
+                frame: 0,
+                total_frames: 0,
+            })
+            .await;
         initial_splats = Some(message.splats);
     }
 

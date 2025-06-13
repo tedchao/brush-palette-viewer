@@ -6,7 +6,7 @@ use crate::{
     config::LoadDataseConfig,
     formats::find_mask_path,
     scene::{LoadImage, SceneView},
-    splat_import::SplatMessage,
+    splat_import::{ParseMetadata, SplatMessage},
 };
 use async_fn_stream::try_fn_stream;
 use brush_render::{
@@ -208,7 +208,7 @@ async fn load_dataset_inner(
                     Splats::from_raw(&positions, None, None, Some(&colors), None, &device);
                 emitter
                     .emit(SplatMessage {
-                        meta: crate::splat_import::ParseMetadata {
+                        meta: ParseMetadata {
                             up_axis: None,
                             total_splats: init_splat.num_splats(),
                             frame_count: 1,

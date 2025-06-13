@@ -130,15 +130,11 @@ impl BrushUiProcess for UiProcess {
     }
 
     fn set_model_up(&self, up_axis: Vec3) {
-        let current = self.current_camera();
-
         let mut inner = self.inner.write();
         inner.model_local_to_world = Affine3A::from_rotation_translation(
             Quat::from_rotation_arc(up_axis.normalize(), Vec3::NEG_Y),
             Vec3::ZERO,
         );
-
-        inner.match_controls_to(&current);
         inner.repaint();
     }
 
@@ -310,7 +306,9 @@ impl UiProcessInner {
         // We want model * controls.transform() == view_cam.transform() ->
         //  controls.transform = model.inverse() * view_cam.transform.
         let transform = self.model_local_to_world.inverse() * cam.local_to_world();
-        self.controls.position = transform.translation.into();
-        self.controls.rotation = Quat::from_mat3a(&transform.matrix3);
+
+        let (_, rot, translate) = transform.to_scale_rotation_translation();
+        self.controls.position = translate;
+        self.controls.rotation = rot;
     }
 }

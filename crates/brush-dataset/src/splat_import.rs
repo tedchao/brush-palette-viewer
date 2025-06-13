@@ -129,7 +129,7 @@ pub fn load_splat_from_ply<T: AsyncRead + SendNotWasm + Unpin + 'static>(
             .filter_map(|c| match c.to_lowercase().strip_prefix("vertical axis: ") {
                 Some("x") => Some(Vec3::X),
                 Some("y") => Some(Vec3::NEG_Y),
-                Some("z") => Some(Vec3::Z),
+                Some("z") => Some(Vec3::NEG_Z),
                 _ => None,
             })
             .next_back();
@@ -140,7 +140,12 @@ pub fn load_splat_from_ply<T: AsyncRead + SendNotWasm + Unpin + 'static>(
         let ply_type = if has_vertex && header.elements.first().is_some_and(|el| el.name == "chunk")
         {
             PlyFormat::SuperSplatCompressed
-        } else if has_vertex && header.elements.iter().any(|el| el.name == "delta_vertex_") {
+        } else if has_vertex
+            && header
+                .elements
+                .iter()
+                .any(|el| el.name.starts_with("delta_vertex_"))
+        {
             PlyFormat::Brush4DCompressed
         } else if has_vertex {
             PlyFormat::Ply

@@ -170,7 +170,7 @@ impl AppPanel for ScenePanel {
         "Scene".to_owned()
     }
 
-    fn on_message(&mut self, message: &ProcessMessage, context: &dyn BrushUiProcess) {
+    fn on_message(&mut self, message: &ProcessMessage, process: &dyn BrushUiProcess) {
         match message {
             ProcessMessage::NewSource => {
                 self.last_draw = None;
@@ -189,9 +189,13 @@ impl AppPanel for ScenePanel {
                 frame,
                 total_frames,
             } => {
-                if let Some(up_axis) = up_axis {
-                    context.set_model_up(*up_axis);
+                // Training does also handle this but in the dataset.
+                if !process.is_training() {
+                    if let Some(up_axis) = up_axis {
+                        process.set_model_up(*up_axis);
+                    }
                 }
+
                 self.view_splats.truncate(*frame as usize);
                 self.view_splats.push(*splats.clone());
                 self.frame_count = *total_frames;

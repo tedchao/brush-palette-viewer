@@ -45,18 +45,18 @@ pub(crate) async fn view_stream(
                 (i as u32, paths.len() as u32)
             };
 
-            let view_splat_msg = ProcessMessage::ViewSplats {
-                up_axis: message.meta.up_axis,
-                splats: Box::new(message.splats),
-                frame,
-                total_frames,
-            };
-
             // As loading concatenates splats each time, memory usage tends to accumulate a lot
             // over time. Clear out memory after each step to prevent this buildup.
             client.memory_cleanup();
 
-            emitter.emit(view_splat_msg).await;
+            emitter
+                .emit(ProcessMessage::ViewSplats {
+                    up_axis: message.meta.up_axis,
+                    splats: Box::new(message.splats),
+                    frame,
+                    total_frames,
+                })
+                .await;
         }
     }
 
