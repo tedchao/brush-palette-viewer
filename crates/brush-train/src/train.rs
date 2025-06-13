@@ -38,7 +38,7 @@ use hashbrown::{HashMap, HashSet};
 use std::f64::consts::SQRT_2;
 use tracing::trace_span;
 
-const MIN_OPACITY: f32 = 0.9 / 255.0;
+const MIN_OPACITY: f32 = 0.99 / 255.0;
 
 type OptimizerType =
     OptimizerAdaptor<AdamScaled, Splats<Autodiff<MainBackend>>, Autodiff<MainBackend>>;
