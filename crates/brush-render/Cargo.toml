@@ -29,7 +29,7 @@ naga_oil.workspace = true
 wgpu.workspace = true
 
 [features]
-debug_validation = []
+debug-validation = []
 
 [build-dependencies]
 brush-wgsl.path = "../brush-wgsl"

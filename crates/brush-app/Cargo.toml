@@ -92,3 +92,4 @@ workspace = true
 [features]
 tracy = ["dep:tracing-tracy"]
 tracing = ["dep:tracing-subscriber"]
+debug-validation = ["brush-render/debug-validation"]

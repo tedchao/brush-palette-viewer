@@ -3,7 +3,7 @@ use std::mem::offset_of;
 use burn::{
     prelude::Backend,
     tensor::{
-        ElementConversion, Int, Tensor, TensorMetadata,
+        ElementConversion, Int, Tensor, TensorMetadata, TensorPrimitive,
         ops::{FloatTensor, IntTensor},
         s,
     },
@@ -11,6 +11,7 @@ use burn::{
 
 use crate::{
     GAUSSIANS_UPPER_BOUND, INTERSECTS_UPPER_BOUND,
+    render::max_intersections,
     shaders::{self, helpers::TILE_WIDTH},
 };
 
@@ -61,6 +62,18 @@ impl<B: Backend> RenderAux<B> {
         let num_points = compact_gid_from_isect.dims()[0] as u32;
         let num_visible = num_visible.into_scalar().elem::<i32>();
 
+        let final_index: Tensor<B, 2, Int> = Tensor::from_primitive(self.final_idx.clone());
+
+        let [h, w] = final_index.shape().dims();
+        let img_size = glam::uvec2(w as u32, h as u32);
+
+        let max_intersects = max_intersections(img_size, num_points) as i32;
+
+        assert!(
+            num_intersections * 2 < max_intersects,
+            "(Close to) too many intersections, estimated too low of a number. {num_intersections} / {max_intersects}"
+        );
+
         assert!(
             num_intersections >= 0 && num_intersections < INTERSECTS_UPPER_BOUND as i32,
             "Too many intersections, Brush currently can't handle this. {num_intersections} > {INTERSECTS_UPPER_BOUND}"
@@ -75,8 +88,15 @@ impl<B: Backend> RenderAux<B> {
             "Brush doesn't support this many gaussians currently. {num_visible} > {GAUSSIANS_UPPER_BOUND}"
         );
 
+        let projected_splats: Tensor<B, 2> =
+            Tensor::from_primitive(TensorPrimitive::Float(self.projected_splats.clone()));
+
+        assert!(
+            !projected_splats.contains_nan().into_scalar().elem::<bool>(),
+            "Splat projecteion contains NaN values"
+        );
+
         if self.final_idx.shape().dims() != [1, 1] {
-            let final_index: Tensor<B, 2, Int> = Tensor::from_primitive(self.final_idx.clone());
             let final_index = final_index
                 .into_data()
                 .to_vec::<i32>()
@@ -130,7 +150,6 @@ impl<B: Backend> RenderAux<B> {
                 assert!(
                 compact_gid >= 0 && compact_gid < num_visible,
                 "Invalid gaussian ID in intersection buffer. {compact_gid} out of {num_visible}. At {i} out of {num_intersections} intersections. \n
-
 
                 {compact_gid_from_isect:?}
 

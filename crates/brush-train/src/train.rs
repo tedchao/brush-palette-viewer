@@ -105,6 +105,10 @@ impl SplatTrainer {
                 current_opacity.clone().into_primitive().tensor(),
             );
             let img = Tensor::from_primitive(TensorPrimitive::Float(diff_out.img));
+
+            #[cfg(feature = "debug-validation")]
+            diff_out.aux.debug_assert_valid();
+
             (img, diff_out.aux, diff_out.refine_weight_holder)
         };
 

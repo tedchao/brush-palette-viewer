@@ -287,9 +287,8 @@ impl<B: Backend + SplatForward<B>> Splats<B> {
             float_buffer,
         );
         let img = Tensor::from_primitive(TensorPrimitive::Float(img));
-        if cfg!(feature = "debug_validation") {
-            aux.debug_assert_valid();
-        }
+        #[cfg(feature = "debug-validation")]
+        aux.debug_assert_valid();
         (img, aux)
     }
 }
