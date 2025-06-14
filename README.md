@@ -1,6 +1,6 @@
 # Brush
 
-https://github.com/user-attachments/assets/35af104a-40d1-4259-9a9a-fbd5427b53b7
+<video src=https://github.com/user-attachments/assets/5756967a-846c-44cf-bde9-3ca4c86f1a4d>A video showing various Brush features and scenes</video>
 
 <p align="center">
   <i>
