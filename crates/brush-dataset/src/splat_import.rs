@@ -42,6 +42,7 @@ enum PlyFormat {
 fn interleave_coeffs(sh_dc: Vec3, sh_rest: &[f32], result: &mut Vec<f32>) {
     let channels = 3;
     let coeffs_per_channel = sh_rest.len() / channels;
+
     result.extend([sh_dc.x, sh_dc.y, sh_dc.z]);
     for i in 0..coeffs_per_channel {
         for j in 0..channels {
@@ -210,8 +211,13 @@ fn parse_ply<T: AsyncBufRead + Unpin + 'static>(
         let mut rotations = properties
             .contains("rot_0")
             .then(|| Vec::with_capacity(vertex.count));
+        let sh_count = properties
+            .iter()
+            .filter(|x| x.starts_with("f_rest_"))
+            .count();
+        // sh count is 3 (rgb) + N extra coeffs.
         let mut sh_coeffs = (properties.contains("f_dc_0") || properties.contains("red"))
-            .then(|| Vec::with_capacity(vertex.count * 24));
+            .then(|| Vec::with_capacity(vertex.count * (3 + sh_count)));
         let mut opacity = properties
             .contains("opacity")
             .then(|| Vec::with_capacity(vertex.count));
