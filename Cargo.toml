@@ -110,7 +110,7 @@ hashbrown = "0.15"
 parking_lot = "0.12"
 alphanumeric-sort = "1.5.3"
 
-# # Uncomment this to use local burn.
+# Uncomment this to use local burn.
 # [patch."https://github.com/tracel-ai/burn"]
 # burn = { path = "../burn/crates/burn" }
 # burn-cubecl = { path = "../burn/crates/burn-cubecl" }
@@ -119,7 +119,13 @@ alphanumeric-sort = "1.5.3"
 # burn-ir = { path = "../burn/crates/burn-ir" }
 # burn-import = { path = "../burn/crates/burn-import" }
 
-# # Uncomment this to use local cubcl.
+# Temporarily use patched cubecl https://github.com/tracel-ai/cubecl/pull/715
+[patch."https://github.com/tracel-ai/cubecl"]
+cubecl = { git = "https://github.com/ArthurBrussee/cubecl", branch = "mac-fix" }
+cubecl-common = { git = "https://github.com/ArthurBrussee/cubecl", branch = "mac-fix" }
+cubecl-std = { git = "https://github.com/ArthurBrussee/cubecl", branch = "mac-fix" }
+
+# Uncomment this to use local cubcl.
 # [patch."https://github.com/tracel-ai/cubecl"]
 # cubecl = { path = "../cubecl/crates/cubecl" }
 # cubecl-common = { path = "../cubecl/crates/cubecl-common" }
