@@ -1,45 +1,32 @@
 # Brush - 3D reconstruction for all
 
-https://github.com/user-attachments/assets/b7f55b9c-8632-49f9-b34b-d5de52a7a8b0
+https://github.com/user-attachments/assets/35af104a-40d1-4259-9a9a-fbd5427b53b7
+_Massive thanks to [@GradeEterna](https://www.youtube.com/@gradeeterna) for the beautiful scenes_
 
-Brush is a 3D reconstruction engine using [Gaussian splatting](https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/). It works on a wide range of systems: **macOS/windows/linux**, **AMD/Nvidia/Intel** cards, **Android**, and in a **browser**. To achieve this, it uses WebGPU compatible tech and the [Burn](https://github.com/tracel-ai/burn) machine learning framework, which has a portable [`wgpu`](https://github.com/gfx-rs/wgpu) backend.
+Brush is a 3D reconstruction engine using [Gaussian splatting](https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/). It works on a wide range of systems: **macOS/windows/linux**, **AMD/Nvidia/Intel** cards, **Android**, and in a **browser**. To achieve this, it uses WebGPU compatible tech and the [Burn](https://github.com/tracel-ai/burn) machine learning framework. Machine learning for real time rendering has tons of potential, but ML tools don't work well with it: Rendering requires realtime interactivity, usually involve dynamic shapes & computations, don't run on most platforms, and it can be cumbersome to ship apps with large CUDA deps. Brush on the other hand, written in `rust` using `wgpu` and `burn`, can produce simple dependency free binaries, run on nearly all devices, and doesn't require any setup.
 
-[**Try the (experimental) web demo** <img src="https://cdn-icons-png.flaticon.com/256/888/888846.png" alt="chrome logo" width="24"/>
+[**Try the web demo** <img src="https://cdn-icons-png.flaticon.com/256/888/888846.png" alt="chrome logo" width="24"/>
 ](https://arthurbrussee.github.io/brush-demo)
-_NOTE: Only works on Chrome 131+ as of Jan 2025. Firefox and Safari are hopefully supported [soon](https://caniuse.com/webgpu)_
+_NOTE: Only works on Chrome 135+ as of June 2025. Firefox and Safari are hopefully supported [soon](https://caniuse.com/webgpu)_
 
 [![](https://dcbadge.limes.pink/api/server/https://discord.gg/TbxJST2BbC)](https://discord.gg/TbxJST2BbC)
-
-https://github.com/user-attachments/assets/4c70f892-cfd2-419f-8098-b0e20dba23c7
-
-Training & Viewing on the web
-
-https://github.com/user-attachments/assets/d6751cb3-ff58-45a4-8321-77d3b0a7b051
-
-Training on a pixel 7
-
-# Why
-
-Machine learning for real time rendering has tons of potential, but most ML tools don't align well with it: Rendering requires realtime interactivity, usually involves dynamic shapes, and it's cumbersome to ship apps with large PyTorch/Jax/CUDA deps. The usual fix is to write a separate training and inference application. Brush on the other hand, written in `rust` using `wgpu` and `burn`, can produce simple dependency free binaries, run on nearly all devices, and doesn't require any cumbersome setup.
 
 # Features
 
 ## Training
 
-Brush works with _posed_ image data. It can load COLMAP data or datasets in the Nerfstudio format with a transforms.json. Training is fully supported natively, on mobile, and in a browser*.
+Brush takes in _posed_ image data. It can load COLMAP data or datasets in the Nerfstudio format. Training is fully supported natively, on mobile, and in a browser.
+
+While training you can interact with the scene and see the training dynamics live, and compare the current rendering to training or eval views as the training progresses.
 
 It also supports masking images:
 - Images with transparency. This will force the final splat to match the transparency of the input.
 - A folder of images called 'masks'. This ignores parts of the image that are masked out.
 
-While training you can interact with the scene and see the training dynamics live, and compare the current rendering to training or eval views as the training progresses.
-
-(*To train in your browser, you have to load your dataset a zip).
-
 ## Viewer
-Brush also works well as a splat viewer, including on the web. It can load normal .ply files. It can also stream in data from a URL (for a web app, simply append `?url=`). There's both orbit and flythrough controls.
+Brush also works well as a splat viewer, including on the web. It can load .ply & .compressed.ply files. You can stream in data from a URL (for a web app, simply append `?url=`).
 
-Brush also can load .zip of splat files to display them as an animation, or a special ply that includes delta frames. This was used for [cat-4D](https://cat-4d.github.io/) and [Cap4D](https://felixtaubner.github.io/cap4d/)!
+Brush also can load .zip of splat files to display them as an animation, or a special ply that includes delta frames (see [cat-4D](https://cat-4d.github.io/) and [Cap4D](https://felixtaubner.github.io/cap4d/)!).
 
 ## CLI
 Brush can be used as a CLI. Run `brush --help` to get an overview. Every CLI command can work with `--with-viewer` which also opens the UI, for easy debugging.
@@ -108,7 +95,7 @@ Numbers taken from [here](https://docs.gsplat.studio/main/tests/eval.html). Note
 
 ## Benchmarks
 
-Rendering is generally faster than gsplat, while end-to-end training speeds are similar. You can run benchmarks of some of the kernels using `cargo bench`. For additional profiling, you can use [tracy](https://github.com/wolfpld/tracy) and run with `cargo run --release --feature=tracy`.
+Rendering is generally faster than gsplat, while end-to-end training speeds are similar. You can run benchmarks of some of the kernels using `cargo bench`.
 
 # Acknowledgements
 
@@ -119,6 +106,8 @@ Rendering is generally faster than gsplat, while end-to-end training speeds are 
 **The Burn team**, for help & improvements to Burn along the way
 
 **Raph Levien**, for the [original version](https://github.com/googlefonts/compute-shader-101/pull/31) of the GPU radix sort.
+
+**GradeEterna**, for feedback and displaying their scenes.
 
 # Disclaimer
 
