@@ -273,9 +273,7 @@ fn can_be_visible(tile: vec2u, xy: vec2f, conic: mat2x2f, opac: f32) -> bool {
         return false;
     }
     let conic_scale = 1.0 / (2.0 * sigma);
-
     let conic_scaled = conic * conic_scale;
-
     let tile_extent = vec2f(f32(TILE_WIDTH) / 2.0);
     let tile_center = vec2f(tile) * f32(TILE_WIDTH) + tile_extent;
     return ellipse_intersects_aabb(tile_center, tile_extent, xy, conic_scaled);
@@ -292,7 +290,3 @@ fn as_vec(packed: PackedVec3) -> vec3f {
 fn as_packed(vec: vec3f) -> PackedVec3 {
     return PackedVec3(vec.x, vec.y, vec.z);
 }
-
-// fn sigmoid(x: f32) -> f32 {
-//     return 1.0 / (1.0 + exp(-x));
-// }

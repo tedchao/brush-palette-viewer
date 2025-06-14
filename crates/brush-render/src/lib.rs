@@ -35,7 +35,8 @@ pub struct RenderStats {
     pub num_intersections: u32,
 }
 
-const INTERSECTS_UPPER_BOUND: u32 = 512 * 65535;
+// This is limited by the sorting kernels which have 256 WG with 4 elems each -> 65k dispatches of 1024
+const INTERSECTS_UPPER_BOUND: u32 = 1024 * 65535;
 const GAUSSIANS_UPPER_BOUND: u32 = 256 * 65535;
 
 pub trait SplatForward<B: Backend> {

@@ -14,7 +14,7 @@
 @group(0) @binding(6) var<storage, read_write> depths: array<f32>;
 
 @compute
-@workgroup_size(512, 1, 1)
+@workgroup_size(256, 1, 1)
 fn main(@builtin(global_invocation_id) global_id: vec3u) {
     let global_gid = global_id.x;
 

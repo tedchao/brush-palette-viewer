@@ -14,7 +14,7 @@
 
 
 @compute
-@workgroup_size(64, 1, 1) // Relatively small workgroup, as work amount is quite variable, so rather not hold up a whole SM.
+@workgroup_size(256, 1, 1) // Relatively small workgroup, as work amount is quite variable, so rather not hold up a whole SM.
 fn main(@builtin(global_invocation_id) gid: vec3u) {
     let compact_gid = gid.x;
 
