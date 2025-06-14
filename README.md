@@ -1,9 +1,16 @@
-# Brush - 3D reconstruction for all
+# Brush
 
 https://github.com/user-attachments/assets/35af104a-40d1-4259-9a9a-fbd5427b53b7
-_Massive thanks to [@GradeEterna](https://www.youtube.com/@gradeeterna) for the beautiful scenes_
 
-Brush is a 3D reconstruction engine using [Gaussian splatting](https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/). It works on a wide range of systems: **macOS/windows/linux**, **AMD/Nvidia/Intel** cards, **Android**, and in a **browser**. To achieve this, it uses WebGPU compatible tech and the [Burn](https://github.com/tracel-ai/burn) machine learning framework. Machine learning for real time rendering has tons of potential, but ML tools don't work well with it: Rendering requires realtime interactivity, usually involve dynamic shapes & computations, don't run on most platforms, and it can be cumbersome to ship apps with large CUDA deps. Brush on the other hand, written in `rust` using `wgpu` and `burn`, can produce simple dependency free binaries, run on nearly all devices, and doesn't require any setup.
+<p align="center">
+  <i>
+    Massive thanks to <a href="https://www.youtube.com/@gradeeterna">@GradeEterna</a> for the beautiful scenes
+  </i>
+</p>
+
+Brush is a 3D reconstruction engine using [Gaussian splatting](https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/). It works on a wide range of systems: **macOS/windows/linux**, **AMD/Nvidia/Intel** cards, **Android**, and in a **browser**. To achieve this, it uses WebGPU compatible tech and the [Burn](https://github.com/tracel-ai/burn) machine learning framework. 
+
+Machine learning for real time rendering has tons of potential, but most ML tools don't work well with it: Rendering requires realtime interactivity, usually involve dynamic shapes & computations, don't run on most platforms, and it can be cumbersome to ship apps with large CUDA deps. Brush on the other hand produces simple dependency free binaries, runs on nearly all devices, without any setup.
 
 [**Try the web demo** <img src="https://cdn-icons-png.flaticon.com/256/888/888846.png" alt="chrome logo" width="24"/>
 ](https://arthurbrussee.github.io/brush-demo)
