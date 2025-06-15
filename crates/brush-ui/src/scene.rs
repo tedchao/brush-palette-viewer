@@ -230,6 +230,11 @@ impl AppPanel for ScenePanel {
     fn ui(&mut self, ui: &mut egui::Ui, process: &dyn BrushUiProcess) {
         let cur_time = Instant::now();
 
+        let delta_time = self
+            .last_draw
+            .map(|x| x.elapsed().as_secs_f32())
+            .unwrap_or(0.0);
+
         self.last_draw = Some(cur_time);
 
         // Empty scene, nothing to show.
@@ -278,7 +283,7 @@ Note: In browser training can be slower. For bigger training runs consider using
             const FPS: f32 = 24.0;
 
             if !self.paused {
-                self.frame += ui.input(|r| r.predicted_dt);
+                self.frame += delta_time;
             }
             if self.view_splats.len() as u32 != self.frame_count {
                 let max_t = (self.view_splats.len() - 1) as f32 / FPS;
