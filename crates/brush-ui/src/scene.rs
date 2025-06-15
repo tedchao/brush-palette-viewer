@@ -230,11 +230,7 @@ impl AppPanel for ScenePanel {
     fn ui(&mut self, ui: &mut egui::Ui, process: &dyn BrushUiProcess) {
         let cur_time = Instant::now();
 
-        let delta_time = self
-            .last_draw
-            .map(|x| x.elapsed().as_secs_f32())
-            .unwrap_or(0.0);
-
+        let delta_time = self.last_draw.map_or(0.0, |x| x.elapsed().as_secs_f32());
         self.last_draw = Some(cur_time);
 
         // Empty scene, nothing to show.
@@ -314,15 +310,36 @@ Note: In browser training can be slower. For bigger training runs consider using
             }
 
             if self.view_splats.len() > 1 && self.view_splats.len() as u32 == self.frame_count {
-                let label = if self.paused {
-                    "⏸ paused"
-                } else {
-                    "⏵ playing"
-                };
+                let id = ui.auto_id_with("play_pause_button");
+                Area::new(id)
+                    .order(egui::Order::Foreground)
+                    .fixed_pos(egui::pos2(rect.max.x - 40.0, rect.min.y + 6.0))
+                    .show(ui.ctx(), |ui| {
+                        let bg_color = if self.paused {
+                            egui::Color32::from_rgba_premultiplied(0, 0, 0, 64)
+                        } else {
+                            egui::Color32::from_rgba_premultiplied(30, 80, 200, 120)
+                        };
 
-                if ui.selectable_label(!self.paused, label).clicked() {
-                    self.paused = !self.paused;
-                }
+                        egui::Frame::new()
+                            .fill(bg_color)
+                            .corner_radius(egui::CornerRadius::same(16))
+                            .inner_margin(egui::Margin::same(4))
+                            .show(ui, |ui| {
+                                let icon = if self.paused { "⏵" } else { "⏸" };
+                                let mut button = egui::Button::new(
+                                    egui::RichText::new(icon).size(18.0).color(Color32::WHITE),
+                                );
+
+                                if !self.paused {
+                                    button = button.fill(egui::Color32::from_rgb(60, 120, 220));
+                                }
+
+                                if ui.add(button).clicked() {
+                                    self.paused = !self.paused;
+                                }
+                            });
+                    });
             }
 
             ui.horizontal(|ui| {
