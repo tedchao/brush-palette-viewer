@@ -216,8 +216,10 @@ fn parse_ply<T: AsyncBufRead + Unpin + 'static>(
             .filter(|x| x.starts_with("f_rest_"))
             .count();
         // sh count is 3 (rgb) + N extra coeffs.
-        let mut sh_coeffs = (properties.contains("f_dc_0") || properties.contains("red"))
-            .then(|| Vec::with_capacity(vertex.count * (3 + sh_count)));
+        let mut sh_coeffs = (properties.contains("f_dc_0")
+            || properties.contains("red")
+            || properties.contains("r"))
+        .then(|| Vec::with_capacity(vertex.count * (3 + sh_count)));
         let mut opacity = properties
             .contains("opacity")
             .then(|| Vec::with_capacity(vertex.count));

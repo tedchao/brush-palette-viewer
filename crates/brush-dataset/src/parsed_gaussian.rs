@@ -66,9 +66,11 @@ impl PropertyAccess for ParsedGaussian<false> {
             b"f_dc_0" => self.sh_dc[0] = value,
             b"f_dc_1" => self.sh_dc[1] = value,
             b"f_dc_2" => self.sh_dc[2] = value,
-            b"red" => self.sh_dc[0] = channel_to_sh(value),
-            b"green" => self.sh_dc[1] = channel_to_sh(value),
-            b"blue" => self.sh_dc[2] = channel_to_sh(value),
+
+            b"red" | b"r" => self.sh_dc[0] = channel_to_sh(value),
+            b"green" | b"g" => self.sh_dc[1] = channel_to_sh(value),
+            b"blue" | b"b" => self.sh_dc[2] = channel_to_sh(value),
+
             _ if ascii.starts_with(b"f_rest_") => {
                 if let Ok(idx) = key["f_rest_".len()..].parse::<u32>() {
                     if idx >= self.sh_coeffs_rest.len() as u32 {
