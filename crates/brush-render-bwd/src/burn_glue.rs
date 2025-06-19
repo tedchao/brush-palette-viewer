@@ -22,7 +22,11 @@ use burn::{
     },
 };
 use burn_cubecl::{BoolElement, fusion::FusionCubeRuntime};
-use burn_fusion::{Fusion, FusionHandle, client::FusionClient, stream::Operation};
+use burn_fusion::{
+    Fusion, FusionHandle,
+    client::FusionClient,
+    stream::{Operation, OperationStreams},
+};
 use burn_ir::{CustomOpIr, HandleContainer, OperationIr};
 
 use crate::render_bwd::{SplatGrads, render_backward};
@@ -264,6 +268,7 @@ impl SplatBackwardOps<Self> for Fusion<MainBackendBase> {
         state: GaussianBackwardState<Self>,
         v_output: FloatTensor<Self>,
     ) -> SplatGrads<Self> {
+        #[derive(Debug)]
         struct CustomOp {
             desc: CustomOpIr,
             sh_degree: u32,
@@ -325,11 +330,8 @@ impl SplatBackwardOps<Self> for Fusion<MainBackendBase> {
             }
         }
 
-        let stream = v_output.stream;
         let client = v_output.client.clone();
-
         let num_points = state.means.shape[0];
-
         let coeffs = sh_coeffs_for_degree(state.sh_degree) as usize;
 
         let grads = SplatGrads::<Self> {
@@ -341,34 +343,43 @@ impl SplatBackwardOps<Self> for Fusion<MainBackendBase> {
             v_refine_weight: client.tensor_uninitialized(vec![num_points, 2], DType::F32),
         };
 
+        let input_tensors = [
+            v_output,
+            state.means,
+            state.quats,
+            state.log_scales,
+            state.raw_opac,
+            state.out_img,
+            state.projected_splats,
+            state.uniforms_buffer,
+            state.final_idx,
+            state.tile_offsets,
+            state.compact_gid_from_isect,
+            state.global_from_compact_gid,
+        ];
+
+        let output_tensors = [
+            &grads.v_means,
+            &grads.v_quats,
+            &grads.v_scales,
+            &grads.v_coeffs,
+            &grads.v_raw_opac,
+            &grads.v_refine_weight,
+        ];
+
+        let mut stream = OperationStreams::default();
+        for inp in &input_tensors {
+            stream.tensor(inp);
+        }
+
         let desc = CustomOpIr::new(
             "render_splat_bwd",
-            &[
-                v_output.into_ir(),
-                state.means.into_ir(),
-                state.quats.into_ir(),
-                state.log_scales.into_ir(),
-                state.raw_opac.into_ir(),
-                state.out_img.into_ir(),
-                state.projected_splats.into_ir(),
-                state.uniforms_buffer.into_ir(),
-                state.final_idx.into_ir(),
-                state.tile_offsets.into_ir(),
-                state.compact_gid_from_isect.into_ir(),
-                state.global_from_compact_gid.into_ir(),
-            ],
-            &[
-                grads.v_means.to_ir_out(),
-                grads.v_quats.to_ir_out(),
-                grads.v_scales.to_ir_out(),
-                grads.v_coeffs.to_ir_out(),
-                grads.v_raw_opac.to_ir_out(),
-                grads.v_refine_weight.to_ir_out(),
-            ],
+            &input_tensors.map(|t| t.into_ir()),
+            &output_tensors.map(|t| t.to_ir_out()),
         );
 
         client.register(
-            vec![stream],
+            stream,
             OperationIr::Custom(desc.clone()),
             CustomOp {
                 // state,

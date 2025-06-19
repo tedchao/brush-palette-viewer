@@ -1,6 +1,10 @@
 use burn::tensor::{DType, ops::FloatTensor};
 use burn_cubecl::{BoolElement, fusion::FusionCubeRuntime};
-use burn_fusion::{Fusion, FusionHandle, client::FusionClient, stream::Operation};
+use burn_fusion::{
+    Fusion, FusionHandle,
+    client::FusionClient,
+    stream::{Operation, OperationStreams},
+};
 use burn_ir::{CustomOpIr, HandleContainer, OperationIr};
 use burn_wgpu::WgpuRuntime;
 
@@ -41,6 +45,7 @@ impl SplatForward<Self> for Fusion<MainBackendBase> {
         opacity: FloatTensor<Self>,
         bwd_info: bool,
     ) -> (FloatTensor<Self>, RenderAux<Self>) {
+        #[derive(Debug)]
         struct CustomOp {
             cam: Camera,
             img_size: glam::UVec2,
@@ -100,7 +105,6 @@ impl SplatForward<Self> for Fusion<MainBackendBase> {
             }
         }
 
-        let stream = means.stream;
         let client = means.client.clone();
 
         let num_points = means.shape[0];
@@ -140,35 +144,33 @@ impl SplatForward<Self> for Fusion<MainBackendBase> {
             final_idx: client.tensor_uninitialized(final_index_shape, DType::I32),
         };
 
+        let mut stream = OperationStreams::default();
+        let input_tensors = [means, log_scales, quats, sh_coeffs, opacity];
+        let output_tensors = [
+            &aux.projected_splats,
+            &aux.uniforms_buffer,
+            &aux.tile_offsets,
+            &aux.compact_gid_from_isect,
+            &aux.global_from_compact_gid,
+            &out_img,
+            &aux.visible,
+            &aux.final_idx,
+        ];
+        for inp in &input_tensors {
+            stream.tensor(inp);
+        }
         let desc = CustomOpIr::new(
             "render_splats",
-            &[
-                means.into_ir(),
-                log_scales.into_ir(),
-                quats.into_ir(),
-                sh_coeffs.into_ir(),
-                opacity.into_ir(),
-            ],
-            &[
-                aux.projected_splats.to_ir_out(),
-                aux.uniforms_buffer.to_ir_out(),
-                aux.tile_offsets.to_ir_out(),
-                aux.compact_gid_from_isect.to_ir_out(),
-                aux.global_from_compact_gid.to_ir_out(),
-                out_img.to_ir_out(),
-                aux.visible.to_ir_out(),
-                aux.final_idx.to_ir_out(),
-            ],
+            &input_tensors.map(|t| t.into_ir()),
+            &output_tensors.map(|t| t.to_ir_out()),
         );
-
         let op = CustomOp {
             cam: cam.clone(),
             img_size,
             bwd_info,
             desc: desc.clone(),
         };
-
-        client.register(vec![stream], OperationIr::Custom(desc), op);
+        client.register(stream, OperationIr::Custom(desc), op);
         (out_img, aux)
     }
 }
