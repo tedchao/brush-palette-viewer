@@ -117,12 +117,6 @@ alphanumeric-sort = "1.5.3"
 # burn-ir = { path = "../burn/crates/burn-ir" }
 # burn-import = { path = "../burn/crates/burn-import" }
 
-# Temporarily use patched cubecl https://github.com/tracel-ai/cubecl/pull/715
-[patch."https://github.com/tracel-ai/cubecl"]
-cubecl = { git = "https://github.com/ArthurBrussee/cubecl", branch = "mac-fix" }
-cubecl-common = { git = "https://github.com/ArthurBrussee/cubecl", branch = "mac-fix" }
-cubecl-std = { git = "https://github.com/ArthurBrussee/cubecl", branch = "mac-fix" }
-
 # Uncomment this to use local cubcl.
 # [patch."https://github.com/tracel-ai/cubecl"]
 # cubecl = { path = "../cubecl/crates/cubecl" }
