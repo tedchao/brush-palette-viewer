@@ -4,6 +4,9 @@ mod ui_process;
 #[cfg(target_family = "wasm")]
 mod wasm;
 
+#[cfg(target_family = "wasm")]
+mod three;
+
 #[allow(clippy::unnecessary_wraps)] // Error isn't need on wasm but that's ok.
 fn main() -> Result<(), anyhow::Error> {
     #[cfg(not(target_family = "wasm"))]

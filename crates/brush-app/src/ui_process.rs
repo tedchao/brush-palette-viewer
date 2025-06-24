@@ -92,10 +92,10 @@ impl BrushUiProcess for UiProcess {
             fov_y: cam.fov_y,
             position: cam.position,
             rotation: cam.rotation,
-            focus_distance: inner.controls.focus_distance,
             splat_scale: inner.splat_scale,
             speed_scale: inner.controls.speed_scale,
             clamping: inner.controls.clamping.clone(),
+            background: inner.background,
         }
     }
 
@@ -103,6 +103,7 @@ impl BrushUiProcess for UiProcess {
         let mut inner = self.inner.write();
         inner.controls = CameraController::new(settings.clone());
         inner.splat_scale = settings.splat_scale;
+        inner.background = settings.background;
 
         // Update the camera to the new position.
         inner.camera.position = settings.position;
@@ -260,6 +261,7 @@ struct UiProcessInner {
     ui_mode: UiMode,
     view_aspect: Option<f32>,
     splat_scale: Option<f32>,
+    background: Vec3,
     controls: CameraController,
     model_local_to_world: Affine3A,
     running_process: Option<RunningProcess>,
@@ -294,6 +296,7 @@ impl UiProcessInner {
             selected_view: None,
             running_process: None,
             cur_device_ctx: None,
+            background: Vec3::ZERO,
         }
     }
 

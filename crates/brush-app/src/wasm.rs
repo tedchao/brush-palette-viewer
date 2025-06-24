@@ -1,4 +1,5 @@
 use crate::ui_process::UiProcess;
+use crate::three::ThreeVector3;
 use anyhow::Context;
 use brush_process::config::ProcessArgs;
 use brush_ui::BrushUiProcess;
@@ -110,10 +111,6 @@ pub fn wasm_app(canvas_name: &str, start_uri: &str) -> anyhow::Result<Arc<UiProc
         .get("rotation")
         .and_then(|f| quat_from_uri(f))
         .unwrap_or(Quat::IDENTITY);
-    let focus_distance = search_params
-        .get("focus_distance")
-        .and_then(|f| f.parse().ok())
-        .unwrap_or(4.0);
     let fov_y = search_params
         .get("fov_y")
         .and_then(|f| f.parse().ok())
@@ -129,10 +126,10 @@ pub fn wasm_app(canvas_name: &str, start_uri: &str) -> anyhow::Result<Arc<UiProc
         fov_y,
         position,
         rotation,
-        focus_distance,
         speed_scale,
         splat_scale,
         clamping: Default::default(),
+        background: Vec3::ZERO,
     });
 
     Ok(context)
@@ -157,13 +154,9 @@ impl CameraSettings {
     #[wasm_bindgen(constructor)]
     pub fn new(
         fov_y: f64,
-        x: f32,
-        y: f32,
-        z: f32,
-        euler_x: f32,
-        euler_y: f32,
-        euler_z: f32,
-        focus_distance: f32,
+        position: ThreeVector3,
+        rotation_euler: ThreeVector3,
+        background: ThreeVector3,
         speed_scale: Option<f32>,
         min_focus_distance: Option<f32>,
         max_focus_distance: Option<f32>,
@@ -175,10 +168,9 @@ impl CameraSettings {
     ) -> Self {
         Self(brush_ui::app::CameraSettings {
             fov_y,
-            position: glam::vec3(x, y, z),
+            position: position.to_glam(),
             // 'XYZ' matches the THREE.js default order.
-            rotation: Quat::from_euler(EulerRot::XYZ, euler_x, euler_y, euler_z),
-            focus_distance,
+            rotation: Quat::from_euler(EulerRot::XYZ, rotation_euler.x() as f32, rotation_euler.y() as f32, rotation_euler.z() as f32),
             speed_scale,
             splat_scale,
             // TODO: Could make this a separate JS object.
@@ -190,6 +182,7 @@ impl CameraSettings {
                 min_yaw,
                 max_yaw,
             },
+            background: background.to_glam(),
         })
     }
 }

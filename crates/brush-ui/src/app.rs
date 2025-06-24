@@ -52,15 +52,15 @@ impl egui_tiles::Behavior<PaneType> for AppTree {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct CameraSettings {
     pub fov_y: f64,
     pub position: Vec3,
     pub rotation: Quat,
-    pub focus_distance: f32,
     pub speed_scale: Option<f32>,
     pub splat_scale: Option<f32>,
     pub clamping: CameraClamping,
+    pub background: Vec3,
 }
 
 impl Default for CameraSettings {
@@ -69,10 +69,10 @@ impl Default for CameraSettings {
             fov_y: 0.8,
             position: -Vec3::Z * 2.5,
             rotation: Quat::IDENTITY,
-            focus_distance: 4.0,
             speed_scale: None,
             splat_scale: None,
             clamping: CameraClamping::default(),
+            background: Vec3::ZERO,
         }
     }
 }

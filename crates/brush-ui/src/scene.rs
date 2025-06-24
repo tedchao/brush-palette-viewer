@@ -11,7 +11,7 @@ use brush_render::{
 };
 use eframe::egui_wgpu::Renderer;
 use egui::{Color32, Rect, Slider};
-use glam::{UVec2, Vec3};
+use glam::UVec2;
 use tokio_with_wasm::alias as tokio_wasm;
 use tracing::trace_span;
 use web_time::Instant;
@@ -21,12 +21,12 @@ use crate::{
     panels::AppPanel, size_for_splat_view,
 };
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 struct RenderState {
     size: UVec2,
     cam: Camera,
     frame: f32,
-    splat_scale: Option<f32>,
+    settings: CameraSettings,
 }
 
 struct ErrorDisplay {
@@ -113,7 +113,7 @@ impl ScenePanel {
             size,
             cam: camera.clone(),
             frame: self.frame,
-            splat_scale: settings.splat_scale,
+            settings: settings.clone(),
         };
 
         let dirty = self.last_state != Some(state.clone());
@@ -129,7 +129,8 @@ impl ScenePanel {
             if size.x > 8 && size.y > 8 && dirty {
                 let _span = trace_span!("Render splats").entered();
                 // Could add an option for background color.
-                let (img, _) = splats.render(&camera, size, Vec3::ZERO, settings.splat_scale);
+                let (img, _) =
+                    splats.render(&camera, size, settings.background, settings.splat_scale);
                 self.backbuffer.update_texture(img);
             }
         }
@@ -437,6 +438,25 @@ Note: In browser training can be slower. For bigger training runs consider using
                             fov_y: fov_degrees.to_radians() as f64,
                             ..process.get_cam_settings()
                         });
+                    }
+
+                    ui.add_space(15.0);
+
+                    // Background color picker
+                    ui.label("Background Color:");
+                    let mut settings = process.get_cam_settings();
+                    let mut bg_color = egui::Color32::from_rgb(
+                        (settings.background.x * 255.0) as u8,
+                        (settings.background.y * 255.0) as u8,
+                        (settings.background.z * 255.0) as u8,
+                    );
+                    if ui.color_edit_button_srgba(&mut bg_color).changed() {
+                        settings.background = glam::vec3(
+                            bg_color.r() as f32 / 255.0,
+                            bg_color.g() as f32 / 255.0,
+                            bg_color.b() as f32 / 255.0,
+                        );
+                        process.set_cam_settings(settings);
                     }
 
                     ui.selectable_label(false, "Controls")

@@ -5,7 +5,7 @@ use glam::{Quat, Vec2, Vec3};
 
 use crate::app::CameraSettings;
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, PartialEq)]
 pub struct CameraClamping {
     pub min_focus_distance: Option<f32>,
     pub max_focus_distance: Option<f32>,
@@ -120,9 +120,9 @@ impl CameraController {
             roll: Quat::IDENTITY,
             fly_velocity: Vec3::ZERO,
             orbit_velocity: Vec2::ZERO,
-            focus_distance: settings.focus_distance,
             clamping: settings.clamping,
             speed_scale: settings.speed_scale,
+            focus_distance: 4.0,
         }
     }
 
