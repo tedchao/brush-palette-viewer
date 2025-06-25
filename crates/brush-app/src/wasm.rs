@@ -1,5 +1,5 @@
-use crate::ui_process::UiProcess;
 use crate::three::ThreeVector3;
+use crate::ui_process::UiProcess;
 use anyhow::Context;
 use brush_process::config::ProcessArgs;
 use brush_ui::BrushUiProcess;
@@ -170,7 +170,12 @@ impl CameraSettings {
             fov_y,
             position: position.to_glam(),
             // 'XYZ' matches the THREE.js default order.
-            rotation: Quat::from_euler(EulerRot::XYZ, rotation_euler.x() as f32, rotation_euler.y() as f32, rotation_euler.z() as f32),
+            rotation: Quat::from_euler(
+                EulerRot::XYZ,
+                rotation_euler.x() as f32,
+                rotation_euler.y() as f32,
+                rotation_euler.z() as f32,
+            ),
             speed_scale,
             splat_scale,
             // TODO: Could make this a separate JS object.
