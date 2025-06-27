@@ -99,7 +99,7 @@ impl<B: Backend> RenderAux<B> {
         if self.final_idx.shape().dims() != [1, 1] {
             let final_index = final_index
                 .into_data()
-                .to_vec::<i32>()
+                .into_vec::<i32>()
                 .expect("Failed to fetch final index");
             for &final_index in &final_index {
                 assert!(
@@ -113,7 +113,7 @@ impl<B: Backend> RenderAux<B> {
 
         let tile_offsets = tile_offsets
             .into_data()
-            .to_vec::<i32>()
+            .into_vec::<i32>()
             .expect("Failed to fetch tile offsets");
         for &offsets in &tile_offsets {
             assert!(
@@ -143,7 +143,7 @@ impl<B: Backend> RenderAux<B> {
             let compact_gid_from_isect = &compact_gid_from_isect
                 .slice([0..num_intersections as usize])
                 .into_data()
-                .to_vec::<i32>()
+                .into_vec::<i32>()
                 .expect("Failed to fetch compact_gid_from_isect");
 
             for (i, &compact_gid) in compact_gid_from_isect.iter().enumerate() {
@@ -163,7 +163,7 @@ impl<B: Backend> RenderAux<B> {
             Tensor::from_primitive(self.global_from_compact_gid.clone());
         let global_from_compact_gid = &global_from_compact_gid
             .into_data()
-            .to_vec::<i32>()
+            .into_vec::<i32>()
             .expect("Failed to fetch global_from_compact_gid")[0..num_visible as usize];
 
         for &global_gid in global_from_compact_gid {

@@ -340,7 +340,7 @@ impl SplatTrainer {
             let resampled_weights = resampled_weights
                 .into_data_async()
                 .await
-                .to_vec::<f32>()
+                .into_vec::<f32>()
                 .expect("Failed to read weights");
             let resampled_inds = multinomial_sample(&resampled_weights, pruned_count);
             add_indices.extend(resampled_inds);
@@ -369,7 +369,7 @@ impl SplatTrainer {
                 let weights = weights
                     .into_data_async()
                     .await
-                    .to_vec::<f32>()
+                    .into_vec::<f32>()
                     .expect("Failed to read weights");
                 let growth_inds = multinomial_sample(&weights, grow_count);
                 add_indices.extend(growth_inds);

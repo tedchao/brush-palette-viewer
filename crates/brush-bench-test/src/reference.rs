@@ -34,11 +34,11 @@ fn compare<B: Backend, const D1: usize>(
 
     let data_a = tensor_a
         .into_data()
-        .to_vec::<f32>()
+        .into_vec::<f32>()
         .unwrap_or_else(|_| panic!("Failed to convert tensor {name}:a"));
     let data_b = tensor_b
         .into_data()
-        .to_vec::<f32>()
+        .into_vec::<f32>()
         .unwrap_or_else(|_| panic!("Failed to convert tensor {name}:b"));
 
     for (i, (a, b)) in data_a.iter().zip(&data_b).enumerate() {

@@ -13,28 +13,28 @@ async fn read_splat_data<B: Backend>(splats: Splats<B>) -> Vec<ParsedGaussian<fa
         .val()
         .into_data_async()
         .await
-        .to_vec()
+        .into_vec()
         .expect("Unreachable");
     let log_scales = splats
         .log_scales
         .val()
         .into_data_async()
         .await
-        .to_vec()
+        .into_vec()
         .expect("Unreachable");
     let rotations = splats
         .rotation
         .val()
         .into_data_async()
         .await
-        .to_vec()
+        .into_vec()
         .expect("Unreachable");
     let opacities = splats
         .raw_opacity
         .val()
         .into_data_async()
         .await
-        .to_vec()
+        .into_vec()
         .expect("Unreachable");
     let sh_coeffs = splats
         .sh_coeffs
@@ -42,7 +42,7 @@ async fn read_splat_data<B: Backend>(splats: Splats<B>) -> Vec<ParsedGaussian<fa
         .permute([0, 2, 1]) // Permute to inria format ([n, channel, coeffs]).
         .into_data_async()
         .await
-        .to_vec()
+        .into_vec()
         .expect("Unreachable");
 
     let sh_coeffs_num = splats.sh_coeffs.dims()[1];

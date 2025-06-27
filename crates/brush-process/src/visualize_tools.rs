@@ -54,7 +54,7 @@ mod visualize_tools_impl {
                     .val()
                     .into_data_async()
                     .await
-                    .to_vec::<f32>()
+                    .into_vec::<f32>()
                     .expect("Wrong type");
                 let means = means.chunks(3).map(|c| glam::vec3(c[0], c[1], c[2]));
 
@@ -70,7 +70,7 @@ mod visualize_tools_impl {
                 let colors = base_rgb
                     .into_data_async()
                     .await
-                    .to_vec::<f32>()
+                    .into_vec::<f32>()
                     .expect("Wrong type");
                 let colors = colors.chunks(3).map(|c| {
                     rerun::Color::from_rgb(
@@ -85,7 +85,7 @@ mod visualize_tools_impl {
                     + 0.004)
                     .into_data_async()
                     .await
-                    .to_vec()
+                    .into_vec()
                     .expect("Wrong type");
 
                 let rotations = splats
@@ -93,7 +93,7 @@ mod visualize_tools_impl {
                     .val()
                     .into_data_async()
                     .await
-                    .to_vec::<f32>()
+                    .into_vec::<f32>()
                     .expect("Wrong type");
                 let rotations = rotations
                     .chunks(4)

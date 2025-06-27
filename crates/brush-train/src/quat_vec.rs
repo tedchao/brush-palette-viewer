@@ -67,7 +67,7 @@ mod tests {
             .reshape([1, 4]);
         let vecs = Tensor::<Wgpu, 1>::from_floats([vec.x, vec.y, vec.z], &device).reshape([1, 3]);
         let result = quaternion_vec_multiply(quaternions, vecs);
-        let result: Vec<f32> = result.into_data().to_vec().expect("Wrong type");
+        let result: Vec<f32> = result.into_data().into_vec().expect("Wrong type");
         let result = glam::vec3(result[0], result[1], result[2]);
         assert!((result_ref - result).length() < 1e-7);
     }

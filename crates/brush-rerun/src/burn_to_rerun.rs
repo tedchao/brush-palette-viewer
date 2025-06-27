@@ -15,7 +15,7 @@ impl<B: Backend, const D: usize> BurnToRerunData for Tensor<B, D> {
             rerun::TensorBuffer::F32(
                 self.into_data_async()
                     .await
-                    .to_vec::<f32>()
+                    .into_vec::<f32>()
                     .expect("Wrong type")
                     .into(),
             ),
@@ -30,7 +30,7 @@ impl<B: Backend, const D: usize> BurnToRerunData for Tensor<B, D, Int> {
             rerun::TensorBuffer::I32(
                 self.into_data_async()
                     .await
-                    .to_vec::<i32>()
+                    .into_vec::<i32>()
                     .expect("Wrong type")
                     .into(),
             ),
@@ -46,7 +46,7 @@ impl<B: Backend, const D: usize> BurnToRerunData for Tensor<B, D, Bool> {
                 self.into_data_async()
                     .await
                     .convert::<u8>()
-                    .to_vec()
+                    .into_vec()
                     .expect("Wrong type")
                     .into(),
             ),

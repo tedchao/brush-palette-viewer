@@ -91,26 +91,26 @@ fn generate_bench_data() -> anyhow::Result<()> {
         &device,
     );
 
-    let bytes = means.to_data().as_bytes().to_vec();
+    let bytes = means.to_data();
     let means =
-        safetensors::tensor::TensorView::new(safetensors::Dtype::F32, means.shape().dims, &bytes)?;
-    let bytes = log_scales.to_data().as_bytes().to_vec();
+        safetensors::tensor::TensorView::new(safetensors::Dtype::F32, means.shape().dims, bytes.as_bytes())?;
+    let bytes = log_scales.to_data();
     let log_scales = safetensors::tensor::TensorView::new(
         safetensors::Dtype::F32,
         log_scales.shape().dims,
-        &bytes,
+        bytes.as_bytes(),
     )?;
-    let bytes = quats.to_data().as_bytes().to_vec();
+    let bytes = quats.to_data();
     let quats =
-        safetensors::tensor::TensorView::new(safetensors::Dtype::F32, quats.shape().dims, &bytes)?;
-    let bytes = coeffs.to_data().as_bytes().to_vec();
+        safetensors::tensor::TensorView::new(safetensors::Dtype::F32, quats.shape().dims, bytes.as_bytes())?;
+    let bytes = coeffs.to_data();
     let coeffs =
-        safetensors::tensor::TensorView::new(safetensors::Dtype::F32, coeffs.shape().dims, &bytes)?;
-    let bytes = opacities.to_data().as_bytes().to_vec();
+        safetensors::tensor::TensorView::new(safetensors::Dtype::F32, coeffs.shape().dims, bytes.as_bytes())?;
+    let bytes = opacities.to_data();
     let opacities = safetensors::tensor::TensorView::new(
         safetensors::Dtype::F32,
         opacities.shape().dims,
-        &bytes,
+        bytes.as_bytes(),
     )?;
 
     let tensors = HashMap::from([
