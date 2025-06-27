@@ -240,7 +240,13 @@ impl<B: Backend> Splats<B> {
     }
 
     pub async fn estimate_bounds(&self) -> BoundingBox {
-        let means = self.means.val().into_data_async().await.into_vec::<f32>().expect("Failed to convert means");
+        let means = self
+            .means
+            .val()
+            .into_data_async()
+            .await
+            .into_vec::<f32>()
+            .expect("Failed to convert means");
 
         let vec3_means: Vec<Vec3> = means
             .chunks_exact(3)
