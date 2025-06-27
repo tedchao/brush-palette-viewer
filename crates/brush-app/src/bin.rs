@@ -8,6 +8,7 @@ mod wasm;
 #[cfg(target_family = "wasm")]
 mod three;
 
+#[cfg(target_family = "windows")]
 fn is_console() -> bool {
     let mut buffer = [0u32; 1];
 
@@ -25,7 +26,7 @@ fn main() -> Result<(), anyhow::Error> {
     {
         let args = Cli::parse().validate()?;
 
-        #[cfg(target_os = "windows")]
+        #[cfg(target_family = "windows")]
         if args.with_viewer && !is_console() {
             // Hide the console window on windows when running as a GUI.
             // SAFETY: FFI.
@@ -68,13 +69,6 @@ fn main() -> Result<(), anyhow::Error> {
             let _ = sender.send(args.process.clone());
 
             if args.with_viewer {
-                // #[cfg(target_os = "window")]
-                // Hide the console window on windows when running as a GUI.
-                // SAFETY: FFI.
-                unsafe {
-                    winapi::um::wincon::FreeConsole();
-                };
-
                 let icon = eframe::icon_data::from_png_bytes(
                     &include_bytes!("../assets/icon-256.png")[..],
                 )

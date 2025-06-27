@@ -31,7 +31,7 @@ glam.workspace = true
 
 egui.workspace = true
 eframe.workspace = true
-winapi.workspace = true
+
 
 anyhow.workspace = true
 tracing.workspace = true
@@ -64,6 +64,8 @@ env_logger.workspace = true
 brush-cli.path = "../brush-cli"
 tokio = { workspace = true, features = ["io-util", "rt", "rt-multi-thread"] }
 
+[target.'cfg(target_family = "windows")'.dependencies]
+winapi.workspace = true
 
 [target.'cfg(target_family = "wasm")'.dependencies]
 tracing-wasm = { workspace = true, optional = true }

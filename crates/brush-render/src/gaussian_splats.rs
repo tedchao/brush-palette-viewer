@@ -239,6 +239,25 @@ impl<B: Backend> Splats<B> {
         self.means.device()
     }
 
+    pub async fn estimate_bounds(&self) -> BoundingBox {
+        let means = self.means.val().into_data_async().await.into_vec::<f32>().expect("Failed to convert means");
+
+        let vec3_means: Vec<Vec3> = means
+            .chunks_exact(3)
+            .map(|chunk| Vec3::new(chunk[0], chunk[1], chunk[2]))
+            .collect();
+
+        let mut min = Vec3::splat(f32::MAX);
+        let mut max = Vec3::splat(f32::MIN);
+
+        for pos in &vec3_means {
+            min = min.min(*pos);
+            max = max.max(*pos);
+        }
+
+        BoundingBox::from_min_max(min, max)
+    }
+
     // TODO: This should probably exist in Burn. Maybe make a PR.
     pub fn into_autodiff<BDiff: AutodiffBackend<InnerBackend = B>>(self) -> Splats<BDiff> {
         let (means_id, means) = self.means.consume();
