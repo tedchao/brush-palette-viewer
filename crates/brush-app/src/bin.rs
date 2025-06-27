@@ -1,5 +1,5 @@
-#![windows_subsystem = "windows"]
 #![recursion_limit = "256"]
+
 mod ui_process;
 
 #[cfg(target_family = "wasm")]
@@ -8,10 +8,32 @@ mod wasm;
 #[cfg(target_family = "wasm")]
 mod three;
 
+fn is_console() -> bool {
+    let mut buffer = [0u32; 1];
+
+    // SAFETY: FFI, buffer is large enough.
+    unsafe {
+        use winapi::um::wincon::GetConsoleProcessList;
+        let count = GetConsoleProcessList(buffer.as_mut_ptr(), 1);
+        count != 1
+    }
+}
+
 #[allow(clippy::unnecessary_wraps)] // Error isn't need on wasm but that's ok.
 fn main() -> Result<(), anyhow::Error> {
     #[cfg(not(target_family = "wasm"))]
     {
+        let args = Cli::parse().validate()?;
+
+        #[cfg(target_os = "windows")]
+        if args.with_viewer && !is_console() {
+            // Hide the console window on windows when running as a GUI.
+            // SAFETY: FFI.
+            unsafe {
+                winapi::um::wincon::FreeConsole();
+            };
+        }
+
         #[cfg(feature = "tracy")]
         {
             use tracing_subscriber::layer::SubscriberExt;
@@ -32,8 +54,6 @@ fn main() -> Result<(), anyhow::Error> {
         use brush_cli::Cli;
         use clap::Parser;
 
-        let args = Cli::parse().validate()?;
-
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
             .build()
@@ -48,6 +68,13 @@ fn main() -> Result<(), anyhow::Error> {
             let _ = sender.send(args.process.clone());
 
             if args.with_viewer {
+                // #[cfg(target_os = "window")]
+                // Hide the console window on windows when running as a GUI.
+                // SAFETY: FFI.
+                unsafe {
+                    winapi::um::wincon::FreeConsole();
+                };
+
                 let icon = eframe::icon_data::from_png_bytes(
                     &include_bytes!("../assets/icon-256.png")[..],
                 )
