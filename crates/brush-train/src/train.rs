@@ -367,11 +367,32 @@ impl SplatTrainer {
         }
 
         let refine_count = add_indices.len();
+        splats = self.refine_splats(&device, record, splats, add_indices);
+
+        client.memory_cleanup();
+
+        (
+            splats,
+            Some(RefineStats {
+                num_added: refine_count as u32,
+                num_pruned: pruned_count,
+            }),
+        )
+    }
+
+    fn refine_splats(
+        &mut self,
+        device: &WgpuDevice,
+        mut record: HashMap<ParamId, AdaptorRecord<AdamScaled, Autodiff<MainBackend>>>,
+        mut splats: Splats<Autodiff<MainBackend>>,
+        add_indices: HashSet<i32>,
+    ) -> Splats<Autodiff<MainBackend>> {
+        let refine_count = add_indices.len();
 
         if refine_count > 0 {
             let refine_inds = Tensor::from_data(
                 TensorData::new(add_indices.into_iter().collect(), [refine_count]),
-                &device,
+                device,
             );
 
             let cur_means = splats.means.val().inner().select(0, refine_inds.clone());
@@ -400,7 +421,7 @@ impl SplatTrainer {
             // blow up, as more 'mass' is added each refine.
             let scale_div = Tensor::ones_like(&cur_log_scale) * SQRT_2.ln();
 
-            let one = Tensor::ones([1], &device);
+            let one = Tensor::ones([1], device);
             let cur_opac = sigmoid(cur_raw_opac.clone());
             let new_opac = one.clone() - (one - cur_opac).sqrt();
             let new_raw_opac = inv_sigmoid(new_opac.clamp(1e-24, 1.0 - 1e-24));
@@ -410,7 +431,7 @@ impl SplatTrainer {
 
             let samples = quaternion_vec_multiply(
                 cur_rots.clone(),
-                Tensor::random([refine_count, 3], Distribution::Normal(0.0, 0.5), &device)
+                Tensor::random([refine_count, 3], Distribution::Normal(0.0, 0.5), device)
                     * cur_log_scale.clone().exp(),
             );
 
@@ -443,30 +464,15 @@ impl SplatTrainer {
                 |x| Tensor::cat(vec![x, cur_log_scale - scale_div], 0),
                 |x| Tensor::cat(vec![x, cur_coeff], 0),
                 |x| Tensor::cat(vec![x, new_raw_opac], 0),
-                |x| Tensor::cat(vec![x, Tensor::zeros([refine_count, 3], &device)], 0),
-                |x| Tensor::cat(vec![x, Tensor::zeros([refine_count, 4], &device)], 0),
-                |x| Tensor::cat(vec![x, Tensor::zeros([refine_count, 3], &device)], 0),
-                |x| {
-                    Tensor::cat(
-                        vec![x, Tensor::zeros([refine_count, sh_dim, 3], &device)],
-                        0,
-                    )
-                },
-                |x| Tensor::cat(vec![x, Tensor::zeros([refine_count], &device)], 0),
+                |x| Tensor::cat(vec![x, Tensor::zeros([refine_count, 3], device)], 0),
+                |x| Tensor::cat(vec![x, Tensor::zeros([refine_count, 4], device)], 0),
+                |x| Tensor::cat(vec![x, Tensor::zeros([refine_count, 3], device)], 0),
+                |x| Tensor::cat(vec![x, Tensor::zeros([refine_count, sh_dim, 3], device)], 0),
+                |x| Tensor::cat(vec![x, Tensor::zeros([refine_count], device)], 0),
             );
         }
-
         self.optim = Some(create_default_optimizer().load_record(record));
-
-        client.memory_cleanup();
-
-        (
-            splats,
-            Some(RefineStats {
-                num_added: refine_count as u32,
-                num_pruned: pruned_count,
-            }),
-        )
+        splats
     }
 }
 

@@ -1,6 +1,7 @@
 use anyhow::Result;
-use brush_dataset::scene::{SceneView, sample_to_tensor, view_to_sample_image};
+use brush_dataset::scene::{sample_to_tensor, view_to_sample_image};
 use brush_render::SplatForward;
+use brush_render::camera::Camera;
 use brush_render::gaussian_splats::Splats;
 use brush_render::render_aux::RenderAux;
 use burn::prelude::Backend;
@@ -18,27 +19,24 @@ pub struct EvalSample<B: Backend> {
     pub aux: RenderAux<B>,
 }
 
-pub async fn eval_stats<B: Backend + SplatForward<B>>(
-    splats: Splats<B>,
-    eval_view: &SceneView,
+pub fn eval_stats<B: Backend + SplatForward<B>>(
+    splats: &Splats<B>,
+    gt_cam: &Camera,
+    gt_img: DynamicImage,
+    alpha_is_mask: bool,
     device: &B::Device,
 ) -> Result<EvalSample<B>> {
-    let gt_img = eval_view.image.load().await?;
-
     // Compare MSE in RGB only.
     let res = glam::uvec2(gt_img.width(), gt_img.height());
 
-    let gt_tensor = sample_to_tensor(
-        &view_to_sample_image(gt_img.clone(), eval_view.image.is_masked()),
-        device,
-    );
+    let gt_tensor = sample_to_tensor(&view_to_sample_image(gt_img.clone(), alpha_is_mask), device);
 
     let gt_rgb = gt_tensor.slice(s![.., .., 0..3]);
 
     // Render on reference black background.
     let (img, aux) = {
         let (img, aux) = B::render_splats(
-            &eval_view.camera,
+            gt_cam,
             res,
             splats.means.val().into_primitive().tensor(),
             splats.log_scales.val().into_primitive().tensor(),

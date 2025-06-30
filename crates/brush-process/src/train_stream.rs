@@ -136,9 +136,15 @@ pub(crate) async fn train_stream(
                 log::info!("Running evaluation for iteration {iter}");
 
                 for (i, view) in eval_scene.views.iter().enumerate() {
-                    let sample = eval_stats(splats.valid(), view, &device)
-                        .await
-                        .context("Failed to run eval for sample.")?;
+                    let eval_img = view.image.load().await?;
+                    let sample = eval_stats(
+                        &splats.valid(),
+                        &view.camera,
+                        eval_img,
+                        view.image.is_masked(),
+                        &device,
+                    )
+                    .context("Failed to run eval for sample.")?;
 
                     count += 1;
                     psnr += sample.psnr.clone().into_scalar_async().await;
