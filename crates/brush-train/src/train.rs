@@ -36,7 +36,6 @@ use burn::{
 use burn_cubecl::cubecl::Runtime;
 use glam::Vec3;
 use hashbrown::{HashMap, HashSet};
-use rand::Rng;
 use std::f64::consts::SQRT_2;
 use tracing::trace_span;
 
@@ -97,18 +96,9 @@ impl SplatTrainer {
 
         let current_opacity = splats.opacities();
         let (pred_image, aux, refine_weight_holder) = {
-            let background = if batch.has_alpha() {
-                // For transparent items, do _not_ use a random background color. This could work
-                // if we blend the background color with the training view, but makes more sense to just use a black background color.
-                Vec3::ZERO
-            } else {
-                // Generate a uniform background color
-                Vec3::new(
-                    rand::rng().random(),
-                    rand::rng().random(),
-                    rand::rng().random(),
-                )
-            };
+            // Could generate a random background color, but so far
+            // results just seem worse.
+            let background = Vec3::ZERO;
 
             let diff_out = <Autodiff<MainBackend> as SplatForwardDiff<_>>::render_splats(
                 camera,

@@ -132,7 +132,7 @@ fn generate_bench_data() -> anyhow::Result<()> {
 
     safetensors::serialize_to_file(
         &tensors,
-        &None,
+        None,
         Path::new("./test_cases/bench_data.safetensors"),
     )?;
     Ok(())
