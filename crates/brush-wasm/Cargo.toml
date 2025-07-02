@@ -1,0 +1,45 @@
+[package]
+name = "brush-wasm"
+edition.workspace = true
+version.workspace = true
+readme.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# Lib for WASM.
+[lib]
+name = "brush_app"
+crate-type = ["cdylib"]
+
+[dependencies]
+# Brush deps.
+brush-ui.path = "../brush-ui"
+brush-process.path = "../brush-process"
+brush-vfs.path = "../brush-vfs"
+
+glam.workspace = true
+eframe.workspace = true
+
+anyhow.workspace = true
+tokio_with_wasm = { workspace = true, features = ["rt"] }
+
+tokio = { workspace = true, features = ["io-util", "rt"] }
+wasm-bindgen.workspace = true
+web-sys = { workspace = true, features = ["HtmlCanvasElement", "Document", "Window"] }
+
+urlencoding.workspace = true
+
+# wasm_js random backend needs to be enabled explicitly.
+getrandom = { version = "0.3", features = ["wasm_js"] }
+
+[package.metadata.wasm-pack.profile.release.wasm-bindgen]
+debug-js-glue = false
+demangle-name-section = false
+dwarf-debug-info = false
+omit-default-module-path = false
+
+[package.metadata.cargo-machete]
+ignored = ["getrandom"] # Need winit to set backend.
+
+[lints]
+workspace = true
