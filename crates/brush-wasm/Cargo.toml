@@ -5,6 +5,7 @@ version.workspace = true
 readme.workspace = true
 license.workspace = true
 repository.workspace = true
+description = "WASM bundle for Brush."
 
 # Lib for WASM.
 [lib]
@@ -25,12 +26,19 @@ tokio_with_wasm = { workspace = true, features = ["rt"] }
 
 tokio = { workspace = true, features = ["io-util", "rt"] }
 wasm-bindgen.workspace = true
-web-sys = { workspace = true, features = ["HtmlCanvasElement", "Document", "Window"] }
+web-sys = { workspace = true, features = [
+    "HtmlCanvasElement",
+    "Document",
+    "Window",
+] }
 
 urlencoding.workspace = true
 
 # wasm_js random backend needs to be enabled explicitly.
 getrandom = { version = "0.3", features = ["wasm_js"] }
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = ["--enable-bulk-memory", "--enable-nontrapping-float-to-int"]
 
 [package.metadata.wasm-pack.profile.release.wasm-bindgen]
 debug-js-glue = false
