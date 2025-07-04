@@ -1,4 +1,6 @@
-use crate::{draw_checkerboard, panels::AppPanel, size_for_splat_view, ui_process::UiProcess};
+use crate::{
+    UiMode, draw_checkerboard, panels::AppPane, size_for_splat_view, ui_process::UiProcess,
+};
 use brush_dataset::{
     Dataset,
     scene::{Scene, SceneView, ViewType},
@@ -51,9 +53,13 @@ impl DatasetPanel {
     }
 }
 
-impl AppPanel for DatasetPanel {
+impl AppPane for DatasetPanel {
     fn title(&self) -> String {
         "Dataset".to_owned()
+    }
+
+    fn is_visible(&self, process: &UiProcess) -> bool {
+        process.ui_mode() == UiMode::Default && process.is_training()
     }
 
     fn on_message(&mut self, message: &ProcessMessage, process: &UiProcess) {
@@ -85,8 +91,9 @@ impl AppPanel for DatasetPanel {
 
     fn ui(&mut self, ui: &mut egui::Ui, process: &UiProcess) {
         let pick_scene = selected_scene(self.view_type, &self.cur_dataset).clone();
-        let mut nearest_view_ind =
-            pick_scene.get_nearest_view(process.current_camera().local_to_world());
+        let total_transform =
+            process.model_local_to_world() * process.current_camera().local_to_world();
+        let mut nearest_view_ind = pick_scene.get_nearest_view(total_transform);
 
         if let Some(nearest) = nearest_view_ind.as_mut() {
             // Update image if dirty.
