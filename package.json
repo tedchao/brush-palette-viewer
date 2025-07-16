@@ -1,0 +1,14 @@
+{
+  "name": "brush",
+  "version": "1.0.0",
+  "description": "Brush",
+  "private": true,
+  "scripts": {
+    "dev": "cd brush_nextjs && npm run dev",
+    "build": "cd brush_nextjs && npm run build",
+    "build:wasm-dev": "cd brush_nextjs && npm run build:wasm-dev"
+  },
+  "workspaces": [
+    "brush_nextjs"
+  ]
+}
