@@ -108,6 +108,8 @@ skip = [
     { name = "gemm-c64" },      # Burn-import weirdness.
     { name = "raw-cpuid" },     # Burn-import weirdness.
     { name = "pulp" },          # Burn-import weirdness.
+
+    { name = "emath" },
 ]
 
 [licenses]
@@ -128,6 +130,7 @@ allow = [
     "Unlicense",                      # https://www.tldrlegal.com/license/unlicense
     "Unicode-3.0",
     "CDLA-Permissive-2.0",
+    "bzip2-1.0.6",
 ]
 
 [[licenses.clarify]]
