@@ -38,7 +38,6 @@ pub(crate) fn render_backward(
     compact_gid_from_isect: CubeTensor<WgpuRuntime>,
     global_from_compact_gid: CubeTensor<WgpuRuntime>,
     tile_offsets: CubeTensor<WgpuRuntime>,
-    final_index: CubeTensor<WgpuRuntime>,
     sh_degree: u32,
 ) -> SplatGrads<MainBackendBase> {
     let device = &out_img.device;
@@ -94,7 +93,6 @@ pub(crate) fn render_backward(
                 compact_gid_from_isect.handle.binding(),
                 tile_offsets.handle.binding(),
                 projected_splats.handle.binding(),
-                final_index.handle.binding(),
                 out_img.handle.binding(),
                 v_output.handle.binding(),
                 v_grads.clone().handle.binding(),
