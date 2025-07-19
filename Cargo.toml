@@ -11,7 +11,7 @@ license = "Apache-2.0"
 repository = "https://github.com/ArthurBrussee/brush"
 
 [workspace.dependencies]
-glam = { version = "0.28", features = ["serde"] }
+glam = { version = "0.30", features = ["serde"] }
 bytemuck = "1.20"
 image = { version = "0.25", default-features = false, features = [
     'png',
@@ -45,7 +45,7 @@ reqwest = { version = "0.12.9", default-features = false, features = [
     "rustls-tls",
 ] }
 
-indicatif = "0.17.9"
+indicatif = "0.17"
 env_logger = "0.11"
 clap = { version = "4.5.23", features = ["derive"] }
 
@@ -68,17 +68,17 @@ wgpu = { version = "25", default-features = false, features = ["naga-ir"] }
 # The default ply-rs has a really bad slowdown. Use a forked version which is a good amount faster.
 ply-rs.git = "https://github.com/ArthurBrussee/ply-rs.git"
 
-burn = { git = "https://github.com/tracel-ai/burn", rev = "ec2e7ed4c5d757b5111983c59daf49456c537279", features = [
+burn = { git = "https://github.com/tracel-ai/burn", features = [
     'wgpu',
     'autodiff',
 ] }
-burn-cubecl = { git = "https://github.com/tracel-ai/burn", rev = "ec2e7ed4c5d757b5111983c59daf49456c537279" }
-burn-ir = { git = "https://github.com/tracel-ai/burn", rev = "ec2e7ed4c5d757b5111983c59daf49456c537279" }
-burn-wgpu = { git = "https://github.com/tracel-ai/burn", rev = "ec2e7ed4c5d757b5111983c59daf49456c537279", features = [
+burn-cubecl = { git = "https://github.com/tracel-ai/burn" }
+burn-ir = { git = "https://github.com/tracel-ai/burn" }
+burn-wgpu = { git = "https://github.com/tracel-ai/burn", features = [
     "exclusive-memory-only",
 ] }
-burn-fusion = { git = "https://github.com/tracel-ai/burn", rev = "ec2e7ed4c5d757b5111983c59daf49456c537279" }
-burn-import = { git = "https://github.com/tracel-ai/burn", rev = "ec2e7ed4c5d757b5111983c59daf49456c537279", default-features = false, features = [
+burn-fusion = { git = "https://github.com/tracel-ai/burn" }
+burn-import = { git = "https://github.com/tracel-ai/burn", default-features = false, features = [
     "pytorch",
 ] }
 
@@ -92,7 +92,7 @@ eframe = { version = "0.32", default-features = false, features = [
 
 egui_tiles = "0.13.0"
 
-rerun = { version = "0.23", default-features = false, features = [
+rerun = { version = "0.24", default-features = false, features = [
     'sdk',
     'glam',
 ] }

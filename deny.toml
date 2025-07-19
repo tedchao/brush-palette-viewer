@@ -56,7 +56,6 @@ skip = [
     #
     { name = 'thiserror' },
     { name = 'thiserror-impl' },
-    { name = 'derive-new' },
     { name = 'unicode-width' },
 
     # Custom ply fork.
@@ -91,9 +90,6 @@ skip = [
     { name = 'zip' },
     { name = 'colored' },
     { name = "rustc-hash" },
-    { name = 'tower' },            # Old version in rerun
-    { name = "tower-http" },
-    { name = 'indexmap' },         # Old version in rerun
 
     { name = 'ndk-sys' }, # Needed on Android.
 
@@ -107,9 +103,11 @@ skip = [
     { name = "raw-cpuid" }, # Burn-import weirdness.
     { name = "pulp" },      # Burn-import weirdness.
 
-    { name = "emath" },
-
-    { name = "spin" },
+    # Older versions in rerun.
+    { name = "bincode" },
+    { name = "toml" },
+    { name = "toml_datetime" },
+    { name = "serde_spanned" },
 ]
 
 [licenses]
@@ -130,6 +128,7 @@ allow = [
     "Unlicense",                      # https://www.tldrlegal.com/license/unlicense
     "Unicode-3.0",
     "CDLA-Permissive-2.0",
+    "bzip2-1.0.6",
 ]
 
 [[licenses.clarify]]
