@@ -167,8 +167,12 @@ fn main(
                 if (sigma < 0.0f || alpha < 1.0f / 255.0f) {
                     valid = false;
                 }
+            }
 
-                if T * (1.0f - alpha) <= 1e-4f {
+            var next_T = T;
+            if valid {
+                next_T = T * (1.0f - alpha);
+                if next_T <= 1e-4f {
                     atomicAdd(&done_count, 1u);
                     done = true;
                     valid = false;
@@ -198,7 +202,7 @@ fn main(
                     let v_alpha = dot(T * clamped_rgb + (rgb_pixel - rgb_pixel_final) * ra, v_out.rgb)
                                 + v_out.a * ra;
 
-                    let v_sigma = -color.a * gaussian * v_alpha;
+                    let v_sigma = -alpha * v_alpha;
                     v_conic_local = vec3f(
                         0.5f * v_sigma * delta.x * delta.x,
                         v_sigma * delta.x * delta.y,
@@ -208,12 +212,12 @@ fn main(
                         conic.x * delta.x + conic.y * delta.y,
                         conic.y * delta.x + conic.z * delta.y
                     );
-                    v_alpha_local = gaussian * v_alpha;
+                    v_alpha_local = alpha * (1.0f - color.a) * v_alpha;
                     v_refine_local = abs(v_xy_local);
                 }
 
                 // update transmittance
-                T *= 1.0f - alpha;
+                T = next_T;
             }
 
             let v_xy_sum = subgroupAdd(v_xy_local);
