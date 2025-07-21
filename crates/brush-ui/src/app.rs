@@ -57,7 +57,6 @@ impl egui_tiles::Behavior<PaneType> for AppTree {
 
 #[derive(Clone, PartialEq)]
 pub struct CameraSettings {
-    pub fov_y: f64,
     pub speed_scale: Option<f32>,
     pub splat_scale: Option<f32>,
     pub clamping: CameraClamping,
@@ -67,8 +66,6 @@ pub struct CameraSettings {
 impl Default for CameraSettings {
     fn default() -> Self {
         Self {
-            fov_y: 0.8,
-
             speed_scale: None,
             splat_scale: None,
             clamping: CameraClamping::default(),
@@ -119,9 +116,14 @@ impl App {
         )));
         let dataset_pane = tiles.insert_pane(Box::new(DatasetPanel::new()));
 
+        let right_side = tiles.insert_container(egui_tiles::Linear::new(
+            egui_tiles::LinearDir::Vertical,
+            vec![scene_pane, dataset_pane],
+        ));
+
         let mut lin = egui_tiles::Linear::new(
             egui_tiles::LinearDir::Horizontal,
-            vec![side_pane, scene_pane, dataset_pane],
+            vec![side_pane, right_side],
         );
         lin.shares.set_share(side_pane, 0.35);
         let root_container = tiles.insert_container(lin);

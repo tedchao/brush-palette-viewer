@@ -1,7 +1,8 @@
 use brush_dataset::splat_export;
 use brush_process::message::ProcessMessage;
+use burn::prelude::Backend;
 use core::f32;
-use egui::{Area, epaint::mutex::RwLock as EguiRwLock};
+use egui::{Area, Frame, epaint::mutex::RwLock as EguiRwLock};
 use std::sync::Arc;
 
 use brush_render::{
@@ -10,7 +11,7 @@ use brush_render::{
     gaussian_splats::Splats,
 };
 use eframe::egui_wgpu::Renderer;
-use egui::{Color32, Rect, Slider};
+use egui::{Color32, Rect, Slider, collapsing_header::CollapsingState};
 use glam::UVec2;
 use tokio_with_wasm::alias as tokio_wasm;
 use tracing::trace_span;
@@ -18,7 +19,7 @@ use web_time::Instant;
 
 use crate::{
     UiMode, app::CameraSettings, burn_texture::BurnTexture, draw_checkerboard, panels::AppPane,
-    size_for_splat_view, ui_process::UiProcess,
+    ui_process::UiProcess,
 };
 
 #[derive(Clone, PartialEq)]
@@ -64,6 +65,7 @@ impl ScenePanel {
             view_splats: vec![],
             live_update: true,
             paused: false,
+
             last_state: None,
             frame_count: 0,
             frame: 0.0,
@@ -76,10 +78,7 @@ impl ScenePanel {
         process: &UiProcess,
         splats: Option<Splats<MainBackend>>,
     ) -> egui::Rect {
-        let size = size_for_splat_view(ui, process.ui_mode() == UiMode::Default);
-
-        let mut size = size.floor();
-
+        let mut size = ui.available_size();
         let view = process.selected_view();
 
         if let Some(view) = view {
@@ -171,6 +170,191 @@ impl ScenePanel {
 
         rect
     }
+
+    fn controls_box(
+        &mut self,
+        ui: &egui::Ui,
+        process: &UiProcess,
+        splats: Option<Splats<MainBackend>>,
+        rect: egui::Rect,
+    ) {
+        // Controls window in bottom right
+        let id = ui.id().with("controls_box");
+        egui::Area::new(id)
+            .kind(egui::UiKind::Window)
+            .current_pos(egui::pos2(rect.min.x, rect.min.y))
+            .movable(false)
+            .show(ui.ctx(), |ui| {
+                // Add transparent background frame. This has the same settings as a
+                let style = ui.style_mut();
+                let fill = style.visuals.window_fill;
+                style.visuals.window_fill =
+                    Color32::from_rgba_unmultiplied(fill.r(), fill.g(), fill.b(), 200);
+                let frame = Frame::window(style);
+
+                frame.show(ui, |ui| {
+                    if process.is_loading() {
+                        ui.horizontal(|ui| {
+                            ui.label("Loading...");
+                            ui.spinner();
+                        });
+                        return;
+                    }
+
+                    // Custom title bar using egui's CollapsingState
+                    let state = CollapsingState::load_with_default_open(
+                        ui.ctx(),
+                        ui.id().with("controls_collapse"),
+                        false,
+                    );
+
+                    // Show a header
+                    state
+                        .show_header(ui, |ui| {
+                            ui.label(egui::RichText::new("Controls").strong());
+
+                            ui.add_space(5.0);
+
+                            // Help button
+                            let help_button = egui::Button::new(
+                                egui::RichText::new("?").size(10.0).color(Color32::WHITE),
+                            )
+                            .fill(egui::Color32::from_rgb(60, 120, 200))
+                            .corner_radius(6.0)
+                            .min_size(egui::vec2(14.0, 14.0));
+
+                            ui.add(help_button).on_hover_ui_at_pointer(|ui| {
+                                ui.set_max_width(280.0);
+                                ui.heading("Controls");
+                                ui.separator();
+                                ui.label("• Left click and drag to orbit");
+                                ui.label("• Right click + drag to look around");
+                                ui.label("• Middle click + drag to pan");
+                                ui.label("• Scroll to zoom");
+                                ui.label("• WASD to fly, Q&E up/down");
+                                ui.label("• Z&C to roll, X to reset roll");
+                                ui.label("• Shift to move faster");
+                            });
+                        })
+                        .body_unindented(|ui| {
+                            ui.set_max_width(180.0);
+                            ui.spacing_mut().item_spacing.y = 6.0;
+
+                            // Training controls
+                            if process.is_training() {
+                                let label = if self.paused {
+                                    "⏸ Paused"
+                                } else {
+                                    "⏵ Training"
+                                };
+
+                                if ui.selectable_label(!self.paused, label).clicked() {
+                                    self.paused = !self.paused;
+                                    process.set_train_paused(self.paused);
+                                }
+
+                                ui.scope(|ui| {
+                                    ui.style_mut().visuals.selection.bg_fill =
+                                        Color32::from_rgb(120, 40, 40);
+                                    if ui
+                                        .selectable_label(self.live_update, "🔴 Live update")
+                                        .clicked()
+                                    {
+                                        self.live_update = !self.live_update;
+                                    }
+                                });
+
+                                if let Some(splats) = splats {
+                                    if ui.small_button("⬆ Export").clicked() {
+                                        export_current_splat(splats);
+                                    }
+                                }
+
+                                ui.add_space(4.0);
+                                ui.separator();
+                                ui.add_space(4.0);
+                            }
+
+                            // Render controls (only in default mode)
+                            if process.ui_mode() == UiMode::Default {
+                                // Background color picker
+                                ui.horizontal(|ui| {
+                                    ui.label(egui::RichText::new("Background").size(12.0));
+                                    let mut settings = process.get_cam_settings();
+                                    let mut bg_color = egui::Color32::from_rgb(
+                                        (settings.background.x * 255.0) as u8,
+                                        (settings.background.y * 255.0) as u8,
+                                        (settings.background.z * 255.0) as u8,
+                                    );
+                                    if ui.color_edit_button_srgba(&mut bg_color).changed() {
+                                        settings.background = glam::vec3(
+                                            bg_color.r() as f32 / 255.0,
+                                            bg_color.g() as f32 / 255.0,
+                                            bg_color.b() as f32 / 255.0,
+                                        );
+                                        process.set_cam_settings(&settings);
+                                    }
+                                });
+
+                                ui.add_space(4.0);
+
+                                // FOV slider
+                                ui.label(egui::RichText::new("Field of View").size(12.0));
+                                let current_camera = process.current_camera();
+                                let mut fov_degrees = current_camera.fov_y.to_degrees() as f32;
+
+                                let response = ui.add(
+                                    Slider::new(&mut fov_degrees, 10.0..=140.0)
+                                        .suffix("°")
+                                        .show_value(true)
+                                        .custom_formatter(|val, _| format!("{val:.0}°")),
+                                );
+
+                                if response.changed() {
+                                    process.set_cam_fov(fov_degrees.to_radians() as f64);
+                                }
+
+                                // Splat scale slider
+                                ui.label(egui::RichText::new("Splat Scale").size(12.0));
+                                let mut settings = process.get_cam_settings();
+                                let mut scale = settings.splat_scale.unwrap_or(1.0);
+
+                                let response = ui.add(
+                                    Slider::new(&mut scale, 0.01..=2.0)
+                                        .logarithmic(true)
+                                        .show_value(true)
+                                        .custom_formatter(|val, _| format!("{val:.1}x")),
+                                );
+
+                                if response.changed() {
+                                    settings.splat_scale = Some(scale);
+                                    process.set_cam_settings(&settings);
+                                }
+
+                                ui.add_space(4.0);
+                            }
+                        });
+                });
+            });
+    }
+}
+
+fn export_current_splat<B: Backend>(splat: Splats<B>) {
+    tokio_wasm::task::spawn(async move {
+        let data = splat_export::splat_to_ply(splat).await;
+
+        let data = match data {
+            Ok(data) => data,
+            Err(e) => {
+                log::error!("Failed to serialize file: {e}");
+                return;
+            }
+        };
+
+        let _ = rrfd::save_file("export.ply", data).await.inspect_err(|e| {
+            log::error!("Failed to save file: {e}");
+        });
+    });
 }
 
 impl AppPane for ScenePanel {
@@ -300,23 +484,7 @@ Note: In browser training can be slower. For bigger training runs consider using
             let splats = self.view_splats.get(frame).cloned();
             let rect = self.draw_splats(ui, process, splats.clone());
 
-            if process.is_loading() {
-                let id = ui.auto_id_with("loading_bar");
-                Area::new(id)
-                    .order(egui::Order::Foreground)
-                    .fixed_pos(rect.min)
-                    .show(ui.ctx(), |ui| {
-                        egui::Frame::new()
-                            .fill(egui::Color32::from_rgba_premultiplied(20, 20, 20, 150))
-                            .show(ui, |ui| {
-                                ui.horizontal(|ui| {
-                                    ui.label(egui::RichText::new("Loading...").heading());
-                                    ui.spinner();
-                                });
-                            });
-                    });
-            }
-
+            // Floating play/pause button if needed.
             if self.view_splats.len() > 1 && self.view_splats.len() as u32 == self.frame_count {
                 let id = ui.auto_id_with("play_pause_button");
                 Area::new(id)
@@ -329,7 +497,7 @@ Note: In browser training can be slower. For bigger training runs consider using
                             egui::Color32::from_rgba_premultiplied(30, 80, 200, 120)
                         };
 
-                        egui::Frame::new()
+                        Frame::new()
                             .fill(bg_color)
                             .corner_radius(egui::CornerRadius::same(16))
                             .inner_margin(egui::Margin::same(4))
@@ -350,134 +518,7 @@ Note: In browser training can be slower. For bigger training runs consider using
                     });
             }
 
-            ui.horizontal(|ui| {
-                if process.is_training() {
-                    ui.add_space(15.0);
-
-                    let label = if self.paused {
-                        "⏸ paused"
-                    } else {
-                        "⏵ training"
-                    };
-
-                    if ui.selectable_label(!self.paused, label).clicked() {
-                        self.paused = !self.paused;
-                        process.set_train_paused(self.paused);
-                    }
-
-                    ui.add_space(15.0);
-
-                    ui.scope(|ui| {
-                        ui.style_mut().visuals.selection.bg_fill = Color32::DARK_RED;
-                        if ui
-                            .selectable_label(self.live_update, "🔴 Live update splats")
-                            .clicked()
-                        {
-                            self.live_update = !self.live_update;
-                        }
-                    });
-
-                    ui.add_space(15.0);
-
-                    if let Some(splats) = splats {
-                        if ui.button("⬆ Export").clicked() {
-                            let fut = async move {
-                                let data = splat_export::splat_to_ply(splats).await;
-
-                                let data = match data {
-                                    Ok(data) => data,
-                                    Err(e) => {
-                                        log::error!("Failed to serialize file: {e}");
-                                        return;
-                                    }
-                                };
-
-                                // Not sure where/how to show this error if any.
-                                let _ = rrfd::save_file("export.ply", data)
-                                    .await
-                                    .inspect_err(|e| log::error!("Failed to save file: {e}"));
-                            };
-
-                            tokio_wasm::task::spawn(fut);
-                        }
-                    }
-                }
-
-                if process.ui_mode() == UiMode::Default {
-                    ui.add_space(15.0);
-
-                    // Splat scale slider
-                    let mut settings = process.get_cam_settings();
-                    let mut scale = settings.splat_scale.unwrap_or(1.0);
-
-                    ui.label("Splat Scale:");
-                    let response = ui.add(
-                        Slider::new(&mut scale, 0.01..=2.0)
-                            .logarithmic(true)
-                            .show_value(true)
-                            .custom_formatter(|val, _| format!("{val:.1}x")),
-                    );
-
-                    if response.changed() {
-                        settings.splat_scale = Some(scale);
-                        process.set_cam_settings(&settings);
-                    }
-
-                    ui.add_space(15.0);
-
-                    // FOV slider
-                    ui.label("Field of View:");
-                    let current_camera = process.current_camera();
-                    let mut fov_degrees = current_camera.fov_y.to_degrees() as f32;
-                    let response = ui.add(
-                        Slider::new(&mut fov_degrees, 10.0..=140.0)
-                            .suffix("°")
-                            .show_value(true)
-                            .custom_formatter(|val, _| format!("{val:.0}°")),
-                    );
-
-                    if response.changed() {
-                        process.set_cam_settings(&CameraSettings {
-                            fov_y: fov_degrees.to_radians() as f64,
-                            ..process.get_cam_settings()
-                        });
-                    }
-
-                    ui.add_space(15.0);
-
-                    // Background color picker
-                    ui.label("Background Color:");
-                    let mut settings = process.get_cam_settings();
-                    let mut bg_color = egui::Color32::from_rgb(
-                        (settings.background.x * 255.0) as u8,
-                        (settings.background.y * 255.0) as u8,
-                        (settings.background.z * 255.0) as u8,
-                    );
-                    if ui.color_edit_button_srgba(&mut bg_color).changed() {
-                        settings.background = glam::vec3(
-                            bg_color.r() as f32 / 255.0,
-                            bg_color.g() as f32 / 255.0,
-                            bg_color.b() as f32 / 255.0,
-                        );
-                        process.set_cam_settings(&settings);
-                    }
-
-                    ui.selectable_label(false, "Controls")
-                        .on_hover_ui_at_pointer(|ui| {
-                            ui.heading("Controls");
-
-                            ui.label("• Left click and drag to orbit");
-                            ui.label(
-                                "• Right click, or left click + spacebar, and drag to look around.",
-                            );
-                            ui.label("• Middle click, or left click + control, and drag to pan");
-                            ui.label("• Scroll to zoom");
-                            ui.label("• WASD to fly, Q&E to move up & down.");
-                            ui.label("• Z&C to roll, X to reset roll");
-                            ui.label("• Shift to move faster");
-                        });
-                }
-            });
+            self.controls_box(ui, process, splats, rect);
         }
     }
 

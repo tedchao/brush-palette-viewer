@@ -62,7 +62,6 @@ pub struct CameraSettings(brush_ui::app::CameraSettings);
 impl CameraSettings {
     #[wasm_bindgen(constructor)]
     pub fn new(
-        fov_y: f64,
         background: ThreeVector3,
         speed_scale: Option<f32>,
         min_focus_distance: Option<f32>,
@@ -74,7 +73,6 @@ impl CameraSettings {
         splat_scale: Option<f32>,
     ) -> Self {
         Self(brush_ui::app::CameraSettings {
-            fov_y,
             speed_scale,
             splat_scale,
             // TODO: Could make this a separate JS object.
@@ -109,12 +107,17 @@ impl EmbeddedApp {
     }
 
     #[wasm_bindgen]
-    pub fn set_camera_settings(&self, settings: CameraSettings) {
+    pub fn set_cam_settings(&self, settings: CameraSettings) {
         self.context.set_cam_settings(&settings.0);
     }
 
     #[wasm_bindgen]
-    pub fn set_camera_transform(&self, position: ThreeVector3, rotation_euler: ThreeVector3) {
+    pub fn set_cam_fov(&self, fov: f64) {
+        self.context.set_cam_fov(fov);
+    }
+
+    #[wasm_bindgen]
+    pub fn set_cam_transform(&self, position: ThreeVector3, rotation_euler: ThreeVector3) {
         let position = position.to_glam();
         // 'XYZ' matches the THREE.js default order.
         let rotation = Quat::from_euler(
@@ -123,7 +126,7 @@ impl EmbeddedApp {
             rotation_euler.y() as f32,
             rotation_euler.z() as f32,
         );
-        self.context.set_camera_transform(position, rotation);
+        self.context.set_cam_transform(position, rotation);
     }
 
     #[wasm_bindgen]
