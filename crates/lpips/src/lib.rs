@@ -6,7 +6,6 @@ use burn::nn::conv::Conv2dConfig;
 use burn::nn::pool::MaxPool2d;
 use burn::nn::pool::MaxPool2dConfig;
 use burn::record::HalfPrecisionSettings;
-use burn::record::NamedMpkGzFileRecorder;
 use burn::record::Recorder;
 use burn::tensor::Device;
 use burn::tensor::activation::relu;
@@ -71,52 +70,49 @@ pub struct LpipsModel<B: Backend> {
     max_pool: MaxPool2d,
 }
 
+fn norm_vec<B: Backend>(vec: Tensor<B, 4>) -> Tensor<B, 4> {
+    let norm_factor = vec.clone().powi_scalar(2).sum_dim(1).sqrt();
+    vec / (norm_factor + 1e-10)
+}
+
 impl<B: Backend> LpipsModel<B> {
-    pub fn forward(&self, patches: Tensor<B, 4>) -> Vec<Tensor<B, 4>> {
-        let shift = Tensor::<B, 1>::from_floats([-0.030, -0.088, -0.188], &patches.device())
-            .reshape([1, 3, 1, 1]);
-        let scale = Tensor::<B, 1>::from_floats([0.458, 0.448, 0.450], &patches.device())
-            .reshape([1, 3, 1, 1]);
-
-        let mut fold = (patches - shift) / scale;
-
-        let mut res = vec![];
-        for (i, block) in self.blocks.iter().enumerate() {
-            if i != 0 {
-                fold = self.max_pool.forward(fold);
-            }
-
-            fold = block.forward(fold);
-
-            // Save intermediate state as normalized vec per lpips.
-            let norm_factor = fold.clone().powi_scalar(2).sum_dim(1).sqrt();
-            let normed = fold.clone() / (norm_factor + 1e-10);
-            res.push(normed);
-        }
-        res
-    }
-
     /// Calculate the lpips. Imgs are in NCHW order. Inputs should be 0-1 normalised.
     pub fn lpips(&self, imgs_a: Tensor<B, 4>, imgs_b: Tensor<B, 4>) -> Tensor<B, 1> {
+        let device = imgs_a.device();
+
         // Convert NHWC to NCHW and to [-1, 1].
-        let imgs_a = imgs_a.permute([0, 3, 1, 2]);
-        let imgs_b = imgs_b.permute([0, 3, 1, 2]);
+        let imgs_a = imgs_a.permute([0, 3, 1, 2]) * 2.0 - 1.0;
+        let imgs_b = imgs_b.permute([0, 3, 1, 2]) * 2.0 - 1.0;
 
-        // TODO: concatenating first might be faster.
-        let imgs_a = self.forward(imgs_a * 2.0 - 1.0);
-        let imgs_b = self.forward(imgs_b * 2.0 - 1.0);
+        let shift =
+            Tensor::<B, 1>::from_floats([-0.030, -0.088, -0.188], &device).reshape([1, 3, 1, 1]);
+        let scale =
+            Tensor::<B, 1>::from_floats([0.458, 0.448, 0.450], &device).reshape([1, 3, 1, 1]);
 
-        let device = imgs_a[0].device();
+        let mut imgs_a = (imgs_a - shift.clone()) / scale.clone();
+        let mut imgs_b = (imgs_b - shift) / scale;
 
-        imgs_a.into_iter().zip(imgs_b).zip(&self.heads).fold(
-            Tensor::zeros([1], &device),
-            |acc, ((p1, p2), head)| {
-                let diff = (p1 - p2).powi_scalar(2);
-                let class = head.forward(diff);
-                // Add spatial mean.
-                acc + class.mean_dim(2).mean_dim(3).reshape([1])
-            },
-        )
+        let mut loss = Tensor::<B, 1>::zeros([1], &device);
+        for (i, (block, head)) in self.blocks.iter().zip(&self.heads).enumerate() {
+            // TODO: concatenating first might be faster.
+            if i != 0 {
+                imgs_a = self.max_pool.forward(imgs_a);
+                imgs_b = self.max_pool.forward(imgs_b);
+            }
+
+            // Process each part through the block
+            imgs_a = block.forward(imgs_a);
+            imgs_b = block.forward(imgs_b);
+
+            let normed_a = norm_vec(imgs_a.clone());
+            let normed_b = norm_vec(imgs_b.clone());
+
+            let diff = (normed_a - normed_b).powi_scalar(2);
+            let class = head.forward(diff);
+            // Add spatial mean.
+            loss = loss + class.mean_dim(2).mean_dim(3).reshape([1]);
+        }
+        loss
     }
 }
 
@@ -157,11 +153,18 @@ impl LpipsModelConfig {
     }
 }
 
+#[cfg(not(target_family = "wasm"))]
 pub fn load_vgg_lpips<B: Backend>(device: &B::Device) -> LpipsModel<B> {
+    use burn::record::BinBytesRecorder;
+
     let model = LpipsModelConfig::new().init::<B>(device);
+    // It's not great, but just about manageable.
+    #[allow(clippy::large_include_file)]
+    let bytes = include_bytes!("../burn_mapped.bin");
+
     model.load_record(
-        NamedMpkGzFileRecorder::<HalfPrecisionSettings>::default()
-            .load("./burn_mapped".into(), device)
+        BinBytesRecorder::<HalfPrecisionSettings, &[u8]>::default()
+            .load(bytes, device)
             .expect("Should decode state successfully"),
     )
 }
