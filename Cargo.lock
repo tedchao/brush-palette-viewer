@@ -987,6 +987,7 @@ dependencies = [
  "humantime",
  "indicatif",
  "log",
+ "serde",
  "tokio-stream",
 ]
 
@@ -1063,6 +1064,7 @@ dependencies = [
  "log",
  "rand 0.9.1",
  "rerun",
+ "serde",
  "tokio",
  "tokio-stream",
  "web-time",
@@ -1155,6 +1157,7 @@ dependencies = [
  "log",
  "lpips",
  "rand 0.9.1",
+ "serde",
  "tracing",
 ]
 
@@ -1195,6 +1198,7 @@ dependencies = [
  "path-clean",
  "reqwest",
  "rrfd",
+ "serde",
  "thiserror 2.0.12",
  "tokio",
  "tokio-stream",
