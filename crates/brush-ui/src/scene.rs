@@ -275,64 +275,61 @@ impl ScenePanel {
                                 ui.add_space(4.0);
                             }
 
-                            // Render controls (only in default mode)
-                            if process.ui_mode() == UiMode::Default {
-                                // Background color picker
-                                ui.horizontal(|ui| {
-                                    ui.label(egui::RichText::new("Background").size(12.0));
-                                    let mut settings = process.get_cam_settings();
-                                    let mut bg_color = egui::Color32::from_rgb(
-                                        (settings.background.x * 255.0) as u8,
-                                        (settings.background.y * 255.0) as u8,
-                                        (settings.background.z * 255.0) as u8,
-                                    );
-                                    if ui.color_edit_button_srgba(&mut bg_color).changed() {
-                                        settings.background = glam::vec3(
-                                            bg_color.r() as f32 / 255.0,
-                                            bg_color.g() as f32 / 255.0,
-                                            bg_color.b() as f32 / 255.0,
-                                        );
-                                        process.set_cam_settings(&settings);
-                                    }
-                                });
-
-                                ui.add_space(4.0);
-
-                                // FOV slider
-                                ui.label(egui::RichText::new("Field of View").size(12.0));
-                                let current_camera = process.current_camera();
-                                let mut fov_degrees = current_camera.fov_y.to_degrees() as f32;
-
-                                let response = ui.add(
-                                    Slider::new(&mut fov_degrees, 10.0..=140.0)
-                                        .suffix("°")
-                                        .show_value(true)
-                                        .custom_formatter(|val, _| format!("{val:.0}°")),
-                                );
-
-                                if response.changed() {
-                                    process.set_cam_fov(fov_degrees.to_radians() as f64);
-                                }
-
-                                // Splat scale slider
-                                ui.label(egui::RichText::new("Splat Scale").size(12.0));
+                            // Background color picker
+                            ui.horizontal(|ui| {
+                                ui.label(egui::RichText::new("Background").size(12.0));
                                 let mut settings = process.get_cam_settings();
-                                let mut scale = settings.splat_scale.unwrap_or(1.0);
-
-                                let response = ui.add(
-                                    Slider::new(&mut scale, 0.01..=2.0)
-                                        .logarithmic(true)
-                                        .show_value(true)
-                                        .custom_formatter(|val, _| format!("{val:.1}x")),
+                                let mut bg_color = egui::Color32::from_rgb(
+                                    (settings.background.x * 255.0) as u8,
+                                    (settings.background.y * 255.0) as u8,
+                                    (settings.background.z * 255.0) as u8,
                                 );
-
-                                if response.changed() {
-                                    settings.splat_scale = Some(scale);
+                                if ui.color_edit_button_srgba(&mut bg_color).changed() {
+                                    settings.background = glam::vec3(
+                                        bg_color.r() as f32 / 255.0,
+                                        bg_color.g() as f32 / 255.0,
+                                        bg_color.b() as f32 / 255.0,
+                                    );
                                     process.set_cam_settings(&settings);
                                 }
+                            });
 
-                                ui.add_space(4.0);
+                            ui.add_space(4.0);
+
+                            // FOV slider
+                            ui.label(egui::RichText::new("Field of View").size(12.0));
+                            let current_camera = process.current_camera();
+                            let mut fov_degrees = current_camera.fov_y.to_degrees() as f32;
+
+                            let response = ui.add(
+                                Slider::new(&mut fov_degrees, 10.0..=140.0)
+                                    .suffix("°")
+                                    .show_value(true)
+                                    .custom_formatter(|val, _| format!("{val:.0}°")),
+                            );
+
+                            if response.changed() {
+                                process.set_cam_fov(fov_degrees.to_radians() as f64);
                             }
+
+                            // Splat scale slider
+                            ui.label(egui::RichText::new("Splat Scale").size(12.0));
+                            let mut settings = process.get_cam_settings();
+                            let mut scale = settings.splat_scale.unwrap_or(1.0);
+
+                            let response = ui.add(
+                                Slider::new(&mut scale, 0.01..=2.0)
+                                    .logarithmic(true)
+                                    .show_value(true)
+                                    .custom_formatter(|val, _| format!("{val:.1}x")),
+                            );
+
+                            if response.changed() {
+                                settings.splat_scale = Some(scale);
+                                process.set_cam_settings(&settings);
+                            }
+
+                            ui.add_space(4.0);
                         });
                 });
             });
