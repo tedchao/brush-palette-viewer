@@ -129,6 +129,8 @@ impl SplatTrainer {
 
         let pred_rgb = pred_image.clone().slice(s![.., .., 0..3]);
         let gt_rgb = batch.img_tensor.clone().slice(s![.., .., 0..3]);
+        let visible: Tensor<_, 1> =
+            Tensor::from_primitive(TensorPrimitive::Float(aux.visible.clone()));
 
         let loss = trace_span!("Calculate losses").in_scope(|| {
             let l1_rgb = (pred_rgb.clone() - gt_rgb.clone()).abs();
@@ -153,30 +155,28 @@ impl SplatTrainer {
                 total_err
             };
 
-            total_err.mean()
+            let loss = total_err.mean();
+
+            // TODO: Support masked lpips.
+            #[cfg(not(target_family = "wasm"))]
+            let loss = if let Some(lpips) = &self.lpips {
+                loss + lpips.lpips(pred_rgb.unsqueeze_dim(0), gt_rgb.unsqueeze_dim(0))
+                    * self.config.lpips_loss_weight
+            } else {
+                loss
+            };
+
+            let opac_loss_weight = self.config.opac_loss_weight;
+
+            if opac_loss_weight > 0.0 {
+                // Invisible splats still have a tiny bit of loss. Otherwise,
+                // they would never die off.
+                let visible = visible.clone() + 1e-3;
+                loss + (splats.opacities() * visible).sum() * (opac_loss_weight * (1.0 - train_t))
+            } else {
+                loss
+            }
         });
-
-        // TODO: Support masked lpips.
-        #[cfg(not(target_family = "wasm"))]
-        let loss = if let Some(lpips) = &self.lpips {
-            loss + lpips.lpips(pred_rgb.unsqueeze_dim(0), gt_rgb.unsqueeze_dim(0))
-                * self.config.lpips_loss_weight
-        } else {
-            loss
-        };
-
-        let opac_loss_weight = self.config.opac_loss_weight;
-        let visible: Tensor<_, 1> =
-            Tensor::from_primitive(TensorPrimitive::Float(aux.visible.clone()));
-
-        let loss = if opac_loss_weight > 0.0 {
-            // Invisible splats still have a tiny bit of loss. Otherwise,
-            // they would never die off.
-            let visible = visible.clone() + 1e-3;
-            loss + (splats.opacities() * visible).sum() * (opac_loss_weight * (1.0 - train_t))
-        } else {
-            loss
-        };
 
         let mut grads = trace_span!("Backward pass").in_scope(|| loss.backward());
 

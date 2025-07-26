@@ -277,12 +277,17 @@ pub fn view_to_sample_image(image: DynamicImage, alpha_is_mask: bool) -> Dynamic
 }
 
 pub fn sample_to_tensor<B: Backend>(sample: &DynamicImage, device: &B::Device) -> Tensor<B, 3> {
+    let _span = tracing::trace_span!("sample_to_tensor").entered();
+
     let (w, h) = (sample.width(), sample.height());
-    let data = if sample.color().has_alpha() {
-        TensorData::new(sample.to_rgba32f().into_vec(), [h as usize, w as usize, 4])
-    } else {
-        TensorData::new(sample.to_rgb32f().into_vec(), [h as usize, w as usize, 3])
-    };
+    let data = tracing::trace_span!("Img to vec").in_scope(|| {
+        if sample.color().has_alpha() {
+            TensorData::new(sample.to_rgba32f().into_vec(), [h as usize, w as usize, 4])
+        } else {
+            TensorData::new(sample.to_rgb32f().into_vec(), [h as usize, w as usize, 3])
+        }
+    });
+
     Tensor::from_data(data, device)
 }
 

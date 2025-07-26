@@ -133,8 +133,7 @@ impl<B: Backend> SceneLoader<B> {
             while let Some(rec) = rec_imag.recv().await {
                 let (sample, alpha_is_mask, camera) = rec;
 
-                let img_tensor = tracing::trace_span!("SceneLoader sample to tensor")
-                    .in_scope(|| sample_to_tensor(&sample, &device));
+                let img_tensor = sample_to_tensor(&sample, &device);
 
                 if send_batch
                     .send(SceneBatch {
