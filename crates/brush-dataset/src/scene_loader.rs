@@ -6,6 +6,7 @@ use rand::{SeedableRng, seq::SliceRandom};
 use tokio::sync::mpsc::Receiver;
 use tokio::sync::{RwLock, mpsc};
 use tokio_with_wasm::alias as tokio_wasm;
+use tracing::{Instrument, trace_span};
 
 use crate::scene::{Scene, SceneBatch, sample_to_tensor, view_to_sample_image};
 
@@ -87,35 +88,39 @@ impl<B: Backend> SceneLoader<B> {
                 let mut shuf_indices = vec![];
 
                 loop {
-                    let index = shuf_indices.pop().unwrap_or_else(|| {
-                        shuf_indices = (0..num_views).collect();
-                        shuf_indices.shuffle(&mut rng);
-                        shuf_indices
-                            .pop()
-                            .expect("Need at least one view in dataset")
-                    });
+                    let load = async {
+                        let index = shuf_indices.pop().unwrap_or_else(|| {
+                            shuf_indices = (0..num_views).collect();
+                            shuf_indices.shuffle(&mut rng);
+                            shuf_indices
+                                .pop()
+                                .expect("Need at least one view in dataset")
+                        });
 
-                    let view = &views[index];
+                        let view = &views[index];
 
-                    let sample = if let Some(image) = load_cache.read().await.try_get(index) {
-                        image
-                    } else {
-                        let image = view
-                            .image
-                            .load()
-                            .await
-                            .expect("Scene loader encountered an error while loading an image");
-                        // Don't premultiply the image if it's a mask - treat as fully opaque.
-                        let sample = Arc::new(view_to_sample_image(image, view.image.is_masked()));
-                        load_cache.write().await.insert(index, sample.clone());
-                        sample
+                        let sample = if let Some(image) = load_cache.read().await.try_get(index) {
+                            image
+                        } else {
+                            let image =
+                                view.image.load().await.expect(
+                                    "Scene loader encountered an error while loading an image",
+                                );
+                            // Don't premultiply the image if it's a mask - treat as fully opaque.
+                            let sample =
+                                Arc::new(view_to_sample_image(image, view.image.is_masked()));
+                            load_cache.write().await.insert(index, sample.clone());
+                            sample
+                        };
+
+                        let _ = send_img
+                            .send((sample, view.image.is_masked(), view.camera.clone()))
+                            .await;
                     };
 
-                    if send_img
-                        .send((sample, view.image.is_masked(), view.camera.clone()))
-                        .await
-                        .is_err()
-                    {
+                    load.instrument(trace_span!("SceneLoader load image")).await;
+
+                    if send_img.is_closed() {
                         break;
                     }
                 }
@@ -127,7 +132,9 @@ impl<B: Backend> SceneLoader<B> {
         tokio_wasm::spawn(async move {
             while let Some(rec) = rec_imag.recv().await {
                 let (sample, alpha_is_mask, camera) = rec;
-                let img_tensor = sample_to_tensor(&sample, &device);
+
+                let img_tensor = tracing::trace_span!("SceneLoader sample to tensor")
+                    .in_scope(|| sample_to_tensor(&sample, &device));
 
                 if send_batch
                     .send(SceneBatch {

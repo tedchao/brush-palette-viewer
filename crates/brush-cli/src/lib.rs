@@ -6,6 +6,7 @@ use clap::{Error, Parser, builder::ArgPredicate, error::ErrorKind};
 use indicatif::{ProgressBar, ProgressStyle};
 use std::time::Duration;
 use tokio_stream::{Stream, StreamExt};
+use tracing::trace_span;
 
 #[derive(Parser)]
 #[command(
@@ -120,6 +121,8 @@ pub async fn process_ui(
 
     // TODO: Unify logging & CLI UI somehow.
     while let Some(msg) = stream.next().await {
+        let _span = trace_span!("CLI UI").entered();
+
         let msg = match msg {
             Ok(msg) => msg,
             Err(error) => {

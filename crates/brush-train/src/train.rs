@@ -95,12 +95,14 @@ impl SplatTrainer {
         batch: &SceneBatch<DiffBackend>,
         splats: Splats<DiffBackend>,
     ) -> (Splats<DiffBackend>, TrainStepStats<MainBackend>) {
+        let _span = trace_span!("Train step").entered();
+
         let mut splats = splats;
 
         let [img_h, img_w, _] = batch.img_tensor.dims();
         let camera = &batch.camera;
 
-        let (pred_image, aux, refine_weight_holder) = {
+        let (pred_image, aux, refine_weight_holder) = trace_span!("Forward").in_scope(|| {
             // Could generate a random background color, but so far
             // results just seem worse.
             let background = Vec3::ZERO;
@@ -121,38 +123,38 @@ impl SplatTrainer {
             diff_out.aux.debug_assert_valid();
 
             (img, diff_out.aux, diff_out.refine_weight_holder)
-        };
+        });
 
         let train_t = (iter as f32 / self.config.total_steps as f32).clamp(0.0, 1.0);
-
-        let _span = trace_span!("Calculate losses", sync_burn = true).entered();
 
         let pred_rgb = pred_image.clone().slice(s![.., .., 0..3]);
         let gt_rgb = batch.img_tensor.clone().slice(s![.., .., 0..3]);
 
-        let l1_rgb = (pred_rgb.clone() - gt_rgb.clone()).abs();
+        let loss = trace_span!("Calculate losses").in_scope(|| {
+            let l1_rgb = (pred_rgb.clone() - gt_rgb.clone()).abs();
 
-        let total_err = if let Some(ssim) = &self.ssim {
-            let ssim_err = ssim.ssim(pred_rgb.clone(), gt_rgb.clone());
-            l1_rgb * (1.0 - self.config.ssim_weight) - (ssim_err * self.config.ssim_weight)
-        } else {
-            l1_rgb
-        };
-
-        let total_err = if batch.has_alpha() {
-            let alpha_input = batch.img_tensor.clone().slice(s![.., .., 3..4]);
-
-            if batch.alpha_is_mask {
-                total_err * alpha_input
+            let total_err = if let Some(ssim) = &self.ssim {
+                let ssim_err = ssim.ssim(pred_rgb.clone(), gt_rgb.clone());
+                l1_rgb * (1.0 - self.config.ssim_weight) - (ssim_err * self.config.ssim_weight)
             } else {
-                let pred_alpha = pred_image.clone().slice(s![.., .., 3..4]);
-                total_err + (alpha_input - pred_alpha).abs() * self.config.match_alpha_weight
-            }
-        } else {
-            total_err
-        };
+                l1_rgb
+            };
 
-        let loss = total_err.mean();
+            let total_err = if batch.has_alpha() {
+                let alpha_input = batch.img_tensor.clone().slice(s![.., .., 3..4]);
+
+                if batch.alpha_is_mask {
+                    total_err * alpha_input
+                } else {
+                    let pred_alpha = pred_image.clone().slice(s![.., .., 3..4]);
+                    total_err + (alpha_input - pred_alpha).abs() * self.config.match_alpha_weight
+                }
+            } else {
+                total_err
+            };
+
+            total_err.mean()
+        });
 
         // TODO: Support masked lpips.
         #[cfg(not(target_family = "wasm"))]
@@ -176,7 +178,7 @@ impl SplatTrainer {
             loss
         };
 
-        let mut grads = trace_span!("Backward pass", sync_burn = true).in_scope(|| loss.backward());
+        let mut grads = trace_span!("Backward pass").in_scope(|| loss.backward());
 
         let (lr_mean, lr_rotation, lr_scale, lr_coeffs, lr_opac) = (
             self.sched_mean.step() * scene_extent as f64,
@@ -210,28 +212,28 @@ impl SplatTrainer {
             )]))
         });
 
-        splats = trace_span!("Optimizer step", sync_burn = true).in_scope(|| {
-            splats = trace_span!("SH Coeffs step", sync_burn = true).in_scope(|| {
+        splats = trace_span!("Optimizer step").in_scope(|| {
+            splats = trace_span!("SH Coeffs step").in_scope(|| {
                 let grad_coeff =
                     GradientsParams::from_params(&mut grads, &splats, &[splats.sh_coeffs.id]);
                 optimizer.step(lr_coeffs, splats, grad_coeff)
             });
-            splats = trace_span!("Rotation step", sync_burn = true).in_scope(|| {
+            splats = trace_span!("Rotation step").in_scope(|| {
                 let grad_rot =
                     GradientsParams::from_params(&mut grads, &splats, &[splats.rotation.id]);
                 optimizer.step(lr_rotation, splats, grad_rot)
             });
-            splats = trace_span!("Scale step", sync_burn = true).in_scope(|| {
+            splats = trace_span!("Scale step").in_scope(|| {
                 let grad_scale =
                     GradientsParams::from_params(&mut grads, &splats, &[splats.log_scales.id]);
                 optimizer.step(lr_scale, splats, grad_scale)
             });
-            splats = trace_span!("Mean step", sync_burn = true).in_scope(|| {
+            splats = trace_span!("Mean step").in_scope(|| {
                 let grad_means =
                     GradientsParams::from_params(&mut grads, &splats, &[splats.means.id]);
                 optimizer.step(lr_mean, splats, grad_means)
             });
-            splats = trace_span!("Opacity step", sync_burn = true).in_scope(|| {
+            splats = trace_span!("Opacity step").in_scope(|| {
                 let grad_opac =
                     GradientsParams::from_params(&mut grads, &splats, &[splats.raw_opacity.id]);
                 optimizer.step(lr_opac, splats, grad_opac)
@@ -239,25 +241,25 @@ impl SplatTrainer {
             splats
         });
 
-        let _housekeep = trace_span!("Housekeeping", sync_burn = true);
-        // Get the xy gradient norm from the dummy tensor.
-        let refine_weight = refine_weight_holder
-            .grad_remove(&mut grads)
-            .expect("XY gradients need to be calculated.");
+        trace_span!("Housekeeping").in_scope(|| {
+            // Get the xy gradient norm from the dummy tensor.
+            let refine_weight = refine_weight_holder
+                .grad_remove(&mut grads)
+                .expect("XY gradients need to be calculated.");
 
-        let device = splats.device();
-        let num_splats = splats.num_splats();
-        let record = self
-            .refine_record
-            .get_or_insert_with(|| RefineRecord::new(num_splats, &device));
+            let device = splats.device();
+            let num_splats = splats.num_splats();
+            let record = self
+                .refine_record
+                .get_or_insert_with(|| RefineRecord::new(num_splats, &device));
 
-        record.gather_stats(
-            refine_weight,
-            glam::uvec2(img_w as u32, img_h as u32),
-            aux.global_from_compact_gid.clone(),
-            aux.num_visible().into_primitive(),
-        );
-        drop(_housekeep);
+            record.gather_stats(
+                refine_weight,
+                glam::uvec2(img_w as u32, img_h as u32),
+                aux.global_from_compact_gid.clone(),
+                aux.num_visible().into_primitive(),
+            );
+        });
 
         let mean_noise_weight_scale = self.config.mean_noise_weight * (1.0 - train_t);
 

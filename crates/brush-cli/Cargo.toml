@@ -12,6 +12,7 @@ serde.workspace = true
 brush-process.path = "../brush-process"
 brush-vfs.path = "../brush-vfs"
 
+tracing.workspace = true
 tokio-stream.workspace = true
 humantime.workspace = true
 log.workspace = true

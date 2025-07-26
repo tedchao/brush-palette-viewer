@@ -20,6 +20,7 @@ use burn_wgpu::{WgpuDevice, WgpuRuntime};
 use rand::SeedableRng;
 use tokio::sync::oneshot::Receiver;
 use tokio_stream::StreamExt;
+use tracing::{Instrument, trace_span};
 use web_time::{Duration, Instant};
 
 pub(crate) async fn train_stream(
@@ -112,10 +113,17 @@ pub(crate) async fn train_stream(
     for iter in process_args.process_config.start_iter..process_args.train_config.total_steps {
         let step_time = Instant::now();
 
-        let batch = dataloader.next_batch().await;
+        let batch = dataloader
+            .next_batch()
+            .instrument(trace_span!("Wait for next data batch"))
+            .await;
+
         let (new_splats, stats) = trainer.step(scene_extent, iter, &batch, splats);
         splats = new_splats;
-        let (new_splats, refine) = trainer.refine_if_needed(iter, splats).await;
+        let (new_splats, refine) = trainer
+            .refine_if_needed(iter, splats)
+            .instrument(trace_span!("Refine splats"))
+            .await;
         splats = new_splats;
 
         #[allow(unused)]

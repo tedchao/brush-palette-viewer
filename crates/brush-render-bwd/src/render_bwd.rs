@@ -84,7 +84,7 @@ pub(crate) fn render_backward(
             ));
 
     // Use checked execution, as the atomic loops are potentially unbounded.
-    tracing::trace_span!("RasterizeBackwards", sync_burn = true).in_scope(|| {
+    tracing::trace_span!("RasterizeBackwards").in_scope(|| {
         client.execute(
             RasterizeBackwards::task(hard_floats),
             CubeCount::Static(invocations, 1, 1),
@@ -101,7 +101,7 @@ pub(crate) fn render_backward(
         );
     });
 
-    let _span = tracing::trace_span!("GatherGrads", sync_burn = true).entered();
+    let _span = tracing::trace_span!("GatherGrads").entered();
 
     // SAFETY: Kernel has to contain no OOB indexing, bounded loops.
     unsafe {
@@ -120,7 +120,7 @@ pub(crate) fn render_backward(
         );
     }
 
-    tracing::trace_span!("ProjectBackwards", sync_burn = true).in_scope(||
+    tracing::trace_span!("ProjectBackwards").in_scope(||
         // SAFETY: Kernel has to contain no OOB indexing, bounded loops.
         unsafe {
         client.execute_unchecked(

@@ -58,7 +58,7 @@ impl RefineRecord<MainBackend> {
         global_from_compact_gid: IntTensor<MainBackend>,
         num_visible: IntTensor<MainBackend>,
     ) {
-        let _span = trace_span!("Gather stats", sync_burn = true);
+        let _span = trace_span!("Gather stats").entered();
 
         let [w, h] = [resolution.x, resolution.y];
         let client = &self

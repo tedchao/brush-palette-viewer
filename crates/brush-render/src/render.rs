@@ -78,10 +78,7 @@ pub(crate) fn render_forward(
     let device = &means.device.clone();
     let client = means.client.clone();
 
-    // Check whether any work needs to be flushed.
-    tracing::trace_span!("pre setup", sync_burn = true).in_scope(|| {});
-
-    let _span = tracing::trace_span!("render_forward", sync_burn = true).entered();
+    let _span = tracing::trace_span!("render_forward").entered();
 
     let means = into_contiguous(means);
     let log_scales = into_contiguous(log_scales);
@@ -142,7 +139,7 @@ pub(crate) fn render_forward(
         let global_from_presort_gid = MainBackendBase::int_zeros([total_splats].into(), device);
         let depths = create_tensor([total_splats], device, client, DType::F32);
 
-        tracing::trace_span!("ProjectSplats", sync_burn = true).in_scope(||
+        tracing::trace_span!("ProjectSplats").in_scope(||
             // SAFETY: Kernel checked to have no OOB, bounded loops.
             unsafe {
             client.execute_unchecked(
@@ -168,12 +165,11 @@ pub(crate) fn render_forward(
             &[num_vis_field_offset..num_vis_field_offset + 1],
         );
 
-        let (_, global_from_compact_gid) = tracing::trace_span!("DepthSort", sync_burn = true)
-            .in_scope(|| {
-                // Interpret the depth as a u32. This is fine for a radix sort, as long as the depth > 0.0,
-                // which we know to be the case given how we cull splats.
-                radix_argsort(depths, global_from_presort_gid, &num_visible, 32)
-            });
+        let (_, global_from_compact_gid) = tracing::trace_span!("DepthSort").in_scope(|| {
+            // Interpret the depth as a u32. This is fine for a radix sort, as long as the depth > 0.0,
+            // which we know to be the case given how we cull splats.
+            radix_argsort(depths, global_from_presort_gid, &num_visible, 32)
+        });
 
         (global_from_compact_gid, num_visible)
     };
@@ -184,7 +180,7 @@ pub(crate) fn render_forward(
     let projected_splats =
         create_tensor::<2, _>([total_splats, projected_size], device, client, DType::F32);
 
-    tracing::trace_span!("ProjectVisible", sync_burn = true).in_scope(|| {
+    tracing::trace_span!("ProjectVisible").in_scope(|| {
         // Create a buffer to determine how many threads to dispatch for all visible splats.
         let num_vis_wg = create_dispatch_buffer(
             num_visible.clone(),
@@ -224,7 +220,7 @@ pub(crate) fn render_forward(
         );
 
         // First do a prepass to compute the tile counts, then fill in intersection counts.
-        tracing::trace_span!("MapGaussiansToIntersectPrepass", sync_burn = true).in_scope(|| {
+        tracing::trace_span!("MapGaussiansToIntersectPrepass").in_scope(|| {
             client.execute(
                 MapGaussiansToIntersect::task(true),
                 CubeCount::Dynamic(num_vis_map_wg.clone().handle.binding()),
@@ -238,7 +234,7 @@ pub(crate) fn render_forward(
         });
 
         // TODO: Only need to do this up to num_visible gaussians really.
-        let cum_tiles_hit = tracing::trace_span!("PrefixSumGaussHits", sync_burn = true)
+        let cum_tiles_hit = tracing::trace_span!("PrefixSumGaussHits")
             .in_scope(|| prefix_sum(splat_intersect_counts));
 
         let tile_id_from_isect =
@@ -246,7 +242,7 @@ pub(crate) fn render_forward(
         let compact_gid_from_isect =
             create_tensor::<1, _>([max_intersects as usize], device, client, DType::I32);
 
-        tracing::trace_span!("MapGaussiansToIntersect", sync_burn = true).in_scope(|| {
+        tracing::trace_span!("MapGaussiansToIntersect").in_scope(|| {
             client.execute(
                 MapGaussiansToIntersect::task(false),
                 CubeCount::Dynamic(num_vis_map_wg.clone().handle.binding()),
@@ -268,23 +264,22 @@ pub(crate) fn render_forward(
         // can be. We don't need to sort all the leading 0 bits!
         let bits = u32::BITS - num_tiles.leading_zeros();
 
-        let (_, compact_gid_from_isect) = tracing::trace_span!("Tile sort", sync_burn = true)
-            .in_scope(|| {
-                radix_argsort(
-                    tile_id_from_isect,
-                    compact_gid_from_isect,
-                    &num_intersections.clone().into_primitive(),
-                    bits,
-                )
-            });
+        let (_, compact_gid_from_isect) = tracing::trace_span!("Tile sort").in_scope(|| {
+            radix_argsort(
+                tile_id_from_isect,
+                compact_gid_from_isect,
+                &num_intersections.clone().into_primitive(),
+                bits,
+            )
+        });
 
-        let tile_offsets = tracing::trace_span!("PrefixSumTileHits", sync_burn = true)
+        let tile_offsets = tracing::trace_span!("PrefixSumTileHits")
             .in_scope(|| prefix_sum(tile_intersect_counts));
 
         (tile_offsets, compact_gid_from_isect)
     };
 
-    let _span = tracing::trace_span!("Rasterize", sync_burn = true).entered();
+    let _span = tracing::trace_span!("Rasterize").entered();
 
     let out_dim = if bwd_info {
         4

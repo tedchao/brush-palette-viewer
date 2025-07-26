@@ -72,6 +72,5 @@ ignored = ["wgpu"] # Need manual backend selection.
 workspace = true
 
 [features]
-tracy = ["dep:tracing-tracy"]
-tracing = ["dep:tracing-subscriber"]
+tracy = ["dep:tracing-subscriber", "dep:tracing-tracy"]
 debug-validation = ["brush-render/debug-validation"]

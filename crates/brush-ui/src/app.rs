@@ -11,6 +11,7 @@ use egui_tiles::{SimplificationOptions, Tile, TileId, Tiles};
 use glam::Vec3;
 use std::collections::HashMap;
 use std::sync::Arc;
+use tracing::trace_span;
 
 pub(crate) struct AppTree {
     process: Arc<UiProcess>,
@@ -136,6 +137,8 @@ impl App {
     }
 
     fn receive_messages(&mut self) {
+        let _span = trace_span!("Receive Messages").entered();
+
         let mut messages = vec![];
         while let Some(message) = self.tree_ctx.process.try_recv_message() {
             messages.push(message);
@@ -170,6 +173,8 @@ impl App {
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _: &mut eframe::Frame) {
+        let _span = trace_span!("Update UI").entered();
+
         self.receive_messages();
 
         if ctx.input(|i| i.key_pressed(egui::Key::F)) {
@@ -186,41 +191,46 @@ impl eframe::App for App {
         // Recursive function to compute visibility bottom-up
         let mut tile_visibility = HashMap::new();
 
-        fn compute_visibility(
-            tile_id: TileId,
-            tiles: &Tiles<PaneType>,
-            process: &UiProcess,
-            memo: &mut HashMap<TileId, bool>,
-        ) -> bool {
-            if let Some(&cached) = memo.get(&tile_id) {
-                return cached;
+        {
+            let _span = trace_span!("Compute UI visibility").entered();
+
+            fn compute_visibility(
+                tile_id: TileId,
+                tiles: &Tiles<PaneType>,
+                process: &UiProcess,
+                memo: &mut HashMap<TileId, bool>,
+            ) -> bool {
+                if let Some(&cached) = memo.get(&tile_id) {
+                    return cached;
+                }
+
+                let c = tiles.get(tile_id).expect("Must come from valid parent");
+                let visible = match c {
+                    Tile::Pane(pane) => pane.is_visible(process),
+                    Tile::Container(container) => {
+                        // Container is visible if any child is visible
+                        container
+                            .active_children()
+                            .any(|&child_id| compute_visibility(child_id, tiles, process, memo))
+                    }
+                };
+                memo.insert(tile_id, visible);
+                visible
             }
 
-            let c = tiles.get(tile_id).expect("Must come from valid parent");
-            let visible = match c {
-                Tile::Pane(pane) => pane.is_visible(process),
-                Tile::Container(container) => {
-                    // Container is visible if any child is visible
-                    container
-                        .active_children()
-                        .any(|&child_id| compute_visibility(child_id, tiles, process, memo))
-                }
-            };
-            memo.insert(tile_id, visible);
-            visible
-        }
-
-        // Compute visibility for all tiles
-        for tile_id in self.tree.tiles.tile_ids().collect::<Vec<_>>() {
-            self.tree.set_visible(
-                tile_id,
-                compute_visibility(tile_id, &self.tree.tiles, &process, &mut tile_visibility),
-            );
+            // Compute visibility for all tiles
+            for tile_id in self.tree.tiles.tile_ids().collect::<Vec<_>>() {
+                self.tree.set_visible(
+                    tile_id,
+                    compute_visibility(tile_id, &self.tree.tiles, &process, &mut tile_visibility),
+                );
+            }
         }
 
         egui::CentralPanel::default()
             .frame(egui::Frame::central_panel(ctx.style().as_ref()).inner_margin(0.0))
             .show(ctx, |ui| {
+                let _span = trace_span!("Render UI").entered();
                 self.tree.ui(&mut self.tree_ctx, ui);
             });
     }
