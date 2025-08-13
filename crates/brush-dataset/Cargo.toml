@@ -16,12 +16,12 @@ thiserror = { workspace = true }
 image.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+serde-ply.workspace = true
 glam.workspace = true
 
 tracing.workspace = true
 web-time.workspace = true
 log.workspace = true
-ply-rs.workspace = true
 rand.workspace = true
 
 tokio_with_wasm.workspace = true

@@ -1,25 +1,17 @@
-use std::{collections::HashSet, pin::Pin};
-
-use async_fn_stream::try_fn_stream;
+use async_fn_stream::{TryStreamEmitter, try_fn_stream};
 use brush_render::gaussian_splats::Splats;
 use brush_render::{MainBackend, gaussian_splats::inverse_sigmoid, sh::rgb_to_sh};
 use brush_vfs::{DynStream, SendNotWasm};
-use burn::{
-    backend::wgpu::WgpuDevice,
-    tensor::{Tensor, TensorData},
-};
-use glam::{Quat, Vec3, Vec4};
-use ply_rs::{
-    parser::Parser,
-    ply::{DefaultElement, ElementDef, Encoding, Header, Property, PropertyAccess},
-};
-use thiserror::Error;
-use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncRead, BufReader};
-use tokio_stream::{Stream, StreamExt};
-use tokio_with_wasm::alias as tokio_wasm;
-use tracing::trace_span;
+use burn::backend::wgpu::WgpuDevice;
+use burn::tensor::{Tensor, TensorData};
+use glam::{Vec3, Vec4, Vec4Swizzles};
+use serde::Deserialize;
+use serde::de::{DeserializeSeed, Error};
+use serde_ply::{DeserializeError, RowVisitor};
+use tokio::io::AsyncRead;
+use tokio::io::AsyncReadExt;
 
-use crate::parsed_gaussian::ParsedGaussian;
+use crate::parsed_gaussian::{PlyGaussian, QuantSh, QuantSplat};
 
 pub struct ParseMetadata {
     pub up_axis: Option<Vec3>,
@@ -53,77 +45,40 @@ fn interleave_coeffs(sh_dc: Vec3, sh_rest: &[f32], result: &mut Vec<f32>) {
     }
 }
 
-async fn parse_elem<T: AsyncBufRead + Unpin + 'static, E: PropertyAccess>(
+async fn read_chunk<T: AsyncRead + Unpin>(
     reader: &mut T,
-    parser: &Parser<E>,
-    encoding: Encoding,
-    element: &ElementDef,
-) -> tokio::io::Result<E> {
-    match encoding {
-        Encoding::Ascii => {
-            let mut ascii_line = String::new();
-            reader.read_line(&mut ascii_line).await?;
-            let elem = parser.read_ascii_element(&ascii_line, element)?;
-            ascii_line.clear();
-            Ok(elem)
+    buf: &mut Vec<u8>,
+) -> tokio::io::Result<()> {
+    buf.reserve(8 * 1024 * 1024);
+    let mut total_read = buf.len();
+    while total_read < buf.capacity() {
+        let bytes_read = reader.read_buf(buf).await?;
+        if bytes_read == 0 {
+            break;
         }
-        Encoding::BinaryBigEndian => parser.read_big_endian_element(reader, element).await,
-        Encoding::BinaryLittleEndian => parser.read_little_endian_element(reader, element).await,
+        total_read += bytes_read;
     }
-}
-
-struct TimeYield {
-    last_yield: web_time::Instant,
-    tick: usize,
-}
-
-impl TimeYield {
-    fn new() -> Self {
-        Self {
-            last_yield: web_time::Instant::now(),
-            tick: 0,
-        }
+    if total_read == 0 {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::UnexpectedEof,
+            "Unexpected EOF",
+        ))
+    } else {
+        Ok(())
     }
-
-    /// Check if we need to yield. Should be called in loops.
-    async fn try_yield(&mut self) {
-        self.tick += 1;
-
-        // Only check every so many iterations as checking the time isn't super cheap either.
-        if self.tick % 1000 == 0 {
-            let duration = web_time::Instant::now().duration_since(self.last_yield);
-            // Try to yield every 5 milliseconds to keep things responsive.
-            if duration.as_secs_f32() > 5e-3 {
-                tokio_wasm::task::yield_now().await;
-            }
-        }
-    }
-}
-
-#[derive(Debug, Error)]
-pub enum SplatImportError {
-    #[error("IO error while importing ply file.")]
-    Io(#[from] std::io::Error),
-
-    #[error("Invalid ply format")]
-    InvalidFormat,
 }
 
 pub fn load_splat_from_ply<T: AsyncRead + SendNotWasm + Unpin + 'static>(
-    reader: T,
+    mut reader: T,
     subsample_points: Option<u32>,
     device: WgpuDevice,
-) -> impl DynStream<Result<SplatMessage, SplatImportError>> {
-    // set up a reader, in this case a file.
-    let mut reader = BufReader::new(reader);
-
-    let _span = trace_span!("Read splats").entered();
-
+) -> impl DynStream<Result<SplatMessage, DeserializeError>> {
     try_fn_stream(|emitter| async move {
-        let header = Parser::<DefaultElement>::new()
-            .read_header(&mut reader)
-            .await?;
+        // TODO: Just make chunk ply take in data and try to get a header? Simpler maybe.
+        let mut file = serde_ply::PlyChunkedReader::new();
+        read_chunk(&mut reader, file.buffer_mut()).await?;
 
+        let header = file.header().expect("Must have header");
         // Parse some metadata.
         let up_axis = header
             .comments
@@ -137,14 +92,18 @@ pub fn load_splat_from_ply<T: AsyncRead + SendNotWasm + Unpin + 'static>(
             .next_back();
 
         // Check whether there is a vertex header that has at least XYZ.
-        let has_vertex = header.elements.iter().any(|el| el.name == "vertex");
+        let has_vertex = header.elem_defs.iter().any(|el| el.name == "vertex");
 
-        let ply_type = if has_vertex && header.elements.first().is_some_and(|el| el.name == "chunk")
+        let ply_type = if has_vertex
+            && header
+                .elem_defs
+                .first()
+                .is_some_and(|el| el.name == "chunk")
         {
             PlyFormat::SuperSplatCompressed
         } else if has_vertex
             && header
-                .elements
+                .elem_defs
                 .iter()
                 .any(|el| el.name.starts_with("delta_vertex_"))
         {
@@ -152,33 +111,21 @@ pub fn load_splat_from_ply<T: AsyncRead + SendNotWasm + Unpin + 'static>(
         } else if has_vertex {
             PlyFormat::Ply
         } else {
-            return Err(SplatImportError::InvalidFormat);
+            return Err(DeserializeError::custom("Unknown format"));
         };
 
-        type SplatStream = Pin<Box<dyn DynStream<Result<SplatMessage, SplatImportError>>>>;
+        let subsample = subsample_points.unwrap_or(1) as usize;
 
-        let mut sub_stream: SplatStream = match ply_type {
+        match ply_type {
             PlyFormat::Ply => {
-                Box::pin(parse_ply(reader, subsample_points, device, header, up_axis))
+                parse_ply(reader, subsample, device, &mut file, up_axis, &emitter).await?;
             }
-            PlyFormat::Brush4DCompressed => Box::pin(parse_delta_ply(
-                reader,
-                subsample_points,
-                device,
-                header,
-                up_axis,
-            )),
-            PlyFormat::SuperSplatCompressed => Box::pin(parse_compressed_ply(
-                reader,
-                subsample_points,
-                device,
-                header,
-                up_axis,
-            )),
-        };
-
-        while let Some(splat) = sub_stream.next().await {
-            emitter.emit(splat?).await;
+            PlyFormat::Brush4DCompressed => {
+                parse_delta_ply(reader, subsample, device, file, up_axis, &emitter).await?;
+            }
+            PlyFormat::SuperSplatCompressed => {
+                parse_compressed_ply(reader, subsample, device, file, up_axis, &emitter).await?;
+            }
         }
 
         Ok(())
@@ -189,568 +136,483 @@ fn progress(index: usize, len: usize) -> f32 {
     ((index + 1) as f32) / len as f32
 }
 
-fn parse_ply<T: AsyncBufRead + Unpin + 'static>(
+async fn parse_ply<T: AsyncRead + Unpin>(
     mut reader: T,
-    subsample_points: Option<u32>,
+    subsample: usize,
     device: WgpuDevice,
-    header: Header,
+    file: &mut serde_ply::PlyChunkedReader,
     up_axis: Option<Vec3>,
-) -> impl Stream<Item = Result<SplatMessage, SplatImportError>> + 'static {
-    try_fn_stream(|emitter| async move {
-        let vertex = header
-            .elements
-            .first()
-            .ok_or(SplatImportError::InvalidFormat)?;
+    emitter: &TryStreamEmitter<SplatMessage, DeserializeError>,
+) -> Result<Splats<MainBackend>, DeserializeError> {
+    let header = file.header().expect("Must have header");
+    let vertex = header
+        .get_element("vertex")
+        .ok_or(DeserializeError::custom("Unknown format"))?;
 
-        if vertex.name != "vertex" {
-            return Err(SplatImportError::InvalidFormat);
-        }
+    let max_splats = vertex.count / subsample;
 
-        let parser = Parser::<ParsedGaussian<false>>::new();
+    let mut means = Vec::with_capacity(max_splats * 3);
+    let mut log_scales = vertex
+        .has_property("scale_0")
+        .then(|| Vec::with_capacity(max_splats * 3));
+    let mut rotations = vertex
+        .has_property("rot_0")
+        .then(|| Vec::with_capacity(max_splats * 4));
+    let mut opacity = vertex
+        .has_property("opacity")
+        .then(|| Vec::with_capacity(max_splats));
+    let sh_count = vertex
+        .properties
+        .iter()
+        .filter(|x| {
+            x.name.starts_with("f_rest_")
+                || x.name.starts_with("f_dc_")
+                || matches!(x.name.as_str(), "r" | "g" | "b" | "red" | "green" | "blue")
+        })
+        .count();
+    let mut coeffs = (sh_count > 0).then(|| Vec::with_capacity(max_splats * sh_count));
 
-        let properties: HashSet<_> = vertex.properties.iter().map(|x| x.name.clone()).collect();
-        let mut means = Vec::with_capacity(vertex.count);
-        let mut log_scales = properties
-            .contains("scale_0")
-            .then(|| Vec::with_capacity(vertex.count));
-        let mut rotations = properties
-            .contains("rot_0")
-            .then(|| Vec::with_capacity(vertex.count));
-        let sh_count = properties
-            .iter()
-            .filter(|x| x.starts_with("f_rest_"))
-            .count();
-        // sh count is 3 (rgb) + N extra coeffs.
-        let mut sh_coeffs = (properties.contains("f_dc_0")
-            || properties.contains("red")
-            || properties.contains("r"))
-        .then(|| Vec::with_capacity(vertex.count * (3 + sh_count)));
-        let mut opacity = properties
-            .contains("opacity")
-            .then(|| Vec::with_capacity(vertex.count));
+    let update_every = max_splats.div_ceil(5);
+    let mut row_index: usize = 0;
+    let mut last_update = 0;
 
-        let update_every = vertex.count.div_ceil(8);
+    loop {
+        read_chunk(&mut reader, file.buffer_mut()).await?;
 
-        let mut last_update = 0;
-        let mut yielder = TimeYield::new();
-
-        for i in 0..vertex.count {
-            yielder.try_yield().await;
-
-            // Doing this after first reading and parsing the points is quite wasteful, but
-            // we do need to advance the reader.
-            if let Some(subsample) = subsample_points {
-                if i % subsample as usize != 0 {
-                    continue;
-                }
+        RowVisitor::new(|mut gauss: PlyGaussian| {
+            row_index += 1;
+            if row_index % subsample != 0 {
+                return;
             }
 
-            let splat = parse_elem(&mut reader, &parser, header.encoding, vertex).await?;
+            means.extend([gauss.x, gauss.y, gauss.z]);
 
-            if !splat.is_finite() {
-                continue;
+            // Prefer rgb if specified.
+            if let Some(r) = gauss.red
+                && let Some(g) = gauss.green
+                && let Some(b) = gauss.blue
+            {
+                let sh_dc = rgb_to_sh(Vec3::new(r, g, b));
+                gauss.f_dc_0 = sh_dc.x;
+                gauss.f_dc_1 = sh_dc.y;
+                gauss.f_dc_2 = sh_dc.z;
             }
 
-            means.push(splat.mean);
+            if let Some(coeffs) = &mut coeffs {
+                interleave_coeffs(
+                    Vec3::new(gauss.f_dc_0, gauss.f_dc_1, gauss.f_dc_2),
+                    &gauss.sh_rest_coeffs()[..sh_count - 3],
+                    coeffs,
+                );
+            }
+
             if let Some(scales) = &mut log_scales {
-                scales.push(splat.log_scale);
+                scales.extend([gauss.scale_0, gauss.scale_1, gauss.scale_2]);
             }
             if let Some(rotation) = &mut rotations {
-                rotation.push(splat.rotation);
+                rotation.extend([gauss.rot_0, gauss.rot_1, gauss.rot_2, gauss.rot_3]);
             }
             if let Some(opacity) = &mut opacity {
-                opacity.push(splat.opacity);
+                opacity.push(gauss.opacity);
             }
-            if let Some(sh_coeffs) = &mut sh_coeffs {
-                interleave_coeffs(splat.sh_dc, &splat.sh_coeffs_rest, sh_coeffs);
-            }
+        })
+        .deserialize(&mut *file)?;
 
-            if (i - last_update) >= update_every || i == vertex.count - 1 {
-                let splats = Splats::from_raw(
-                    &means,
-                    rotations.as_deref(),
-                    log_scales.as_deref(),
-                    sh_coeffs.as_deref(),
-                    opacity.as_deref(),
-                    &device,
-                );
-                emitter
-                    .emit(SplatMessage {
-                        meta: ParseMetadata {
-                            total_splats: vertex.count as u32,
-                            up_axis,
-                            frame_count: 0,
-                            current_frame: 0,
-                            progress: progress(i, vertex.count),
-                        },
-                        splats,
-                    })
-                    .await;
+        if row_index - last_update > update_every || row_index == max_splats {
+            let splats = Splats::from_raw(
+                means.clone(),
+                rotations.clone(),
+                log_scales.clone(),
+                coeffs.clone(),
+                opacity.clone(),
+                &device,
+            );
 
-                last_update = i;
+            emitter
+                .emit(SplatMessage {
+                    meta: ParseMetadata {
+                        total_splats: max_splats as u32,
+                        up_axis,
+                        frame_count: 0,
+                        current_frame: 0,
+                        progress: progress(row_index, max_splats),
+                    },
+                    splats: splats.clone(),
+                })
+                .await;
+
+            last_update = row_index;
+
+            if row_index == max_splats {
+                return Ok(splats);
             }
         }
-
-        Ok(())
-    })
+    }
 }
 
-fn parse_compressed_ply<T: AsyncBufRead + Unpin + 'static>(
+async fn parse_delta_ply<T: AsyncRead + Unpin + 'static>(
     mut reader: T,
-    subsample_points: Option<u32>,
+    subsample: usize,
     device: WgpuDevice,
-    header: Header,
+    mut file: serde_ply::PlyChunkedReader,
     up_axis: Option<Vec3>,
-) -> impl Stream<Item = Result<SplatMessage, SplatImportError>> + 'static {
-    #[derive(Default)]
-    struct MinMax {
-        min: Vec3,
-        max: Vec3,
+    emitter: &TryStreamEmitter<SplatMessage, DeserializeError>,
+) -> Result<(), DeserializeError> {
+    let splats = parse_ply(
+        &mut reader,
+        subsample,
+        device.clone(),
+        &mut file,
+        up_axis,
+        emitter,
+    )
+    .await?;
+
+    // Check for frame count.
+    let frame_count = file
+        .header()
+        .expect("Must have header")
+        .elem_defs
+        .iter()
+        .filter(|e| e.name.starts_with("delta_vertex_"))
+        .count() as u32;
+
+    let mut frame = 0;
+
+    fn de_quant<'de, D>(deserializer: D) -> Result<f32, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct Dequant;
+        impl<'de> serde::de::Visitor<'de> for Dequant {
+            type Value = f32;
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("a quantized value or a float")
+            }
+            fn visit_f32<E>(self, value: f32) -> Result<f32, E> {
+                Ok(value)
+            }
+            fn visit_u8<E>(self, value: u8) -> Result<f32, E> {
+                Ok(value as f32 / (u8::MAX - 1) as f32)
+            }
+            fn visit_u16<E>(self, value: u16) -> Result<f32, E> {
+                Ok(value as f32 / (u16::MAX - 1) as f32)
+            }
+        }
+        deserializer.deserialize_any(Dequant)
     }
 
-    impl MinMax {
-        fn dequant(&self, raw: Vec3) -> Vec3 {
-            self.min + raw * (self.max - self.min)
+    #[derive(Deserialize, Default)]
+    struct Frame {
+        #[serde(deserialize_with = "de_quant")]
+        x: f32,
+        #[serde(deserialize_with = "de_quant")]
+        y: f32,
+        #[serde(deserialize_with = "de_quant")]
+        z: f32,
+        #[serde(deserialize_with = "de_quant")]
+        scale_0: f32,
+        #[serde(deserialize_with = "de_quant")]
+        scale_1: f32,
+        #[serde(deserialize_with = "de_quant")]
+        scale_2: f32,
+        #[serde(deserialize_with = "de_quant")]
+        rot_0: f32,
+        #[serde(deserialize_with = "de_quant")]
+        rot_1: f32,
+        #[serde(deserialize_with = "de_quant")]
+        rot_2: f32,
+        #[serde(deserialize_with = "de_quant")]
+        rot_3: f32,
+    }
+
+    // Leave unscaled if there are no meta_delta_ frames present.
+    let mut min_mean = Vec3::ZERO;
+    let mut max_mean = Vec3::ONE;
+
+    let mut min_scale = Vec3::ZERO;
+    let mut max_scale = Vec3::ONE;
+
+    let mut min_rot = Vec4::ZERO;
+    let mut max_rot = Vec4::ONE;
+    let mut row_count = 0;
+
+    while let Some(element) = file.current_element().cloned() {
+        read_chunk(&mut reader, file.buffer_mut()).await?;
+
+        if element.name.starts_with("meta_delta_min_") {
+            RowVisitor::new(|meta: Frame| {
+                min_mean = glam::vec3(meta.x, meta.y, meta.z);
+                min_scale = glam::vec3(meta.scale_0, meta.scale_1, meta.scale_2);
+                min_rot = glam::vec4(meta.rot_0, meta.rot_1, meta.rot_2, meta.rot_3);
+            })
+            .deserialize(&mut file)?;
+        } else if element.name.starts_with("meta_delta_max_") {
+            RowVisitor::new(|meta: Frame| {
+                max_mean = glam::vec3(meta.x, meta.y, meta.z);
+                max_scale = glam::vec3(meta.scale_0, meta.scale_1, meta.scale_2);
+                max_rot = glam::vec4(meta.rot_0, meta.rot_1, meta.rot_2, meta.rot_3);
+            })
+            .deserialize(&mut file)?;
+        } else if element.name.starts_with("delta_vertex_") {
+            let count = element.count;
+            let mut means = Vec::with_capacity(count * 3);
+            let mut scales = Vec::with_capacity(count * 3);
+            let mut rotations = Vec::with_capacity(count * 4);
+
+            // The splat we decode is normed to 0-1 (if quantized), so rescale to
+            // actual values afterwards.
+            // Let's only animate transforms for now.
+            RowVisitor::new(|meta: Frame| {
+                row_count += 1;
+                if row_count % subsample != 0 {
+                    return;
+                }
+
+                let mean = glam::vec3(meta.x, meta.y, meta.z) * (max_mean - min_mean) + min_mean;
+                let scale = glam::vec3(meta.scale_0, meta.scale_1, meta.scale_2)
+                    * (max_scale - min_scale)
+                    + min_scale;
+                let rot = glam::vec4(meta.rot_0, meta.rot_1, meta.rot_2, meta.rot_3)
+                    * (max_rot - min_rot)
+                    + min_rot;
+                means.extend(mean.to_array());
+                scales.extend(scale.to_array());
+                rotations.extend(rot.to_array());
+            })
+            .deserialize(&mut file)?;
+
+            let n_splats = splats.num_splats() as usize;
+
+            let means = Tensor::from_data(TensorData::new(means, [n_splats, 3]), &device)
+                + splats.means.val();
+            // The encoding is just literal delta encoding in floats - nothing fancy
+            // like actually considering the quaternion transform.
+            let rotations = Tensor::from_data(TensorData::new(rotations, [n_splats, 4]), &device)
+                + splats.rotation.val();
+            let log_scales = Tensor::from_data(TensorData::new(scales, [n_splats, 3]), &device)
+                + splats.log_scales.val();
+
+            // Emit newly animated splat.
+            emitter
+                .emit(SplatMessage {
+                    meta: ParseMetadata {
+                        total_splats: count as u32,
+                        up_axis,
+                        frame_count,
+                        current_frame: frame,
+                        progress: 1.0,
+                    },
+                    splats: Splats::from_tensor_data(
+                        means,
+                        rotations,
+                        log_scales,
+                        splats.sh_coeffs.val(),
+                        splats.raw_opacity.val(),
+                    ),
+                })
+                .await;
+
+            frame += 1;
         }
     }
 
-    #[derive(Default)]
+    Ok(())
+}
+
+async fn parse_compressed_ply<T: AsyncRead + Unpin + 'static>(
+    mut reader: T,
+    subsample: usize,
+    device: WgpuDevice,
+    mut file: serde_ply::PlyChunkedReader,
+    up_axis: Option<Vec3>,
+    emitter: &TryStreamEmitter<SplatMessage, DeserializeError>,
+) -> Result<(), DeserializeError> {
+    #[derive(Default, Deserialize)]
     struct QuantMeta {
-        mean: MinMax,
-        scale: MinMax,
-        color: MinMax,
+        min_x: f32,
+        max_x: f32,
+        min_y: f32,
+        max_y: f32,
+        min_z: f32,
+        max_z: f32,
+        min_scale_x: f32,
+        max_scale_x: f32,
+        min_scale_y: f32,
+        max_scale_y: f32,
+        min_scale_z: f32,
+        max_scale_z: f32,
+        min_r: f32,
+        max_r: f32,
+        min_g: f32,
+        max_g: f32,
+        min_b: f32,
+        max_b: f32,
     }
 
-    impl PropertyAccess for QuantMeta {
-        fn new() -> Self {
-            Self::default()
+    impl QuantMeta {
+        fn mean(&self, raw: Vec3) -> Vec3 {
+            let min = glam::vec3(self.min_x, self.min_y, self.min_z);
+            let max = glam::vec3(self.max_x, self.max_y, self.max_z);
+            raw * (max - min) + min
         }
 
-        fn set_property(&mut self, key: &str, property: Property) {
-            let ascii = key.as_bytes();
-            let Property::Float(val) = property else {
+        fn scale(&self, raw: Vec3) -> Vec3 {
+            let min = glam::vec3(self.min_scale_x, self.min_scale_y, self.min_scale_z);
+            let max = glam::vec3(self.max_scale_x, self.max_scale_y, self.max_scale_z);
+            raw * (max - min) + min
+        }
+
+        fn color(&self, raw: Vec3) -> Vec3 {
+            let min = glam::vec3(self.min_r, self.min_g, self.min_b);
+            let max = glam::vec3(self.max_r, self.max_g, self.max_b);
+            raw * (max - min) + min
+        }
+    }
+
+    let mut quant_metas = vec![];
+
+    while let Some(element) = file.current_element()
+        && element.name == "chunk"
+    {
+        read_chunk(&mut reader, file.buffer_mut()).await?;
+        RowVisitor::new(|meta: QuantMeta| {
+            quant_metas.push(meta);
+        })
+        .deserialize(&mut file)?;
+    }
+
+    let vertex = file
+        .current_element()
+        .ok_or(DeserializeError::custom("Unknown format"))?;
+    if vertex.name != "vertex" {
+        return Err(DeserializeError::custom("Unknown format"));
+    }
+    let max_splats = vertex.count / subsample;
+
+    let mut means = Vec::with_capacity(max_splats * 3);
+    // Atm, unlike normal plys, these values aren't optional.
+    let mut log_scales = Vec::with_capacity(max_splats * 3);
+    let mut rotations = Vec::with_capacity(max_splats * 4);
+    let mut sh_coeffs = Vec::with_capacity(max_splats * 3);
+    let mut opacity = Vec::with_capacity(max_splats);
+
+    let update_every = max_splats.div_ceil(5);
+    let mut last_update = 0;
+
+    let mut row_count = 0;
+
+    let sh_vals = file
+        .header()
+        .expect("Must have header")
+        .elem_defs
+        .get(2)
+        .cloned();
+
+    while let Some(element) = file.current_element()
+        && element.name == "vertex"
+    {
+        read_chunk(&mut reader, file.buffer_mut()).await?;
+
+        RowVisitor::new(|splat: QuantSplat| {
+            let quant_data = &quant_metas[row_count / 256];
+            row_count += 1;
+            if row_count % subsample != 0 {
                 return;
-            };
-            match ascii {
-                b"min_x" => self.mean.min.x = val,
-                b"min_y" => self.mean.min.y = val,
-                b"min_z" => self.mean.min.z = val,
-
-                b"max_x" => self.mean.max.x = val,
-                b"max_y" => self.mean.max.y = val,
-                b"max_z" => self.mean.max.z = val,
-
-                b"min_scale_x" => self.scale.min.x = val,
-                b"min_scale_y" => self.scale.min.y = val,
-                b"min_scale_z" => self.scale.min.z = val,
-
-                b"max_scale_x" => self.scale.max.x = val,
-                b"max_scale_y" => self.scale.max.y = val,
-                b"max_scale_z" => self.scale.max.z = val,
-
-                b"min_r" => self.color.min.x = val,
-                b"min_g" => self.color.min.y = val,
-                b"min_b" => self.color.min.z = val,
-
-                b"max_r" => self.color.max.x = val,
-                b"max_g" => self.color.max.y = val,
-                b"max_b" => self.color.max.z = val,
-                _ => {}
             }
+            means.extend(quant_data.mean(splat.mean).to_array());
+            log_scales.extend(quant_data.scale(splat.log_scale).to_array());
+            // Nb: Scalar order.
+            rotations.extend([
+                splat.rotation.w,
+                splat.rotation.x,
+                splat.rotation.y,
+                splat.rotation.z,
+            ]);
+            // Compressed ply specifies things in post-activated values. Convert to pre-activated values.
+            opacity.push(inverse_sigmoid(splat.rgba.w));
+            // These come in as RGB colors. Convert to base SH coeffecients.
+            let sh_dc = rgb_to_sh(quant_data.color(splat.rgba.xyz()));
+            sh_coeffs.extend([sh_dc.x, sh_dc.y, sh_dc.z]);
+        })
+        .deserialize(&mut file)?;
+
+        // Occasionally send some updated splats.
+        if (row_count - last_update) >= update_every || row_count == max_splats {
+            // Leave 20% of progress for loading the SH's, just an estimate.
+            let max_time = if sh_vals.is_some() { 0.8 } else { 1.0 };
+            let progress = progress(row_count, max_splats) * max_time;
+            emitter
+                .emit(SplatMessage {
+                    meta: ParseMetadata {
+                        total_splats: max_splats as u32,
+                        up_axis,
+                        frame_count: 0,
+                        current_frame: 0,
+                        progress,
+                    },
+                    splats: Splats::from_raw(
+                        means.clone(),
+                        Some(rotations.clone()),
+                        Some(log_scales.clone()),
+                        Some(sh_coeffs.clone()),
+                        Some(opacity.clone()),
+                        &device,
+                    ),
+                })
+                .await;
+            last_update = row_count;
         }
     }
 
-    try_fn_stream(|emitter| async move {
-        let quant_elem = header
-            .elements
-            .first()
-            .ok_or(SplatImportError::InvalidFormat)?;
+    if let Some(sh_vals) = sh_vals {
+        let sh_count = sh_vals.properties.len();
+        let mut total_coeffs = Vec::with_capacity(sh_vals.count * (3 + sh_count));
+        let mut splat_index = 0;
 
-        if quant_elem.name != "chunk" {
-            return Err(SplatImportError::InvalidFormat);
-        }
+        let mut row_count = 0;
 
-        let mut yielder = TimeYield::new();
+        while let Some(element) = file.current_element()
+            && element.name == "sh"
+        {
+            read_chunk(&mut reader, file.buffer_mut()).await?;
 
-        let parser = Parser::<QuantMeta>::new();
-        let mut quant_metas = vec![];
-        for _ in 0..quant_elem.count {
-            yielder.try_yield().await;
-            let quant_meta = parse_elem(&mut reader, &parser, header.encoding, quant_elem).await?;
-            quant_metas.push(quant_meta);
-        }
-
-        let vertex = header
-            .elements
-            .get(1)
-            .ok_or(SplatImportError::InvalidFormat)?;
-        if vertex.name != "vertex" {
-            return Err(SplatImportError::InvalidFormat);
-        }
-
-        let parser = Parser::<ParsedGaussian<true>>::new();
-        let mut means = Vec::with_capacity(vertex.count);
-        // Atm, unlike normal plys, these values aren't optional.
-        let mut log_scales = Vec::with_capacity(vertex.count);
-        let mut rotations = Vec::with_capacity(vertex.count);
-        let mut sh_coeffs = Vec::with_capacity(vertex.count);
-        let mut opacity = Vec::with_capacity(vertex.count);
-
-        let update_every = vertex.count.div_ceil(20);
-        let mut last_update = 0;
-
-        let mut valid = vec![true; vertex.count];
-
-        let sh_vals = header.elements.get(2);
-
-        for i in 0..vertex.count {
-            // Occasionally yield.
-            yielder.try_yield().await;
-
-            // Doing this after first reading and parsing the points is quite wasteful, but
-            // we do need to advance the reader.
-            if let Some(subsample) = subsample_points {
-                if i % subsample as usize != 0 {
-                    continue;
+            RowVisitor::new(|quant_sh: QuantSh| {
+                row_count += 1;
+                if row_count % subsample != 0 {
+                    return;
                 }
-            }
-
-            let quant_data = quant_metas
-                .get(i / 256)
-                .ok_or(SplatImportError::InvalidFormat)?;
-
-            let splat = parse_elem(&mut reader, &parser, header.encoding, vertex).await?;
-
-            // Don't add invalid splats.
-            if !splat.is_finite() {
-                valid[i] = false;
-                continue;
-            }
-
-            means.push(quant_data.mean.dequant(splat.mean));
-
-            log_scales.push(quant_data.scale.dequant(splat.log_scale));
-            rotations.push(splat.rotation);
-
-            // Compressed ply specifies things in post-activated values. Convert to pre-activated values.
-            opacity.push(inverse_sigmoid(splat.opacity));
-
-            // These come in as RGB colors. Convert to base SH coeffecients.
-            let sh_dc = rgb_to_sh(quant_data.color.dequant(splat.sh_dc));
-            sh_coeffs.extend([sh_dc.x, sh_dc.y, sh_dc.z]);
-
-            // Occasionally send some updated splats.
-            if (i - last_update) >= update_every || i == vertex.count - 1 {
-                // Leave 20% of progress for loading the SH's, just an estimate.
-                let max_time = if sh_vals.is_some() { 0.8 } else { 1.0 };
-                let progress = progress(i, vertex.count) * max_time;
-
-                emitter
-                    .emit(SplatMessage {
-                        meta: ParseMetadata {
-                            total_splats: vertex.count as u32,
-                            up_axis,
-                            frame_count: 0,
-                            current_frame: 0,
-                            progress,
-                        },
-                        splats: Splats::from_raw(
-                            &means,
-                            Some(&rotations),
-                            Some(&log_scales),
-                            Some(&sh_coeffs),
-                            Some(&opacity),
-                            &device,
-                        ),
-                    })
-                    .await;
-                last_update = i;
-            }
-        }
-
-        if let Some(sh_vals) = sh_vals {
-            // Bit of a hack - use the unquantized parser as that handles SH values. Really we don't need
-            // the entire splat parser though.
-            let parser = Parser::<ParsedGaussian<false>>::new();
-
-            if sh_vals.name != "sh" {
-                return Err(SplatImportError::InvalidFormat);
-            }
-
-            let mut splat_index = 0;
-
-            let mut total_coeffs = vec![];
-            for i in 0..sh_vals.count {
-                yielder.try_yield().await;
-
-                if !valid[i] {
-                    continue;
-                }
-
-                // Parse a splat - though nb only SH values will be used.
-                let mut splat = parse_elem(&mut reader, &parser, header.encoding, sh_vals).await?;
-                for coeff in &mut splat.sh_coeffs_rest {
-                    *coeff = 8.0 * (*coeff - 0.5);
-                }
-
                 let dc = glam::vec3(
                     sh_coeffs[splat_index * 3],
                     sh_coeffs[splat_index * 3 + 1],
                     sh_coeffs[splat_index * 3 + 2],
                 );
-                interleave_coeffs(dc, &splat.sh_coeffs_rest, &mut total_coeffs);
+                interleave_coeffs(dc, &quant_sh.coeffs()[..sh_count], &mut total_coeffs);
                 splat_index += 1;
-            }
-
-            emitter
-                .emit(SplatMessage {
-                    meta: ParseMetadata {
-                        total_splats: vertex.count as u32,
-                        up_axis,
-                        frame_count: 0,
-                        current_frame: 0,
-                        progress: 1.0,
-                    },
-                    splats: Splats::from_raw(
-                        &means,
-                        Some(&rotations),
-                        Some(&log_scales),
-                        Some(&total_coeffs),
-                        Some(&opacity),
-                        &device,
-                    ),
-                })
-                .await;
+            })
+            .deserialize(&mut file)?;
         }
 
-        Ok(())
-    })
-}
-
-fn parse_delta_ply<T: AsyncBufRead + Unpin + 'static>(
-    mut reader: T,
-    subsample_points: Option<u32>,
-    device: WgpuDevice,
-    header: Header,
-    up_axis: Option<Vec3>,
-) -> impl Stream<Item = Result<SplatMessage, SplatImportError>> + 'static {
-    try_fn_stream(|emitter| async move {
-        let parser = Parser::<ParsedGaussian<false>>::new();
-        let mut yielder = TimeYield::new();
-
-        // Check for frame count.
-        let frame_count = header
-            .elements
-            .iter()
-            .filter(|e| e.name.starts_with("delta_vertex_"))
-            .count() as u32;
-
-        let mut final_splat = None;
-        let mut frame = 0;
-
-        #[derive(Debug)]
-        struct QuantMeta {
-            mean: Vec3,
-            rotation: Vec4,
-            scale: Vec3,
-        }
-
-        let mut meta_min = QuantMeta {
-            mean: Vec3::ZERO,
-            rotation: Vec4::ZERO,
-            scale: Vec3::ZERO,
-        };
-        let mut meta_max = QuantMeta {
-            mean: Vec3::ONE,
-            rotation: Vec4::ONE,
-            scale: Vec3::ONE,
-        };
-
-        for element in &header.elements {
-            let properties: HashSet<_> =
-                element.properties.iter().map(|x| x.name.clone()).collect();
-
-            let mut means = Vec::with_capacity(element.count);
-            let mut log_scales = properties
-                .contains("scale_0")
-                .then(|| Vec::with_capacity(element.count));
-            let mut rotations = properties
-                .contains("rot_0")
-                .then(|| Vec::with_capacity(element.count));
-            let mut sh_coeffs = (properties.contains("f_dc_0") || properties.contains("red"))
-                .then(|| Vec::with_capacity(element.count * 24));
-            let mut opacity = properties
-                .contains("opacity")
-                .then(|| Vec::with_capacity(element.count));
-
-            if element.name == "vertex" {
-                let update_every = element.count.div_ceil(20);
-
-                for i in 0..element.count {
-                    yielder.try_yield().await;
-
-                    // Occasionally send some updated splats.
-                    if i % update_every == update_every - 1 {
-                        emitter
-                            .emit(SplatMessage {
-                                meta: ParseMetadata {
-                                    total_splats: element.count as u32,
-                                    up_axis,
-                                    frame_count,
-                                    current_frame: frame,
-                                    progress: progress(i, element.count),
-                                },
-                                splats: Splats::from_raw(
-                                    &means,
-                                    rotations.as_deref(),
-                                    log_scales.as_deref(),
-                                    sh_coeffs.as_deref(),
-                                    opacity.as_deref(),
-                                    &device,
-                                ),
-                            })
-                            .await;
-                    }
-
-                    // Doing this after first reading and parsing the points is quite wasteful, but
-                    // we do need to advance the reader.
-                    if let Some(subsample) = subsample_points {
-                        if i % subsample as usize != 0 {
-                            continue;
-                        }
-                    }
-
-                    let splat = parse_elem(&mut reader, &parser, header.encoding, element).await?;
-
-                    means.push(splat.mean);
-                    if let Some(scales) = &mut log_scales {
-                        scales.push(splat.log_scale);
-                    }
-                    if let Some(rotation) = &mut rotations {
-                        rotation.push(splat.rotation);
-                    }
-                    if let Some(opacity) = &mut opacity {
-                        opacity.push(splat.opacity);
-                    }
-                    if let Some(sh_coeffs) = &mut sh_coeffs {
-                        interleave_coeffs(splat.sh_dc, &splat.sh_coeffs_rest, sh_coeffs);
-                    }
-                }
-                let splats = Splats::from_raw(
-                    &means,
-                    rotations.as_deref(),
-                    log_scales.as_deref(),
-                    sh_coeffs.as_deref(),
-                    opacity.as_deref(),
+        emitter
+            .emit(SplatMessage {
+                meta: ParseMetadata {
+                    total_splats: means.len() as u32,
+                    up_axis,
+                    frame_count: 0,
+                    current_frame: 0,
+                    progress: 1.0,
+                },
+                splats: Splats::from_raw(
+                    means,
+                    Some(rotations),
+                    Some(log_scales),
+                    Some(total_coeffs),
+                    Some(opacity),
                     &device,
-                );
-                final_splat = Some(splats.clone());
-                emitter
-                    .emit(SplatMessage {
-                        meta: ParseMetadata {
-                            total_splats: element.count as u32,
-                            up_axis,
-                            frame_count,
-                            current_frame: frame,
-                            progress: 1.0,
-                        },
-                        splats,
-                    })
-                    .await;
-            } else if element.name.starts_with("meta_delta_min_") {
-                let splat = parse_elem(&mut reader, &parser, header.encoding, element).await?;
-                meta_min.mean = splat.mean;
-                meta_min.rotation = splat.rotation.into();
-                meta_min.scale = splat.log_scale;
-            } else if element.name.starts_with("meta_delta_max_") {
-                let splat = parse_elem(&mut reader, &parser, header.encoding, element).await?;
-                meta_max.mean = splat.mean;
-                meta_max.rotation = splat.rotation.into();
-                meta_max.scale = splat.log_scale;
-            } else if element.name.starts_with("delta_vertex_") {
-                let Some(splats) = final_splat.clone() else {
-                    return Err(SplatImportError::InvalidFormat);
-                };
-                for _ in 0..element.count {
-                    yielder.try_yield().await;
+                ),
+            })
+            .await;
+    }
 
-                    // The splat we decode is normed to 0-1 (if quantized), so rescale to
-                    // actual values afterwards.
-                    let splat_enc =
-                        parse_elem(&mut reader, &parser, header.encoding, element).await?;
-
-                    // Let's only animate transforms for now.
-                    means.push(splat_enc.mean * (meta_max.mean - meta_min.mean) + meta_min.mean);
-
-                    if let Some(rotation) = rotations.as_mut() {
-                        let val: Vec4 = splat_enc.rotation.into();
-                        let val = val * (meta_max.rotation - meta_min.rotation) + meta_min.rotation;
-                        rotation.push(Quat::from_vec4(val));
-                    }
-
-                    if let Some(log_scales) = log_scales.as_mut() {
-                        log_scales.push(
-                            splat_enc.log_scale * (meta_max.scale - meta_min.scale)
-                                + meta_min.scale,
-                        );
-                    }
-                    // Don't emit any intermediate states as it looks strange to have a torn state.
-                }
-
-                let n_splats = splats.num_splats() as usize;
-                let means_tensor: Vec<f32> = means.iter().flat_map(|v| [v.x, v.y, v.z]).collect();
-                let means =
-                    Tensor::from_data(TensorData::new(means_tensor, [n_splats, 3]), &device)
-                        + splats.means.val();
-
-                // The encoding is just delta encoding in floats - nothing fancy
-                // like actually considering the quaternion transform.
-                let rotations = if let Some(rotations) = rotations {
-                    let rotations: Vec<f32> = rotations
-                        .into_iter()
-                        .flat_map(|v| [v.w, v.x, v.y, v.z])
-                        .collect();
-                    Tensor::from_data(TensorData::new(rotations, [n_splats, 4]), &device)
-                        + splats.rotation.val()
-                } else {
-                    splats.rotation.val()
-                };
-
-                let log_scales = if let Some(log_scales) = log_scales {
-                    let log_scales: Vec<f32> = log_scales
-                        .into_iter()
-                        .flat_map(|v| [v.x, v.y, v.z])
-                        .collect();
-                    Tensor::from_data(TensorData::new(log_scales, [n_splats, 3]), &device)
-                        + splats.log_scales.val()
-                } else {
-                    splats.log_scales.val()
-                };
-
-                // Emit newly animated splat.
-                emitter
-                    .emit(SplatMessage {
-                        meta: ParseMetadata {
-                            total_splats: element.count as u32,
-                            up_axis,
-                            frame_count,
-                            current_frame: frame,
-                            progress: 1.0,
-                        },
-                        splats: Splats::from_tensor_data(
-                            means,
-                            rotations,
-                            log_scales,
-                            splats.sh_coeffs.val(),
-                            splats.raw_opacity.val(),
-                        ),
-                    })
-                    .await;
-
-                frame += 1;
-            }
-        }
-
-        Ok(())
-    })
+    Ok(())
 }

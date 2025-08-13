@@ -16,7 +16,6 @@ use brush_render::{
 };
 use brush_vfs::BrushVfs;
 use burn::backend::wgpu::WgpuDevice;
-use glam::Vec3;
 use std::collections::HashMap;
 
 fn find_mask_and_img(vfs: &BrushVfs, name: &str) -> Option<(PathBuf, Option<PathBuf>)> {
@@ -181,44 +180,45 @@ async fn load_dataset_inner(
         };
 
         // Ignore empty points data.
-        if let Ok(points_data) = points_data {
-            if !points_data.is_empty() {
-                log::info!("Starting from colmap points {}", points_data.len());
+        if let Ok(points_data) = points_data
+            && !points_data.is_empty()
+        {
+            log::info!("Starting from colmap points {}", points_data.len());
 
-                // The ply importer handles subsampling normally. Here just
-                // do it manually, maybe nice to unify at some point.
-                let step = load_args.subsample_points.unwrap_or(1) as usize;
+            // The ply importer handles subsampling normally. Here we just
+            // do it manually.
+            let step = load_args.subsample_points.unwrap_or(1) as usize;
 
-                let positions: Vec<Vec3> =
-                    points_data.values().step_by(step).map(|p| p.xyz).collect();
-                let colors: Vec<f32> = points_data
-                    .values()
-                    .step_by(step)
-                    .flat_map(|p| {
-                        let sh = rgb_to_sh(glam::vec3(
-                            p.rgb[0] as f32 / 255.0,
-                            p.rgb[1] as f32 / 255.0,
-                            p.rgb[2] as f32 / 255.0,
-                        ));
-                        [sh.x, sh.y, sh.z]
-                    })
-                    .collect();
-
-                let init_splat =
-                    Splats::from_raw(&positions, None, None, Some(&colors), None, &device);
-                emitter
-                    .emit(SplatMessage {
-                        meta: ParseMetadata {
-                            up_axis: None,
-                            total_splats: init_splat.num_splats(),
-                            frame_count: 1,
-                            current_frame: 0,
-                            progress: 1.0,
-                        },
-                        splats: init_splat,
-                    })
-                    .await;
-            }
+            let positions: Vec<f32> = points_data
+                .values()
+                .step_by(step)
+                .flat_map(|p| p.xyz.to_array())
+                .collect();
+            let colors: Vec<f32> = points_data
+                .values()
+                .step_by(step)
+                .flat_map(|p| {
+                    let sh = rgb_to_sh(glam::vec3(
+                        p.rgb[0] as f32 / 255.0,
+                        p.rgb[1] as f32 / 255.0,
+                        p.rgb[2] as f32 / 255.0,
+                    ));
+                    [sh.x, sh.y, sh.z]
+                })
+                .collect();
+            let init_splat = Splats::from_raw(positions, None, None, Some(colors), None, &device);
+            emitter
+                .emit(SplatMessage {
+                    meta: ParseMetadata {
+                        up_axis: None,
+                        total_splats: init_splat.num_splats(),
+                        frame_count: 1,
+                        current_frame: 0,
+                        progress: 1.0,
+                    },
+                    splats: init_splat,
+                })
+                .await;
         }
 
         Ok(())
