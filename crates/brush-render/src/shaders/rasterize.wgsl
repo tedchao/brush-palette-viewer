@@ -1,13 +1,13 @@
 #import helpers
 
 @group(0) @binding(0) var<storage, read> uniforms: helpers::RenderUniforms;
-@group(0) @binding(1) var<storage, read> compact_gid_from_isect: array<i32>;
-@group(0) @binding(2) var<storage, read> tile_offsets: array<i32>;
+@group(0) @binding(1) var<storage, read> compact_gid_from_isect: array<u32>;
+@group(0) @binding(2) var<storage, read_write> tile_offsets: array<u32>;
 @group(0) @binding(3) var<storage, read> projected_splats: array<helpers::ProjectedSplat>;
 
 #ifdef BWD_INFO
     @group(0) @binding(4) var<storage, read_write> out_img: array<vec4f>;
-    @group(0) @binding(5) var<storage, read> global_from_compact_gid: array<i32>;
+    @group(0) @binding(5) var<storage, read> global_from_compact_gid: array<u32>;
     @group(0) @binding(6) var<storage, read_write> visible: array<f32>;
 #else
     @group(0) @binding(4) var<storage, read_write> out_img: array<u32>;
@@ -21,6 +21,8 @@ var<workgroup> local_batch: array<helpers::ProjectedSplat, helpers::TILE_SIZE>;
 
 var<workgroup> done_count: atomic<u32>;
 var<workgroup> done_count_uniform: u32;
+var<workgroup> range_uniform: vec2u;
+var<workgroup> max_isect_id: array<u32, helpers::TILE_SIZE>;
 
 // kernel function for rasterizing each tile
 // each thread treats a single pixel
@@ -30,51 +32,45 @@ var<workgroup> done_count_uniform: u32;
 fn main(
     @builtin(global_invocation_id) global_id: vec3u,
     @builtin(local_invocation_index) local_idx: u32,
-    @builtin(workgroup_id) workgroup_id: vec3u,
 ) {
     let img_size = uniforms.img_size;
 
     // Get index of tile being drawn.
     let pix_id = global_id.x + global_id.y * img_size.x;
-    let tile_id = workgroup_id.x + workgroup_id.y * uniforms.tile_bounds.x;
+    let tile_id = global_id.x / helpers::TILE_WIDTH + global_id.y / helpers::TILE_WIDTH * uniforms.tile_bounds.x;
     let pixel_coord = vec2f(global_id.xy) + 0.5;
 
     // return if out of bounds
     // keep not rasterizing threads around for reading data
     let inside = global_id.x < img_size.x && global_id.y < img_size.y;
-    var done = !inside;
+
+    atomicStore(&done_count, 0u);
 
     // have all threads in tile process the same gaussians in batches
     // first collect gaussians between the bin counts.
-    let range = vec2u(
-        u32(clamp(tile_offsets[tile_id], 0, i32(uniforms.max_intersects))),
-        u32(clamp(tile_offsets[tile_id + 1], 0, i32(uniforms.max_intersects)))
+    range_uniform = vec2u(
+        tile_offsets[tile_id * 2],
+        tile_offsets[tile_id * 2 + 1],
     );
+    // Stupid hack as Chrome isn't convinced the range variable is uniform, which it better be.
+    let range = workgroupUniformLoad(&range_uniform);
 
-    let num_batches = helpers::ceil_div(range.y - range.x, u32(helpers::TILE_SIZE));
+    let num_batches = helpers::ceil_div(range.y - range.x, helpers::TILE_SIZE);
     // current visibility left to render
     var T = 1.0;
     var pix_out = vec3f(0.0);
 
-    // collect and process batches of gaussians
-    // each thread loads one gaussian at a time before rasterizing its
-    // designated pixel
-    var t = 0;
+    var done = false;
 
-    atomicStore(&done_count, 0u);
+    if !inside {
+        done = true;
+        atomicAdd(&done_count, 1u);
+    }
 
     // each thread loads one gaussian at a time before rasterizing its
     // designated pixel
     for (var b = 0u; b < num_batches; b++) {
         let batch_start = range.x + b * helpers::TILE_SIZE;
-
-        // Wait for all in flight threads and check whether we're all done.
-        //
-        // HACK: Annoyingly workgroupUniformLoad doesn't work for atomics...
-        done_count_uniform = atomicLoad(&done_count);
-        if workgroupUniformLoad(&done_count_uniform) >= helpers::TILE_SIZE {
-            break;
-        }
 
         // process gaussians in the current batch for this pixel
         let remaining = min(helpers::TILE_SIZE, range.y - batch_start);
@@ -86,13 +82,15 @@ fn main(
 
             // Visibility is written to global ID's.
             #ifdef BWD_INFO
-                load_gid[local_idx] = u32(global_from_compact_gid[compact_gid]);
+                load_gid[local_idx] = global_from_compact_gid[compact_gid];
             #endif
         }
+
         // Wait for all writes to complete.
         workgroupBarrier();
 
-        for (var t = 0u; t < remaining && !done; t++) {
+        var t: u32;
+        for (t = 0u; !done && t < remaining; t++) {
             let projected = local_batch[t];
 
             let xy = vec2f(projected.xy_x, projected.xy_y);
@@ -124,6 +122,22 @@ fn main(
             let clamped_rgb = max(color.rgb, vec3f(0.0));
             pix_out += clamped_rgb * vis;
             T = next_T;
+        }
+        max_isect_id[local_idx] = batch_start + t;
+        // Wait for all in flight threads and check whether we're all done.
+        done_count_uniform = atomicLoad(&done_count);
+        if workgroupUniformLoad(&done_count_uniform) >= helpers::TILE_SIZE {
+        #ifdef BWD_INFO
+            if local_idx == 0u {
+                var total_max = max_isect_id[0];
+                for(var i = 1u; i < helpers::TILE_SIZE; i++){
+                    total_max = max(total_max, max_isect_id[i]);
+                }
+                // Write new maximum end ID for this tile (exclusive).
+                tile_offsets[tile_id * 2 + 1] = total_max;
+            }
+        #endif
+            break;
         }
     }
 

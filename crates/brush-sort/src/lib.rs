@@ -70,36 +70,30 @@ pub fn radix_argsort(
             client,
         );
 
-        let count_buf = create_tensor::<1, WgpuRuntime>(
-            [(max_needed_wgs as usize) * 16],
-            device,
-            client,
-            DType::I32,
-        );
+        let count_buf = create_tensor([(max_needed_wgs as usize) * 16], device, DType::I32);
 
         // use safe distpatch as dynamic work count isn't verified.
         client.execute(
             SortCount::task(),
             CubeCount::Dynamic(num_wgs.clone().handle.binding()),
             Bindings::new().with_buffers(vec![
-                uniforms_buffer.clone().handle.binding(),
-                n_sort.clone().handle.binding(),
+                uniforms_buffer.handle.clone().binding(),
+                n_sort.handle.clone().binding(),
                 cur_keys.handle.clone().binding(),
-                count_buf.clone().handle.binding(),
+                count_buf.handle.clone().binding(),
             ]),
         );
 
         {
-            let reduced_buf =
-                create_tensor::<1, WgpuRuntime>([BLOCK_SIZE as usize], device, client, DType::I32);
+            let reduced_buf = create_tensor([BLOCK_SIZE as usize], device, DType::I32);
 
             client.execute(
                 SortReduce::task(),
-                CubeCount::Dynamic(num_reduce_wgs.clone().handle.binding()),
+                CubeCount::Dynamic(num_reduce_wgs.handle.clone().binding()),
                 Bindings::new().with_buffers(vec![
-                    n_sort.clone().handle.binding(),
-                    count_buf.clone().handle.binding(),
-                    reduced_buf.clone().handle.binding(),
+                    n_sort.handle.clone().binding(),
+                    count_buf.handle.clone().binding(),
+                    reduced_buf.handle.clone().binding(),
                 ]),
             );
 
@@ -109,8 +103,8 @@ pub fn radix_argsort(
                     SortScan::task(),
                     CubeCount::Static(1, 1, 1),
                     Bindings::new().with_buffers(vec![
-                        n_sort.clone().handle.binding(),
-                        reduced_buf.clone().handle.binding(),
+                        n_sort.handle.clone().binding(),
+                        reduced_buf.handle.clone().binding(),
                     ]),
                 );
             }
@@ -119,23 +113,22 @@ pub fn radix_argsort(
                 SortScanAdd::task(),
                 CubeCount::Dynamic(num_reduce_wgs.handle.clone().binding()),
                 Bindings::new().with_buffers(vec![
-                    n_sort.clone().handle.binding(),
-                    reduced_buf.clone().handle.binding(),
-                    count_buf.clone().handle.binding(),
+                    n_sort.handle.clone().binding(),
+                    reduced_buf.handle.clone().binding(),
+                    count_buf.handle.clone().binding(),
                 ]),
             );
         }
 
-        let output_keys = create_tensor::<1, _>([max_n as usize], device, client, cur_keys.dtype());
-        let output_values =
-            create_tensor::<1, _>([max_n as usize], device, client, cur_vals.dtype());
+        let output_keys = create_tensor([max_n as usize], device, cur_keys.dtype());
+        let output_values = create_tensor([max_n as usize], device, cur_vals.dtype());
 
         client.execute(
             SortScatter::task(),
-            CubeCount::Dynamic(num_wgs.clone().handle.binding()),
+            CubeCount::Dynamic(num_wgs.handle.clone().binding()),
             Bindings::new().with_buffers(vec![
                 uniforms_buffer.handle.clone().binding(),
-                n_sort.clone().handle.binding(),
+                n_sort.handle.clone().binding(),
                 cur_keys.handle.clone().binding(),
                 cur_vals.handle.clone().binding(),
                 count_buf.handle.clone().binding(),

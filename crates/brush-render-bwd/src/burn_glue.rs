@@ -215,6 +215,7 @@ impl<B: Backend + SplatBackwardOps<B> + SplatForward<B>, C: CheckpointStrategy>
 
         let wrapped_aux = RenderAux::<Self> {
             projected_splats: <Self as AutodiffBackend>::from_inner(aux.projected_splats.clone()),
+            num_intersections: aux.num_intersections,
             tile_offsets: aux.tile_offsets.clone(),
             compact_gid_from_isect: aux.compact_gid_from_isect.clone(),
             global_from_compact_gid: aux.global_from_compact_gid.clone(),
@@ -335,8 +336,8 @@ impl SplatBackwardOps<Self> for Fusion<MainBackendBase> {
 
         let grads = SplatGrads::<Self> {
             v_means: client.tensor_uninitialized(vec![num_points, 3], DType::F32),
-            v_quats: client.tensor_uninitialized(vec![num_points, 4], DType::F32),
             v_scales: client.tensor_uninitialized(vec![num_points, 3], DType::F32),
+            v_quats: client.tensor_uninitialized(vec![num_points, 4], DType::F32),
             v_coeffs: client.tensor_uninitialized(vec![num_points, coeffs, 3], DType::F32),
             v_raw_opac: client.tensor_uninitialized(vec![num_points], DType::F32),
             v_refine_weight: client.tensor_uninitialized(vec![num_points, 2], DType::F32),
