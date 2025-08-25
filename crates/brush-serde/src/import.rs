@@ -15,7 +15,7 @@ use tokio::io::AsyncRead;
 use tokio::io::AsyncReadExt;
 use tokio_stream::StreamExt;
 
-use crate::parsed_gaussian::{PlyGaussian, QuantSh, QuantSplat};
+use crate::ply_gaussian::{PlyGaussian, QuantSh, QuantSplat};
 
 type StreamEmitter = TryStreamEmitter<SplatMessage, DeserializeError>;
 
@@ -205,7 +205,8 @@ async fn parse_ply<T: AsyncRead + Unpin>(
     let vertex = header
         .get_element("vertex")
         .ok_or(DeserializeError::custom("Unknown format"))?;
-    let max_splats = vertex.count / subsample;
+    let total_splats = vertex.count;
+    let max_splats = total_splats / subsample;
 
     let mut means = Vec::with_capacity(max_splats * 3);
     let mut log_scales = vertex
@@ -237,7 +238,6 @@ async fn parse_ply<T: AsyncRead + Unpin>(
             if !row_index.is_multiple_of(subsample) {
                 return;
             }
-
             means.extend([gauss.x, gauss.y, gauss.z]);
 
             // Prefer rgb if specified.
@@ -271,7 +271,7 @@ async fn parse_ply<T: AsyncRead + Unpin>(
         })
         .deserialize(&mut *file)?;
 
-        if update.should_update() || row_index == max_splats {
+        if update.should_update() || row_index == total_splats {
             let splats = Splats::from_raw(
                 means.clone(),
                 rotations.clone(),
@@ -286,7 +286,7 @@ async fn parse_ply<T: AsyncRead + Unpin>(
                     meta: ParseMetadata {
                         total_splats: max_splats as u32,
                         up_axis,
-                        progress: progress(row_index, max_splats),
+                        progress: progress(row_index, total_splats),
                         frame_count: 0,
                         current_frame: 0,
                     },
@@ -294,7 +294,7 @@ async fn parse_ply<T: AsyncRead + Unpin>(
                 })
                 .await;
 
-            if row_index == max_splats {
+            if row_index == total_splats {
                 return Ok(splats);
             }
         }
@@ -540,8 +540,8 @@ async fn parse_compressed_ply<T: AsyncRead + Unpin>(
     if vertex.name != "vertex" {
         return Err(DeserializeError::custom("Unknown format"));
     }
-    let max_splats = vertex.count / subsample;
-
+    let total_splats = vertex.count;
+    let max_splats = total_splats / subsample;
     let mut means = Vec::with_capacity(max_splats * 3);
     // Atm, unlike normal plys, these values aren't optional.
     let mut log_scales = Vec::with_capacity(max_splats * 3);
@@ -587,10 +587,10 @@ async fn parse_compressed_ply<T: AsyncRead + Unpin>(
         .deserialize(&mut file)?;
 
         // Occasionally send some updated splats.
-        if update.should_update() || row_count == max_splats {
+        if update.should_update() || row_count == total_splats {
             // Leave 20% of progress for loading the SH's, just an estimate.
             let max_time = if sh_vals.is_some() { 0.8 } else { 1.0 };
-            let progress = progress(row_count, max_splats) * max_time;
+            let progress = progress(row_count, total_splats) * max_time;
             emitter
                 .emit(SplatMessage {
                     meta: ParseMetadata {
@@ -663,4 +663,68 @@ async fn parse_compressed_ply<T: AsyncRead + Unpin>(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::export::splat_to_ply;
+    use crate::test_utils::{create_test_splats, create_test_splats_with_count};
+    use burn::backend::wgpu::WgpuDevice;
+    use std::io::Cursor;
+
+    #[tokio::test]
+    async fn test_import_basic_functionality() {
+        let device = WgpuDevice::default();
+
+        let original_splats = create_test_splats(1);
+        let ply_bytes = splat_to_ply(original_splats.clone()).await.unwrap();
+
+        let cursor = Cursor::new(ply_bytes);
+        let imported_message = load_splat_from_ply(cursor, None, device).await.unwrap();
+
+        assert_eq!(imported_message.splats.num_splats(), 1);
+        assert_eq!(imported_message.splats.sh_degree(), 1);
+        assert_eq!(imported_message.meta.total_splats, 1);
+    }
+
+    #[tokio::test]
+    async fn test_import_different_sh_degrees() {
+        let device = WgpuDevice::default();
+
+        for degree in [0, 1, 2] {
+            let original_splats = create_test_splats(degree);
+            let ply_bytes = splat_to_ply(original_splats).await.unwrap();
+
+            let cursor = Cursor::new(ply_bytes);
+            let imported_message = load_splat_from_ply(cursor, None, device.clone())
+                .await
+                .unwrap();
+
+            assert_eq!(imported_message.splats.sh_degree(), degree);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_import_with_subsample() {
+        let device = WgpuDevice::default();
+
+        // Create 4 test splats
+        let original_splats = create_test_splats_with_count(0, 4);
+        assert_eq!(original_splats.num_splats(), 4);
+
+        let ply_bytes = splat_to_ply(original_splats).await.unwrap();
+
+        // Test no subsampling
+        let cursor = Cursor::new(ply_bytes.clone());
+        let imported_message = load_splat_from_ply(cursor, None, device.clone())
+            .await
+            .unwrap();
+        assert_eq!(imported_message.splats.num_splats(), 4);
+
+        // Test subsample every 2nd splat
+        let cursor = Cursor::new(ply_bytes);
+        let imported_message = load_splat_from_ply(cursor, Some(2), device).await.unwrap();
+        assert_eq!(imported_message.splats.num_splats(), 2);
+    }
 }

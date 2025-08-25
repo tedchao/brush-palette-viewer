@@ -254,7 +254,6 @@ str_to_string = "warn"
 
 string_lit_as_bytes = "warn"
 string_lit_chars_any = "warn"
-string_to_string = "warn"
 suspicious_command_arg_space = "warn"
 suspicious_xor_used_as_pow = "warn"
 todo = "warn"
@@ -284,7 +283,6 @@ redundant_clone = "warn"
 iter_over_hash_type = "warn"
 missing_assert_message = "warn"
 should_panic_without_expect = "warn"
-unwrap_used = "warn"
 
 
 # Too many false positives
