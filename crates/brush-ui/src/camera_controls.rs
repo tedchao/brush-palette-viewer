@@ -1,6 +1,7 @@
 use core::f32;
 
-use egui::Response;
+use burn_cubecl::cubecl::prelude::mul;
+use egui::{Event, EventFilter, Response};
 use glam::{Quat, Vec2, Vec3};
 
 use crate::app::CameraSettings;
@@ -127,13 +128,32 @@ impl CameraController {
     pub fn tick(&mut self, response: &Response, ui: &egui::Ui) {
         let delta_time = ui.input(|r| r.predicted_dt);
 
+        // Check for two-finger touch panning
+        let multi_touch = ui.input(|r| r.multi_touch());
+        let has_multi_touch = multi_touch.is_some();
+
+        let mut mouse_delta = ui
+            .input(|r| r.pointer.motion())
+            .unwrap_or(ui.input(|r| r.pointer.delta()));
+
+        // Ignore any delta when new touch iis detected as atm that is glitchy in egui, see
+        // https://github.com/emilk/egui/issues/5550
+        if ui.input(|r| {
+            r.events
+                .iter()
+                .any(|ev| matches!(ev, Event::PointerButton { .. }))
+        }) {
+            mouse_delta = egui::Vec2::ZERO;
+        }
+
         let lmb = response.dragged_by(egui::PointerButton::Primary);
         let rmb = response.dragged_by(egui::PointerButton::Secondary);
         let mmb = response.dragged_by(egui::PointerButton::Middle);
 
-        let look_pan = mmb || lmb && ui.input(|r| r.modifiers.ctrl);
-        let look_fps = rmb || lmb && ui.input(|r| r.key_down(egui::Key::Space));
-        let look_orbit = lmb;
+        let look_pan = mmb || (lmb && ui.input(|r| r.modifiers.ctrl)) || has_multi_touch;
+        let look_fps =
+            (rmb || (lmb && ui.input(|r| r.key_down(egui::Key::Space)))) && !has_multi_touch;
+        let look_orbit = lmb && !look_pan && !look_fps;
 
         let mouselook_speed = 0.002;
 
@@ -153,8 +173,17 @@ impl CameraController {
 
         if look_pan {
             let drag_mult = self.focus_distance / response.rect.width().max(response.rect.height());
-            self.position -= right * response.drag_delta().x * drag_mult;
-            self.position += up * response.drag_delta().y * drag_mult;
+
+            if let Some(multi_touch) = multi_touch {
+                // Use multi-touch translation for two-finger panning
+                let translation = multi_touch.translation_delta;
+                self.position -= right * translation.x * drag_mult;
+                self.position += up * translation.y * drag_mult;
+            } else {
+                // Use mouse drag for single-pointer panning
+                self.position -= right * mouse_delta.x * drag_mult;
+                self.position += up * mouse_delta.y * drag_mult;
+            }
             ui.ctx().set_cursor_icon(egui::CursorIcon::Move);
         } else if look_fps {
             let axis = response.drag_delta();
@@ -163,8 +192,8 @@ impl CameraController {
             self.rotation = yaw * self.rotation * pitch;
             ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
         } else if look_orbit {
-            let delta_yaw = response.drag_delta().x * mouselook_speed;
-            let delta_pitch = response.drag_delta().y * mouselook_speed;
+            let delta_yaw = mouse_delta.x * mouselook_speed;
+            let delta_pitch = mouse_delta.y * mouselook_speed;
             self.orbit_velocity = glam::vec2(delta_yaw, delta_pitch);
             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
         }
@@ -270,8 +299,18 @@ impl CameraController {
 
         let old_pivot = self.position + self.rotation * Vec3::Z * self.focus_distance;
 
+        // Handle pinch-to-zoom from multi-touch
+        let mut zoom_delta = 0.0;
+        if let Some(multi_touch) = multi_touch {
+            // Convert zoom factor to distance change - try reversing the direction
+            let zoom_factor = multi_touch.zoom_delta;
+            if zoom_factor != 1.0 {
+                zoom_delta = (zoom_factor - 1.0) * self.focus_distance * 2.0;
+            }
+        }
+
         // Scroll speed depends on how far zoomed out we are.
-        self.focus_distance -= scrolled * scroll_speed * self.focus_distance;
+        self.focus_distance -= scrolled * scroll_speed * self.focus_distance + zoom_delta;
         self.focus_distance = self.focus_distance.max(0.01);
 
         self.focus_distance = smooth_clamp(
