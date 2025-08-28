@@ -29,12 +29,10 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
 
     let projected = projected[compact_gid];
     let mean2d = vec2f(projected.xy_x, projected.xy_y);
-
-    let opac = projected.color_a;
-    let power_threshold = log(opac * 255.0f);
-
-    // Compute the splat's bounding box in tile coordinates.
     let conic = vec3f(projected.conic_x, projected.conic_y, projected.conic_z);
+    let opac = projected.color_a;
+
+    let power_threshold = log(opac * 255.0);
     let cov2d = helpers::inverse(mat2x2f(conic.x, conic.y, conic.y, conic.z));
     let extent = helpers::compute_bbox_extent(cov2d, power_threshold);
     let tile_bbox = helpers::get_tile_bbox(mean2d, extent, uniforms.tile_bounds);
@@ -59,7 +57,8 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         let tx = (tile_idx % tile_bbox_width) + tile_bbox_min.x;
         let ty = (tile_idx / tile_bbox_width) + tile_bbox_min.y;
 
-        if helpers::will_primitive_contribute(vec2u(tx, ty), mean2d, conic, power_threshold) {
+        let rect = helpers::tile_rect(vec2u(tx, ty));
+        if helpers::will_primitive_contribute(rect, mean2d, conic, power_threshold) {
             let tile_id = tx + ty * uniforms.tile_bounds.x;
 
         #ifndef PREPASS
