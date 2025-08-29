@@ -1,6 +1,6 @@
 'use client';
 
-import { useSearchParams } from 'next/navigation';
+import { ReadonlyURLSearchParams, useSearchParams } from 'next/navigation';
 import { Suspense, lazy } from 'react';
 
 const BrushViewer = lazy(() => import('./components/BrushViewer'));
@@ -21,16 +21,35 @@ function Loading() {
   );
 }
 
+function getFloat(searchParams: ReadonlyURLSearchParams, name: string): number | undefined {
+  const value = parseFloat(searchParams.get(name) ?? '');
+  return isNaN(value) ? undefined : value;
+}
+
 function Brush() {
   const searchParams = useSearchParams();
   const url = searchParams.get('url');
   // This mode used to be called "zen" mode, keep it for backwards compatibility.
   const fullsplat = searchParams.get('fullsplat')?.toLowerCase() == 'true' || searchParams.get('zen')?.toLowerCase() == 'true' || false;
-  return <BrushViewer url={url} fullsplat={fullsplat} />;
+  const focusDistance = getFloat(searchParams, 'focus_distance');
+  const minFocusDistance = getFloat(searchParams, 'min_focus_distance');
+  const maxFocusDistance = getFloat(searchParams, 'max_focus_distance');
+  const speedScale = getFloat(searchParams, 'speed_scale');
+
+  console.log("focusDistance", focusDistance);
+  console.log("URL", url);
+
+  return <BrushViewer
+    url={url}
+    fullsplat={fullsplat}
+    focusDistance={focusDistance}
+    minFocusDistance={minFocusDistance}
+    maxFocusDistance={maxFocusDistance}
+    speedScale={speedScale}
+  />;
 }
 
 export default function Home() {
-
   return (
     <Suspense fallback={<Loading />}>
       <Brush />

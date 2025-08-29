@@ -112,6 +112,11 @@ impl EmbeddedApp {
     }
 
     #[wasm_bindgen]
+    pub fn set_cam_focus_distance(&self, distance: f32) {
+        self.context.set_cam_focus_distance(distance);
+    }
+
+    #[wasm_bindgen]
     pub fn set_cam_fov(&self, fov: f64) {
         self.context.set_cam_fov(fov);
     }

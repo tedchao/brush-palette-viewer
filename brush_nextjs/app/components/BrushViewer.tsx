@@ -1,11 +1,15 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { EmbeddedApp, UiMode } from '../../pkg/brush_app';
+import { CameraSettings, EmbeddedApp, UiMode } from '../../pkg/brush_app';
 
 interface BrushViewerProps {
   url?: string | null;
   fullsplat?: boolean;
+  focusDistance?: number;
+  minFocusDistance?: number;
+  maxFocusDistance?: number;
+  speedScale?: number;
 }
 
 export default function BrushViewer(props: BrushViewerProps) {
@@ -37,7 +41,29 @@ export default function BrushViewer(props: BrushViewerProps) {
     if (app && props.fullsplat) {
       app.set_ui_mode(props.fullsplat ? UiMode.FullScreenSplat : UiMode.Default);
     }
-  }, [app, props.fullsplat]);
+  }, [app, props.url, props.fullsplat]);
+
+  useEffect(() => {
+    if (app) {
+      app.set_cam_settings(new CameraSettings(
+        undefined, // background,
+        props.speedScale,
+        props.minFocusDistance,
+        props.maxFocusDistance,
+        undefined, // min_pitch,
+        undefined, // max_pitch
+        undefined, // min_yaw,
+        undefined, // max_yaw
+        undefined, // splat_scale
+      ));
+    }
+  }, [app, props.url, props.speedScale, props.minFocusDistance, props.maxFocusDistance]);
+
+  useEffect(() => {
+    if (app && props.focusDistance) {
+      app.set_cam_focus_distance(props.focusDistance);
+    }
+  }, [app, props.url, props.focusDistance]);
 
   return (
     <div style={{

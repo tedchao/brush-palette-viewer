@@ -131,6 +131,10 @@ impl UiProcess {
         self.write().camera.fov_y = fov_y;
     }
 
+    pub fn set_cam_focus_distance(&self, distance: f32) {
+        self.write().controls.focus_distance = distance;
+    }
+
     pub fn focus_view(&self, view: &SceneView) {
         let mut inner = self.write();
         inner.match_controls_to(&view.camera);

@@ -116,7 +116,7 @@ impl CameraController {
         Self {
             position,
             rotation,
-            focus_distance: 4.0,
+            focus_distance: 5.0,
             settings,
             roll: Quat::IDENTITY,
             fly_velocity: Vec3::ZERO,
