@@ -62,7 +62,7 @@ pub struct CameraSettings(brush_ui::app::CameraSettings);
 impl CameraSettings {
     #[wasm_bindgen(constructor)]
     pub fn new(
-        background: ThreeVector3,
+        background: Option<ThreeVector3>,
         speed_scale: Option<f32>,
         min_focus_distance: Option<f32>,
         max_focus_distance: Option<f32>,
@@ -84,7 +84,7 @@ impl CameraSettings {
                 min_yaw,
                 max_yaw,
             },
-            background: background.to_glam(),
+            background: background.map(|v| v.to_glam()),
         })
     }
 }

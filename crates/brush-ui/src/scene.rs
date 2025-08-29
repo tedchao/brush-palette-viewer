@@ -11,7 +11,7 @@ use brush_render::{
 };
 use eframe::egui_wgpu::Renderer;
 use egui::{Color32, Rect, Slider, collapsing_header::CollapsingState};
-use glam::UVec2;
+use glam::{UVec2, Vec3};
 use tokio_with_wasm::alias as tokio_wasm;
 use tracing::trace_span;
 use web_time::Instant;
@@ -196,8 +196,12 @@ impl ScenePanel {
             if size.x > 8 && size.y > 8 && dirty {
                 let _span = trace_span!("Render splats").entered();
                 // Could add an option for background color.
-                let (img, _) =
-                    splats.render(&camera, size, settings.background, settings.splat_scale);
+                let (img, _) = splats.render(
+                    &camera,
+                    size,
+                    settings.background.unwrap_or(Vec3::ZERO),
+                    settings.splat_scale,
+                );
                 self.backbuffer.update_texture(img);
             }
         }
@@ -336,17 +340,20 @@ impl ScenePanel {
                     ui.horizontal(|ui| {
                         ui.label(egui::RichText::new("Background").size(12.0));
                         let mut settings = process.get_cam_settings();
-                        let mut bg_color = egui::Color32::from_rgb(
-                            (settings.background.x * 255.0) as u8,
-                            (settings.background.y * 255.0) as u8,
-                            (settings.background.z * 255.0) as u8,
-                        );
+                        let mut bg_color = settings.background.map_or(egui::Color32::BLACK, |b| {
+                            egui::Color32::from_rgb(
+                                (b.x * 255.0) as u8,
+                                (b.y * 255.0) as u8,
+                                (b.z * 255.0) as u8,
+                            )
+                        });
+
                         if ui.color_edit_button_srgba(&mut bg_color).changed() {
-                            settings.background = glam::vec3(
+                            settings.background = Some(glam::vec3(
                                 bg_color.r() as f32 / 255.0,
                                 bg_color.g() as f32 / 255.0,
                                 bg_color.b() as f32 / 255.0,
-                            );
+                            ));
                             process.set_cam_settings(&settings);
                         }
                     });

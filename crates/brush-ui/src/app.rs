@@ -62,23 +62,12 @@ impl egui_tiles::Behavior<PaneType> for AppTree {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Default)]
 pub struct CameraSettings {
     pub speed_scale: Option<f32>,
     pub splat_scale: Option<f32>,
+    pub background: Option<Vec3>,
     pub clamping: CameraClamping,
-    pub background: Vec3,
-}
-
-impl Default for CameraSettings {
-    fn default() -> Self {
-        Self {
-            speed_scale: None,
-            splat_scale: None,
-            clamping: CameraClamping::default(),
-            background: Vec3::ZERO,
-        }
-    }
 }
 
 pub struct App {

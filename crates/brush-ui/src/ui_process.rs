@@ -119,7 +119,6 @@ impl UiProcess {
         let mut inner = self.write();
         inner.controls.settings = settings.clone();
         inner.splat_scale = settings.splat_scale;
-        inner.background = settings.background;
         let cam = inner.camera.clone();
         inner.match_controls_to(&cam);
     }
@@ -276,7 +275,6 @@ struct UiProcessInner {
     camera: Camera,
     view_aspect: Option<f32>,
     splat_scale: Option<f32>,
-    background: Vec3,
     controls: CameraController,
     model_local_to_world: Affine3A,
     running_process: Option<RunningProcess>,
@@ -305,7 +303,6 @@ impl UiProcessInner {
             selected_view: None,
             running_process: None,
             cur_device_ctx: None,
-            background: Vec3::ZERO,
             ui_mode: UiMode::Default,
         }
     }
