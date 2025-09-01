@@ -128,10 +128,6 @@ naga = { git = "https://github.com/ArthurBrussee/wgpu", branch = "25-sg-enable" 
 # wgpu.path = "../wgpu/wgpu"
 # naga.path = "../wgpu/naga"
 
-[profile.dev]
-opt-level = 1
-debug = true
-
 # The profile that 'dist' will build with
 [profile.dist]
 inherits = "release"
