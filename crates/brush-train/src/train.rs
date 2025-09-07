@@ -9,11 +9,11 @@ use crate::{
 };
 
 use brush_dataset::scene::SceneBatch;
-use brush_render::sh::sh_coeffs_for_degree;
 use brush_render::{
     MainBackend,
     gaussian_splats::{Splats, inverse_sigmoid},
 };
+use brush_render::{bounding_box::BoundingBox, sh::sh_coeffs_for_degree};
 use brush_render_bwd::burn_glue::SplatForwardDiff;
 use burn::{
     backend::{
@@ -39,7 +39,7 @@ use hashbrown::{HashMap, HashSet};
 use std::f64::consts::SQRT_2;
 use tracing::trace_span;
 
-const MIN_OPACITY: f32 = 0.99 / 255.0;
+const MIN_OPACITY: f32 = 1.0 / 255.0;
 
 type DiffBackend = Autodiff<MainBackend>;
 type OptimizerType = OptimizerAdaptor<AdamScaled, Splats<DiffBackend>, DiffBackend>;
@@ -52,6 +52,8 @@ pub struct SplatTrainer {
     optim: Option<OptimizerType>,
 
     ssim: Option<Ssim<DiffBackend>>,
+
+    cur_bounds: BoundingBox,
 
     #[cfg(not(target_family = "wasm"))]
     lpips: Option<lpips::LpipsModel<DiffBackend>>,
@@ -66,7 +68,7 @@ fn create_default_optimizer() -> OptimizerType {
 }
 
 impl SplatTrainer {
-    pub fn new(config: &TrainConfig, device: &WgpuDevice) -> Self {
+    pub fn new(config: &TrainConfig, device: &WgpuDevice, init_bounds: BoundingBox) -> Self {
         let decay = (config.lr_mean_end / config.lr_mean).powf(1.0 / config.total_steps as f64);
         let lr_mean = ExponentialLrSchedulerConfig::new(config.lr_mean, decay);
 
@@ -83,6 +85,7 @@ impl SplatTrainer {
             optim: None,
             refine_record: None,
             ssim,
+            cur_bounds: init_bounds,
             #[cfg(not(target_family = "wasm"))]
             lpips: (config.lpips_loss_weight > 0.0).then(|| lpips::load_vgg_lpips(device)),
         }
@@ -90,7 +93,6 @@ impl SplatTrainer {
 
     pub fn step(
         &mut self,
-        scene_extent: f32,
         iter: u32,
         batch: &SceneBatch<DiffBackend>,
         splats: Splats<DiffBackend>,
@@ -117,15 +119,15 @@ impl SplatTrainer {
                 splats.raw_opacity.val().into_primitive().tensor(),
                 background,
             );
+
             let img = Tensor::from_primitive(TensorPrimitive::Float(diff_out.img));
-
-            #[cfg(any(feature = "debug-validation", test))]
-            diff_out.aux.debug_assert_valid();
-
             (img, diff_out.aux, diff_out.refine_weight_holder)
         });
 
         let train_t = (iter as f32 / self.config.total_steps as f32).clamp(0.0, 1.0);
+        // Apply auxiliary losses for the first 90% of training.
+        let aux_loss_weight = (0.9 - train_t).clamp(0.0, 1.0);
+        let median_scale = self.cur_bounds.median_size();
 
         let pred_rgb = pred_image.clone().slice(s![.., .., 0..3]);
         let gt_rgb = batch.img_tensor.clone().slice(s![.., .., 0..3]);
@@ -166,13 +168,24 @@ impl SplatTrainer {
                 loss
             };
 
-            let opac_loss_weight = self.config.opac_loss_weight;
+            let opac_loss_weight = self.config.opac_loss_weight * aux_loss_weight;
 
-            if opac_loss_weight > 0.0 {
-                // Invisible splats still have a tiny bit of loss. Otherwise,
-                // they would never die off.
-                let visible = visible.clone() + 1e-3;
-                loss + (splats.opacities() * visible).sum() * (opac_loss_weight * (1.0 - train_t))
+            // Invisible splats still have a tiny bit of loss. Otherwise,
+            // they would never die off.
+            let vis_weight = visible.clone() + 1e-2;
+
+            let loss = if opac_loss_weight > 0.0 {
+                loss + (splats.opacities() * vis_weight.clone()).sum() * opac_loss_weight
+            } else {
+                loss
+            };
+
+            let scale_loss_weight = self.config.scale_loss_weight * aux_loss_weight / median_scale;
+            if scale_loss_weight > 0.0 {
+                // Scale loss is the sum of the squared differences between the
+                // predicted scale and the target scale.
+                let scale_loss = (splats.scales() * vis_weight.unsqueeze_dim(1)).sum();
+                loss + scale_loss * scale_loss_weight
             } else {
                 loss
             }
@@ -180,8 +193,15 @@ impl SplatTrainer {
 
         let mut grads = trace_span!("Backward pass").in_scope(|| loss.backward());
 
+        #[cfg(any(feature = "debug-validation", test))]
+        {
+            splats.validate_values();
+            aux.validate_values();
+            brush_render::validation::validate_splat_gradients(&splats, &grads);
+        }
+
         let (lr_mean, lr_rotation, lr_scale, lr_coeffs, lr_opac) = (
-            self.sched_mean.step() * scene_extent as f64,
+            self.sched_mean.step() * median_scale as f64,
             self.config.lr_rotation,
             // Scale is relative to the scene scale, but the exp() activation function
             // means "offsetting" all values also solves the learning rate scaling.
@@ -261,20 +281,21 @@ impl SplatTrainer {
             );
         });
 
-        let mean_noise_weight_scale = self.config.mean_noise_weight * (1.0 - train_t);
-
+        let mean_noise_weight_scale = self.config.mean_noise_weight * aux_loss_weight;
         if mean_noise_weight_scale > 0.0 {
             let device = splats.device();
             // Add random noise. Only do this in the growth phase, otherwise
             // let the splats settle in without noise, not much point in exploring regions anymore.
             // trace_span!("Noise means").in_scope(|| {
             let one = Tensor::ones([1], &device);
+            // TODO: Maybe the noise curve should be a parameter.
             let noise_weight = (one - splats.opacities().inner())
-                .powi_scalar(100)
+                .powi_scalar(100.0)
                 .clamp(0.0, 1.0);
-            let noise_weight = noise_weight * visible.inner(); // Only noise visible gaussians.
+            // Only noise gaussians visible in this step. Otherwise, areas not commonly
+            // visible slowly degrade over time.
+            let noise_weight = noise_weight * visible.inner();
             let noise_weight = noise_weight.unsqueeze_dim(1);
-
             let samples = quaternion_vec_multiply(
                 splats.rotations_normed().inner(),
                 Tensor::random(
@@ -283,11 +304,18 @@ impl SplatTrainer {
                     &device,
                 ) * splats.scales().inner(),
             );
+            // Only allow noised gaussians to travel at most the entire extent of the current bounds.
+            let max_noise = median_scale * 2.0;
+            let noise_weight = noise_weight
+                * (lr_mean as f32 * mean_noise_weight_scale)
+                * self.cur_bounds.median_size();
 
-            let noise_weight = noise_weight * (lr_mean as f32 * mean_noise_weight_scale);
-            splats.means = splats
-                .means
-                .map(|m| Tensor::from_inner(m.inner() + samples * noise_weight).require_grad());
+            splats.means = splats.means.map(|m| {
+                Tensor::from_inner(
+                    m.inner() + (samples * noise_weight).clamp(-max_noise, max_noise),
+                )
+                .require_grad()
+            });
         }
 
         let stats = TrainStepStats {
@@ -314,6 +342,9 @@ impl SplatTrainer {
             return (splats, None);
         }
 
+        // Update current bounds to 90th percentile of splats.
+        self.cur_bounds = splats.clone().get_bounds(0.9).await;
+
         let device = splats.means.device();
         let client = WgpuRuntime::client(&device);
         client.memory_cleanup();
@@ -334,9 +365,17 @@ impl SplatTrainer {
             .val()
             .inner()
             .lower_elem(inverse_sigmoid(MIN_OPACITY));
+        let scale_mask = splats
+            .log_scales
+            .val()
+            .inner()
+            .lower_elem(-15.0)
+            .any_dim(1)
+            .squeeze(1);
+        let prune_mask = alpha_mask.bool_or(scale_mask);
 
         let (mut splats, refiner, pruned_count) =
-            prune_points(splats, &mut record, refiner, alpha_mask).await;
+            prune_points(splats, &mut record, refiner, prune_mask).await;
         let mut add_indices = HashSet::new();
 
         // Replace dead gaussians if we're still refining.
