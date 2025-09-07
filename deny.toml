@@ -40,8 +40,6 @@ skip = [
     { name = 'itertools' },
     { name = 'getrandom' },
     { name = 'syn' },
-    { name = 'strum_macros' },
-    { name = 'strum' },
     { name = 'gemm-common' },
 
     # Until everyone is on 0.9
@@ -81,12 +79,13 @@ skip = [
     { name = 'objc2-app-kit' },    # eframe & rfd
     { name = 'objc2' },            # eframe & rfd
     { name = 'windows' },          # Wgpu & kiddo
+    { name = 'windows-link' },
+
     { name = 'hashbrown' },
     { name = 'zip' },
     { name = 'colored' },
     { name = "rustc-hash" },
-
-    { name = 'ndk-sys' }, # Needed on Android.
+    { name = "core-graphics-types" },
 
     { name = "dyn-stack" }, # Burn-import weirdness.
     { name = "gemm" },      # Burn-import weirdness.

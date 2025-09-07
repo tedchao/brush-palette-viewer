@@ -60,10 +60,10 @@ wasm-bindgen = "0.2.97"
 wasm-bindgen-futures = "0.4"
 wasm-streams = "0.4"
 
-naga_oil = { version = "0.18", default-features = false }
+naga_oil = { version = "0.19", default-features = false }
 
 # Backends are chosen per platform.
-wgpu = { version = "25", default-features = false, features = ["naga-ir"] }
+wgpu = { version = "26", default-features = false, features = ["naga-ir"] }
 
 serde-ply = "0.2.1"
 
@@ -81,7 +81,7 @@ burn-import = { git = "https://github.com/tracel-ai/burn", default-features = fa
     "pytorch",
 ] }
 
-egui = "0.32"
+egui = { version = "0.32"  }
 eframe = { version = "0.32", default-features = false, features = [
     "wgpu",
     "android-game-activity",
@@ -123,6 +123,11 @@ alphanumeric-sort = "1.5.3"
 [patch.crates-io]
 wgpu = { git = "https://github.com/ArthurBrussee/wgpu", branch = "25-sg-enable" }
 naga = { git = "https://github.com/ArthurBrussee/wgpu", branch = "25-sg-enable" }
+
+egui = { git = "https://github.com/emilk/egui", rev = "refs/pull/7340/head"  }
+eframe = { git = "https://github.com/emilk/egui", rev = "refs/pull/7340/head" }
+emath = { git = "https://github.com/emilk/egui", rev = "refs/pull/7340/head" }
+
 
 # Uncomment this to use local wgpu and naga.
 # wgpu.path = "../wgpu/wgpu"
