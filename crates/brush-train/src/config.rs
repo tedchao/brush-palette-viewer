@@ -32,7 +32,7 @@ pub struct TrainConfig {
     pub lr_coeffs_sh_scale: f32,
 
     /// Learning rate for the opacity parameter.
-    #[arg(long, help_heading = "Training options", default_value = "3e-2")]
+    #[arg(long, help_heading = "Training options", default_value = "1e-2")]
     pub lr_opac: f64,
 
     /// Learning rate for the scale parameters.
@@ -44,7 +44,7 @@ pub struct TrainConfig {
     pub lr_scale_end: f64,
 
     /// Learning rate for the rotation parameters.
-    #[arg(long, help_heading = "Training options", default_value = "1e-3")]
+    #[arg(long, help_heading = "Training options", default_value = "2e-3")]
     pub lr_rotation: f64,
 
     /// Frequency of 'refinement' where gaussians are replaced and densified. This should
@@ -53,12 +53,12 @@ pub struct TrainConfig {
     pub refine_every: u32,
 
     /// Threshold to control splat growth. Lower means faster growth.
-    #[arg(long, help_heading = "Refine options", default_value = "0.002")]
+    #[arg(long, help_heading = "Refine options", default_value = "0.00009")]
     pub growth_grad_threshold: f32,
 
     /// What fraction of splats that are deemed as needing to grow do actually grow.
     /// Increase this to make splats grow more aggressively.
-    #[arg(long, help_heading = "Refine options", default_value = "0.2")]
+    #[arg(long, help_heading = "Refine options", default_value = "0.3")]
     pub growth_select_fraction: f32,
 
     /// Period after which splat growth stops.
@@ -70,12 +70,16 @@ pub struct TrainConfig {
     pub ssim_weight: f32,
 
     /// Weight of the opacity loss.
-    #[arg(long, help_heading = "Training options", default_value = "1e-8")]
+    #[arg(long, help_heading = "Training options", default_value = "1e-9")]
     pub opac_loss_weight: f32,
 
     /// Weight of the opacity loss.
-    #[arg(long, help_heading = "Training options", default_value = "1e-7")]
+    #[arg(long, help_heading = "Training options", default_value = "1e-8")]
     pub scale_loss_weight: f32,
+
+    /// How long to apply aux losses and augementations for (1 being the full training duration).
+    #[arg(long, help_heading = "Training options", default_value = "0.75")]
+    pub aux_loss_time: f32,
 
     /// Weight of l1 loss on alpha if input view has transparency.
     #[arg(long, help_heading = "Refine options", default_value = "0.1")]
