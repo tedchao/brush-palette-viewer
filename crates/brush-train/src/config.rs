@@ -16,15 +16,15 @@ pub struct TrainConfig {
     pub lr_mean: f64,
 
     /// Start learning rate for the mean parameters.
-    #[arg(long, help_heading = "Training options", default_value = "2e-7")]
+    #[arg(long, help_heading = "Training options", default_value = "1e-6")]
     pub lr_mean_end: f64,
 
     /// How much noise to add to the mean parameters of low opacity gaussians.
-    #[arg(long, help_heading = "Training options", default_value = "1e4")]
+    #[arg(long, help_heading = "Training options", default_value = "40")]
     pub mean_noise_weight: f32,
 
     /// Learning rate for the base SH (RGB) coefficients.
-    #[arg(long, help_heading = "Training options", default_value = "3e-3")]
+    #[arg(long, help_heading = "Training options", default_value = "2e-3")]
     pub lr_coeffs_dc: f64,
 
     /// How much to divide the learning rate by for higher SH orders.
@@ -44,12 +44,12 @@ pub struct TrainConfig {
     pub lr_scale_end: f64,
 
     /// Learning rate for the rotation parameters.
-    #[arg(long, help_heading = "Training options", default_value = "2e-3")]
+    #[arg(long, help_heading = "Training options", default_value = "1e-3")]
     pub lr_rotation: f64,
 
     /// Frequency of 'refinement' where gaussians are replaced and densified. This should
     /// roughly be the number of images it takes to properly "cover" your scene.
-    #[arg(long, help_heading = "Refine options", default_value = "150")]
+    #[arg(long, help_heading = "Refine options", default_value = "200")]
     pub refine_every: u32,
 
     /// Threshold to control splat growth. Lower means faster growth.
@@ -58,7 +58,7 @@ pub struct TrainConfig {
 
     /// What fraction of splats that are deemed as needing to grow do actually grow.
     /// Increase this to make splats grow more aggressively.
-    #[arg(long, help_heading = "Refine options", default_value = "0.3")]
+    #[arg(long, help_heading = "Refine options", default_value = "0.6")]
     pub growth_select_fraction: f32,
 
     /// Period after which splat growth stops.
@@ -78,7 +78,7 @@ pub struct TrainConfig {
     pub scale_loss_weight: f32,
 
     /// How long to apply aux losses and augementations for (1 being the full training duration).
-    #[arg(long, help_heading = "Training options", default_value = "0.75")]
+    #[arg(long, help_heading = "Training options", default_value = "0.85")]
     pub aux_loss_time: f32,
 
     /// Weight of l1 loss on alpha if input view has transparency.
