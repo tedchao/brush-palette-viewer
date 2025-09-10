@@ -287,7 +287,7 @@ impl SplatTrainer {
             splats
         });
 
-        let mean_noise_weight_scale = self.config.mean_noise_weight * (1.0 - train_t);
+        let mean_noise_weight_scale = self.config.mean_noise_weight;
         let device = splats.device();
         // Add random noise. Only do this in the growth phase, otherwise
         // let the splats settle in without noise, not much point in exploring regions anymore.
