@@ -135,6 +135,8 @@ emath = { git = "https://github.com/emilk/egui", rev = "refs/pull/7340/head" }
 
 [profile.dev]
 opt-level = 1
+# Reduce debuginfo for faster linking
+debug = 1
 
 # The profile that 'dist' will build with
 [profile.dist]

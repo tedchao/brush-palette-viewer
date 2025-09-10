@@ -10,8 +10,8 @@ env:
   RUSTDOCFLAGS: -D warnings
 
 jobs:
-  fmt-crank-check-test:
-    name: Format + check + test
+  fmt-crank-check:
+    name: Format + check
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v5
@@ -20,7 +20,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: 1.88.0
+          toolchain: 1.89.0
           components: rustfmt, clippy
 
       - name: Install packages (Linux)
@@ -33,6 +33,8 @@ jobs:
 
       - name: Set up cargo cache
         uses: Swatinem/rust-cache@v2
+        with:
+          cache-all-crates: true
 
       - name: check --all-features
         run: cargo check --locked --all-features --all-targets
@@ -61,13 +63,15 @@ jobs:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: 1.88.0
+          toolchain: 1.89.0
           targets: wasm32-unknown-unknown
 
       - run: sudo apt-get update && sudo apt-get install libgtk-3-dev libatk1.0-dev
 
       - name: Set up cargo cache
         uses: Swatinem/rust-cache@v2
+        with:
+          cache-all-crates: true
 
       - name: Check wasm32
         run: RUSTFLAGS='--cfg getrandom_backend="wasm_js"' cargo check -p brush-wasm --target wasm32-unknown-unknown
@@ -91,28 +95,43 @@ jobs:
       - uses: actions/checkout@v5
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
-          rust-version: "1.88.0"
+          rust-version: "1.89.0"
           log-level: error
           command: check
           arguments: --target  ${{ matrix.target }}
 
   # ---------------------------------------------------------------------------
 
+  # ---------------------------------------------------------------------------
+
   tests:
     name: Run tests
-    # We run the tests on macOS because it will run with a actual GPU
+    # We run the tests on macOS because it will run with an actual GPU
     runs-on: macos-latest
-
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v5
         with:
           lfs: true
+
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: 1.88.0
+          toolchain: 1.89.0
 
       - name: Set up cargo cache
         uses: Swatinem/rust-cache@v2
+        with:
+          cache-all-crates: true
 
       - name: Run tests
-        run: cargo test --all
+        run: cargo test --all --all-features
+
+      - name: Run doc-tests
+        run: cargo test --all --all-features --doc
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: "**/tests/snapshots"
