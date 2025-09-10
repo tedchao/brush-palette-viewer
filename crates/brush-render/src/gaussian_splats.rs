@@ -17,6 +17,7 @@ use burn::{
 };
 use glam::Vec3;
 use rand::Rng;
+use tracing::trace_span;
 
 #[derive(Config)]
 pub struct RandomSplatsConfig {
@@ -41,6 +42,23 @@ fn norm_vec<B: Backend>(vec: Tensor<B, 2>) -> Tensor<B, 2> {
 
 pub fn inverse_sigmoid(x: f32) -> f32 {
     (x / (1.0 - x)).ln()
+}
+
+#[derive(PartialEq, Clone, Copy, Debug)]
+struct BallPoint(glam::Vec3A);
+
+impl ball_tree::Point for BallPoint {
+    fn distance(&self, other: &Self) -> f64 {
+        self.0.distance(other.0) as f64
+    }
+
+    fn move_towards(&self, other: &Self, d: f64) -> Self {
+        Self(self.0.lerp(other.0, d as f32 / self.0.distance(other.0)))
+    }
+
+    fn midpoint(a: &Self, b: &Self) -> Self {
+        Self((a.0 + b.0) / 2.0)
+    }
 }
 
 impl<B: Backend> Splats<B> {
@@ -83,36 +101,47 @@ impl<B: Backend> Splats<B> {
         opac_data: Option<Vec<f32>>,
         device: &B::Device,
     ) -> Self {
+        let _ = trace_span!("Splats::from_raw").entered();
+
         let n_splats = pos_data.len() / 3;
 
         let log_scales = if let Some(log_scales) = scale_data {
+            let _ = trace_span!("Splats scale init").entered();
+
             Tensor::from_data(TensorData::new(log_scales, [n_splats, 3]), device)
         } else {
-            let tree_pos: Vec<[f64; 3]> = pos_data
-                .as_chunks::<3>()
-                .0
-                .iter()
-                .map(|v| [v[0] as f64, v[1] as f64, v[2] as f64])
-                .collect();
+            let bounding_box =
+                trace_span!("Bounds from pose").in_scope(|| bounds_from_pos(0.75, &pos_data));
+            let median_size = bounding_box.median_size();
 
-            let empty = vec![(); tree_pos.len()];
-            let tree = BallTree::new(tree_pos.clone(), empty);
+            let extents: Vec<_> = trace_span!("Splats KNN scale init").in_scope(|| {
+                let tree_points: Vec<BallPoint> = pos_data
+                    .as_chunks::<3>()
+                    .0
+                    .iter()
+                    .map(|v| BallPoint(glam::Vec3A::new(v[0], v[1], v[2])))
+                    .collect();
 
-            let bounding_box = bounds_from_pos(0.75, &pos_data);
-            let median_size = bounding_box.median_size() as f64;
+                let empty = vec![(); tree_points.len()];
+                let tree = BallTree::new(tree_points.clone(), empty);
+                let mut query = tree.query();
 
-            let extents: Vec<_> = tree_pos
-                .iter()
-                .map(|p| {
-                    // Get half of the average of 2 nearest distances.
-                    0.5 * tree.query().nn(p).skip(1).take(2).map(|x| x.1).sum::<f64>() / 2.0
-                })
-                .map(|p| p.clamp(1e-3, median_size * 0.1))
-                .map(|p| p.ln() as f32)
-                .flat_map(|p| [p, p, p])
-                .collect();
+                tree_points
+                    .iter()
+                    .map(|p| {
+                        // Get half of the average of 2 nearest distances.
+                        let q = query.nn(p);
+                        let dist = 0.5 * q.skip(1).take(2).map(|x| x.1 as f32).sum::<f32>() / 2.0;
+                        dist.clamp(1e-3, median_size * 0.1).ln()
+                    })
+                    .flat_map(|p| [p, p, p])
+                    .collect()
+            });
+
             Tensor::<B, 1>::from_floats(extents.as_slice(), device).reshape([n_splats, 3])
         };
+
+        let _ = trace_span!("Splats init rest").entered();
 
         let means_tensor = Tensor::from_data(TensorData::new(pos_data, [n_splats, 3]), device);
 
