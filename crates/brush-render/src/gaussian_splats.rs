@@ -19,7 +19,7 @@ use glam::Vec3;
 use rand::Rng;
 use tracing::trace_span;
 
-#[derive(Config)]
+#[derive(Config, Debug)]
 pub struct RandomSplatsConfig {
     #[config(default = 10000)]
     init_count: usize,

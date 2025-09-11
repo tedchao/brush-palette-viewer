@@ -21,7 +21,7 @@ pub(crate) struct AdamScaled {
 }
 
 /// Adam configuration.
-#[derive(Config)]
+#[derive(Config, Debug)]
 pub(crate) struct AdamScaledConfig {
     /// Parameter for Adam.
     #[config(default = 0.9)]

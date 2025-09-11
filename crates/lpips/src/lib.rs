@@ -16,7 +16,7 @@ use burn::{
 };
 
 /// [Residual layer block](LayerBlock) configuration.
-#[derive(Config)]
+#[derive(Config, Debug)]
 struct VggBlockConfig {
     num_blocks: usize,
     in_channels: usize,
