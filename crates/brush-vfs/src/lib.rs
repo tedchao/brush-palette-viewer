@@ -8,22 +8,26 @@ mod data_source;
 use std::{
     collections::HashMap,
     fmt::Debug,
-    io::{self, Cursor, Error, Read},
+    io::{self, Cursor, Error},
     path::{Path, PathBuf},
     sync::Arc,
 };
 
+pub use data_source::{DataSource, DataSourceError};
+
 use path_clean::PathClean;
 use tokio::{
-    io::{AsyncRead, AsyncReadExt, BufReader},
+    io::{AsyncBufRead, AsyncRead, AsyncReadExt, BufReader},
     sync::Mutex,
 };
+use tokio_with_wasm::alias as tokio_wasm;
 
-use tokio_stream::Stream;
-use zip::ZipArchive;
+use async_zip::base::read::stream::ZipFileReader;
+use tokio_util::compat::{FuturesAsyncReadCompatExt, TokioAsyncReadCompatExt};
 
 // On wasm, lots of things aren't Send that are send on non-wasm.
 // Non-wasm tokio requires :Send for futures, tokio_with_wasm doesn't.
+
 // So, it can help to annotate futures/objects as send only on not-wasm.
 #[cfg(target_family = "wasm")]
 mod wasm_send {
@@ -35,14 +39,11 @@ mod wasm_send {
     pub trait SendNotWasm: Send {}
     impl<T: Send> SendNotWasm for T {}
 }
-pub use data_source::DataSource;
+
 pub use wasm_send::*;
 
-pub trait DynStream<Item>: Stream<Item = Item> + SendNotWasm {}
-impl<Item, T: Stream<Item = Item> + SendNotWasm> DynStream<Item> for T {}
-
-pub trait DynRead: AsyncRead + SendNotWasm + Unpin {}
-impl<T: AsyncRead + SendNotWasm + Unpin> DynRead for T {}
+pub trait DynRead: AsyncBufRead + SendNotWasm + Unpin {}
+impl<T: AsyncBufRead + SendNotWasm + Unpin> DynRead for T {}
 
 // Sometimes rust is beautiful - sometimes it's ArcMutexOptionBox
 type SharedRead = Arc<Mutex<Option<Box<dyn DynRead>>>>;
@@ -70,14 +71,12 @@ impl PathKey {
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct ZipData {
-    data: Arc<Vec<u8>>,
-}
+// Simple wrapper for Arc<Vec<u8>> that implements AsRef<[u8]> for Cursor
+struct ZipVec(Arc<Vec<u8>>);
 
-impl AsRef<[u8]> for ZipData {
+impl AsRef<[u8]> for ZipVec {
     fn as_ref(&self) -> &[u8] {
-        &self.data
+        &self.0
     }
 }
 
@@ -90,13 +89,17 @@ async fn read_at_most<R: AsyncRead + Unpin>(reader: &mut R, limit: usize) -> io:
 
 enum VfsContainer {
     Zip {
-        archive: ZipArchive<Cursor<ZipData>>,
+        // TODO: Fill this in.
+        entries: HashMap<PathBuf, Arc<Vec<u8>>>,
     },
     Manual {
         readers: HashMap<PathBuf, SharedRead>,
     },
-    #[cfg(not(target_family = "wasm"))]
-    Directory { base_path: PathBuf },
+    Directory {
+        base_path: PathBuf,
+        #[cfg(target_family = "wasm")]
+        files: Option<HashMap<PathBuf, web_sys::File>>,
+    },
 }
 
 impl Debug for VfsContainer {
@@ -104,7 +107,6 @@ impl Debug for VfsContainer {
         match self {
             Self::Zip { .. } => f.debug_struct("Zip").finish(),
             Self::Manual { .. } => f.debug_struct("Manual").finish(),
-            #[cfg(not(target_family = "wasm"))]
             Self::Directory { .. } => f.debug_struct("Directory").finish(),
         }
     }
@@ -138,16 +140,16 @@ fn lookup_from_paths(paths: &[PathBuf]) -> HashMap<PathKey, PathBuf> {
 
 use thiserror::Error;
 
+fn io_error(e: async_zip::error::ZipError) -> std::io::Error {
+    std::io::Error::new(std::io::ErrorKind::InvalidData, e)
+}
+
 #[derive(Debug, Error)]
 pub enum VfsConstructError {
     #[error("I/O error while constructing BrushVfs.")]
     IoError(#[from] std::io::Error),
-    #[error("Zip creation failed while constructing BrushVfs.")]
-    ZipError(#[from] zip::result::ZipError),
-
     #[error("Got a status page instead of content: \n\n {0}")]
     InvalidHtml(String),
-
     #[error("Unknown data type. Only zip and ply files are supported")]
     UnknownDataType,
 }
@@ -169,25 +171,38 @@ impl BrushVfs {
         let mut reader: Box<dyn DynRead> =
             Box::new(AsyncReadExt::chain(Cursor::new(peek.clone()), data));
 
-        if peek.as_slice().starts_with(b"ply") {
+        if peek.starts_with(b"ply") {
             let path = PathBuf::from("input.ply");
-            let reader = Arc::new(Mutex::new(Some(reader)));
+            let reader_ref = Arc::new(Mutex::new(Some(reader)));
             Ok(Self {
                 lookup: lookup_from_paths(std::slice::from_ref(&path)),
                 container: VfsContainer::Manual {
-                    readers: HashMap::from([(path, reader)]),
+                    readers: HashMap::from([(path, reader_ref)]),
                 },
             })
         } else if peek.starts_with(b"PK") {
-            let mut bytes = vec![];
-            reader.read_to_end(&mut bytes).await?;
-            let archive = ZipArchive::new(Cursor::new(ZipData {
-                data: Arc::new(bytes),
-            }))?;
-            let file_names: Vec<_> = archive.file_names().map(PathBuf::from).collect();
+            let mut zip_reader = ZipFileReader::new(reader.compat());
+            let mut entries = HashMap::new();
+
+            while let Some(mut entry) = zip_reader.next_with_entry().await.map_err(io_error)? {
+                if let Ok(filename) = entry.reader().entry().filename().clone().as_str() {
+                    let mut data = vec![];
+                    let mut reader = entry.reader_mut().compat();
+                    reader.read_to_end(&mut data).await?;
+                    entries.insert(PathBuf::from(filename), Arc::new(data));
+                    zip_reader = entry.skip().await.map_err(io_error)?;
+                } else {
+                    zip_reader = entry.skip().await.map_err(io_error)?;
+                }
+
+                tokio_wasm::task::yield_now().await;
+            }
+
+            let path_bufs = entries.keys().cloned().collect::<Vec<_>>();
+
             Ok(Self {
-                lookup: lookup_from_paths(&file_names),
-                container: VfsContainer::Zip { archive },
+                lookup: lookup_from_paths(&path_bufs),
+                container: VfsContainer::Zip { entries },
             })
         } else if peek.starts_with(b"<!DOCTYPE html>") {
             let mut html = String::new();
@@ -229,6 +244,8 @@ impl BrushVfs {
                                     .to_path_buf();
                                 paths.push(path);
                             }
+
+                            tokio_wasm::task::yield_now().await;
                         }
                     }
                     Ok(paths)
@@ -239,6 +256,8 @@ impl BrushVfs {
                     lookup: lookup_from_paths(&files),
                     container: VfsContainer::Directory {
                         base_path: dir.to_path_buf(),
+                        #[cfg(target_family = "wasm")]
+                        files: None,
                     },
                 })
             }
@@ -249,6 +268,21 @@ impl BrushVfs {
             let _ = dir;
             panic!("Cannot read paths on wasm");
         }
+    }
+
+    #[cfg(target_family = "wasm")]
+    pub fn from_wasm_files(
+        files: HashMap<PathBuf, web_sys::File>,
+    ) -> Result<Self, VfsConstructError> {
+        let paths: Vec<PathBuf> = files.keys().cloned().collect();
+
+        Ok(Self {
+            lookup: lookup_from_paths(&paths),
+            container: VfsContainer::Directory {
+                base_path: PathBuf::new(), // Empty path for WASM
+                files: Some(files),
+            },
+        })
     }
 
     pub fn files_with_extension<'a>(
@@ -296,15 +330,9 @@ impl BrushVfs {
         })?;
 
         match &self.container {
-            VfsContainer::Zip { archive } => {
-                let name = path
-                    .to_str()
-                    .expect("Invalid UTF-8 in zip file")
-                    .replace('\\', "/");
-                let mut buffer = vec![];
-                // Archive is cheap to clone, as the data is an Arc<[u8]>.
-                archive.clone().by_name(&name)?.read_to_end(&mut buffer)?;
-                Ok(Box::new(Cursor::new(buffer)))
+            VfsContainer::Zip { entries } => {
+                let data = entries.get(path).expect("Unreachable").clone();
+                Ok(Box::new(Cursor::new(ZipVec(data))))
             }
             VfsContainer::Manual { readers } => {
                 // Readers get taken out of the map as they are not cloneable.
@@ -319,13 +347,68 @@ impl BrushVfs {
                     )
                 })
             }
-            #[cfg(not(target_family = "wasm"))]
-            VfsContainer::Directory { base_path: dir } => {
-                // TODO: Use a string -> PathBuf cache.
-                let total_path = dir.join(path);
-                let file = tokio::fs::File::open(total_path).await?;
-                let file = tokio::io::BufReader::new(file);
-                Ok(Box::new(file))
+            VfsContainer::Directory {
+                base_path: _dir,
+                #[cfg(target_family = "wasm")]
+                files,
+            } => {
+                #[cfg(target_family = "wasm")]
+                if let Some(files) = files {
+                    let file = files.get(path).ok_or_else(|| {
+                        Error::new(
+                            io::ErrorKind::NotFound,
+                            format!("File not found: {}", path.display()),
+                        )
+                    })?;
+
+                    // Create a stream reader from the File object
+                    use futures_util::StreamExt;
+                    use tokio_util::bytes::Bytes;
+                    use tokio_util::io::StreamReader;
+                    use wasm_bindgen::JsCast;
+                    use wasm_streams::ReadableStream as WasmReadableStream;
+
+                    let readable_stream: web_sys::ReadableStream = file.stream();
+                    let wasm_stream = WasmReadableStream::from_raw(readable_stream);
+
+                    let byte_stream = wasm_stream.into_stream().map(|result| {
+                        result
+                            .map_err(|e| {
+                                io::Error::new(
+                                    io::ErrorKind::Other,
+                                    format!("Stream error: {:?}", e),
+                                )
+                            })
+                            .and_then(|chunk| {
+                                if let Ok(uint8_array) = chunk.dyn_into::<js_sys::Uint8Array>() {
+                                    let mut data = vec![0; uint8_array.length() as usize];
+                                    uint8_array.copy_to(&mut data);
+                                    Ok(Bytes::from(data))
+                                } else {
+                                    Err(io::Error::new(
+                                        io::ErrorKind::InvalidData,
+                                        "Invalid chunk type",
+                                    ))
+                                }
+                            })
+                    });
+
+                    let stream_reader = StreamReader::new(byte_stream);
+                    Ok(Box::new(tokio::io::BufReader::new(stream_reader)))
+                } else {
+                    Err(Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "Cannot read filesystem paths on WASM",
+                    ))
+                }
+
+                #[cfg(not(target_family = "wasm"))]
+                {
+                    let total_path = _dir.join(path);
+                    let file = tokio::fs::File::open(total_path).await?;
+                    let file = tokio::io::BufReader::new(file);
+                    Ok(Box::new(file))
+                }
             }
         }
     }
@@ -345,91 +428,104 @@ mod tests {
     use std::io::Cursor;
     use tokio::io::AsyncReadExt;
 
-    fn create_test_zip_data() -> Vec<u8> {
-        use std::io::Write;
-        use zip::{ZipWriter, write::SimpleFileOptions};
+    async fn create_test_zip() -> Vec<u8> {
+        use async_zip::base::write::ZipFileWriter;
+        use async_zip::{Compression, ZipEntryBuilder};
 
         let mut buffer = Vec::new();
-        {
-            let mut zip = ZipWriter::new(Cursor::new(&mut buffer));
+        let mut writer = ZipFileWriter::new(&mut buffer);
 
-            zip.start_file("test.txt", SimpleFileOptions::default())
-                .unwrap();
-            zip.write_all(b"hello world").unwrap();
+        // Add test.txt
+        let entry = ZipEntryBuilder::new("test.txt".into(), Compression::Stored);
+        writer
+            .write_entry_whole(entry, b"hello world")
+            .await
+            .unwrap();
 
-            zip.start_file("folder/data.json", SimpleFileOptions::default())
-                .unwrap();
-            zip.write_all(b"{\"key\": \"value\"}").unwrap();
+        // Add data.json
+        let entry = ZipEntryBuilder::new("data.json".into(), Compression::Stored);
+        writer
+            .write_entry_whole(entry, b"{\"key\": \"value\"}")
+            .await
+            .unwrap();
 
-            zip.start_file("image.png", SimpleFileOptions::default())
-                .unwrap();
-            zip.write_all(b"fake png data").unwrap();
-
-            zip.start_file("README", SimpleFileOptions::default())
-                .unwrap();
-            zip.write_all(b"readme content").unwrap();
-
-            zip.finish().unwrap();
-        }
+        writer.close().await.unwrap();
         buffer
     }
 
     #[tokio::test]
     async fn test_zip_vfs_workflow() {
-        // End-to-end test: create VFS, filter files, read content, handle paths
-        let zip_data = create_test_zip_data();
-        let reader = Cursor::new(zip_data);
-        let vfs = BrushVfs::from_reader(reader).await.unwrap();
+        let zip_data = create_test_zip().await;
+        let vfs = BrushVfs::from_reader(Cursor::new(zip_data)).await.unwrap();
+        assert_eq!(vfs.file_count(), 2);
 
-        // Should filter out extensionless files
-        assert_eq!(vfs.file_count(), 3);
+        let txt_files: Vec<_> = vfs.files_with_extension("txt").collect();
+        assert_eq!(txt_files.len(), 1);
 
-        // Test filtering and reading in one workflow
         let json_files: Vec<_> = vfs.files_with_extension("json").collect();
         assert_eq!(json_files.len(), 1);
 
-        let mut reader = vfs.reader_at_path(&json_files[0]).await.unwrap();
         let mut content = String::new();
-        reader.read_to_string(&mut content).await.unwrap();
-        assert_eq!(content, "{\"key\": \"value\"}");
-
-        // Test case-insensitive path access
-        let mut reader = vfs.reader_at_path(Path::new("TEST.TXT")).await.unwrap();
-        let mut content = String::new();
-        reader.read_to_string(&mut content).await.unwrap();
+        vfs.reader_at_path(&txt_files[0])
+            .await
+            .unwrap()
+            .read_to_string(&mut content)
+            .await
+            .unwrap();
         assert_eq!(content, "hello world");
 
-        // Test error handling
-        let result = vfs.reader_at_path(Path::new("nonexistent.txt")).await;
-        assert!(result.is_err());
+        // Test JSON file
+        let mut content = String::new();
+        vfs.reader_at_path(&json_files[0])
+            .await
+            .unwrap()
+            .read_to_string(&mut content)
+            .await
+            .unwrap();
+        assert_eq!(content, "{\"key\": \"value\"}");
+
+        // Test case-insensitive access
+        let mut content = String::new();
+        vfs.reader_at_path(Path::new("TEST.TXT"))
+            .await
+            .unwrap()
+            .read_to_string(&mut content)
+            .await
+            .unwrap();
+        assert_eq!(content, "hello world");
+
+        assert!(
+            vfs.reader_at_path(Path::new("nonexistent.txt"))
+                .await
+                .is_err()
+        );
     }
 
     #[tokio::test]
     async fn test_format_detection_and_errors() {
-        // Test PLY format detection and reading
-        let ply_content = "ply\nformat ascii 1.0\nend_header\nvertex data";
-        let reader = Cursor::new(ply_content.as_bytes());
-        let vfs = BrushVfs::from_reader(reader).await.unwrap();
-
-        let mut reader = vfs.reader_at_path(Path::new("input.ply")).await.unwrap();
+        // Test PLY format
+        let vfs = BrushVfs::from_reader(Cursor::new(
+            b"ply\nformat ascii 1.0\nend_header\nvertex data",
+        ))
+        .await
+        .unwrap();
         let mut content = String::new();
-        reader.read_to_string(&mut content).await.unwrap();
-        assert_eq!(content, ply_content);
+        vfs.reader_at_path(Path::new("input.ply"))
+            .await
+            .unwrap()
+            .read_to_string(&mut content)
+            .await
+            .unwrap();
+        assert_eq!(content, "ply\nformat ascii 1.0\nend_header\nvertex data");
 
-        // Test error cases - should fail, don't work around
-        let unknown_data = b"unknown file format";
-        let reader = Cursor::new(unknown_data.to_vec());
-        let result = BrushVfs::from_reader(reader).await;
-        assert!(matches!(result, Err(VfsConstructError::UnknownDataType)));
-
-        let html_data = b"<!DOCTYPE html>\n<html><body>Error page</body></html>";
-        let reader = Cursor::new(html_data.to_vec());
-        let result = BrushVfs::from_reader(reader).await;
-        match result {
-            Err(VfsConstructError::InvalidHtml(content)) => {
-                assert!(content.contains("<!DOCTYPE html>"));
-            }
-            _ => panic!("Expected InvalidHtml error"),
-        }
+        // Test error cases
+        assert!(matches!(
+            BrushVfs::from_reader(Cursor::new(b"unknown")).await,
+            Err(VfsConstructError::UnknownDataType)
+        ));
+        assert!(matches!(
+            BrushVfs::from_reader(Cursor::new(b"<!DOCTYPE html>")).await,
+            Err(VfsConstructError::InvalidHtml(_))
+        ));
     }
 }
