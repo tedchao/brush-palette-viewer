@@ -20,119 +20,79 @@ The web version also gains a lot of new features, with fullscreen modes, efficie
 
 - Start training faster [[1]](https://github.com/ArthurBrussee/brush/pull/255)
 
-- Training bounds are now based on the splat bounds instead of the camera bounds
-[[1]](https://github.com/ArthurBrussee/brush/commit/85aa3a770caba800e886ac7a8ca2dd74e9ec9426)
-[[2]](https://github.com/ArthurBrussee/brush/commit/3efd3043ec6eb2d566a5c088590573025e9034d5)
+- Training bounds are now based on the splat bounds instead of the camera bounds [[1]](https://github.com/ArthurBrussee/brush/commit/85aa3a770caba800e886ac7a8ca2dd74e9ec9426) [[2]](https://github.com/ArthurBrussee/brush/commit/3efd3043ec6eb2d566a5c088590573025e9034d5)
 
-- Improve backwards speed with thanks to @flo
-[[1]](https://github.com/ArthurBrussee/brush/commit/8d5f7a10ad295a958c3068fa6dfd2a4ad1662d00)
-[[2]](https://github.com/ArthurBrussee/brush/commit/80b3434b7dce20bccc9fcd2d3b9c563ee219ba8d)
-[[3]](https://github.com/ArthurBrussee/brush/commit/ae532c30c4f02bd42c761c6de292fe415429ed43)
-[[4]](https://github.com/ArthurBrussee/brush/commit/589d4ca83e333bb2ed83e87febce187e2d36e40f)
-[[5]](https://github.com/ArthurBrussee/brush/commit/589d4ca83e333bb2ed83e87febce187e2d36e40f)
-[[6]](https://github.com/ArthurBrussee/brush/commit/c13d41bca44f33034ac7a683b272f5cb895054f2)
-[[7]](https://github.com/ArthurBrussee/brush/commit/671911d8dd7194e8da216b8a7b08f356151a3335)
+- Improve backwards speed with thanks to @fhahlbohm [[1]](https://github.com/ArthurBrussee/brush/commit/8d5f7a10ad295a958c3068fa6dfd2a4ad1662d00) [[2]](https://github.com/ArthurBrussee/brush/commit/80b3434b7dce20bccc9fcd2d3b9c563ee219ba8d) [[3]](https://github.com/ArthurBrussee/brush/commit/ae532c30c4f02bd42c761c6de292fe415429ed43) [[4]](https://github.com/ArthurBrussee/brush/commit/589d4ca83e333bb2ed83e87febce187e2d36e40f) [[5]](https://github.com/ArthurBrussee/brush/commit/589d4ca83e333bb2ed83e87febce187e2d36e40f) [[6]](https://github.com/ArthurBrussee/brush/commit/c13d41bca44f33034ac7a683b272f5cb895054f2) [[7]](https://github.com/ArthurBrussee/brush/commit/671911d8dd7194e8da216b8a7b08f356151a3335)
 
-- Always use `init.ply` as the init for the training if it exists
-[[1]](https://github.com/ArthurBrussee/brush/commit/cc4503ba555bcbe8276ab5cb01fc855e4da45b16)
+- Always use `init.ply` as the init for the training if it exists [[1]](https://github.com/ArthurBrussee/brush/commit/cc4503ba555bcbe8276ab5cb01fc855e4da45b16)
 
-- Prefer colmap datasets over nerfstudio, fixes import if your dataset has some random json in it
-[[1]](https://github.com/ArthurBrussee/brush/commit/5ad3dd073da1f1dc38b2f5f261c87be13173cef5)
+- Prefer colmap datasets over nerfstudio, fixes import if your dataset has some random json in it [[1]](https://github.com/ArthurBrussee/brush/commit/5ad3dd073da1f1dc38b2f5f261c87be13173cef5)
 
-- Add LPIPS loss
-[[1]](https://github.com/ArthurBrussee/brush/commit/555be385d5018e4d609adbfb5a83bae97d97c4e8)
-[[2]](https://github.com/ArthurBrussee/brush/commit/97174d819c7c717fcb2f40fcc608a5c5cc3f05ee)
+- Add LPIPS loss [[1]](https://github.com/ArthurBrussee/brush/commit/555be385d5018e4d609adbfb5a83bae97d97c4e8) [[2]](https://github.com/ArthurBrussee/brush/commit/97174d819c7c717fcb2f40fcc608a5c5cc3f05ee)
 
-- Use a seperable convolution for SSIM
-[[1]](https://github.com/ArthurBrussee/brush/commit/fdc9bde948b6fdbad459674e49e74a3a5981da80)
+- Use a separable convolution for SSIM [[1]](https://github.com/ArthurBrussee/brush/commit/fdc9bde948b6fdbad459674e49e74a3a5981da80)
 
 - Lots of other tweaks to the training dynamics, bug fixes, version bumps etc.
 
 **UI**
 - The UI has gone through some redesigns to be cleaner and easier to use
 
-- Add a grid widget
-[[1]](https://github.com/ArthurBrussee/brush/pull/261)
+- Add a grid widget [[1]](https://github.com/ArthurBrussee/brush/pull/261)
 
-- The arrow keys now rotate the model and move it up/down. Combined with the grid this is helpful to align the ground.
-[[1]](https://github.com/ArthurBrussee/brush/pull/261)
+- The arrow keys now rotate the model and move it up/down. Combined with the grid this is helpful to align the ground. [[1]](https://github.com/ArthurBrussee/brush/pull/261)
 
-- Press 'F' to toggle fullscreen mode
-[[1]](https://github.com/ArthurBrussee/brush/commit/b278f91993ef8ce8f57ca41ce3c7b7b93e4ca57d)
+- Press 'F' to toggle fullscreen mode [[1]](https://github.com/ArthurBrussee/brush/commit/b278f91993ef8ce8f57ca41ce3c7b7b93e4ca57d)
 
-- Add play/pause button when playing a splat sequence
-[[1]](https://github.com/ArthurBrussee/brush/commit/1292b12d3988d4167e0d111edff6e4aa67b0e0ce)
+- Add play/pause button when playing a splat sequence [[1]](https://github.com/ArthurBrussee/brush/commit/1292b12d3988d4167e0d111edff6e4aa67b0e0ce)
 
-- Add a FOV slider
-[[1]](https://github.com/ArthurBrussee/brush/commit/2498afd796b752fecd1159777191e13a3dceeeac)
+- Add a FOV slider [[1]](https://github.com/ArthurBrussee/brush/commit/2498afd796b752fecd1159777191e13a3dceeeac)
 
-- Settings UI panel when loading a new dataset
-[[1]](https://github.com/ArthurBrussee/brush/commit/777e5870c546a52d84253ec1162b9f3d06050237)
+- Settings UI panel when loading a new dataset [[1]](https://github.com/ArthurBrussee/brush/commit/777e5870c546a52d84253ec1162b9f3d06050237)
 
-- Hide console on windows
-[[1]](https://github.com/ArthurBrussee/brush/commit/986a17b8ad59c06645087ae23d1c982420664d65)
+- Hide console on windows [[1]](https://github.com/ArthurBrussee/brush/commit/986a17b8ad59c06645087ae23d1c982420664d65)
 
-- Add background color picker
-[[1]](https://github.com/ArthurBrussee/brush/commit/44c4f61cbe9b093253c11d55e7d268e31f903fdf)
+- Add background color picker [[1]](https://github.com/ArthurBrussee/brush/commit/44c4f61cbe9b093253c11d55e7d268e31f903fdf)
 
-- Add a slider to scale splats
-[[1]](https://github.com/ArthurBrussee/brush/commit/358e6c808a7cba3fd94f2185525b2c3be1bb9bdd)
+- Add a slider to scale splats [[1]](https://github.com/ArthurBrussee/brush/commit/358e6c808a7cba3fd94f2185525b2c3be1bb9bdd)
 
-- Reduce atomic adds to improve the speed of the backward pass
-[[1]](https://github.com/ArthurBrussee/brush/commit/122c5ab8823e408423f28b9b4ffc3bb0ed597047)
+- Reduce atomic adds to improve the speed of the backward pass [[1]](https://github.com/ArthurBrussee/brush/commit/122c5ab8823e408423f28b9b4ffc3bb0ed597047)
 
-- Improve accuracy of training steps/s thanks to @flo
-[[1]](https://github.com/ArthurBrussee/brush/commit/173bd43b31339b06b28264db366bbdceffb44917)
+- Improve accuracy of training steps/s thanks to @fhahlbohm [[1]](https://github.com/ArthurBrussee/brush/commit/173bd43b31339b06b28264db366bbdceffb44917)
 
 **Import/export**
 
-- Support SuperSplat compressed ply format
-[[1]](https://github.com/ArthurBrussee/brush/commit/1cf21593b5ba3964823720b588bb2e2e19822980)
+- Support SuperSplat compressed ply format [[1]](https://github.com/ArthurBrussee/brush/commit/1cf21593b5ba3964823720b588bb2e2e19822980)
 
-- Supprt r/g/b as color names in ply files
-[[1]](https://github.com/ArthurBrussee/brush/commit/2b8254c8a874575c182f246402bc8867a68dcad1)
+- Support r/g/b as color names in ply files [[1]](https://github.com/ArthurBrussee/brush/commit/2b8254c8a874575c182f246402bc8867a68dcad1)
 
-- Sort files properly in zip directories for sequence playback
-[[1]](https://github.com/ArthurBrussee/brush/commit/2df24cfa2a44945d5887bc02d2c5020bf1b0b3a4)
+- Sort files properly in zip directories for sequence playback [[1]](https://github.com/ArthurBrussee/brush/commit/2df24cfa2a44945d5887bc02d2c5020bf1b0b3a4)
 
-- Fixed file case sensitivity issues
-[[1]](https://github.com/ArthurBrussee/brush/commit/8f925899c2309826f41d3d8a0a08aa2a3a39a311)
+- Fixed file case sensitivity issues [[1]](https://github.com/ArthurBrussee/brush/commit/8f925899c2309826f41d3d8a0a08aa2a3a39a311)
 
-- Allow double floats in plys
-[[1]](https://github.com/ArthurBrussee/brush/commit/cf4108984aa854f689d92a5eab2fd3b6ed96572b)
+- Allow double floats in plys [[1]](https://github.com/ArthurBrussee/brush/commit/cf4108984aa854f689d92a5eab2fd3b6ed96572b)
 
-- Swap out the PLY importer/exporter for my own. Speeds up import about 5x
-[[1]](https://github.com/ArthurBrussee/serde_ply)
+- Swap out the PLY importer/exporter for my own. Speeds up import about 5x [[1]](https://github.com/ArthurBrussee/serde_ply)
 
 **Web**
-- You can now pick directories on the web, not just individual files
-[[1]](https://github.com/ArthurBrussee/brush/commit/1358d3467be6c5d417b83f0f8eb8b6094f7f45ed)
+- You can now pick directories on the web, not just individual files [[1]](https://github.com/ArthurBrussee/brush/commit/1358d3467be6c5d417b83f0f8eb8b6094f7f45ed)
 
-- More efficient file reading on the web
-[[1]](https://github.com/ArthurBrussee/brush/commit/1358d3467be6c5d417b83f0f8eb8b6094f7f45ed)
+- More efficient file reading on the web [[1]](https://github.com/ArthurBrussee/brush/commit/1358d3467be6c5d417b83f0f8eb8b6094f7f45ed)
 
-- Improved interop with JavaScript, see the example for some of the available APIs.
-[[1]](https://github.com/ArthurBrussee/brush/commit/bf125dbd4a24e471ff0514790049245d1bee898a)
+- Improved interop with JavaScript, see the example for some of the available APIs. [[1]](https://github.com/ArthurBrussee/brush/commit/bf125dbd4a24e471ff0514790049245d1bee898a)
 
-- The web parts of Brush now use WASM modules compatible with bundlers, eg. with the demo now using Next.JS
-[[1]](https://github.com/ArthurBrussee/brush/commit/6341cc90b5e88ee0829671091ff2deae1e94795c)
+- The web parts of Brush now use WASM modules compatible with bundlers, eg. with the demo now using Next.JS [[1]](https://github.com/ArthurBrussee/brush/commit/6341cc90b5e88ee0829671091ff2deae1e94795c)
 
-- Add a panel showing various warnings that might happen
-[[1]](https://github.com/ArthurBrussee/brush/commit/a9cb04da9471753c4457a40c8cbbd6c84711b3b4)
+- Add a panel showing various warnings that might happen [[1]](https://github.com/ArthurBrussee/brush/commit/a9cb04da9471753c4457a40c8cbbd6c84711b3b4)
 
-- Add touch controls for the viewer UI
-[[1]](https://github.com/ArthurBrussee/brush/commit/3597006adbae653e527e2ef0688116be0ed70571)
+- Add touch controls for the viewer UI [[1]](https://github.com/ArthurBrussee/brush/commit/3597006adbae653e527e2ef0688116be0ed70571)
 
-- Add dwarf debug info for the Web
-[[1]](https://github.com/ArthurBrussee/brush/commit/506c1f09a46996fb3ba762ee3b7d33174e73c346)
+- Add dwarf debug info for the Web [[1]](https://github.com/ArthurBrussee/brush/commit/506c1f09a46996fb3ba762ee3b7d33174e73c346)
 
 **Other**
-- Add number of splats to CLI output
-[[1]](https://github.com/ArthurBrussee/brush/commit/6e9739c78b739ec5c489697234f4e595c239e2a7)
+- Add number of splats to CLI output [[1]](https://github.com/ArthurBrussee/brush/commit/6e9739c78b739ec5c489697234f4e595c239e2a7)
 - Improve compile times. Clean builds are ~1.5 minutes on my macbook
 - Lots of bug fixes & version bumps
-- Add example docker file
-[[1]](https://github.com/ArthurBrussee/brush/commit/be3112f482cac9864645c377fdebfd2eeda922b6)
+- Add example docker file [[1]](https://github.com/ArthurBrussee/brush/commit/be3112f482cac9864645c377fdebfd2eeda922b6)
 
 ## 0.2
 
