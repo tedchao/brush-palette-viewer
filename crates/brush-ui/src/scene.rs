@@ -18,7 +18,7 @@ use web_time::Instant;
 
 use crate::{
     UiMode, app::CameraSettings, burn_texture::BurnTexture, draw_checkerboard, panels::AppPane,
-    ui_process::UiProcess,
+    ui_process::UiProcess, widget_3d::Widget3D,
 };
 
 #[derive(Clone, PartialEq)]
@@ -27,6 +27,7 @@ struct RenderState {
     cam: Camera,
     frame: f32,
     settings: CameraSettings,
+    grid_opacity: f32,
 }
 
 struct ErrorDisplay {
@@ -110,6 +111,9 @@ pub struct ScenePanel {
 
     // Keep track of what was last rendered.
     last_state: Option<RenderState>,
+
+    // 3D widgets for visualization
+    widget_3d: Option<Widget3D>,
 }
 
 impl ScenePanel {
@@ -119,6 +123,10 @@ impl ScenePanel {
         renderer: Arc<EguiRwLock<Renderer>>,
     ) -> Self {
         let channel = tokio::sync::mpsc::unbounded_channel();
+
+        // Create Widget3D for 3D overlay rendering
+        let widget_3d = Some(Widget3D::new(device.clone(), queue.clone()));
+
         Self {
             backbuffer: BurnTexture::new(renderer, device, queue),
             last_draw: None,
@@ -132,6 +140,7 @@ impl ScenePanel {
             frame: 0.0,
             fully_loaded: false,
             export_channel: channel,
+            widget_3d,
         }
     }
 
@@ -166,8 +175,8 @@ impl ScenePanel {
         // Get camera after modifying the controls.
         let mut camera = process.current_camera();
 
-        let total_transform = process.model_local_to_world() * camera.local_to_world();
-        let (_, rotation, position) = total_transform.to_scale_rotation_translation();
+        let view_eff = (camera.world_to_local() * process.model_local_to_world()).inverse();
+        let (_, rotation, position) = view_eff.to_scale_rotation_translation();
         camera.position = position;
         camera.rotation = rotation;
 
@@ -175,12 +184,14 @@ impl ScenePanel {
 
         let focal_y = fov_to_focal(camera.fov_y, size.y) as f32;
         camera.fov_x = focal_to_fov(focal_y as f64, size.x);
+        let grid_opacity = process.get_grid_opacity();
 
         let state = RenderState {
             size,
             cam: camera.clone(),
             frame: self.frame,
             settings: settings.clone(),
+            grid_opacity,
         };
 
         let dirty = self.last_state != Some(state.clone());
@@ -203,6 +214,19 @@ impl ScenePanel {
                     settings.splat_scale,
                 );
                 self.backbuffer.update_texture(img);
+
+                // Render 3D widgets directly onto the splat backbuffer
+                if let Some(widget_3d) = &mut self.widget_3d
+                    && let Some(texture) = self.backbuffer.texture()
+                {
+                    widget_3d.render_to_texture(
+                        &camera,
+                        process.model_local_to_world(),
+                        size,
+                        texture,
+                        grid_opacity,
+                    );
+                }
             }
         }
 
@@ -392,6 +416,17 @@ impl ScenePanel {
                         settings.splat_scale = Some(scale);
                         process.set_cam_settings(&settings);
                     }
+
+                    ui.add_space(4.0);
+
+                    // Grid toggle
+                    ui.horizontal(|ui| {
+                        let mut enabled = process.get_cam_settings().grid_enabled.unwrap_or(false);
+                        if ui.checkbox(&mut enabled, "Show Grid").changed() {
+                            settings.grid_enabled = Some(enabled);
+                            process.set_cam_settings(&settings);
+                        }
+                    });
 
                     ui.add_space(4.0);
                 });

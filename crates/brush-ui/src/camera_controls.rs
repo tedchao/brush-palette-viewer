@@ -1,7 +1,7 @@
 use core::f32;
 
 use egui::{Event, Response};
-use glam::{Quat, Vec2, Vec3};
+use glam::{Affine3A, Quat, Vec2, Vec3};
 
 use crate::app::CameraSettings;
 
@@ -20,26 +20,24 @@ pub struct CameraController {
     pub rotation: Quat,
     pub focus_distance: f32,
     pub settings: CameraSettings,
-
-    roll: Quat,
+    model_transform_velocity: f32,
+    model_transform_vertical_velocity: f32,
     fly_velocity: Vec3,
     orbit_velocity: Vec2,
+    grid_fade_timer: f32,
+    pub model_local_to_world: Affine3A,
 }
 
 pub fn smooth_orbit(
     position: Vec3,
     rotation: Quat,
-    base_roll: Quat,
     delta_yaw: f32,
     delta_pitch: f32,
     clamping: &CameraClamping,
     dt: f32,
     distance: f32,
 ) -> (Vec3, Quat) {
-    // Calculate focal point (where we're looking at)
     let focal_point = position + rotation * Vec3::Z * distance;
-
-    // Extract current pitch angle from rotation
     let forward = rotation * Vec3::Z;
     let current_pitch = -forward.y.asin();
 
@@ -58,7 +56,6 @@ pub fn smooth_orbit(
     let forward_proj = Vec3::new(forward.x, 0.0, forward.z).normalize();
     let current_yaw = (-forward_proj.x).atan2(forward_proj.z);
 
-    // Clamp the new yaw angle
     let new_yaw = smooth_clamp(
         current_yaw - delta_yaw,
         clamping.min_yaw.map(|x| x.to_radians()),
@@ -67,13 +64,8 @@ pub fn smooth_orbit(
         50.0,
     );
 
-    // New delta clamped to not go over min/max yaw
     let delta_yaw = current_yaw - new_yaw;
-
-    // Create yaw rotation quaternion
-    let yaw_axis = base_roll * Vec3::NEG_Y;
-    let yaw = Quat::from_axis_angle(yaw_axis, -delta_yaw);
-
+    let yaw = Quat::from_axis_angle(Vec3::NEG_Y, -delta_yaw);
     let new_rotation = (yaw * pitch * rotation).normalize();
     let new_position = focal_point - new_rotation * Vec3::Z * distance;
 
@@ -112,15 +104,24 @@ fn smooth_clamp(val: f32, min: Option<f32>, max: Option<f32>, dt: f32, lambda: f
 }
 
 impl CameraController {
-    pub fn new(position: Vec3, rotation: Quat, settings: CameraSettings) -> Self {
+    pub fn new(position: Vec3, rotation: Quat, mut settings: CameraSettings) -> Self {
+        if settings.clamping.min_pitch.is_none() {
+            settings.clamping.min_pitch = Some(-85.0);
+        }
+        if settings.clamping.max_pitch.is_none() {
+            settings.clamping.max_pitch = Some(85.0);
+        }
         Self {
             position,
             rotation,
             focus_distance: 5.0,
             settings,
-            roll: Quat::IDENTITY,
+            model_transform_velocity: 0.0,
+            model_transform_vertical_velocity: 0.0,
             fly_velocity: Vec3::ZERO,
             orbit_velocity: Vec2::ZERO,
+            grid_fade_timer: 0.0,
+            model_local_to_world: Affine3A::IDENTITY,
         }
     }
 
@@ -186,9 +187,27 @@ impl CameraController {
             ui.ctx().set_cursor_icon(egui::CursorIcon::Move);
         } else if look_fps {
             let axis = response.drag_delta();
-            let yaw = Quat::from_axis_angle(self.roll * Vec3::NEG_Y, -axis.x * mouselook_speed);
-            let pitch = Quat::from_rotation_x(-axis.y * mouselook_speed);
-            self.rotation = yaw * self.rotation * pitch;
+            let yaw = Quat::from_axis_angle(Vec3::NEG_Y, -axis.x * mouselook_speed);
+            let new_rotation = yaw * self.rotation;
+
+            // Apply pitch with clamping
+            let forward = new_rotation * Vec3::Z;
+            let current_pitch = -forward.y.asin();
+            let target_pitch = current_pitch - axis.y * mouselook_speed;
+
+            // Apply pitch limits
+            let final_pitch = if let (Some(min), Some(max)) = (
+                self.settings.clamping.min_pitch.map(|x| x.to_radians()),
+                self.settings.clamping.max_pitch.map(|x| x.to_radians()),
+            ) {
+                target_pitch.clamp(min, max)
+            } else {
+                target_pitch
+            };
+
+            let pitch_delta = current_pitch - final_pitch;
+            let pitch = Quat::from_rotation_x(-pitch_delta);
+            self.rotation = new_rotation * pitch;
             ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
         } else if look_orbit {
             let delta_yaw = mouse_delta.x * mouselook_speed;
@@ -200,7 +219,6 @@ impl CameraController {
         (self.position, self.rotation) = smooth_orbit(
             self.position,
             self.rotation,
-            self.roll,
             self.orbit_velocity.x,
             self.orbit_velocity.y,
             &self.settings.clamping,
@@ -218,7 +236,7 @@ impl CameraController {
                 1.0
             };
 
-        if ui.input(|r| r.key_down(egui::Key::W) || r.key_down(egui::Key::ArrowUp)) {
+        if ui.input(|r| r.key_down(egui::Key::W)) {
             self.fly_velocity = exp_lerp3(
                 self.fly_velocity,
                 Vec3::Z * move_speed,
@@ -226,7 +244,7 @@ impl CameraController {
                 fly_moment_lambda,
             );
         }
-        if ui.input(|r| r.key_down(egui::Key::A) || r.key_down(egui::Key::ArrowLeft)) {
+        if ui.input(|r| r.key_down(egui::Key::A)) {
             self.fly_velocity = exp_lerp3(
                 self.fly_velocity,
                 -Vec3::X * move_speed,
@@ -234,7 +252,7 @@ impl CameraController {
                 fly_moment_lambda,
             );
         }
-        if ui.input(|r| r.key_down(egui::Key::S) || r.key_down(egui::Key::ArrowDown)) {
+        if ui.input(|r| r.key_down(egui::Key::S)) {
             self.fly_velocity = exp_lerp3(
                 self.fly_velocity,
                 -Vec3::Z * move_speed,
@@ -242,7 +260,7 @@ impl CameraController {
                 fly_moment_lambda,
             );
         }
-        if ui.input(|r| r.key_down(egui::Key::D) || r.key_down(egui::Key::ArrowRight)) {
+        if ui.input(|r| r.key_down(egui::Key::D)) {
             self.fly_velocity = exp_lerp3(
                 self.fly_velocity,
                 Vec3::X * move_speed,
@@ -250,8 +268,6 @@ impl CameraController {
                 fly_moment_lambda,
             );
         }
-
-        // Move _down_ with Q
         if ui.input(|r| r.key_down(egui::Key::Q)) {
             self.fly_velocity = exp_lerp3(
                 self.fly_velocity,
@@ -260,7 +276,6 @@ impl CameraController {
                 fly_moment_lambda,
             );
         }
-        // Move up with E
         if ui.input(|r| r.key_down(egui::Key::E)) {
             self.fly_velocity = exp_lerp3(
                 self.fly_velocity,
@@ -270,20 +285,71 @@ impl CameraController {
             );
         }
 
-        if ui.input(|r| r.key_down(egui::Key::Z)) {
-            let roll = Quat::from_axis_angle(forward, move_speed * 0.025 * delta_time);
-            self.rotation = roll * self.rotation;
-            self.roll = roll * self.roll;
+        let speed_mult = if ui.input(|r| r.modifiers.shift) {
+            3.0
+        } else {
+            1.0
+        };
+        let transform_speed = 0.1 * speed_mult;
+        let vertical_speed = 0.5 * speed_mult;
+        let ramp_speed = 20.0;
+
+        if ui.input(|r| r.key_down(egui::Key::ArrowLeft)) {
+            self.model_transform_velocity = exp_lerp(
+                self.model_transform_velocity,
+                transform_speed,
+                delta_time,
+                ramp_speed,
+            );
+            self.grid_fade_timer = 1.0;
+        } else if ui.input(|r| r.key_down(egui::Key::ArrowRight)) {
+            self.model_transform_velocity = exp_lerp(
+                self.model_transform_velocity,
+                -transform_speed,
+                delta_time,
+                ramp_speed,
+            );
+            self.grid_fade_timer = 1.0;
+        } else {
+            self.model_transform_velocity = 0.0;
         }
-        if ui.input(|r| r.key_down(egui::Key::X)) {
-            self.rotation = self.roll.inverse() * self.rotation;
-            self.roll = Quat::IDENTITY;
+
+        if ui.input(|r| r.key_down(egui::Key::ArrowUp)) {
+            self.model_transform_vertical_velocity = exp_lerp(
+                self.model_transform_vertical_velocity,
+                vertical_speed,
+                delta_time,
+                ramp_speed,
+            );
+            self.grid_fade_timer = 1.0;
+        } else if ui.input(|r| r.key_down(egui::Key::ArrowDown)) {
+            self.model_transform_vertical_velocity = exp_lerp(
+                self.model_transform_vertical_velocity,
+                -vertical_speed,
+                delta_time,
+                ramp_speed,
+            );
+            self.grid_fade_timer = 1.0;
+        } else {
+            self.model_transform_vertical_velocity = 0.0;
         }
-        if ui.input(|r| r.key_down(egui::Key::C)) {
-            let roll = Quat::from_axis_angle(forward, -move_speed * 0.025 * delta_time);
-            self.rotation = roll * self.rotation;
-            self.roll = roll * self.roll;
-        }
+
+        let rotation_delta = self.model_transform_velocity * delta_time;
+        let vertical_delta = self.model_transform_vertical_velocity * delta_time;
+
+        let camera_forward = self.rotation * Vec3::Z;
+        let roll_rotation = Quat::from_axis_angle(camera_forward, rotation_delta);
+
+        // Apply rotation around focal point
+        let translate_to_origin = Affine3A::from_translation(-self.position);
+        let rotate = Affine3A::from_rotation_translation(roll_rotation, Vec3::ZERO);
+        let translate_back = Affine3A::from_translation(self.position);
+        let rotation_transform = translate_back * rotate * translate_to_origin;
+        let translation = Affine3A::from_translation(Vec3::new(0.0, vertical_delta, 0.0));
+        self.model_local_to_world = translation * rotation_transform * self.model_local_to_world;
+
+        // Fade out grid timer
+        self.grid_fade_timer = (self.grid_fade_timer - delta_time * 2.0).max(0.0);
 
         let delta = self.fly_velocity * delta_time;
         self.position += delta.x * right + delta.y * up + delta.z * forward;
@@ -330,5 +396,16 @@ impl CameraController {
     pub fn stop_movement(&mut self) {
         self.orbit_velocity = Vec2::ZERO;
         self.fly_velocity = Vec3::ZERO;
+        self.model_transform_velocity = 0.0;
+        self.model_transform_vertical_velocity = 0.0;
+    }
+
+    pub fn get_model_transform_velocity(&self) -> f32 {
+        self.model_transform_velocity
+    }
+
+    pub fn get_grid_opacity(&self) -> f32 {
+        // Smooth fade curve
+        self.grid_fade_timer.powf(2.0)
     }
 }

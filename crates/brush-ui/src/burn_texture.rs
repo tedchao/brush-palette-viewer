@@ -34,7 +34,9 @@ fn create_texture(size: glam::UVec2, device: &wgpu::Device) -> wgpu::Texture {
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
         format: wgpu::TextureFormat::Rgba8Unorm,
-        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING
+            | wgpu::TextureUsages::COPY_DST
+            | wgpu::TextureUsages::RENDER_ATTACHMENT,
         view_formats: &[wgpu::TextureFormat::Rgba8Unorm],
     })
 }
@@ -164,5 +166,15 @@ impl BurnTexture {
 
     pub fn reset(&mut self) {
         self.state = None;
+    }
+
+    /// Get the underlying texture for additional rendering
+    pub fn texture(&self) -> Option<&wgpu::Texture> {
+        self.state.as_ref().map(|s| &s.texture)
+    }
+
+    /// Get device and queue for additional rendering
+    pub fn device_queue(&self) -> (&wgpu::Device, &wgpu::Queue) {
+        (&self.device, &self.queue)
     }
 }
