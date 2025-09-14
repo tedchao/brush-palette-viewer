@@ -964,7 +964,7 @@ dependencies = [
 
 [[package]]
 name = "brush-app"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "android_logger",
  "anyhow",
@@ -991,7 +991,7 @@ dependencies = [
 
 [[package]]
 name = "brush-bench-test"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "brush-dataset",
@@ -1014,7 +1014,7 @@ dependencies = [
 
 [[package]]
 name = "brush-cli"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "brush-process",
@@ -1029,7 +1029,7 @@ dependencies = [
 
 [[package]]
 name = "brush-dataset"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "brush-render",
  "brush-serde",
@@ -1052,7 +1052,7 @@ dependencies = [
 
 [[package]]
 name = "brush-kernel"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "brush-wgsl",
  "burn",
@@ -1065,7 +1065,7 @@ dependencies = [
 
 [[package]]
 name = "brush-prefix-sum"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "brush-kernel",
  "brush-wgsl",
@@ -1079,7 +1079,7 @@ dependencies = [
 
 [[package]]
 name = "brush-process"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "alphanumeric-sort",
  "anyhow",
@@ -1107,7 +1107,7 @@ dependencies = [
 
 [[package]]
 name = "brush-render"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "assert_approx_eq",
  "ball-tree",
@@ -1132,7 +1132,7 @@ dependencies = [
 
 [[package]]
 name = "brush-render-bwd"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "brush-kernel",
  "brush-render",
@@ -1151,7 +1151,7 @@ dependencies = [
 
 [[package]]
 name = "brush-rerun"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "burn",
  "rerun",
@@ -1159,7 +1159,7 @@ dependencies = [
 
 [[package]]
 name = "brush-serde"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "async-fn-stream",
  "brush-render",
@@ -1177,7 +1177,7 @@ dependencies = [
 
 [[package]]
 name = "brush-sort"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "brush-kernel",
  "brush-wgsl",
@@ -1194,16 +1194,14 @@ dependencies = [
 
 [[package]]
 name = "brush-train"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "brush-dataset",
- "brush-kernel",
  "brush-render",
  "brush-render-bwd",
  "burn",
  "burn-cubecl",
- "burn-fusion",
  "clap",
  "glam",
  "hashbrown 0.15.5",
@@ -1217,7 +1215,7 @@ dependencies = [
 
 [[package]]
 name = "brush-ui"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "brush-dataset",
@@ -1249,10 +1247,9 @@ dependencies = [
 
 [[package]]
 name = "brush-vfs"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "async_zip",
- "futures-lite",
  "futures-util",
  "js-sys",
  "log",
@@ -1273,7 +1270,7 @@ dependencies = [
 
 [[package]]
 name = "brush-wasm"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "brush-process",
@@ -1292,7 +1289,7 @@ dependencies = [
 
 [[package]]
 name = "brush-wgsl"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "data-encoding",
@@ -2132,7 +2129,7 @@ dependencies = [
 
 [[package]]
 name = "colmap-reader"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "glam",
  "tokio",
@@ -3607,7 +3604,7 @@ dependencies = [
 
 [[package]]
 name = "examples"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "brush-dataset",
  "brush-render",
@@ -5475,7 +5472,7 @@ dependencies = [
 
 [[package]]
 name = "lpips"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "burn",
  "image",
@@ -5483,7 +5480,7 @@ dependencies = [
 
 [[package]]
 name = "lpips-convert"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "burn",
  "burn-import",
@@ -8372,22 +8369,19 @@ dependencies = [
 
 [[package]]
 name = "rrfd"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "bytes",
- "futures",
  "futures-channel",
  "futures-util",
  "jni",
  "js-sys",
  "lazy_static",
- "log",
  "rfd",
  "thiserror 2.0.16",
  "tokio",
  "tokio-util",
  "wasm-bindgen",
- "wasm-bindgen-futures",
  "wasm-streams",
  "web-sys",
 ]

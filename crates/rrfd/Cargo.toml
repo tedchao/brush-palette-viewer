@@ -7,8 +7,6 @@ license.workspace = true
 
 [dependencies]
 thiserror.workspace = true
-log.workspace = true
-futures = "0.3"
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 tokio = { workspace = true, features = ["fs", "sync", "io-util"] }
@@ -21,7 +19,6 @@ lazy_static = "1.5.0"
 [target.'cfg(target_family = "wasm")'.dependencies]
 tokio = { workspace = true, features = ["sync", "io-util"] }
 wasm-bindgen = "0.2"
-wasm-bindgen-futures = "0.4"
 web-sys = { version = "0.3", features = ["File", "FileList", "HtmlInputElement", "Blob", "ReadableStream", "Window", "Event", "Document", "Element", "EventTarget", "Url", "HtmlAnchorElement"] }
 js-sys = "0.3"
 wasm-streams = "0.4"
