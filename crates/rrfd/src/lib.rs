@@ -59,6 +59,11 @@ pub async fn pick_directory() -> Result<PathBuf, PickFileError> {
     {
         wasm::pick_directory().await
     }
+
+    #[cfg(target_os = "android")]
+    {
+        panic!("No picking directories on Android yet.")
+    }
 }
 
 /// Saves data to a file and returns the filename the data was saved too.

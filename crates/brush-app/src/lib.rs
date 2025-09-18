@@ -1,7 +1,6 @@
 #![recursion_limit = "256"]
 #![cfg(target_os = "android")]
 
-use brush_ui::UiMode;
 use brush_ui::app::App;
 use brush_ui::ui_process::UiProcess;
 use jni::sys::{JNI_VERSION_1_6, jint};
