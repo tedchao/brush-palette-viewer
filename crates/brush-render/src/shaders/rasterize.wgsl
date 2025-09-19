@@ -91,6 +91,7 @@ fn main(
                 }
 
                 #ifdef BWD_INFO
+                    // Count visible if contribution is at least somewhat significant.
                     visible[load_gid[t]] = 1.0;
                 #endif
 
