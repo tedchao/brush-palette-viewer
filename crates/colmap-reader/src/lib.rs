@@ -192,7 +192,11 @@ async fn read_cameras_text<R: AsyncRead + Unpin>(reader: R) -> io::Result<HashMa
         if params.len() != model.num_params() {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
-                "Invalid number of camera parameters",
+                format!(
+                    "Invalid number of camera parameters (was given {}, but expected {})",
+                    params.len(),
+                    model.num_params()
+                ),
             ));
         }
 
