@@ -1070,6 +1070,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "brush-palette"
+version = "0.3.0"
+dependencies = [
+ "anyhow",
+ "async-fn-stream",
+ "brush-render",
+ "brush-serde",
+ "brush-vfs",
+ "burn",
+ "glam",
+ "log",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-stream",
+]
+
+[[package]]
 name = "brush-prefix-sum"
 version = "0.3.0"
 dependencies = [
@@ -1092,6 +1109,7 @@ dependencies = [
  "anyhow",
  "async-fn-stream",
  "brush-dataset",
+ "brush-palette",
  "brush-render",
  "brush-rerun",
  "brush-serde",

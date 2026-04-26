@@ -73,6 +73,48 @@ pub(crate) fn connect_device(device: WgpuDevice) {
     DEVICE.set(device).unwrap();
 }
 
+/// Try to load and parse the .gswp sidecar associated with a .pply path.
+/// Returns Ok(None) if the sidecar file simply doesn't exist; Err for any
+/// I/O or parse failure.
+async fn load_palette_sidecar(
+    pply_path: &std::path::Path,
+    expected_n_splats: u32,
+) -> Result<Option<brush_palette::PaletteSidecar>, anyhow::Error> {
+    let Some(sidecar_path) = brush_palette::sidecar_path_for(pply_path) else {
+        return Ok(None);
+    };
+    if !tokio::fs::try_exists(&sidecar_path).await.unwrap_or(false) {
+        return Ok(None);
+    }
+    let bytes = tokio::fs::read(&sidecar_path).await?;
+    let sc = brush_palette::PaletteSidecar::parse(&bytes, expected_n_splats)?;
+    Ok(Some(sc))
+}
+
+/// Replace the SH coefficients of `splats` with degree-0 only, set to the
+/// provided baked DC values. Drops any existing higher-band coefficients.
+/// `dc_colors` is length N*3, layout [r,g,b,r,g,b,...].
+fn inject_dc_colors(
+    mut splats: Splats<MainBackend>,
+    dc_colors: Vec<f32>,
+    device: &WgpuDevice,
+) -> Splats<MainBackend> {
+    use burn::module::{Param, ParamId};
+    use burn::prelude::*;
+
+    let n_splats = splats.num_splats() as usize;
+    debug_assert_eq!(dc_colors.len(), n_splats * 3);
+
+    // Build (N, 1, 3) tensor: degree-0 SH only, RGB.
+    let new_sh = Tensor::<MainBackend, 3>::from_data(
+        burn::tensor::TensorData::new(dc_colors, [n_splats, 1, 3]),
+        device,
+    );
+
+    splats.sh_coeffs = Param::initialized(ParamId::new(), new_sh.detach().require_grad());
+    splats
+}
+
 /// Create a running process from a datasource and args.
 ///
 /// The `config_fn` callback receives the initial config (loaded from args.txt if present,
@@ -102,7 +144,8 @@ pub fn create_process<
             return Err(anyhow::anyhow!("No files found."));
         }
 
-        let ply_count = vfs.files_with_extension("ply").count();
+        let ply_count = vfs.files_with_extension("ply").count()
+            + vfs.files_with_extension("pply").count();
 
         log::info!(
             "Mounted VFS with {} files. (plys: {})",
@@ -135,7 +178,13 @@ pub fn create_process<
         // Load initial config from args.txt via VFS if present
         #[cfg(feature = "training")]
         let initial_config = crate::args_file::load_config_from_vfs(&vfs).await;
-
+        
+        // Capture original source path for sidecar resolution (Stage B).
+        let source_path: Option<std::path::PathBuf> = match &source {
+            brush_vfs::DataSource::Path(s) => Some(std::path::PathBuf::from(s)),
+            _ => None,
+        };
+        
         emitter
             .emit(ProcessMessage::StartLoading {
                 name: source_name,
@@ -154,17 +203,66 @@ pub fn create_process<
             for (frame, path) in paths.iter().enumerate() {
                 log::info!("Loading single ply file");
 
-                let mut splat_stream = pin!(brush_serde::stream_splat_from_ply(
-                    vfs.reader_at_path(path).await?,
-                    None,
-                    true,
-                ));
+                let is_palette = brush_palette::is_pply_path(path);
+                if is_palette {
+                    log::info!("Detected palette-based .pply file");
+                    if let Some(sidecar) = brush_palette::sidecar_path_for(path) {
+                        log::info!("Sidecar expected at: {}", sidecar.display());
+                    }
+                }
+
+                type SplatStream = std::pin::Pin<Box<dyn tokio_stream::Stream<Item = Result<brush_serde::SplatMessage, brush_serde::DeserializeError>> + Send>>;
+                let mut splat_stream: SplatStream = if is_palette {
+                    Box::pin(brush_palette::stream_pply_as_geometry(
+                        vfs.reader_at_path(path).await?,
+                        None,
+                        true,
+                    ))
+                } else {
+                    Box::pin(brush_serde::stream_splat_from_ply(
+                        vfs.reader_at_path(path).await?,
+                        None,
+                        true,
+                    ))
+                };
 
                 while let Some(message) = splat_stream.next().await {
                     let message = message?;
 
                     let mode = message.meta.render_mode.unwrap_or(SplatRenderMode::Default);
-                    let splats = message.data.into_splats(&device, mode);
+                    let mut splats = message.data.into_splats(&device, mode);
+
+                    // Stage B: if this is a palette .pply, try to load the .gswp
+                    // sidecar from the SAME local path with extension swapped.
+                    // We bypass the VFS for the sidecar -- it's local-only by design.
+                    if is_palette {
+                        let sidecar_lookup_path = source_path.as_deref().unwrap_or(path.as_path());
+                        match load_palette_sidecar(sidecar_lookup_path, splats.num_splats()).await {
+                            Ok(Some(sidecar)) => {
+                                let baked = sidecar.bake_dc_colors(true);
+                                splats = inject_dc_colors(splats, baked, &device);
+                                log::info!(
+                                    "Loaded sidecar: K_full={}, num_sh={}, palette[0]=({:.3},{:.3},{:.3})",
+                                    sidecar.k_full,
+                                    sidecar.num_sh,
+                                    sidecar.palette[0],
+                                    sidecar.palette[1],
+                                    sidecar.palette[2],
+                                );
+                            }
+                            Ok(None) => {
+                                log::warn!(
+                                    "Palette .pply but no sidecar found alongside; rendering as gray geometry"
+                                );
+                            }
+                            Err(e) => {
+                                log::error!(
+                                    "Sidecar parse failed: {}; rendering as gray geometry",
+                                    e
+                                );
+                            }
+                        }
+                    }
 
                     // As loading concatenates splats each time, memory usage tends to accumulate a lot
                     // over time. Clear out memory after each step to prevent this buildup.
@@ -191,7 +289,7 @@ pub fn create_process<
                         .await;
                 }
             }
-
+            
             emitter.emit(ProcessMessage::DoneLoading).await;
         } else {
             #[cfg(feature = "training")]
