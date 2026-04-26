@@ -1,0 +1,31 @@
+[package]
+name = "brush-palette"
+edition.workspace = true
+version.workspace = true
+readme.workspace = true
+license.workspace = true
+ 
+[dependencies]
+# We piggyback on brush-serde for the underlying PLY streaming parser.
+# Stage A: we just call its existing parser; the .pply happens to be a
+# valid (geometry-only) Inria PLY whose color SH fields default to zero.
+brush-serde.path = "../brush-serde"
+brush-render.path = "../brush-render"
+brush-vfs.path = "../brush-vfs"
+ 
+# Backend / GPU.
+burn.workspace = true
+ 
+# Async streaming, matching brush-serde's API.
+async-fn-stream.workspace = true
+tokio.workspace = true
+tokio-stream.workspace = true
+ 
+anyhow.workspace = true
+glam.workspace = true
+log.workspace = true
+thiserror.workspace = true
+ 
+[lints]
+workspace = true
+ 
