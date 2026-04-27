@@ -66,4 +66,6 @@ pub enum ProcessMessage {
     /// Splat, or dataset and initial splat, are done loading.
     #[allow(unused)]
     DoneLoading,
+    /// Palette colors loaded from a .gswp sidecar.
+    PaletteLoaded { colors: Vec<[f32; 3]> },
 }

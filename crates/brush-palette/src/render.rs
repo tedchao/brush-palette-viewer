@@ -100,6 +100,7 @@ pub async fn render_palette(
     palette_splats: &PaletteSplats<MainBackend>,
     camera: &Camera,
     img_size: glam::UVec2,
+    palette_override: Option<&[[f32; 3]]>,
 ) -> Tensor<MainBackend, 3> {
     log::info!(
         "render_palette: img_size={}x{}, n_splats={}, k_full={}, p={}, q={}",
@@ -113,16 +114,43 @@ pub async fn render_palette(
     // ── Unwrap inputs MainBackend (Fusion) → MainBackendBase ──────────────
     let transforms_fusion    = palette_splats.splats.transforms.val().into_primitive().tensor();
     let raw_opacities_fusion = palette_splats.splats.raw_opacities.val().into_primitive().tensor();
-    let palette_fusion       = palette_splats.palette.clone().into_primitive().tensor();
     let low_shs_w_fusion     = palette_splats.low_shs_w.clone().into_primitive().tensor();
     let high_shs_a_fusion    = palette_splats.high_shs_a.clone().into_primitive().tensor();
     let high_shs_b_fusion    = palette_splats.high_shs_b.clone().into_primitive().tensor();
 
     let client = transforms_fusion.client.clone();
+    
+    
+    use brush_render::MainBackendBase as _MBB;
+    let palette = if let Some(override_vals) = palette_override {
+        let k_full = palette_splats.k_full as usize;
+        assert_eq!(
+            override_vals.len(), k_full,
+            "palette_override has {} colors; expected {}", override_vals.len(), k_full
+        );
+        let mut flat = Vec::with_capacity(k_full * 3);
+        for c in override_vals {
+            flat.push(c[0]);
+            flat.push(c[1]);
+            flat.push(c[2]);
+        }
+        let dev_for_palette = palette_splats.palette.device();
+        let host_tensor = burn::tensor::Tensor::<MainBackend, 2>::from_data(
+            burn::tensor::TensorData::new(flat, [k_full, 3]),
+            &dev_for_palette,
+        );
+        let host_fusion = host_tensor.into_primitive().tensor();
+        let host_client = host_fusion.client.clone();
+        into_contiguous(host_client.resolve_tensor_float::<_MBB>(host_fusion))
+    } else {
+        let palette_fusion = palette_splats.palette.clone().into_primitive().tensor();
+        into_contiguous(client.clone().resolve_tensor_float::<_MBB>(palette_fusion))
+    };
+
 
     let transforms    = into_contiguous(client.clone().resolve_tensor_float::<MainBackendBase>(transforms_fusion));
     let raw_opacities = into_contiguous(client.clone().resolve_tensor_float::<MainBackendBase>(raw_opacities_fusion));
-    let palette       = into_contiguous(client.clone().resolve_tensor_float::<MainBackendBase>(palette_fusion));
+    //let palette       = into_contiguous(client.clone().resolve_tensor_float::<MainBackendBase>(palette_fusion));
     let low_shs_w     = into_contiguous(client.clone().resolve_tensor_float::<MainBackendBase>(low_shs_w_fusion));
     let high_shs_a    = into_contiguous(client.clone().resolve_tensor_float::<MainBackendBase>(high_shs_a_fusion));
     let high_shs_b    = into_contiguous(client.clone().resolve_tensor_float::<MainBackendBase>(high_shs_b_fusion));
@@ -319,30 +347,6 @@ pub async fn render_palette(
                 ])
                 .with_info(create_meta_binding(our_uniforms)),
         );
-    }
-
-    // DEBUG: read back compact_gid_from_isect and tile_offsets to check.
-    {
-        let data = Transaction::default()
-            .register(Tensor::<MainBackendBase, 1, Int>::from_primitive(
-                compact_gid_from_isect.clone()
-            ))
-            .register(Tensor::<MainBackendBase, 3, Int>::from_primitive(
-                tile_offsets.clone()
-            ))
-            .execute_async()
-            .await
-            .expect("readback failed");
-
-        let gid_isect = data[0].clone().into_vec::<u32>().expect("gid");
-        let max_gid = gid_isect.iter().take(10000).max().copied().unwrap_or(0);
-        log::info!("compact_gid_from_isect[0..10] = {:?}, max(first 10k)={}",
-            &gid_isect[..10.min(gid_isect.len())], max_gid);
-
-        let toff = data[1].clone().into_vec::<u32>().expect("toff");
-        let nonzero_tiles = toff.chunks(2).filter(|c| c[1] > c[0]).count();
-        log::info!("tile_offsets[0..10] = {:?}, non_empty_tiles={}/{}",
-            &toff[..10.min(toff.len())], nonzero_tiles, toff.len()/2);
     }
 
     // ── Step 11: RasterizeWeight ──────────────────────────────────────────
