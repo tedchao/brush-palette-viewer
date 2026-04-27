@@ -258,7 +258,17 @@ pub fn create_process<
                                     sidecar.palette[1],
                                     sidecar.palette[2],
                                 );
-
+                                
+                                // Notify UI of palette colors for the edit panel.
+                                let palette_colors_for_ui: Vec<[f32; 3]> = sidecar
+                                    .palette
+                                    .chunks_exact(3)
+                                    .map(|c| [c[0], c[1], c[2]])
+                                    .collect();
+                                emitter
+                                    .emit(ProcessMessage::PaletteLoaded { colors: palette_colors_for_ui })
+                                    .await;
+                                
                                 // Stage B fallback DC for display.
                                 let baked = sidecar.bake_dc_colors(true);
 

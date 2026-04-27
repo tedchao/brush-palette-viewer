@@ -79,7 +79,15 @@ impl UiProcess {
             .as_ref()
             .map_or(Slot::default(), |s| s.palette_view.clone())
     }
+    
+    pub(crate) fn palette_colors(&self) -> Vec<[f32; 3]> {
+        self.read().palette_colors.clone()
+    }
 
+    pub(crate) fn set_palette_colors(&self, colors: Vec<[f32; 3]>) {
+        self.write().palette_colors = colors;
+    }
+    
     pub fn is_loading(&self) -> bool {
         self.read().is_loading
     }
@@ -260,6 +268,9 @@ impl UiProcess {
                 Ok(ProcessMessage::DoneLoading) => {
                     inner.is_loading = false;
                 }
+                Ok(ProcessMessage::PaletteLoaded { colors }) => {
+                    inner.palette_colors = colors.clone();
+                }
                 #[cfg(feature = "training")]
                 Ok(ProcessMessage::TrainMessage(
                     brush_process::message::TrainMessage::TrainStep { iter, .. },
@@ -329,6 +340,7 @@ struct UiProcessInner {
     session_reset_requested: bool,
     ui_ctx: egui::Context,
     burn_device: WgpuDevice,
+    palette_colors: Vec<[f32; 3]>,  // NEW: editable palette, K_full × 3
 }
 
 impl UiProcessInner {
@@ -347,6 +359,7 @@ impl UiProcessInner {
             is_training: false,
             train_iter: 0,
             process_handle: None,
+            palette_colors: Vec::new(),  // NEW
             ui_mode: UiMode::Default,
             background_style: BackgroundStyle::Black,
             train_paused: false,

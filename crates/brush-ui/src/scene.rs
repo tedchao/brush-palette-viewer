@@ -499,6 +499,36 @@ impl ScenePanel {
             process.request_reset_layout();
         }
     }
+
+    /// Draw the floating "Palette" window. Only shows if a palette has been loaded.
+    fn draw_palette_window(ui: &egui::Ui, rect: Rect, process: &UiProcess) {
+        let palette = process.palette_colors();
+        if palette.is_empty() {
+            return;
+        }
+        let mut new_palette = palette.clone();
+        let mut changed = false;
+        egui::Window::new("Palette")
+            .default_pos(rect.right_top() + egui::vec2(-260.0, 20.0))
+            .resizable(false)
+            .collapsible(true)
+            .show(ui.ctx(), |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    for c in new_palette.iter_mut() {
+                        let mut rgb = [c[0], c[1], c[2]];
+                        if ui.color_edit_button_rgb(&mut rgb).changed() {
+                            c[0] = rgb[0].clamp(0.0, 1.0);
+                            c[1] = rgb[1].clamp(0.0, 1.0);
+                            c[2] = rgb[2].clamp(0.0, 1.0);
+                            changed = true;
+                        }
+                    }
+                });
+            });
+        if changed {
+            process.set_palette_colors(new_palette);
+        }
+    }
 }
 
 impl AppPane for ScenePanel {
@@ -973,6 +1003,7 @@ impl AppPane for ScenePanel {
                         settings.background.unwrap_or(Vec3::ZERO),
                         settings.splat_scale,
                         self.splats_dirty,
+                        Some(process.palette_colors()).filter(|v| !v.is_empty()),
                     );
                     self.splats_dirty = false;
                 }
@@ -983,6 +1014,9 @@ impl AppPane for ScenePanel {
                     grid.paint(rect, camera, model_ltw, grid_opacity, ui);
                 }
             });
+
+            // Floating palette editor (only shows when palette colors are loaded).
+            Self::draw_palette_window(ui, rect, process);
 
             if interactive {
                 self.draw_play_pause(ui, rect);

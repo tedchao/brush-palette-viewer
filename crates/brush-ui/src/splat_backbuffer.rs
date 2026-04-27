@@ -16,6 +16,7 @@ use eframe::egui_wgpu::{self, CallbackTrait, wgpu};
 struct RenderRequest {
     slot: Slot<Splats<MainBackend>>,
     palette_slot: Slot<PaletteSplats<MainBackend>>,
+    palette_override: Option<Vec<[f32; 3]>>,  // NEW
     ctx: egui::Context,
     state: LastRenderState,
 }
@@ -27,6 +28,7 @@ struct LastRenderState {
     background: Vec3,
     splat_scale: Option<f32>,
     img_size: UVec2,
+    palette_override: Option<Vec<[f32; 3]>>,  // NEW
 }
 
 pub struct SplatBackbuffer {
@@ -34,6 +36,10 @@ pub struct SplatBackbuffer {
     img_rec: mpsc::Receiver<Tensor<MainBackend, 3>>,
     last_image: Option<Tensor<MainBackend, 3>>,
     last_state: Option<LastRenderState>,
+    last_frame_time: Option<std::time::Instant>,
+    fps_ema: f32,
+    fps_displayed: f32,
+    last_fps_update: Option<std::time::Instant>,
 }
 
 impl SplatBackbuffer {
@@ -58,6 +64,10 @@ impl SplatBackbuffer {
             img_rec,
             last_image: None,
             last_state: None,
+            last_frame_time: None,
+            fps_ema: 0.0,
+            fps_displayed: 0.0,
+            last_fps_update: None,
         }
     }
 
@@ -73,6 +83,7 @@ impl SplatBackbuffer {
         background: Vec3,
         splat_scale: Option<f32>,
         splats_dirty: bool,
+        palette_override: Option<Vec<[f32; 3]>>,  // NEW
     ) {
         // Calculate pixel size for rendering
         let ppp = ui.ctx().pixels_per_point();
@@ -81,6 +92,32 @@ impl SplatBackbuffer {
             (rect.height() * ppp).round() as u32,
         );
 
+        // Update FPS estimate (EMA over instantaneous frame deltas).
+        let now = std::time::Instant::now();
+        if let Some(last) = self.last_frame_time {
+            let dt = now.duration_since(last).as_secs_f32();
+            if dt > 0.0 {
+                let inst_fps = 1.0 / dt;
+                let alpha = 0.02; // heavy smoothing
+                self.fps_ema = if self.fps_ema == 0.0 {
+                    inst_fps
+                } else {
+                    alpha * inst_fps + (1.0 - alpha) * self.fps_ema
+                };
+            }
+        }
+        self.last_frame_time = Some(now);
+
+        // Update the displayed value at most twice per second so it doesn't flicker.
+        let should_update = self
+            .last_fps_update
+            .map(|t| now.duration_since(t).as_secs_f32() >= 0.5)
+            .unwrap_or(true);
+        if should_update {
+            self.fps_displayed = self.fps_ema;
+            self.last_fps_update = Some(now);
+        }
+
         // Check if we need to re-render
         let current_state = LastRenderState {
             frame,
@@ -88,8 +125,9 @@ impl SplatBackbuffer {
             background,
             splat_scale,
             img_size,
+            palette_override: palette_override.clone(),
         };
-
+                
         let dirty = splats_dirty || self.last_state.as_ref() != Some(&current_state);
 
         if dirty {
@@ -98,6 +136,7 @@ impl SplatBackbuffer {
             let _ = self.req_send.send(RenderRequest {
                 slot: slot.clone(),
                 palette_slot: palette_slot.clone(),
+                palette_override: palette_override.clone(),
                 ctx: ui.ctx().clone(),
                 state: current_state,
             });
@@ -122,6 +161,16 @@ impl SplatBackbuffer {
                     },
                 ));
         }
+
+        // Draw FPS overlay top-left of the render rect.
+        let fps_pos = rect.left_top() + egui::vec2(8.0, 8.0);
+        ui.painter().text(
+            fps_pos,
+            egui::Align2::LEFT_TOP,
+            format!("{:.1} fps", self.fps_displayed),
+            egui::FontId::monospace(14.0),
+            egui::Color32::from_rgb(255, 255, 100),
+        );
     }
 }
 
@@ -323,28 +372,21 @@ async fn render_worker(
 
         // Branch: if palette_slot has data, use the palette render path.
         // Otherwise fall back to vanilla render_splats.
-        log::info!(
-            "render_worker: frame={}, palette_slot empty? checking...",
-            request.state.frame
-        );
 
         let palette_image = request
             .palette_slot
             .act(request.state.frame, async |palette_splats| {
+                let pal_override = request.palette_override.clone();
                 let img = brush_palette::render::render_palette(
                     &palette_splats,
                     &request.state.camera,
                     request.state.img_size,
+                    pal_override.as_deref(),
                 )
                 .await;
                 (palette_splats, img)
             })
             .await;
-
-        log::info!(
-            "render_worker: palette_image is_some={}",
-            palette_image.is_some()
-        );
 
         let image = if let Some(img) = palette_image {
             Some(img)
