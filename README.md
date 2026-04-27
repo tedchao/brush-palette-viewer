@@ -1,98 +1,107 @@
-# Brush
+# brush-palette-viewer
 
-<video src=https://github.com/user-attachments/assets/5756967a-846c-44cf-bde9-3ca4c86f1a4d>A video showing various Brush features and scenes</video>
+A fork of [Brush](https://github.com/ArthurBrussee/brush) extended with palette-based 3D Gaussian Splatting rendering, on top of a custom representation that splits per-Gaussian color into a small fixed palette plus per-pixel weights. Includes a live palette editor.
 
-<p align="center">
-  <i>
-    Massive thanks to <a href="https://www.youtube.com/@gradeeterna">@GradeEterna</a> for the beautiful scenes
-  </i>
-</p>
+The base Brush viewer is preserved for vanilla `.ply` files. Palette-based scenes use a new `.pply` + `.gswp` pair; the viewer auto-detects and routes to the palette pipeline.
 
-Brush is a 3D reconstruction engine using [Gaussian splatting](https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/). It works on a wide range of systems: **macOS/windows/linux**, **AMD/Nvidia/Intel** cards, **Android**, and in a **browser**. To achieve this, it uses WebGPU compatible tech and the [Burn](https://github.com/tracel-ai/burn) machine learning framework.
+## What's new
 
-Machine learning for real time rendering has tons of potential, but most ML tools don't work well with it: Rendering requires realtime interactivity, usually involve dynamic shapes & computations, don't run on most platforms, and it can be cumbersome to ship apps with large CUDA deps. Brush on the other hand produces simple dependency free binaries, runs on nearly all devices, without any setup.
+- New `brush-palette` crate containing four WGSL shaders (`project_visible_weight`, `rasterize_weight`, `palette_remix`, `our_tile_offsets`, `populate_projected_for_map`) and the dispatch glue that wires them into Brush.
+- Loaders for `.pply` (geometry-only PLY) and `.gswp` (sidecar with palette + per-Gaussian weight SH).
+- A floating "Palette" window with live RGB color pickers — edit colors and the scene re-renders at full FPS.
+- FPS counter overlay on the render area.
 
-[**Try the web demo** <img src="https://cdn-icons-png.flaticon.com/256/888/888846.png" alt="chrome logo" width="24"/>
-](https://arthurbrussee.github.io/brush-demo)
-_NOTE: Only works on Chrome and Edge. Firefox and Safari are hopefully supported soon)_
+The vanilla Brush rendering pipeline is untouched: vanilla `.ply` files load and render exactly as upstream.
 
-[![](https://dcbadge.limes.pink/api/server/https://discord.gg/TbxJST2BbC)](https://discord.gg/TbxJST2BbC)
+## Files you need on disk
 
-# Features
+To render a palette-based scene, you need both files together (same directory, same basename):
 
-## Training
-
-Brush takes in COLMAP data or datasets in the Nerfstudio format. Training is fully supported natively, on mobile, and in a browser. While training you can interact with the scene and see the training dynamics live, and compare the current rendering to input views as the training progresses.
-
-It also supports masking images:
-- Images with transparency. This will force the final splat to match the transparency of the input.
-- A folder of images called 'masks'. This ignores parts of the image that are masked out.
-
-## Viewer
-Brush also works well as a splat viewer, including on the web. It can load .ply & .compressed.ply files. You can stream in data from a URL (for a web app, simply append `?url=`).
-
-Brush also can load .zip of splat files to display them as an animation, or a special ply that includes delta frames (see [cat-4D](https://cat-4d.github.io/) and [Cap4D](https://felixtaubner.github.io/cap4d/)!).
-
-## CLI
-Brush can be used as a CLI. Run `brush --help` to get an overview. Every CLI command can work with `--with-viewer` which also opens the UI, for easy debugging.
-
-## Rerun
-
-https://github.com/user-attachments/assets/f679fec0-935d-4dd2-87e1-c301db9cdc2c
-
-While training, additional data can be visualized with the excellent [rerun](https://rerun.io/). To install rerun on your machine, please follow their [instructions](https://rerun.io/docs/getting-started/installing-viewer). Open the ./brush_blueprint.rbl in the viewer for best results.
-
-## Building Brush
-First install rust 1.88+. You can run tests with `cargo test --all`. Brush uses the wonderful [rerun](https://rerun.io/) for additional visualizations while training, run `cargo install rerun-cli` if you want to use it.
-
-### Windows/macOS/Linux
-Use `cargo run --release` from the workspace root to make an optimized build. Use `cargo run` to run a debug build. 
-
-### Web
-Brush can be compiled to WASM. Run `npm run dev` to start the demo website using Next.js, see the brush_nextjs directory.
-
-Brush uses [`wasm-pack`](https://drager.github.io/wasm-pack/) to build the WASM bundle. You can also use it without a bundler, see [wasm-pack's documentation](https://drager.github.io/wasm-pack/book/).
-
-WebGPU is still an upcoming standard, and as such, only Chrome 134+ on Windows and macOS is currently supported.
-
-### Android
-
-As a one time setup, make sure you have the Android SDK & NDK installed.
-- Check if ANDROID_NDK_HOME and ANDROID_HOME are set
-- Add the Android target to rust `rustup target add aarch64-linux-android`
-- Install cargo-ndk to manage building a lib `cargo install cargo-ndk`
-
-Each time you change the rust code, run
-- `cargo ndk -t arm64-v8a -o crates/brush-app/app/src/main/jniLibs/ build`
-- Nb:  Nb, for best performance, build in release mode. This is separate
-  from the Android Studio app build configuration.
-- `cargo ndk -t arm64-v8a -o crates/brush-app/app/src/main/jniLibs/  build --release`
-
-You can now either run the project from Android Studio (Android Studio does NOT build the rust code), or run it from the command line:
 ```
-./gradlew build
-./gradlew installDebug
-adb shell am start -n com.splats.app/.MainActivity
+your_scene.pply       # geometry-only PLY (positions, scales, opacities, rotations)
+your_scene.gswp       # sidecar: palette colors + per-Gaussian weight SH coefficients
 ```
 
-You can also open this folder as a project in Android Studio and run things from there. Nb: Running in Android Studio does _not_ rebuild the rust code automatically.
+The `.pply` is a binary little-endian PLY missing the standard `f_dc_*` / `f_rest_*` color fields. The `.gswp` is a custom binary format with a 32-byte header (magic `GSWP`, version, dimensions) followed by the palette and weight tensors. See `crates/brush-palette/src/lib.rs` for the exact layout.
 
-## Benchmarks
+These are produced by a Python script (`palette_npy_to_ply.py`) that converts a trained palette-based model from its native `.npy` form. The viewer itself only consumes the `.pply` + `.gswp` pair.
 
-Rendering and training are generally faster than gsplat. You can run benchmarks of some of the kernels using `cargo bench`.
+## Building
 
-# Acknowledgements
+Requires Rust (rustup-installed; stable toolchain is fine). Tested on macOS (Apple Silicon).
 
-[**gSplat**](https://github.com/nerfstudio-project/gsplat), for their reference version of the kernels
+Debug build (faster compile, slower runtime):
 
-**Peter Hedman, George Kopanas & Bernhard Kerbl**, for the many discussions & pointers.
+```
+cargo build --bin brush
+```
 
-**The Burn team**, for help & improvements to Burn along the way
+Release build (slower compile, full performance):
 
-**Raph Levien**, for the [original version](https://github.com/googlefonts/compute-shader-101/pull/31) of the GPU radix sort.
+```
+cargo build --release --bin brush
+```
 
-**GradeEterna**, for feedback and their scenes.
+Incremental rebuilds after editing only WGSL or `brush-palette` are typically ~10-20 seconds. A full clean release build is ~3-5 minutes.
 
-# Disclaimer
+## Running
 
-This is *not* an official Google product. This repository is a forked public version of [the google-research repository](https://github.com/google-research/google-research/tree/master/brush_splat)
+The CLI is unchanged from upstream Brush. Pass either a vanilla `.ply` or a palette `.pply` as the file argument:
+
+```
+./target/debug/brush --with-viewer path/to/scene.pply
+```
+
+For the palette path to work, `scene.gswp` must sit alongside `scene.pply`.
+
+### Example
+
+```
+cargo build --bin brush && RUST_LOG=info ./target/debug/brush --with-viewer ../ColorGradedGaussians/re-submission/convert-npy-ply/truck_palette.pply
+```
+
+This builds (debug), then loads `truck_palette.pply` plus the auto-discovered `truck_palette.gswp`. The viewer opens and the truck renders with palette-based colors. The "Palette" window appears in the top-right of the scene area; clicking a color swatch opens a picker, and dragging it updates the rendered colors live.
+
+`RUST_LOG=info` enables informational logs from the loader and renderer; omit for a quiet run.
+
+### Loading vanilla 3DGS
+
+Vanilla `.ply` files load through the original Brush path:
+
+```
+./target/debug/brush --with-viewer path/to/vanilla_scene.ply
+```
+
+No `.gswp` needed; rendering uses Brush's stock shaders.
+
+## Repository layout
+
+The new code lives in `crates/brush-palette/`. The most important pieces:
+
+```
+crates/brush-palette/
+├── Cargo.toml
+└── src/
+    ├── lib.rs                    # PaletteSplats, sidecar parser, format helpers
+    ├── render.rs                 # render_palette() — orchestrates the 12-step palette pipeline
+    ├── shaders.rs                # registers WGSL shaders via brush-wgsl macro
+    └── shaders/
+        ├── project_visible_weight.wgsl   # per-Gaussian SH→K-vector weight evaluation
+        ├── rasterize_weight.wgsl         # tile-binned K-channel weight accumulator
+        ├── palette_remix.wgsl            # per-pixel K-vector → RGB
+        ├── our_tile_offsets.wgsl         # tile-offset compute (replaces the upstream cube macro)
+        ├── populate_projected_for_map.wgsl  # adapter: ProjectedWeightSplat → ProjectedSplat
+        └── stub.wgsl                     # toolchain validation only
+```
+
+Modifications outside `brush-palette`:
+
+- `crates/brush-process/src/lib.rs` — branch on `.pply` extension, build `PaletteSplats`, emit `PaletteLoaded` message; vanilla path untouched.
+- `crates/brush-process/src/message.rs` — new `PaletteLoaded { colors }` message variant.
+- `crates/brush-ui/src/ui_process.rs` — second `Slot<PaletteSplats>` parallel to the existing splat slot; palette state.
+- `crates/brush-ui/src/splat_backbuffer.rs` — render-worker branches between vanilla and palette render paths; FPS counter.
+- `crates/brush-ui/src/scene.rs` — floating palette editor window.
+
+## License
+
+Original Brush code is Apache-2.0; modifications follow the same license.
