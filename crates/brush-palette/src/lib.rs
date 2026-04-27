@@ -13,6 +13,8 @@
 //! renders the scene with the initial palette. View-dependent SH (the A/B
 //! factors) is ignored at Stage B and added in Stage C with a forked
 //! weight-splatting rasterizer.
+pub mod shaders;
+pub mod render;
 
 use std::path::{Path, PathBuf};
 
@@ -294,27 +296,168 @@ pub fn stream_pply_as_geometry(
 // PaletteSplats wrapper (unchanged from Stage A)
 // ----------------------------------------------------------------------------
 
+// ----------------------------------------------------------------------------
+// PaletteSplats: geometry (via vanilla Splats<B>) + palette/weight tensors.
+// ----------------------------------------------------------------------------
+//
+// Stage C2.5a: holds the data the new shaders will need at render time.
+//   - `splats`     : geometry (positions, rotations, scales, opacities) and
+//                    the SH-color tensor (which we use for vanilla compatibility
+//                    only; our render path ignores it).
+//   - `palette`    : (K_full, 3) RGB colors, ROW-MAJOR.
+//   - `low_shs_w`  : (N, K_full) DC-band per-Gaussian weights.
+//   - `high_shs_a` : (N, P) low-rank factor A.
+//   - `high_shs_b` : (N, Q) low-rank factor B.
+//   - `k_full`, `num_sh`, `p`, `q` : scalar dims used by shader uniforms.
+//
+// Stage B's bake-into-Splats DC injection is no longer needed; the dedicated
+// shader path will read these tensors directly.
+
+use burn::prelude::*;
+use burn::tensor::TensorData;
+
+#[derive(Clone)]
 pub struct PaletteSplats<B: burn::prelude::Backend> {
     pub splats: Splats<B>,
-    // Stage C will add palette/low/high tensors here for the weight rasterizer.
+    
+    pub palette:    Tensor<B, 2>,
+    pub low_shs_w:  Tensor<B, 2>,
+    pub high_shs_a: Tensor<B, 2>,
+    pub high_shs_b: Tensor<B, 2>,
+    
+    pub k_full: u32,
+    pub num_sh: u32,
+    pub p:      u32,
+    pub q:      u32,
 }
 
 impl<B: burn::prelude::Backend> PaletteSplats<B> {
-    pub fn from_splats(splats: Splats<B>) -> Self {
-        Self { splats }
+    /// Build a PaletteSplats from already-loaded geometry and a parsed sidecar.
+    /// Uploads palette + weight buffers to `device` as Burn tensors. The dense
+    /// path materialises a synthetic (P,Q) rank-1 factorisation so the same
+    /// shader code works for both paths -- but we error rather than do that
+    /// silently for now; rank-1 only is supported.
+    pub fn from_parts(
+        splats: Splats<B>,
+        sidecar: PaletteSidecar,
+        device: &B::Device,
+    ) -> Result<Self, anyhow::Error> {
+        let n_splats = splats.num_splats() as usize;
+        if n_splats != sidecar.n_splats as usize {
+            anyhow::bail!(
+                "PaletteSplats::from_parts: splats.num_splats() = {} but sidecar.n_splats = {}",
+                n_splats,
+                sidecar.n_splats,
+            );
+        }
+        
+        let k_full = sidecar.k_full as usize;
+        let num_sh = sidecar.num_sh as usize;
+        
+        // Upload palette: (K_full, 3) row-major.
+        let palette = Tensor::<B, 2>::from_data(
+            TensorData::new(sidecar.palette.clone(), [k_full, 3]),
+            device,
+        );
+        
+        // Upload low_shs_w: (N, K_full).
+        let low_shs_w = Tensor::<B, 2>::from_data(
+            TensorData::new(sidecar.low_shs_w.clone(), [n_splats, k_full]),
+            device,
+        );
+        
+        // Resolve A/B. For Stage C2 we only support the low-rank path. The
+        // dense path can be supported later by allocating P=1, Q=K*(num_sh-1)
+        // and storing high_shs as B with A=ones.
+        let (a_vec, b_vec, p_dim, q_dim) = match &sidecar.high_shs {
+            HighShs::LowRank { a, b, p, q } => {
+                (a.clone(), b.clone(), *p as usize, *q as usize)
+            }
+            HighShs::Dense { coeffs } => {
+                // Dense fallback: treat as P=1 rank-1 factorisation.
+                // A = ones (N, 1); B = the dense coeff block (N, K_full * (num_sh-1)).
+                let q = k_full * (num_sh - 1);
+                let ones = vec![1.0f32; n_splats]; // (N, 1)
+                if coeffs.len() != n_splats * q {
+                    anyhow::bail!(
+                        "Dense high_shs has {} floats, expected N*K_full*(num_sh-1) = {}",
+                        coeffs.len(),
+                        n_splats * q,
+                    );
+                }
+                (ones, coeffs.clone(), 1, q)
+            }
+        };
+        
+        let high_shs_a = Tensor::<B, 2>::from_data(
+            TensorData::new(a_vec, [n_splats, p_dim]),
+            device,
+        );
+        let high_shs_b = Tensor::<B, 2>::from_data(
+            TensorData::new(b_vec, [n_splats, q_dim]),
+            device,
+        );
+        
+        Ok(Self {
+            splats,
+            palette,
+            low_shs_w,
+            high_shs_a,
+            high_shs_b,
+            k_full: sidecar.k_full,
+            num_sh: sidecar.num_sh,
+            p:      p_dim as u32,
+            q:      q_dim as u32,
+        })
     }
-
+    
     pub fn num_splats(&self) -> u32 {
         self.splats.num_splats()
     }
-
+    
     pub fn sh_degree(&self) -> u32 {
         self.splats.sh_degree()
     }
-
+    
+    /// Expose the inner geometry-only Splats. Callers that only need the
+    /// vanilla render path (or need to satisfy an existing API) can use this.
     pub fn into_inner(self) -> Splats<B> {
         self.splats
     }
+    
+    /// The original Stage A constructor; kept for backward compatibility with
+    /// any code that wraps a Splats without the sidecar (should be unused now,
+    /// but harmless to keep).
+    pub fn from_splats(splats: Splats<B>) -> Self
+    where
+        B::Device: Default,
+    {
+        // Caller is responsible for not invoking the palette render path on
+        // an instance built this way; the tensors are zero-sized stubs.
+        let device = B::Device::default();
+        let zero1 = Tensor::<B, 2>::from_data(TensorData::new(vec![0.0f32; 0], [0, 0]), &device);
+        let zero2 = zero1.clone();
+        let zero3 = zero1.clone();
+        let zero4 = zero1.clone();
+        Self {
+            splats,
+            palette:    zero1,
+            low_shs_w:  zero2,
+            high_shs_a: zero3,
+            high_shs_b: zero4,
+            k_full: 0,
+            num_sh: 0,
+            p: 0,
+            q: 0,
+        }
+    }
+}
+
+// Suppress unused-warning hints; these will be used in C2.5b.
+#[allow(dead_code)]
+fn _palette_splats_field_uses<B: burn::prelude::Backend>(p: &PaletteSplats<B>) {
+    let _ = (&p.palette, &p.low_shs_w, &p.high_shs_a, &p.high_shs_b);
+    let _ = (p.k_full, p.num_sh, p.p, p.q);
 }
 
 // ----------------------------------------------------------------------------

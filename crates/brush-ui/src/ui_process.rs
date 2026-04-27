@@ -19,6 +19,7 @@ struct ProcessHandle {
     messages: mpsc::UnboundedReceiver<anyhow::Result<ProcessMessage>>,
     control: mpsc::UnboundedSender<ControlMessage>,
     splat_view: Slot<Splats<MainBackend>>,
+    palette_view: Slot<brush_palette::PaletteSplats<MainBackend>>,
 }
 
 /// A thread-safe wrapper around the UI process.
@@ -70,6 +71,13 @@ impl UiProcess {
             .process_handle
             .as_ref()
             .map_or(Slot::default(), |s| s.splat_view.clone())
+    }
+    
+    pub(crate) fn current_palette_splats(&self) -> Slot<brush_palette::PaletteSplats<MainBackend>> {
+        self.read()
+            .process_handle
+            .as_ref()
+            .map_or(Slot::default(), |s| s.palette_view.clone())
     }
 
     pub fn is_loading(&self) -> bool {
@@ -228,6 +236,7 @@ impl UiProcess {
             messages: receiver,
             control: train_sender,
             splat_view: process.splat_view,
+            palette_view: process.palette_view,
         });
     }
 

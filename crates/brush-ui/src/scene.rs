@@ -967,6 +967,7 @@ impl AppPane for ScenePanel {
                         rect,
                         ui,
                         &process.current_splats(),
+                        &process.current_palette_splats(),
                         &camera,
                         self.frame as usize,
                         settings.background.unwrap_or(Vec3::ZERO),
