@@ -1,3 +1,4 @@
+use brush_palette::PaletteSplats;
 use brush_process::slot::Slot;
 use brush_render::{
     MainBackend, MainBackendBase, TextureMode, camera::Camera, gaussian_splats::Splats,
@@ -14,6 +15,7 @@ use eframe::egui_wgpu::{self, CallbackTrait, wgpu};
 #[derive(Clone)]
 struct RenderRequest {
     slot: Slot<Splats<MainBackend>>,
+    palette_slot: Slot<PaletteSplats<MainBackend>>,
     ctx: egui::Context,
     state: LastRenderState,
 }
@@ -65,6 +67,7 @@ impl SplatBackbuffer {
         rect: Rect,
         ui: &egui::Ui,
         slot: &Slot<Splats<MainBackend>>,
+        palette_slot: &Slot<PaletteSplats<MainBackend>>,
         camera: &Camera,
         frame: usize,
         background: Vec3,
@@ -94,6 +97,7 @@ impl SplatBackbuffer {
             // Send request to worker (ignore send errors if channel closed)
             let _ = self.req_send.send(RenderRequest {
                 slot: slot.clone(),
+                palette_slot: palette_slot.clone(),
                 ctx: ui.ctx().clone(),
                 state: current_state,
             });
@@ -317,21 +321,50 @@ async fn render_worker(
             request = newer;
         }
 
-        let image = request
-            .slot
-            .act(request.state.frame, async |splats| {
-                let (image, _) = render_splats(
-                    splats.clone(),
+        // Branch: if palette_slot has data, use the palette render path.
+        // Otherwise fall back to vanilla render_splats.
+        log::info!(
+            "render_worker: frame={}, palette_slot empty? checking...",
+            request.state.frame
+        );
+
+        let palette_image = request
+            .palette_slot
+            .act(request.state.frame, async |palette_splats| {
+                let img = brush_palette::render::render_palette(
+                    &palette_splats,
                     &request.state.camera,
                     request.state.img_size,
-                    request.state.background,
-                    request.state.splat_scale,
-                    TextureMode::Packed,
                 )
                 .await;
-                (splats, image)
+                (palette_splats, img)
             })
             .await;
+
+        log::info!(
+            "render_worker: palette_image is_some={}",
+            palette_image.is_some()
+        );
+
+        let image = if let Some(img) = palette_image {
+            Some(img)
+        } else {
+            request
+                .slot
+                .act(request.state.frame, async |splats| {
+                    let (image, _) = render_splats(
+                        splats.clone(),
+                        &request.state.camera,
+                        request.state.img_size,
+                        request.state.background,
+                        request.state.splat_scale,
+                        TextureMode::Packed,
+                    )
+                    .await;
+                    (splats, image)
+                })
+                .await
+        };
 
         if let Some(image) = image {
             let _ = img_sender.send(image).await;

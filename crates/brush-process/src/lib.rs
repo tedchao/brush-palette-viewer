@@ -63,6 +63,7 @@ impl<T> ProcessStream for T where T: Stream<Item = Result<ProcessMessage, Error>
 pub struct RunningProcess {
     pub stream: Pin<Box<dyn ProcessStream>>,
     pub splat_view: Slot<Splats<MainBackend>>,
+    pub palette_view: Slot<brush_palette::PaletteSplats<MainBackend>>,
 }
 
 use tokio::sync::SetOnce;
@@ -129,6 +130,8 @@ pub fn create_process<
 ) -> RunningProcess {
     let splat_view = Slot::default();
     let splat_state_cl = splat_view.clone();
+    let palette_view: Slot<brush_palette::PaletteSplats<MainBackend>> = Slot::default();
+    let palette_view_cl = palette_view.clone();
 
     let stream = try_fn_stream(|emitter| async move {
         log::info!("Starting process with source {source:?}");
@@ -227,20 +230,26 @@ pub fn create_process<
                 };
 
                 while let Some(message) = splat_stream.next().await {
+                    
+                    // For the first frame of a new file, clear existing frames
+                    if frame == 0 {
+                        splat_view.clear().await;
+                        palette_view.clear().await;
+                    }
+                    
                     let message = message?;
 
                     let mode = message.meta.render_mode.unwrap_or(SplatRenderMode::Default);
                     let mut splats = message.data.into_splats(&device, mode);
 
-                    // Stage B: if this is a palette .pply, try to load the .gswp
-                    // sidecar from the SAME local path with extension swapped.
-                    // We bypass the VFS for the sidecar -- it's local-only by design.
+                    // Stage B / C2.5b1: if this is a palette .pply, load the
+                    // sidecar, build a PaletteSplats, probe-call render_palette
+                    // (stub), then fall back to Stage B's bake-DC for display
+                    // until C2.5c hooks render_palette into the per-frame loop.
                     if is_palette {
                         let sidecar_lookup_path = source_path.as_deref().unwrap_or(path.as_path());
                         match load_palette_sidecar(sidecar_lookup_path, splats.num_splats()).await {
                             Ok(Some(sidecar)) => {
-                                let baked = sidecar.bake_dc_colors(true);
-                                splats = inject_dc_colors(splats, baked, &device);
                                 log::info!(
                                     "Loaded sidecar: K_full={}, num_sh={}, palette[0]=({:.3},{:.3},{:.3})",
                                     sidecar.k_full,
@@ -249,6 +258,25 @@ pub fn create_process<
                                     sidecar.palette[1],
                                     sidecar.palette[2],
                                 );
+
+                                // Stage B fallback DC for display.
+                                let baked = sidecar.bake_dc_colors(true);
+
+                                // C2.5a: build PaletteSplats with all tensors uploaded.
+                                // We move the sidecar in here, so do this after `bake_dc_colors`.
+                                let palette_splats = brush_palette::PaletteSplats::from_parts(
+                                    splats.clone(),
+                                    sidecar,
+                                    &device,
+                                )?;
+
+                                // C2.5c1: store the PaletteSplats in the parallel slot.
+                                // Display still uses Stage B's bake-DC fallback below.
+                                palette_view.set_at(frame, palette_splats).await;
+                                log::info!("PaletteSplats stored in palette_view");
+
+                                // Stage B fallback for display path.
+                                splats = inject_dc_colors(splats, baked, &device);
                             }
                             Ok(None) => {
                                 log::warn!(
@@ -267,11 +295,6 @@ pub fn create_process<
                     // As loading concatenates splats each time, memory usage tends to accumulate a lot
                     // over time. Clear out memory after each step to prevent this buildup.
                     client.memory_cleanup();
-
-                    // For the first frame of a new file, clear existing frames
-                    if frame == 0 {
-                        splat_view.clear().await;
-                    }
 
                     // Capture stats before moving splats
                     let num_splats = splats.num_splats();
@@ -310,5 +333,6 @@ pub fn create_process<
     RunningProcess {
         stream: Box::pin(stream),
         splat_view: splat_state_cl,
+        palette_view: palette_view_cl,
     }
 }
