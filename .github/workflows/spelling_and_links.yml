@@ -19,7 +19,7 @@ jobs:
     name: linkinator
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: jprochazk/linkinator-action@main
         with:
           linksToSkip: "https://crates.io/crates/.*, http://localhost:.*" # Avoid crates.io rate-limiting
