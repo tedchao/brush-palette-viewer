@@ -78,6 +78,10 @@ struct RemixUniforms {
     img_h:  u32,
     k_full: u32,
     pad_a:  u32,
+    bg_r:   f32,
+    bg_g:   f32,
+    bg_b:   f32,
+    pad_b:  u32,
 }
 
 #[repr(C)]
@@ -101,6 +105,7 @@ pub async fn render_palette(
     camera: &Camera,
     img_size: glam::UVec2,
     palette_override: Option<&[[f32; 3]]>,
+    background: glam::Vec3,
 ) -> Tensor<MainBackend, 3> {
     log::info!(
         "render_palette: img_size={}x{}, n_splats={}, k_full={}, p={}, q={}",
@@ -356,7 +361,11 @@ pub async fn render_palette(
     let weight_image = <MainBackendBase as FloatTensorOps<MainBackendBase>>::float_zeros(
         [h, w, MAX_K_FULL].into(), &base_device, FloatDType::F32,
     );
-
+    
+    let alpha_image = <MainBackendBase as FloatTensorOps<MainBackendBase>>::float_zeros(
+        [h, w].into(), &base_device, FloatDType::F32,
+    );
+        
     let raster_uniforms = RasterWeightUniforms {
         tile_bounds: tile_bounds.into(),
         img_size:    img_size.into(),
@@ -375,6 +384,7 @@ pub async fn render_palette(
                     tile_offsets.handle.clone().binding(),
                     projected_weight.handle.clone().binding(),
                     weight_image.handle.clone().binding(),
+                    alpha_image.handle.clone().binding(),  // NEW
                 ])
                 .with_info(create_meta_binding(raster_uniforms)),
         );
@@ -392,6 +402,10 @@ pub async fn render_palette(
         img_h: img_size.y,
         k_full: palette_splats.k_full,
         pad_a: 0,
+        bg_r: background.x,
+        bg_g: background.y,
+        bg_b: background.z,
+        pad_b: 0,
     };
     unsafe {
         base_client.launch_unchecked(
@@ -401,6 +415,7 @@ pub async fn render_palette(
                 .with_buffers(vec![
                     weight_image.handle.clone().binding(),
                     palette.handle.clone().binding(),
+                    alpha_image.handle.clone().binding(),  // NEW
                     out_img.handle.clone().binding(),
                 ])
                 .with_info(create_meta_binding(remix_uniforms)),

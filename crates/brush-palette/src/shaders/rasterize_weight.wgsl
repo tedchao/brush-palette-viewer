@@ -37,6 +37,7 @@ struct ProjectedWeightSplat {
 @group(0) @binding(1) var<storage, read>       tile_offsets           : array<u32>;
 @group(0) @binding(2) var<storage, read>       projected              : array<ProjectedWeightSplat>;
 @group(0) @binding(3) var<storage, read_write> out_weights            : array<f32>;
+@group(0) @binding(4) var<storage, read_write> out_alpha              : array<f32>;
 struct RasterWeightUniforms {
     tile_bounds: vec2u,
     img_size:    vec2u,
@@ -45,7 +46,7 @@ struct RasterWeightUniforms {
     pad_b:       u32,
     pad_c:       u32,
 }
-@group(0) @binding(4) var<storage, read> uniforms : RasterWeightUniforms;
+@group(0) @binding(5) var<storage, read> uniforms : RasterWeightUniforms;
 
 var<workgroup> range_uniform: vec2u;
 var<workgroup> local_batch: array<ProjectedWeightSplat, helpers::TILE_SIZE>;
@@ -154,5 +155,6 @@ fn main(
         out_weights[base + 5u] = w5_out;
         out_weights[base + 6u] = w6_out;
         out_weights[base + 7u] = w7_out;
+        out_alpha[pix_id] = 1.0 - T;
     }
 }

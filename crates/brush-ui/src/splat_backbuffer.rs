@@ -382,6 +382,7 @@ async fn render_worker(
                     &request.state.camera,
                     request.state.img_size,
                     pal_override.as_deref(),
+                    request.state.background,
                 )
                 .await;
                 (palette_splats, img)

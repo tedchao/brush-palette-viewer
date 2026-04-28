@@ -17,15 +17,20 @@ const MAX_K_FULL: u32 = 8u;
 
 @group(0) @binding(0) var<storage, read>       weights : array<f32>;
 @group(0) @binding(1) var<storage, read>       palette : array<f32>;
-@group(0) @binding(2) var<storage, read_write> output  : array<u32>;
+@group(0) @binding(2) var<storage, read>       alpha_in: array<f32>;
+@group(0) @binding(3) var<storage, read_write> output  : array<u32>;
 
 struct Uniforms {
     img_w  : u32,
     img_h  : u32,
     k_full : u32,
     pad_a  : u32,
+    bg_r   : f32,
+    bg_g   : f32,
+    bg_b   : f32,
+    pad_b  : u32,
 }
-@group(0) @binding(3) var<storage, read> uniforms : Uniforms;
+@group(0) @binding(4) var<storage, read> uniforms : Uniforms;
 
 const WG_SIZE: u32 = 256u;
 
@@ -58,7 +63,15 @@ fn main(
         b = b + w * palette[pal_base + 2u];
     }
     
-    let rgba = vec4f(r, g, b, 1.0);
+    // r, g, b above are already premultiplied (sum of T*alpha_t * w_kt * P_k).
+    // Composite over background:  out = premul_rgb + (1 - alpha) * bg
+    let a = alpha_in[pix_idx];
+    let one_minus_a = 1.0 - a;
+    let r_out = r + one_minus_a * uniforms.bg_r;
+    let g_out = g + one_minus_a * uniforms.bg_g;
+    let b_out = b + one_minus_a * uniforms.bg_b;
+    
+    let rgba = vec4f(r_out, g_out, b_out, 1.0);
     let cu = vec4u(clamp(rgba * 255.0, vec4f(0.0), vec4f(255.0)));
     let packed: u32 = cu.x | (cu.y << 8u) | (cu.z << 16u) | (cu.w << 24u);
     output[pix_idx] = packed;
