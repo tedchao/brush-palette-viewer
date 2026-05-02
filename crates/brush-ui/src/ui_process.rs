@@ -80,12 +80,92 @@ impl UiProcess {
             .map_or(Slot::default(), |s| s.palette_view.clone())
     }
     
-    pub(crate) fn palette_colors(&self) -> Vec<[f32; 3]> {
-        self.read().palette_colors.clone()
+    pub(crate) fn original_palette(&self) -> Vec<[f32; 3]> {
+        self.read().original_palette.clone()
     }
-
-    pub(crate) fn set_palette_colors(&self, colors: Vec<[f32; 3]>) {
-        self.write().palette_colors = colors;
+    
+    /// Current edited palette = original + delta. Used by UI for slider display.
+    pub(crate) fn current_palette(&self) -> Vec<[f32; 3]> {
+        let inner = self.read();
+        inner.original_palette.iter().enumerate().map(|(i, p)| {
+            let dr = inner.delta_palette.get(i * 3).copied().unwrap_or(0.0);
+            let dg = inner.delta_palette.get(i * 3 + 1).copied().unwrap_or(0.0);
+            let db = inner.delta_palette.get(i * 3 + 2).copied().unwrap_or(0.0);
+            [
+                (p[0] + dr).clamp(0.0, 1.0),
+                (p[1] + dg).clamp(0.0, 1.0),
+                (p[2] + db).clamp(0.0, 1.0),
+            ]
+        }).collect()
+    }
+    
+    pub(crate) fn delta_palette(&self) -> Vec<f32> {
+        self.read().delta_palette.clone()
+    }
+    
+    pub(crate) fn l_curves(&self) -> Vec<f32> {
+        self.read().l_curves.clone()
+    }
+    
+    pub(crate) fn palette_constraints(&self) -> Vec<(usize, [f32; 3])> {
+        self.read().palette_constraints.clone()
+    }
+    
+    /// Set or replace a palette-equality constraint, then re-run optimizer.
+    pub(crate) fn set_palette_constraint(&self, idx: usize, target: [f32; 3]) {
+        {
+            let mut inner = self.write();
+            // Replace existing constraint for this idx, or push new
+            if let Some(pos) = inner.palette_constraints.iter().position(|(i, _)| *i == idx) {
+                inner.palette_constraints[pos].1 = target;
+            } else {
+                inner.palette_constraints.push((idx, target));
+            }
+        }
+        self.rerun_optimizer();
+    }
+    
+    /// Clear all constraints; optimizer returns identity.
+    pub(crate) fn clear_constraints(&self) {
+        {
+            let mut inner = self.write();
+            inner.palette_constraints.clear();
+        }
+        self.rerun_optimizer();
+    }
+    
+    fn rerun_optimizer(&self) {
+        use brush_palette::optimizer::{run_optimizer, PaletteConstraint};
+        
+        let (palette_flat, k_full, palette_cons) = {
+            let inner = self.read();
+            if inner.original_palette.is_empty() {
+                return;
+            }
+            let k = inner.original_palette.len();
+            let mut flat = Vec::with_capacity(k * 3);
+            for c in &inner.original_palette {
+                flat.extend_from_slice(c);
+            }
+            let cons: Vec<PaletteConstraint> = inner
+            .palette_constraints
+            .iter()
+            .map(|(idx, t)| PaletteConstraint { idx: *idx, target: *t })
+            .collect();
+            (flat, k, cons)
+        };
+        
+        match run_optimizer(&palette_flat, k_full, &[], &palette_cons, &[], 100) {
+            Ok(result) => {
+                let mut inner = self.write();
+                inner.delta_palette = result.delta_palette;
+                inner.l_curves = result.l_curves;
+                log::info!("Optimizer: {} iters, {:.1}ms", result.n_iter, result.runtime_ms);
+            }
+            Err(e) => {
+                log::error!("Optimizer failed: {:?}", e);
+            }
+        }
     }
     
     pub fn is_loading(&self) -> bool {
@@ -269,7 +349,20 @@ impl UiProcess {
                     inner.is_loading = false;
                 }
                 Ok(ProcessMessage::PaletteLoaded { colors }) => {
-                    inner.palette_colors = colors.clone();
+                    inner.original_palette = colors.clone();
+                    // Initialize identity defaults
+                    let k = colors.len();
+                    inner.delta_palette = vec![0.0; k * 3];
+                    inner.l_curves = {
+                        let mut v = vec![0.0; 100 * k];
+                        for ki in 0..k {
+                            for n in 0..100 {
+                                v[ki * 100 + n] = n as f32 / 99.0;
+                            }
+                        }
+                        v
+                    };
+                    inner.palette_constraints.clear();
                 }
                 #[cfg(feature = "training")]
                 Ok(ProcessMessage::TrainMessage(
@@ -340,7 +433,10 @@ struct UiProcessInner {
     session_reset_requested: bool,
     ui_ctx: egui::Context,
     burn_device: WgpuDevice,
-    palette_colors: Vec<[f32; 3]>,  // NEW: editable palette, K_full × 3
+    original_palette: Vec<[f32; 3]>,
+    delta_palette: Vec<f32>,           // (K, 3) flat row-major
+    l_curves: Vec<f32>,                // (N, K) flat col-major: L[k*N + n]
+    palette_constraints: Vec<(usize, [f32; 3])>,
 }
 
 impl UiProcessInner {
@@ -359,7 +455,10 @@ impl UiProcessInner {
             is_training: false,
             train_iter: 0,
             process_handle: None,
-            palette_colors: Vec::new(),  // NEW
+            original_palette: Vec::new(),
+            delta_palette: Vec::new(),
+            l_curves: Vec::new(),
+            palette_constraints: Vec::new(),
             ui_mode: UiMode::Default,
             background_style: BackgroundStyle::Black,
             train_paused: false,
