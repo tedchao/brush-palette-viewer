@@ -21,8 +21,8 @@ use burn::tensor::{
 use burn_cubecl::cubecl::server::KernelArguments;
 use burn_cubecl::fusion::FusionCubeRuntime;
 use burn_cubecl::kernel::into_contiguous;
-use burn_fusion::stream::{Operation, OperationStreams};
 use burn_fusion::FusionHandle;
+use burn_fusion::stream::{Operation, OperationStreams};
 use burn_ir::{CustomOpIr, HandleContainer, OperationIr, OperationOutput, TensorIr};
 use burn_wgpu::WgpuRuntime;
 use glam::uvec2;
@@ -74,14 +74,14 @@ struct RasterWeightUniforms {
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct RemixUniforms {
-    img_w:  u32,
-    img_h:  u32,
-    k_full: u32,
-    pad_a:  u32,
-    bg_r:   f32,
-    bg_g:   f32,
-    bg_b:   f32,
-    pad_b:  u32,
+    img_w:           u32,
+    img_h:           u32,
+    k_full:          u32,
+    n_curve_samples: u32,
+    bg_r:            f32,
+    bg_g:            f32,
+    bg_b:            f32,
+    rho:             f32,
 }
 
 #[repr(C)]
@@ -104,7 +104,7 @@ pub async fn render_palette(
     palette_splats: &PaletteSplats<MainBackend>,
     camera: &Camera,
     img_size: glam::UVec2,
-    palette_override: Option<&[[f32; 3]]>,
+    _palette_override: Option<&[[f32; 3]]>,
     background: glam::Vec3,
 ) -> Tensor<MainBackend, 3> {
     log::info!(
@@ -124,38 +124,15 @@ pub async fn render_palette(
     let high_shs_b_fusion    = palette_splats.high_shs_b.clone().into_primitive().tensor();
 
     let client = transforms_fusion.client.clone();
-    
-    
+
     use brush_render::MainBackendBase as _MBB;
-    let palette = if let Some(override_vals) = palette_override {
-        let k_full = palette_splats.k_full as usize;
-        assert_eq!(
-            override_vals.len(), k_full,
-            "palette_override has {} colors; expected {}", override_vals.len(), k_full
-        );
-        let mut flat = Vec::with_capacity(k_full * 3);
-        for c in override_vals {
-            flat.push(c[0]);
-            flat.push(c[1]);
-            flat.push(c[2]);
-        }
-        let dev_for_palette = palette_splats.palette.device();
-        let host_tensor = burn::tensor::Tensor::<MainBackend, 2>::from_data(
-            burn::tensor::TensorData::new(flat, [k_full, 3]),
-            &dev_for_palette,
-        );
-        let host_fusion = host_tensor.into_primitive().tensor();
-        let host_client = host_fusion.client.clone();
-        into_contiguous(host_client.resolve_tensor_float::<_MBB>(host_fusion))
-    } else {
+    let palette = {
         let palette_fusion = palette_splats.palette.clone().into_primitive().tensor();
         into_contiguous(client.clone().resolve_tensor_float::<_MBB>(palette_fusion))
     };
 
-
     let transforms    = into_contiguous(client.clone().resolve_tensor_float::<MainBackendBase>(transforms_fusion));
     let raw_opacities = into_contiguous(client.clone().resolve_tensor_float::<MainBackendBase>(raw_opacities_fusion));
-    //let palette       = into_contiguous(client.clone().resolve_tensor_float::<MainBackendBase>(palette_fusion));
     let low_shs_w     = into_contiguous(client.clone().resolve_tensor_float::<MainBackendBase>(low_shs_w_fusion));
     let high_shs_a    = into_contiguous(client.clone().resolve_tensor_float::<MainBackendBase>(high_shs_a_fusion));
     let high_shs_b    = into_contiguous(client.clone().resolve_tensor_float::<MainBackendBase>(high_shs_b_fusion));
@@ -240,7 +217,7 @@ pub async fn render_palette(
     );
     let cum_tiles_hit = prefix_sum(compact_counts);
 
-    // ── Step 6: ProjectVisibleWeight (MOVED UP from later) ────────────────
+    // ── Step 6: ProjectVisibleWeight ─────────────────────────────────────
     let projected_weight = create_tensor::<2>([num_visible_sz, 16], &base_device, DType::F32);
 
     let palette_uniforms = PaletteProjectUniforms {
@@ -276,18 +253,12 @@ pub async fn render_palette(
                 .with_info(create_meta_binding(palette_uniforms)),
         );
     }
-    log::info!("ProjectVisibleWeight dispatched");
 
-    // ── Step 7: PopulateProjectedForMap (NEW) ─────────────────────────────
-    // Copy xy/conic/opac from projected_weight into a vanilla ProjectedSplat
-    // layout buffer that MapGaussiansToIntersect can read.
+    // ── Step 7: PopulateProjectedForMap ───────────────────────────────────
     let proj_size = std::mem::size_of::<shaders::helpers::ProjectedSplat>() / std::mem::size_of::<f32>();
     let projected_splats_dummy = create_tensor::<2>([num_visible_sz, proj_size], &base_device, DType::F32);
 
-    let pop_u = PopulateUniforms {
-        num_visible,
-        pad_a: 0, pad_b: 0, pad_c: 0,
-    };
+    let pop_u = PopulateUniforms { num_visible, pad_a: 0, pad_b: 0, pad_c: 0 };
     unsafe {
         base_client.launch_unchecked(
             PopulateProjectedForMap::task(),
@@ -300,20 +271,18 @@ pub async fn render_palette(
                 .with_info(create_meta_binding(pop_u)),
         );
     }
-    log::info!("PopulateProjectedForMap dispatched");
 
     // ── Step 8: MapGaussiansToIntersect ───────────────────────────────────
     let num_tiles = tile_bounds.x * tile_bounds.y;
     let buffer_size = (num_intersections as usize).max(1);
-    let tile_id_from_isect      = create_tensor::<1>([buffer_size], &base_device, DType::U32);
-    let compact_gid_from_isect  = create_tensor::<1>([buffer_size], &base_device, DType::U32);
+    let tile_id_from_isect     = create_tensor::<1>([buffer_size], &base_device, DType::U32);
+    let compact_gid_from_isect = create_tensor::<1>([buffer_size], &base_device, DType::U32);
 
     let map_uniforms = shaders::map_gaussians_to_intersect::Uniforms {
         tile_bounds: tile_bounds.into(),
         num_visible,
         pad_a: 0,
     };
-
     base_client.launch(
         MapGaussiansToIntersect::task(),
         calc_cube_count_1d(num_visible, MapGaussiansToIntersect::WORKGROUP_SIZE[0]),
@@ -333,14 +302,12 @@ pub async fn render_palette(
     let (tile_id_from_isect, compact_gid_from_isect) =
         radix_argsort(tile_id_from_isect, compact_gid_from_isect, bits);
 
-    // ── Step 10: tile offsets (our shader) ────────────────────────────────
+    // ── Step 10: tile offsets ─────────────────────────────────────────────
     let tile_offsets = <MainBackendBase as IntTensorOps<MainBackendBase>>::int_zeros(
         [tile_bounds.y as usize, tile_bounds.x as usize, 2].into(),
         &base_device, IntDType::U32,
     );
-    let our_uniforms = OurTileOffsetsUniforms {
-        num_intersections, pad_a: 0, pad_b: 0, pad_c: 0,
-    };
+    let our_uniforms = OurTileOffsetsUniforms { num_intersections, pad_a: 0, pad_b: 0, pad_c: 0 };
     unsafe {
         base_client.launch_unchecked(
             OurTileOffsets::task(),
@@ -361,11 +328,9 @@ pub async fn render_palette(
     let weight_image = <MainBackendBase as FloatTensorOps<MainBackendBase>>::float_zeros(
         [h, w, MAX_K_FULL].into(), &base_device, FloatDType::F32,
     );
-    
     let alpha_image = <MainBackendBase as FloatTensorOps<MainBackendBase>>::float_zeros(
         [h, w].into(), &base_device, FloatDType::F32,
     );
-        
     let raster_uniforms = RasterWeightUniforms {
         tile_bounds: tile_bounds.into(),
         img_size:    img_size.into(),
@@ -384,49 +349,76 @@ pub async fn render_palette(
                     tile_offsets.handle.clone().binding(),
                     projected_weight.handle.clone().binding(),
                     weight_image.handle.clone().binding(),
-                    alpha_image.handle.clone().binding(),  // NEW
+                    alpha_image.handle.clone().binding(),
                 ])
                 .with_info(create_meta_binding(raster_uniforms)),
         );
     }
-    log::info!("RasterizeWeight dispatched");
 
-    // ── Step 12: PaletteRemix → output RGB image ──────────────────────────
-    let out_img: FloatTensor<MainBackendBase> =
-        <MainBackendBase as FloatTensorOps<MainBackendBase>>::float_zeros(
-            [h, w, 1].into(), &base_device, FloatDType::F32,
+    // ── Step 12: zero ΔP + identity L_curves ─────────────────────────────
+    let k = palette_splats.k_full as usize;
+    const N_CURVES: usize = 100;
+
+    let delta_palette_buf = into_contiguous(
+        <MainBackendBase as FloatTensorOps<MainBackendBase>>::float_from_data(
+            burn::tensor::TensorData::new(vec![0.0f32; k * 3], [k * 3]),
+            &base_device,
+        )
     );
 
+    let identity_l: Vec<f32> = {
+        let mut v = vec![0.0f32; N_CURVES * k];
+        for ki in 0..k {
+            for n in 0..N_CURVES {
+                v[ki * N_CURVES + n] = n as f32 / (N_CURVES - 1) as f32;
+            }
+        }
+        v
+    };
+    let l_curves_buf = into_contiguous(
+        <MainBackendBase as FloatTensorOps<MainBackendBase>>::float_from_data(
+            burn::tensor::TensorData::new(identity_l, [N_CURVES * k]),
+            &base_device,
+        )
+    );
+
+    // ── Step 13: PaletteRemix ─────────────────────────────────────────────
+    let out_img =
+        <MainBackendBase as IntTensorOps<MainBackendBase>>::int_zeros(
+            [h, w, 1].into(), &base_device, IntDType::U32,
+        );
+
     let remix_uniforms = RemixUniforms {
-        img_w: img_size.x,
-        img_h: img_size.y,
-        k_full: palette_splats.k_full,
-        pad_a: 0,
-        bg_r: background.x,
-        bg_g: background.y,
-        bg_b: background.z,
-        pad_b: 0,
+        img_w:           img_size.x,
+        img_h:           img_size.y,
+        k_full:          palette_splats.k_full,
+        n_curve_samples: N_CURVES as u32,
+        bg_r:            background.x,
+        bg_g:            background.y,
+        bg_b:            background.z,
+        rho:             100.0,
     };
     unsafe {
         base_client.launch_unchecked(
             PaletteRemix::task(),
-            calc_cube_count_1d(n_pixels, PaletteRemix::WORKGROUP_SIZE[0] * PaletteRemix::WORKGROUP_SIZE[1]),
+            calc_cube_count_1d(n_pixels, PaletteRemix::WORKGROUP_SIZE[0]),
             KernelArguments::new()
                 .with_buffers(vec![
                     weight_image.handle.clone().binding(),
                     palette.handle.clone().binding(),
-                    alpha_image.handle.clone().binding(),  // NEW
+                    alpha_image.handle.clone().binding(),
                     out_img.handle.clone().binding(),
+                    delta_palette_buf.handle.clone().binding(),
+                    l_curves_buf.handle.clone().binding(),
                 ])
                 .with_info(create_meta_binding(remix_uniforms)),
         );
     }
-    log::info!("PaletteRemix dispatched");
 
-    // ── Step 13: Rewrap MainBackendBase output back into MainBackend (Fusion) ─
+    // ── Step 14: rewrap into MainBackend (Fusion) ─────────────────────────
     #[derive(Debug)]
     struct BindOp {
-        desc: CustomOpIr,
+        desc:    CustomOpIr,
         out_img: FloatTensor<MainBackendBase>,
     }
     impl Operation<FusionCubeRuntime<WgpuRuntime>> for BindOp {
@@ -444,7 +436,6 @@ pub async fn render_palette(
     let stream = OperationStreams::default();
     let desc = CustomOpIr::new("palette_render_bind", &[], &[out_img_ir]);
     let op = BindOp { desc: desc.clone(), out_img };
-
     let outputs = client.register(stream, OperationIr::Custom(desc), op).outputs();
     let [out_fusion] = outputs;
 
