@@ -35,5 +35,9 @@ burn-wgpu.workspace = true
 burn-cubecl.workspace = true
 bytemuck = { workspace = true, features = ["derive"] }
 
+# M2: Python optimizer bridge
+pyo3 = { version = "0.22", features = ["auto-initialize"] }
+numpy = "0.22"
+
 [lints]
 workspace = true

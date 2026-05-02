@@ -15,6 +15,7 @@
 //! weight-splatting rasterizer.
 pub mod shaders;
 pub mod render;
+pub mod optimizer;
 
 use std::path::{Path, PathBuf};
 
