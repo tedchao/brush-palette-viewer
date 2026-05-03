@@ -100,6 +100,33 @@ impl UiProcess {
         }).collect()
     }
     
+    /// Display palette: shows the user's *requested* target colors where constraints
+    /// exist, falling back to original_palette + delta_palette for unconstrained slots.
+    /// This avoids the picker "drift" effect where small optimizer rounding makes
+    /// the displayed swatch differ from what the user just picked.
+    pub(crate) fn display_palette(&self) -> Vec<[f32; 3]> {
+        let inner = self.read();
+        inner
+            .original_palette
+            .iter()
+            .enumerate()
+            .map(|(i, p)| {
+                if let Some((_, target)) = inner.palette_constraints.iter().find(|(idx, _)| *idx == i) {
+                    *target
+                } else {
+                    let dr = inner.delta_palette.get(i * 3).copied().unwrap_or(0.0);
+                    let dg = inner.delta_palette.get(i * 3 + 1).copied().unwrap_or(0.0);
+                    let db = inner.delta_palette.get(i * 3 + 2).copied().unwrap_or(0.0);
+                    [
+                        (p[0] + dr).clamp(0.0, 1.0),
+                        (p[1] + dg).clamp(0.0, 1.0),
+                        (p[2] + db).clamp(0.0, 1.0),
+                    ]
+                }
+            })
+            .collect()
+    }
+
     pub(crate) fn delta_palette(&self) -> Vec<f32> {
         self.read().delta_palette.clone()
     }

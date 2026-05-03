@@ -412,8 +412,8 @@ def compute_P_targets(palette, W_at_cons, target_colors, L, tilde_W, N):
 # ─────────────────────────────────────────────────────────────────────────
 
 def alternating_optimize(palette, W_at_cons, target_colors, palette_cons,
-                          curve_cons, N=100, w_eq=100.0, w_sp=0.001,
-                          rho=100.0, q=None, max_iter=10, tol=5e-3,
+                          curve_cons, N=100, w_eq=10000.0, w_sp=0.001,
+                          rho=100.0, q=None, max_iter=10, tol=1e-5,
                           damping=0.7, verbose=False):
     """
     Coupled BCD + IRLS solver for
