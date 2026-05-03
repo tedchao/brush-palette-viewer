@@ -16,7 +16,8 @@ use eframe::egui_wgpu::{self, CallbackTrait, wgpu};
 struct RenderRequest {
     slot: Slot<Splats<MainBackend>>,
     palette_slot: Slot<PaletteSplats<MainBackend>>,
-    palette_override: Option<Vec<[f32; 3]>>,  // NEW
+    delta_palette: Vec<f32>,
+    l_curves: Vec<f32>,
     ctx: egui::Context,
     state: LastRenderState,
 }
@@ -28,7 +29,8 @@ struct LastRenderState {
     background: Vec3,
     splat_scale: Option<f32>,
     img_size: UVec2,
-    palette_override: Option<Vec<[f32; 3]>>,  // NEW
+    delta_palette: Vec<f32>,
+    l_curves: Vec<f32>,
 }
 
 pub struct SplatBackbuffer {
@@ -83,7 +85,8 @@ impl SplatBackbuffer {
         background: Vec3,
         splat_scale: Option<f32>,
         splats_dirty: bool,
-        palette_override: Option<Vec<[f32; 3]>>,  // NEW
+        delta_palette: Vec<f32>,
+        l_curves: Vec<f32>,
     ) {
         // Calculate pixel size for rendering
         let ppp = ui.ctx().pixels_per_point();
@@ -125,7 +128,8 @@ impl SplatBackbuffer {
             background,
             splat_scale,
             img_size,
-            palette_override: palette_override.clone(),
+            delta_palette: delta_palette.clone(),
+            l_curves: l_curves.clone(),
         };
                 
         let dirty = splats_dirty || self.last_state.as_ref() != Some(&current_state);
@@ -136,7 +140,8 @@ impl SplatBackbuffer {
             let _ = self.req_send.send(RenderRequest {
                 slot: slot.clone(),
                 palette_slot: palette_slot.clone(),
-                palette_override: palette_override.clone(),
+                delta_palette: delta_palette.clone(),
+                l_curves: l_curves.clone(),
                 ctx: ui.ctx().clone(),
                 state: current_state,
             });
@@ -376,12 +381,12 @@ async fn render_worker(
         let palette_image = request
             .palette_slot
             .act(request.state.frame, async |palette_splats| {
-                let pal_override = request.palette_override.clone();
                 let img = brush_palette::render::render_palette(
                     &palette_splats,
                     &request.state.camera,
                     request.state.img_size,
-                    pal_override.as_deref(),
+                    &request.delta_palette,
+                    &request.l_curves,
                     request.state.background,
                 )
                 .await;

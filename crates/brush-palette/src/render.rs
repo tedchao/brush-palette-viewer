@@ -104,7 +104,8 @@ pub async fn render_palette(
     palette_splats: &PaletteSplats<MainBackend>,
     camera: &Camera,
     img_size: glam::UVec2,
-    _palette_override: Option<&[[f32; 3]]>,
+    delta_palette: &[f32],
+    l_curves: &[f32],
     background: glam::Vec3,
 ) -> Tensor<MainBackend, 3> {
     log::info!(
@@ -355,18 +356,19 @@ pub async fn render_palette(
         );
     }
 
-    // ── Step 12: zero ΔP + identity L_curves ─────────────────────────────
+    // ── Step 12: upload ΔP + L_curves from CPU ───────────────────────────
     let k = palette_splats.k_full as usize;
     const N_CURVES: usize = 100;
 
-    let delta_palette_buf = into_contiguous(
-        <MainBackendBase as FloatTensorOps<MainBackendBase>>::float_from_data(
-            burn::tensor::TensorData::new(vec![0.0f32; k * 3], [k * 3]),
-            &base_device,
-        )
-    );
-
-    let identity_l: Vec<f32> = {
+    // Defensive defaults if caller provides empty buffers.
+    let dp_data: Vec<f32> = if delta_palette.len() == k * 3 {
+        delta_palette.to_vec()
+    } else {
+        vec![0.0f32; k * 3]
+    };
+    let l_data: Vec<f32> = if l_curves.len() == N_CURVES * k {
+        l_curves.to_vec()
+    } else {
         let mut v = vec![0.0f32; N_CURVES * k];
         for ki in 0..k {
             for n in 0..N_CURVES {
@@ -375,9 +377,16 @@ pub async fn render_palette(
         }
         v
     };
+
+    let delta_palette_buf = into_contiguous(
+        <MainBackendBase as FloatTensorOps<MainBackendBase>>::float_from_data(
+            burn::tensor::TensorData::new(dp_data, [k * 3]),
+            &base_device,
+        )
+    );
     let l_curves_buf = into_contiguous(
         <MainBackendBase as FloatTensorOps<MainBackendBase>>::float_from_data(
-            burn::tensor::TensorData::new(identity_l, [N_CURVES * k]),
+            burn::tensor::TensorData::new(l_data, [N_CURVES * k]),
             &base_device,
         )
     );

@@ -1000,7 +1000,8 @@ impl AppPane for ScenePanel {
                         settings.background.unwrap_or(Vec3::ZERO),
                         settings.splat_scale,
                         self.splats_dirty,
-                        Some(process.current_palette()).filter(|v| !v.is_empty()),
+                        process.delta_palette(),
+                        process.l_curves(),
                     );
                     self.splats_dirty = false;
                 }
