@@ -506,34 +506,116 @@ impl ScenePanel {
         if palette.is_empty() {
             return;
         }
+        
+        const SWATCH_SIZE: f32 = 64.0;
+        
+        // Width = K * (swatch + spacing) + window padding
+        let n = palette.len() as f32;
+        let win_width = n * (SWATCH_SIZE + 6.0) + 24.0;
+
         egui::Window::new("Palette")
-            .default_pos(rect.right_top() + egui::vec2(-260.0, 20.0))
+            .default_pos(rect.right_top() + egui::vec2(-(win_width + 20.0), 20.0))
             .resizable(false)
             .collapsible(true)
+            .min_width(win_width)
             .show(ui.ctx(), |ui| {
+                ui.set_min_width(win_width);
+                ui.spacing_mut().item_spacing = egui::vec2(6.0, 6.0);
+                
                 ui.horizontal_wrapped(|ui| {
                     for (i, c) in palette.iter().enumerate() {
-                    let mut rgb = [c[0], c[1], c[2]];
-                    if ui.color_edit_button_rgb(&mut rgb).changed() {
-                        let target = [
-                            rgb[0].clamp(0.0, 1.0),
-                            rgb[1].clamp(0.0, 1.0),
-                            rgb[2].clamp(0.0, 1.0),
-                        ];
-                        process.set_palette_constraint(i, target);
+                        Self::draw_swatch(ui, i, *c, SWATCH_SIZE, process);
                     }
-                }
+                });
+                
+                ui.separator();
+                let n_cons = process.palette_constraints().len();
+                ui.horizontal(|ui| {
+                    ui.label(format!("{n_cons} edit(s)"));
+                    if ui.button("Reset edits").clicked() {
+                        process.clear_constraints();
+                    }
+                });
             });
+    }
+
+    /// Draw a single square palette swatch with click-to-pick behavior.
+    fn draw_swatch(ui: &mut egui::Ui, idx: usize, color: [f32; 3], size: f32, process: &UiProcess) {
+        let (rect, response) =
+            ui.allocate_exact_size(egui::vec2(size, size), egui::Sense::click());
+        
+        let fill = Color32::from_rgb(
+            (color[0] * 255.0) as u8,
+            (color[1] * 255.0) as u8,
+            (color[2] * 255.0) as u8,
+        );
+        ui.painter().rect_filled(rect, 4.0, fill);
+        
+        let stroke_color = if response.hovered() {
+            Color32::WHITE
+        } else {
+            Color32::from_gray(80)
+        };
+        ui.painter().rect_stroke(
+            rect,
+            4.0,
+            egui::Stroke::new(1.5, stroke_color),
+            egui::StrokeKind::Inside,
+        );
+        
+        // Track open popup state in egui memory.
+        let open_id = egui::Id::new("palette_open_popup_idx");
+        
+        // Click on swatch → toggle this popup.
+        if response.clicked() {
+            ui.ctx().memory_mut(|mem| {
+                let current: Option<usize> = mem.data.get_temp(open_id);
+                let new_val = if current == Some(idx) { None } else { Some(idx) };
+                mem.data.insert_temp(open_id, new_val);
+            });
+        }
+        
+        let is_open = ui
+            .ctx()
+            .memory(|mem| mem.data.get_temp::<Option<usize>>(open_id).flatten() == Some(idx));
+        
+        if is_open {
+            let area_resp = egui::Area::new(egui::Id::new(("palette_picker_area", idx)))
+                .order(egui::Order::Foreground)
+                .fixed_pos(rect.left_bottom() + egui::vec2(0.0, 6.0))
+                .show(ui.ctx(), |ui| {
+                    Frame::popup(ui.style()).show(ui, |ui| {
+                        ui.spacing_mut().slider_width = 280.0;
+                        ui.spacing_mut().interact_size.y = 24.0;
+    
+                        ui.horizontal(|ui| {
+                            ui.add_space(18.0);
+                            ui.vertical(|ui| {
+                                let mut hsva = egui::epaint::Hsva::from_rgb(color);
+                                if egui::widgets::color_picker::color_picker_hsva_2d(
+                                    ui,
+                                    &mut hsva,
+                                    egui::color_picker::Alpha::Opaque,
+                                ) {
+                                    let rgb = hsva.to_rgb();
+                                    process.set_palette_constraint(idx, rgb);
+                                }
+                            });
+                            ui.add_space(10.0);
+                        });
+                    });
+                });
             
-            ui.separator();
-            let n_cons = process.palette_constraints().len();
-            ui.horizontal(|ui| {
-                ui.label(format!("{n_cons} edit(s)"));
-                if ui.button("Reset edits").clicked() {
-                    process.clear_constraints();
-                }
-            });
-        });
+            // Close popup when clicking elsewhere.
+            let clicked_outside = ui.input(|i| i.pointer.any_click())
+                && !response.clicked()
+                && !area_resp.response.hovered()
+                && !area_resp.response.contains_pointer();
+            if clicked_outside {
+                ui.ctx()
+                    .memory_mut(|mem| mem.data.insert_temp::<Option<usize>>(open_id, None));
+            }
+        }
     }
 }
 

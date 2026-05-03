@@ -104,6 +104,7 @@ impl UiProcess {
     /// exist, falling back to original_palette + delta_palette for unconstrained slots.
     /// This avoids the picker "drift" effect where small optimizer rounding makes
     /// the displayed swatch differ from what the user just picked.
+    #[allow(dead_code)]
     pub(crate) fn display_palette(&self) -> Vec<[f32; 3]> {
         let inner = self.read();
         inner
