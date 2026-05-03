@@ -550,7 +550,133 @@ impl ScenePanel {
                 });
             });
     }
+    
+    /// Draw the floating "Image-space constraints" window.
+    fn draw_pixel_constraints_window(ui: &egui::Ui, rect: Rect, process: &UiProcess) {
+        let entries = process.pixel_constraints();
+        if entries.is_empty() {
+            return;
+        }
+        
+        const SWATCH_SIZE: f32 = 36.0;
+        
+        egui::Window::new("Image-space constraints")
+            .default_pos(rect.left_top() + egui::vec2(20.0, 20.0))
+            .resizable(false)
+            .collapsible(true)
+            .show(ui.ctx(), |ui| {
+                ui.spacing_mut().item_spacing = egui::vec2(8.0, 8.0);
+                
+                for (i, entry) in entries.iter().enumerate() {
+                    ui.horizontal(|ui| {
+                        ui.label(format!("#{i}"));
+                        
+                        // Original color (read-only)
+                        let (orig_rect, _) =
+                            ui.allocate_exact_size(egui::vec2(SWATCH_SIZE, SWATCH_SIZE), egui::Sense::hover());
+                        let orig_fill = Color32::from_rgb(
+                            (entry.original_rgb[0] * 255.0) as u8,
+                            (entry.original_rgb[1] * 255.0) as u8,
+                            (entry.original_rgb[2] * 255.0) as u8,
+                        );
+                        ui.painter().rect_filled(orig_rect, 4.0, orig_fill);
+                        ui.painter().rect_stroke(
+                            orig_rect, 4.0,
+                            egui::Stroke::new(1.0, Color32::from_gray(80)),
+                            egui::StrokeKind::Inside,
+                        );
+                        
+                        ui.label("→");
+                        
+                        // Target color (clickable)
+                        Self::draw_target_swatch(ui, i, entry.target_rgb, SWATCH_SIZE, process);
+                        
+                        if ui.button("✕").on_hover_text("Remove constraint").clicked() {
+                            process.remove_pixel_constraint(i);
+                        }
+                    });
+                }
+            });
+    }
 
+    /// Target color swatch with click-to-pick. Mirrors palette swatch behavior.
+    fn draw_target_swatch(
+        ui: &mut egui::Ui,
+        idx: usize,
+        color: [f32; 3],
+        size: f32,
+        process: &UiProcess,
+    ) {
+        let (rect, response) =
+            ui.allocate_exact_size(egui::vec2(size, size), egui::Sense::click());
+        
+        let fill = Color32::from_rgb(
+            (color[0] * 255.0) as u8,
+            (color[1] * 255.0) as u8,
+            (color[2] * 255.0) as u8,
+        );
+        ui.painter().rect_filled(rect, 4.0, fill);
+        
+        let stroke_color = if response.hovered() {
+            Color32::WHITE
+        } else {
+            Color32::from_gray(80)
+        };
+        ui.painter().rect_stroke(
+            rect, 4.0,
+            egui::Stroke::new(1.0, stroke_color),
+            egui::StrokeKind::Inside,
+        );
+        
+        let open_id = egui::Id::new("pixel_target_open_idx");
+        if response.clicked() {
+            ui.ctx().memory_mut(|mem| {
+                let cur: Option<usize> = mem.data.get_temp(open_id);
+                let new_val = if cur == Some(idx) { None } else { Some(idx) };
+                mem.data.insert_temp(open_id, new_val);
+            });
+        }
+        
+        let is_open = ui.ctx().memory(|mem| {
+            mem.data.get_temp::<Option<usize>>(open_id).unwrap_or(None) == Some(idx)
+        });
+        
+        if is_open {
+            let area_resp = egui::Area::new(egui::Id::new(("pixel_target_area", idx)))
+                .order(egui::Order::Foreground)
+                .fixed_pos(rect.left_bottom() + egui::vec2(0.0, 6.0))
+                .show(ui.ctx(), |ui| {
+                    Frame::popup(ui.style()).show(ui, |ui| {
+                        ui.spacing_mut().slider_width = 280.0;
+                        ui.spacing_mut().interact_size.y = 24.0;
+                        ui.horizontal(|ui| {
+                            ui.add_space(18.0);
+                            ui.vertical(|ui| {
+                                let mut hsva = egui::epaint::Hsva::from_rgb(color);
+                                if egui::widgets::color_picker::color_picker_hsva_2d(
+                                    ui, &mut hsva,
+                                    egui::color_picker::Alpha::Opaque,
+                                ) {
+                                    let rgb = hsva.to_rgb();
+                                    process.set_pixel_target(idx, rgb);
+                                }
+                            });
+                            ui.add_space(10.0);
+                        });
+                    });
+                });
+            
+            let clicked_outside = ui.input(|i| i.pointer.any_click())
+                && !response.clicked()
+                && !area_resp.response.hovered()
+                && !area_resp.response.contains_pointer();
+            if clicked_outside {
+                ui.ctx()
+                    .memory_mut(|mem| mem.data.insert_temp::<Option<usize>>(open_id, None));
+            }
+        }
+    }
+    
     /// Draw a single square palette swatch. Optionally overlays its tone curve.
     fn draw_swatch(
         ui: &mut egui::Ui,
@@ -1239,6 +1365,13 @@ impl AppPane for ScenePanel {
             );
             if interactive {
                 process.tick_controls(&response, ui);
+    
+                // 'C' key toggles click-to-constrain mode.
+                if ui.input(|i| i.key_pressed(egui::Key::C)) {
+                    process.toggle_click_mode();
+                    log::info!("Click mode: {}", process.click_mode());
+                }
+    
             }
 
             // Get camera after modifying the controls.
@@ -1282,8 +1415,31 @@ impl AppPane for ScenePanel {
                     }
                 }
 
+                // Compute pending click position (image-space pixel coords).
+                let request_click: Option<[u32; 2]> = {
+                    if process.click_mode() {
+                        let click_pos = ui.input(|i| {
+                            i.pointer
+                                .interact_pos()
+                                .filter(|_| i.pointer.primary_clicked())
+                        });
+                        click_pos.and_then(|pos| {
+                            if rect.contains(pos) {
+                                let ppp = ui.ctx().pixels_per_point();
+                                let px = ((pos.x - rect.left()) * ppp).round() as u32;
+                                let py = ((pos.y - rect.top()) * ppp).round() as u32;
+                                Some([px, py])
+                            } else {
+                                None
+                            }
+                        })
+                    } else {
+                        None
+                    }
+                };
+
                 if let Some(backbuffer) = &mut self.backbuffer {
-                    backbuffer.paint(
+                    let click_results = backbuffer.paint(
                         rect,
                         ui,
                         &process.current_splats(),
@@ -1295,8 +1451,39 @@ impl AppPane for ScenePanel {
                         self.splats_dirty,
                         process.delta_palette(),
                         process.l_curves(),
+                        request_click,
                     );
                     self.splats_dirty = false;
+                    
+                    // Convert click results into pixel constraints.
+                    for result in click_results {
+                        let palette = process.original_palette();
+                        let k_full = palette.len();
+                        let w = if result.w.len() >= k_full {
+                            result.w[..k_full].to_vec()
+                        } else {
+                            result.w.clone()
+                        };
+                        let mut orig = [0.0f32; 3];
+                        for (i, c) in palette.iter().enumerate() {
+                            let wi = w.get(i).copied().unwrap_or(0.0);
+                            orig[0] += wi * c[0];
+                            orig[1] += wi * c[1];
+                            orig[2] += wi * c[2];
+                        }
+                        let entry = crate::ui_process::PixelConstraintEntry {
+                            pixel_xy: result.pixel_xy,
+                            img_size: result.img_size,
+                            w,
+                            original_rgb: orig,
+                            target_rgb: orig,
+                        };
+                        process.add_pixel_constraint(entry);
+                        log::info!(
+                            "Pixel constraint at {:?}: original_rgb={:?}",
+                            result.pixel_xy, orig
+                        );
+                    }
                 }
 
                 if let Some(grid) = &mut self.grid {
@@ -1305,10 +1492,25 @@ impl AppPane for ScenePanel {
                     grid.paint(rect, camera, model_ltw, grid_opacity, ui);
                 }
             });
+            
+            // Draw double-ring markers for pixel constraints.
+            {
+                let ppp = ui.ctx().pixels_per_point();
+                for entry in process.pixel_constraints() {
+                    let px = entry.pixel_xy[0] as f32 / ppp + rect.left();
+                    let py = entry.pixel_xy[1] as f32 / ppp + rect.top();
+                    let center = egui::pos2(px, py);
+                    ui.painter().circle_stroke(center, 8.0, egui::Stroke::new(2.0, Color32::WHITE));
+                    ui.painter().circle_stroke(center, 12.0, egui::Stroke::new(1.5, Color32::BLACK));
+                }
+            }
 
             // Floating palette editor (only shows when palette colors are loaded).
             Self::draw_palette_window(ui, rect, process);
-
+            
+            // Floating image-space constraints window (only when at least one click-constraint exists).
+            Self::draw_pixel_constraints_window(ui, rect, process);
+                    
             if interactive {
                 self.draw_play_pause(ui, rect);
             }

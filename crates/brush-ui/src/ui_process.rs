@@ -15,6 +15,21 @@ enum ControlMessage {
     Paused(bool),
 }
 
+/// One pixel-level image-space constraint captured at click time.
+#[derive(Debug, Clone)]
+pub struct PixelConstraintEntry {
+    /// Pixel position in the rendered image (image coordinates, not screen).
+    pub pixel_xy: [u32; 2],
+    /// The size of the rendered image when this was captured (for re-resolving).
+    pub img_size: [u32; 2],
+    /// Per-palette weights at this pixel (length k_full).
+    pub w: Vec<f32>,
+    /// Original RGB color at this pixel (computed from W * original_palette).
+    pub original_rgb: [f32; 3],
+    /// Target RGB the user wants this pixel to become. Defaults to original.
+    pub target_rgb: [f32; 3],
+}
+
 struct ProcessHandle {
     messages: mpsc::UnboundedReceiver<anyhow::Result<ProcessMessage>>,
     control: mpsc::UnboundedSender<ControlMessage>,
@@ -140,6 +155,44 @@ impl UiProcess {
         self.read().palette_constraints.clone()
     }
     
+    pub(crate) fn pixel_constraints(&self) -> Vec<PixelConstraintEntry> {
+            self.read().pixel_constraints.clone()
+        }
+    
+    pub(crate) fn add_pixel_constraint(&self, entry: PixelConstraintEntry) {
+        self.write().pixel_constraints.push(entry);
+        self.rerun_optimizer();
+    }
+
+    pub(crate) fn remove_pixel_constraint(&self, list_idx: usize) {
+        {
+            let mut inner = self.write();
+            if list_idx < inner.pixel_constraints.len() {
+                inner.pixel_constraints.remove(list_idx);
+            }
+        }
+        self.rerun_optimizer();
+    }
+
+    pub(crate) fn set_pixel_target(&self, list_idx: usize, target: [f32; 3]) {
+        {
+            let mut inner = self.write();
+            if list_idx < inner.pixel_constraints.len() {
+                inner.pixel_constraints[list_idx].target_rgb = target;
+            }
+        }
+        self.rerun_optimizer();
+    }
+
+    pub(crate) fn click_mode(&self) -> bool {
+        self.read().click_mode
+    }
+
+    pub(crate) fn toggle_click_mode(&self) {
+        let mut inner = self.write();
+        inner.click_mode = !inner.click_mode;
+    }
+
     pub(crate) fn curve_constraints(&self) -> Vec<(usize, f32, f32)> {
             self.read().curve_constraints.clone()
         }
@@ -204,12 +257,13 @@ impl UiProcess {
             let mut inner = self.write();
             inner.palette_constraints.clear();
             inner.curve_constraints.clear();
+            inner.pixel_constraints.clear();
         }
         self.rerun_optimizer();
     }
     
     fn rerun_optimizer(&self) {
-        use brush_palette::optimizer::{run_optimizer, PaletteConstraint, CurveConstraint};
+        use brush_palette::optimizer::{run_optimizer, PaletteConstraint, CurveConstraint, PixelConstraint};
         
         let (palette_flat, k_full, palette_cons) = {
             let inner = self.read();
@@ -235,8 +289,15 @@ impl UiProcess {
                 CurveConstraint { idx: *idx, l_x: *lx, l_y: *ly }
             }).collect()
         };
+        let pixel_cons: Vec<PixelConstraint> = {
+            let inner = self.read();
+            inner.pixel_constraints.iter().map(|pc| PixelConstraint {
+                w_at_pixel: pc.w.clone(),
+                target_rgb: pc.target_rgb,
+            }).collect()
+        };
 
-        match run_optimizer(&palette_flat, k_full, &[], &palette_cons, &curve_cons, 100) {
+        match run_optimizer(&palette_flat, k_full, &pixel_cons, &palette_cons, &curve_cons, 100) {
             Ok(result) => {
                 let mut inner = self.write();
                 inner.delta_palette = result.delta_palette;
@@ -519,6 +580,8 @@ struct UiProcessInner {
     l_curves: Vec<f32>,                // (N, K) flat col-major: L[k*N + n]
     palette_constraints: Vec<(usize, [f32; 3])>,
     curve_constraints: Vec<(usize, f32, f32)>,
+    pixel_constraints: Vec<PixelConstraintEntry>,
+    click_mode: bool,
 }
 
 impl UiProcessInner {
@@ -542,6 +605,8 @@ impl UiProcessInner {
             l_curves: Vec::new(),
             palette_constraints: Vec::new(),
             curve_constraints: Vec::new(),
+            pixel_constraints: Vec::new(),
+            click_mode: false,
             ui_mode: UiMode::Default,
             background_style: BackgroundStyle::Black,
             train_paused: false,

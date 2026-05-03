@@ -20,6 +20,7 @@ struct RenderRequest {
     l_curves: Vec<f32>,
     ctx: egui::Context,
     state: LastRenderState,
+    pending_click: Option<[u32; 2]>,
 }
 
 #[derive(Clone, PartialEq)]
@@ -36,6 +37,8 @@ struct LastRenderState {
 pub struct SplatBackbuffer {
     req_send: mpsc::UnboundedSender<RenderRequest>,
     img_rec: mpsc::Receiver<Tensor<MainBackend, 3>>,
+    click_result_rec: mpsc::Receiver<ClickResult>,
+    pending_click: Option<[u32; 2]>,
     last_image: Option<Tensor<MainBackend, 3>>,
     last_state: Option<LastRenderState>,
     last_frame_time: Option<std::time::Instant>,
@@ -44,11 +47,19 @@ pub struct SplatBackbuffer {
     last_fps_update: Option<std::time::Instant>,
 }
 
+#[derive(Debug, Clone)]
+pub struct ClickResult {
+    pub pixel_xy: [u32; 2],
+    pub img_size: [u32; 2],
+    pub w: Vec<f32>,
+}
+
 impl SplatBackbuffer {
     pub fn new(state: &eframe::egui_wgpu::RenderState) -> Self {
         // Create channel for render requests
         let (req_send, req_rec) = mpsc::unbounded_channel();
         let (img_send, img_rec) = mpsc::channel(1);
+        let (click_result_send, click_result_rec) = mpsc::channel(8);
 
         // Register splat backbuffer resources
         state
@@ -60,10 +71,12 @@ impl SplatBackbuffer {
                 state.target_format,
             ));
 
-        task::spawn(render_worker(req_rec, img_send));
+        task::spawn(render_worker(req_rec, img_send, click_result_send));
         Self {
             req_send,
             img_rec,
+            click_result_rec,
+            pending_click: None,
             last_image: None,
             last_state: None,
             last_frame_time: None,
@@ -87,7 +100,20 @@ impl SplatBackbuffer {
         splats_dirty: bool,
         delta_palette: Vec<f32>,
         l_curves: Vec<f32>,
-    ) {
+        request_click: Option<[u32; 2]>,
+    ) -> Vec<ClickResult> {
+        
+        // Queue the click request for the next render.
+        if let Some(click) = request_click {
+            self.pending_click = Some(click);
+        }
+
+        // Drain any pending click results.
+        let mut click_results = Vec::new();
+        while let Ok(result) = self.click_result_rec.try_recv() {
+            click_results.push(result);
+        }
+
         // Calculate pixel size for rendering
         let ppp = ui.ctx().pixels_per_point();
         let img_size = UVec2::new(
@@ -132,8 +158,8 @@ impl SplatBackbuffer {
             l_curves: l_curves.clone(),
         };
                 
-        let dirty = splats_dirty || self.last_state.as_ref() != Some(&current_state);
-
+        let dirty = splats_dirty || self.last_state.as_ref() != Some(&current_state) || self.pending_click.is_some();
+        
         if dirty {
             self.last_state = Some(current_state.clone());
             // Send request to worker (ignore send errors if channel closed)
@@ -144,6 +170,7 @@ impl SplatBackbuffer {
                 l_curves: l_curves.clone(),
                 ctx: ui.ctx().clone(),
                 state: current_state,
+                pending_click: self.pending_click.take(),
             });
         }
 
@@ -176,6 +203,7 @@ impl SplatBackbuffer {
             egui::FontId::monospace(14.0),
             egui::Color32::from_rgb(255, 255, 100),
         );
+        click_results
     }
 }
 
@@ -365,6 +393,7 @@ impl CallbackTrait for SplatBackbufferPainter {
 async fn render_worker(
     mut receiver: mpsc::UnboundedReceiver<RenderRequest>,
     img_sender: mpsc::Sender<Tensor<MainBackend, 3>>,
+    click_result_sender: mpsc::Sender<ClickResult>,
 ) {
     loop {
         // Wait for at least one request and get latest.
@@ -381,15 +410,26 @@ async fn render_worker(
         let palette_image = request
             .palette_slot
             .act(request.state.frame, async |palette_splats| {
-                let img = brush_palette::render::render_palette(
+                let pending_click = request.pending_click;
+                let (img, click_weights) = brush_palette::render::render_palette(
                     &palette_splats,
                     &request.state.camera,
                     request.state.img_size,
                     &request.delta_palette,
                     &request.l_curves,
                     request.state.background,
+                    pending_click,
                 )
                 .await;
+                if let (Some(xy), Some(w)) = (pending_click, click_weights) {
+                    let _ = click_result_sender
+                        .send(ClickResult {
+                            pixel_xy: xy,
+                            img_size: request.state.img_size.into(),
+                            w,
+                        })
+                        .await;
+                }
                 (palette_splats, img)
             })
             .await;

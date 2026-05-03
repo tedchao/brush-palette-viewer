@@ -107,7 +107,8 @@ pub async fn render_palette(
     delta_palette: &[f32],
     l_curves: &[f32],
     background: glam::Vec3,
-) -> Tensor<MainBackend, 3> {
+    pending_click: Option<[u32; 2]>,
+) -> (Tensor<MainBackend, 3>, Option<Vec<f32>>) {
     log::info!(
         "render_palette: img_size={}x{}, n_splats={}, k_full={}, p={}, q={}",
         img_size.x, img_size.y,
@@ -423,7 +424,40 @@ pub async fn render_palette(
                 .with_info(create_meta_binding(remix_uniforms)),
         );
     }
-
+    
+    // ── Step 13b: optional readback of pixel weights at clicked pixel ────
+    let click_result: Option<Vec<f32>> = if let Some([px, py]) = pending_click {
+        if px < img_size.x && py < img_size.y {
+            const MAX_K_FULL: usize = 8;
+            let pix_idx = (py as usize) * (img_size.x as usize) + (px as usize);
+            let start = pix_idx * MAX_K_FULL;
+            let end = start + MAX_K_FULL;
+            
+            // Slice (h*w, MAX_K_FULL) → just the row at pix_idx
+            // weight_image is [h, w, MAX_K_FULL] flattened.
+            let weight_flat = <MainBackendBase as FloatTensorOps<MainBackendBase>>::float_reshape(
+                weight_image.clone(),
+                [(img_size.x as usize) * (img_size.y as usize) * MAX_K_FULL].into(),
+            );
+            let pixel_slice = <MainBackendBase as FloatTensorOps<MainBackendBase>>::float_slice(
+                weight_flat,
+                &[(start..end).into()],
+            );
+            
+            let data = Transaction::default()
+                .register(Tensor::<MainBackendBase, 1>::from_primitive(TensorPrimitive::Float(pixel_slice)))
+                .execute_async()
+                .await
+                .ok()
+                .and_then(|d| d[0].clone().into_vec::<f32>().ok());
+            data
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    
     // ── Step 14: rewrap into MainBackend (Fusion) ─────────────────────────
     #[derive(Debug)]
     struct BindOp {
@@ -448,5 +482,6 @@ pub async fn render_palette(
     let outputs = client.register(stream, OperationIr::Custom(desc), op).outputs();
     let [out_fusion] = outputs;
 
-    Tensor::from_primitive(TensorPrimitive::Float(out_fusion))
+    let final_tensor = Tensor::from_primitive(TensorPrimitive::Float(out_fusion));
+    (final_tensor, click_result)
 }
