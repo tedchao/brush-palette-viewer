@@ -80,6 +80,7 @@ impl UiProcess {
             .map_or(Slot::default(), |s| s.palette_view.clone())
     }
     
+    #[allow(dead_code)]
     pub(crate) fn original_palette(&self) -> Vec<[f32; 3]> {
         self.read().original_palette.clone()
     }

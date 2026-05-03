@@ -524,6 +524,15 @@ impl ScenePanel {
                     }
                 }
             });
+            
+            ui.separator();
+            let n_cons = process.palette_constraints().len();
+            ui.horizontal(|ui| {
+                ui.label(format!("{n_cons} edit(s)"));
+                if ui.button("Reset edits").clicked() {
+                    process.clear_constraints();
+                }
+            });
         });
     }
 }
