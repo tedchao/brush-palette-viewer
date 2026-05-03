@@ -140,6 +140,50 @@ impl UiProcess {
         self.read().palette_constraints.clone()
     }
     
+    pub(crate) fn curve_constraints(&self) -> Vec<(usize, f32, f32)> {
+            self.read().curve_constraints.clone()
+        }
+    
+    /// Register a curve constraint: f_idx(L_x) = L_y.
+    pub(crate) fn set_curve_constraint(&self, idx: usize, l_x: f32, l_y: f32) {
+        {
+            let mut inner = self.write();
+            // Replace existing constraint at same (idx, L_x ~ same), or append.
+            // For now: replace if (idx, ~L_x within tolerance), else append.
+            const SAME_X_TOL: f32 = 1.0 / 50.0; // ~one curve sample
+            if let Some(pos) = inner.curve_constraints.iter().position(|(i, lx, _)| {
+                *i == idx && (*lx - l_x).abs() < SAME_X_TOL
+            }) {
+                inner.curve_constraints[pos] = (idx, l_x, l_y);
+            } else {
+                inner.curve_constraints.push((idx, l_x, l_y));
+            }
+        }
+        self.rerun_optimizer();
+    }
+
+    /// Remove a curve constraint by its index in the constraints list.
+    pub(crate) fn remove_curve_constraint(&self, list_idx: usize) {
+        {
+            let mut inner = self.write();
+            if list_idx < inner.curve_constraints.len() {
+                inner.curve_constraints.remove(list_idx);
+            }
+        }
+        self.rerun_optimizer();
+    }
+    
+    /// Update an existing curve constraint by index in the list.
+    pub(crate) fn update_curve_constraint(&self, list_idx: usize, idx: usize, l_x: f32, l_y: f32) {
+        {
+            let mut inner = self.write();
+            if list_idx < inner.curve_constraints.len() {
+                inner.curve_constraints[list_idx] = (idx, l_x, l_y);
+            }
+        }
+        self.rerun_optimizer();
+    }
+
     /// Set or replace a palette-equality constraint, then re-run optimizer.
     pub(crate) fn set_palette_constraint(&self, idx: usize, target: [f32; 3]) {
         {
@@ -159,12 +203,13 @@ impl UiProcess {
         {
             let mut inner = self.write();
             inner.palette_constraints.clear();
+            inner.curve_constraints.clear();
         }
         self.rerun_optimizer();
     }
     
     fn rerun_optimizer(&self) {
-        use brush_palette::optimizer::{run_optimizer, PaletteConstraint};
+        use brush_palette::optimizer::{run_optimizer, PaletteConstraint, CurveConstraint};
         
         let (palette_flat, k_full, palette_cons) = {
             let inner = self.read();
@@ -184,7 +229,14 @@ impl UiProcess {
             (flat, k, cons)
         };
         
-        match run_optimizer(&palette_flat, k_full, &[], &palette_cons, &[], 100) {
+        let curve_cons: Vec<CurveConstraint> = {
+            let inner = self.read();
+            inner.curve_constraints.iter().map(|(idx, lx, ly)| {
+                CurveConstraint { idx: *idx, l_x: *lx, l_y: *ly }
+            }).collect()
+        };
+
+        match run_optimizer(&palette_flat, k_full, &[], &palette_cons, &curve_cons, 100) {
             Ok(result) => {
                 let mut inner = self.write();
                 inner.delta_palette = result.delta_palette;
@@ -466,6 +518,7 @@ struct UiProcessInner {
     delta_palette: Vec<f32>,           // (K, 3) flat row-major
     l_curves: Vec<f32>,                // (N, K) flat col-major: L[k*N + n]
     palette_constraints: Vec<(usize, [f32; 3])>,
+    curve_constraints: Vec<(usize, f32, f32)>,
 }
 
 impl UiProcessInner {
@@ -488,6 +541,7 @@ impl UiProcessInner {
             delta_palette: Vec::new(),
             l_curves: Vec::new(),
             palette_constraints: Vec::new(),
+            curve_constraints: Vec::new(),
             ui_mode: UiMode::Default,
             background_style: BackgroundStyle::Black,
             train_paused: false,

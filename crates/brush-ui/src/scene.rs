@@ -509,10 +509,15 @@ impl ScenePanel {
         
         const SWATCH_SIZE: f32 = 64.0;
         
-        // Width = K * (swatch + spacing) + window padding
+        // Persistent checkbox state
+        let edit_curves_id = egui::Id::new("palette_edit_curves");
+        let mut edit_curves = ui
+            .ctx()
+            .memory(|mem| mem.data.get_temp::<bool>(edit_curves_id).unwrap_or(false));
+        
         let n = palette.len() as f32;
         let win_width = n * (SWATCH_SIZE + 6.0) + 24.0;
-
+        
         egui::Window::new("Palette")
             .default_pos(rect.right_top() + egui::vec2(-(win_width + 20.0), 20.0))
             .resizable(false)
@@ -522,13 +527,20 @@ impl ScenePanel {
                 ui.set_min_width(win_width);
                 ui.spacing_mut().item_spacing = egui::vec2(6.0, 6.0);
                 
+                let l_curves = process.l_curves();
                 ui.horizontal_wrapped(|ui| {
                     for (i, c) in palette.iter().enumerate() {
-                        Self::draw_swatch(ui, i, *c, SWATCH_SIZE, process);
+                        Self::draw_swatch(ui, i, *c, SWATCH_SIZE, edit_curves, &l_curves, palette.len(), process);
                     }
                 });
                 
                 ui.separator();
+                
+                if ui.checkbox(&mut edit_curves, "Edit tone curves").changed() {
+                    ui.ctx()
+                        .memory_mut(|mem| mem.data.insert_temp(edit_curves_id, edit_curves));
+                }
+                
                 let n_cons = process.palette_constraints().len();
                 ui.horizontal(|ui| {
                     ui.label(format!("{n_cons} edit(s)"));
@@ -539,8 +551,17 @@ impl ScenePanel {
             });
     }
 
-    /// Draw a single square palette swatch with click-to-pick behavior.
-    fn draw_swatch(ui: &mut egui::Ui, idx: usize, color: [f32; 3], size: f32, process: &UiProcess) {
+    /// Draw a single square palette swatch. Optionally overlays its tone curve.
+    fn draw_swatch(
+        ui: &mut egui::Ui,
+        idx: usize,
+        color: [f32; 3],
+        size: f32,
+        show_curve: bool,
+        l_curves: &[f32],
+        k_full: usize,
+        process: &UiProcess,
+    ) {
         let (rect, response) =
             ui.allocate_exact_size(egui::vec2(size, size), egui::Sense::click());
         
@@ -550,6 +571,22 @@ impl ScenePanel {
             (color[2] * 255.0) as u8,
         );
         ui.painter().rect_filled(rect, 4.0, fill);
+        
+        // Tone curve overlay on swatch
+        let line_color = if idx == 1 { Color32::BLACK } else { Color32::WHITE };
+        if show_curve && l_curves.len() == 100 * k_full {
+            let n_samples = 100;
+            let stroke = egui::Stroke::new(1.5, line_color);
+            let mut points: Vec<egui::Pos2> = Vec::with_capacity(n_samples);
+            for n in 0..n_samples {
+                let x_norm = n as f32 / (n_samples - 1) as f32;
+                let y_norm = l_curves[idx * n_samples + n].clamp(0.0, 1.0);
+                let px = rect.left() + x_norm * rect.width();
+                let py = rect.bottom() - y_norm * rect.height();
+                points.push(egui::pos2(px, py));
+            }
+            ui.painter().add(egui::Shape::line(points, stroke));
+        }
         
         let stroke_color = if response.hovered() {
             Color32::WHITE
@@ -563,21 +600,19 @@ impl ScenePanel {
             egui::StrokeKind::Inside,
         );
         
-        // Track open popup state in egui memory.
+        // Click toggles popup
         let open_id = egui::Id::new("palette_open_popup_idx");
-        
-        // Click on swatch → toggle this popup.
         if response.clicked() {
             ui.ctx().memory_mut(|mem| {
                 let current: Option<usize> = mem.data.get_temp(open_id);
-                let new_val = if current == Some(idx) { None } else { Some(idx) };
+                let new_val: Option<usize> = if current == Some(idx) { None } else { Some(idx) };
                 mem.data.insert_temp(open_id, new_val);
             });
         }
         
         let is_open = ui
             .ctx()
-            .memory(|mem| mem.data.get_temp::<Option<usize>>(open_id).flatten() == Some(idx));
+            .memory(|mem| mem.data.get_temp::<Option<usize>>(open_id).unwrap_or(None) == Some(idx));
         
         if is_open {
             let area_resp = egui::Area::new(egui::Id::new(("palette_picker_area", idx)))
@@ -585,28 +620,32 @@ impl ScenePanel {
                 .fixed_pos(rect.left_bottom() + egui::vec2(0.0, 6.0))
                 .show(ui.ctx(), |ui| {
                     Frame::popup(ui.style()).show(ui, |ui| {
-                        ui.spacing_mut().slider_width = 280.0;
-                        ui.spacing_mut().interact_size.y = 24.0;
-    
-                        ui.horizontal(|ui| {
-                            ui.add_space(18.0);
-                            ui.vertical(|ui| {
-                                let mut hsva = egui::epaint::Hsva::from_rgb(color);
-                                if egui::widgets::color_picker::color_picker_hsva_2d(
-                                    ui,
-                                    &mut hsva,
-                                    egui::color_picker::Alpha::Opaque,
-                                ) {
-                                    let rgb = hsva.to_rgb();
-                                    process.set_palette_constraint(idx, rgb);
-                                }
+                        if show_curve {
+                            // Tone curve editor popup
+                            Self::draw_curve_editor(ui, idx, color, line_color, l_curves, k_full, process);
+                        } else {
+                            // Color picker popup
+                            ui.spacing_mut().slider_width = 280.0;
+                            ui.spacing_mut().interact_size.y = 24.0;
+                            ui.horizontal(|ui| {
+                                ui.add_space(18.0);
+                                ui.vertical(|ui| {
+                                    let mut hsva = egui::epaint::Hsva::from_rgb(color);
+                                    if egui::widgets::color_picker::color_picker_hsva_2d(
+                                        ui,
+                                        &mut hsva,
+                                        egui::color_picker::Alpha::Opaque,
+                                    ) {
+                                        let rgb = hsva.to_rgb();
+                                        process.set_palette_constraint(idx, rgb);
+                                    }
+                                });
+                                ui.add_space(10.0);
                             });
-                            ui.add_space(10.0);
-                        });
+                        }
                     });
                 });
             
-            // Close popup when clicking elsewhere.
             let clicked_outside = ui.input(|i| i.pointer.any_click())
                 && !response.clicked()
                 && !area_resp.response.hovered()
@@ -614,6 +653,169 @@ impl ScenePanel {
             if clicked_outside {
                 ui.ctx()
                     .memory_mut(|mem| mem.data.insert_temp::<Option<usize>>(open_id, None));
+            }
+        }
+    }
+
+    /// Draw a zoomed tone-curve editor for one palette index.
+    fn draw_curve_editor(
+        ui: &mut egui::Ui,
+        idx: usize,
+        bg_color: [f32; 3],
+        line_color: Color32,
+        l_curves: &[f32],
+        k_full: usize,
+        process: &UiProcess,
+    ) {
+        const EDITOR_SIZE: f32 = 280.0;
+        const N_SAMPLES: usize = 100;
+        
+        ui.label(format!("Tone curve for palette {idx}"));
+        ui.add_space(4.0);
+        
+        let (rect, response) = ui.allocate_exact_size(
+            egui::vec2(EDITOR_SIZE, EDITOR_SIZE),
+            egui::Sense::click_and_drag(),
+        );
+        
+        // Background
+        let bg = Color32::from_rgb(
+            (bg_color[0] * 255.0) as u8,
+            (bg_color[1] * 255.0) as u8,
+            (bg_color[2] * 255.0) as u8,
+        );
+        ui.painter().rect_filled(rect, 4.0, bg);
+        // Identity diagonal — semi-transparent so it shows on any color
+        let diag_color = if (bg_color[0] + bg_color[1] + bg_color[2]) / 3.0 > 0.5 {
+            Color32::from_rgba_unmultiplied(0, 0, 0, 100)
+        } else {
+            Color32::from_rgba_unmultiplied(255, 255, 255, 100)
+        };
+        ui.painter().line_segment(
+            [rect.left_bottom(), rect.right_top()],
+            egui::Stroke::new(1.0, diag_color),
+        );
+        // Border
+        ui.painter().rect_stroke(
+            rect,
+            4.0,
+            egui::Stroke::new(1.0, Color32::from_gray(100)),
+            egui::StrokeKind::Inside,
+        );
+        
+        // Draw current curve
+        if l_curves.len() == N_SAMPLES * k_full {
+            let stroke = egui::Stroke::new(2.0, line_color);
+            let mut points: Vec<egui::Pos2> = Vec::with_capacity(N_SAMPLES);
+            for n in 0..N_SAMPLES {
+                let x_norm = n as f32 / (N_SAMPLES - 1) as f32;
+                let y_norm = l_curves[idx * N_SAMPLES + n].clamp(0.0, 1.0);
+                let px = rect.left() + x_norm * rect.width();
+                let py = rect.bottom() - y_norm * rect.height();
+                points.push(egui::pos2(px, py));
+            }
+            ui.painter().add(egui::Shape::line(points, stroke));
+        }
+        
+        // Draw existing curve constraints for this palette index
+        for cc in process.curve_constraints() {
+            if cc.0 == idx {
+                let lx = cc.1;
+                let ly = cc.2;
+                let px = rect.left() + lx * rect.width();
+                let py = rect.bottom() - ly * rect.height();
+                ui.painter().circle_filled(egui::pos2(px, py), 5.0, line_color);
+                ui.painter().circle_stroke(
+                    egui::pos2(px, py),
+                    5.0,
+                    egui::Stroke::new(1.5, Color32::from_gray(20)),
+                );
+            }
+        }
+        
+        // Drag/click logic:
+        //   drag_started near an existing point → grab it (track its index)
+        //   drag_started in empty space → create new point and grab it
+        //   while dragging → update the grabbed point
+        //   click on an existing point (no drag) → delete it
+        //   click in empty space → add new point
+        const HIT_RADIUS_PX: f32 = 8.0;
+        let drag_grab_id = egui::Id::new(("curve_drag_grab", idx));
+
+        let pointer_to_lxly = |pos: egui::Pos2| -> (f32, f32) {
+            let lx = ((pos.x - rect.left()) / rect.width()).clamp(0.0, 1.0);
+            let ly = (1.0 - (pos.y - rect.top()) / rect.height()).clamp(0.0, 1.0);
+            (lx, ly)
+        };
+
+        if response.drag_started() {
+            if let Some(pos) = response.interact_pointer_pos() {
+                let (lx, ly) = pointer_to_lxly(pos);
+                
+                // Find existing point we're grabbing
+                let mut hit: Option<usize> = None;
+                for (j, cc) in process.curve_constraints().iter().enumerate() {
+                    if cc.0 != idx { continue; }
+                    let cx = rect.left() + cc.1 * rect.width();
+                    let cy = rect.bottom() - cc.2 * rect.height();
+                    if (pos.x - cx).hypot(pos.y - cy) <= HIT_RADIUS_PX {
+                        hit = Some(j);
+                        break;
+                    }
+                }
+                
+                let grabbed_idx = if let Some(j) = hit {
+                    j
+                } else {
+                    // Create new constraint and grab it
+                    process.set_curve_constraint(idx, lx, ly);
+                    // The new point was appended (or replaced near-x); resolve its position
+                    process
+                        .curve_constraints()
+                        .iter()
+                        .rposition(|cc| cc.0 == idx && (cc.1 - lx).abs() < 1e-3)
+                        .unwrap_or(0)
+                };
+                ui.ctx()
+                    .memory_mut(|mem| mem.data.insert_temp(drag_grab_id, grabbed_idx));
+            }
+        }
+
+        if response.dragged() {
+            if let Some(pos) = response.interact_pointer_pos() {
+                let (lx, ly) = pointer_to_lxly(pos);
+                let grabbed: Option<usize> =
+                    ui.ctx().memory(|mem| mem.data.get_temp(drag_grab_id));
+                if let Some(j) = grabbed {
+                    process.update_curve_constraint(j, idx, lx, ly);
+                }
+            }
+        }
+
+        if response.drag_stopped() {
+            ui.ctx()
+                .memory_mut(|mem| mem.data.remove::<usize>(drag_grab_id));
+        }
+
+        // Pure click (no drag) → delete if hit, else add
+        if response.clicked() && !response.dragged() {
+            if let Some(pos) = response.interact_pointer_pos() {
+                let (lx, ly) = pointer_to_lxly(pos);
+                let mut hit: Option<usize> = None;
+                for (j, cc) in process.curve_constraints().iter().enumerate() {
+                    if cc.0 != idx { continue; }
+                    let cx = rect.left() + cc.1 * rect.width();
+                    let cy = rect.bottom() - cc.2 * rect.height();
+                    if (pos.x - cx).hypot(pos.y - cy) <= HIT_RADIUS_PX {
+                        hit = Some(j);
+                        break;
+                    }
+                }
+                if let Some(j) = hit {
+                    process.remove_curve_constraint(j);
+                } else {
+                    process.set_curve_constraint(idx, lx, ly);
+                }
             }
         }
     }
