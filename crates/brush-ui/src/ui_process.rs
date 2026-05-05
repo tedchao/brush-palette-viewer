@@ -28,6 +28,8 @@ pub struct PixelConstraintEntry {
     pub original_rgb: [f32; 3],
     /// Target RGB the user wants this pixel to become. Defaults to original.
     pub target_rgb: [f32; 3],
+    pub view_position: glam::Vec3,
+    pub view_rotation: glam::Quat,
 }
 
 struct ProcessHandle {

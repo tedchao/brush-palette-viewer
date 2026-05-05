@@ -795,21 +795,29 @@ impl ScenePanel {
                     ui.horizontal(|ui| {
                         ui.label(format!("#{i}"));
                         
-                        // Original color (read-only)
-                        let (orig_rect, _) =
-                            ui.allocate_exact_size(egui::vec2(SWATCH_SIZE, SWATCH_SIZE), egui::Sense::hover());
+                        let (orig_rect, orig_resp) =
+                            ui.allocate_exact_size(egui::vec2(SWATCH_SIZE, SWATCH_SIZE), egui::Sense::click());
                         let orig_fill = Color32::from_rgb(
                             (entry.original_rgb[0] * 255.0) as u8,
                             (entry.original_rgb[1] * 255.0) as u8,
                             (entry.original_rgb[2] * 255.0) as u8,
                         );
                         ui.painter().rect_filled(orig_rect, 4.0, orig_fill);
+                        let stroke_color = if orig_resp.hovered() {
+                            Color32::WHITE
+                        } else {
+                            Color32::from_gray(80)
+                        };
                         ui.painter().rect_stroke(
                             orig_rect, 4.0,
-                            egui::Stroke::new(1.0, Color32::from_gray(80)),
+                            egui::Stroke::new(1.0, stroke_color),
                             egui::StrokeKind::Inside,
                         );
-                        
+                        if orig_resp.clicked() {
+                            process.set_cam_transform(entry.view_position, entry.view_rotation);
+                        }
+                        orig_resp.on_hover_text("Click to jump to this view");
+
                         ui.label("→");
                         
                         // Target color (clickable)
@@ -1695,12 +1703,15 @@ impl AppPane for ScenePanel {
                             orig[1] += wi * c[1];
                             orig[2] += wi * c[2];
                         }
+                        let cam = process.current_camera();
                         let entry = crate::ui_process::PixelConstraintEntry {
                             pixel_xy: result.pixel_xy,
                             img_size: result.img_size,
                             w,
                             original_rgb: orig,
                             target_rgb: orig,
+                            view_position: cam.position,
+                            view_rotation: cam.rotation,
                         };
                         process.add_pixel_constraint(entry);
                         log::info!(
@@ -1717,10 +1728,20 @@ impl AppPane for ScenePanel {
                 }
             });
             
-            // Draw double-ring markers for pixel constraints.
+            // Draw double-ring markers only for constraints saved at the *current* view.
             {
                 let ppp = ui.ctx().pixels_per_point();
+                let cam = process.current_camera();
+                const POS_TOL: f32 = 1e-3;
+                const ROT_TOL: f32 = 1e-3;
                 for entry in process.pixel_constraints() {
+                    let pos_match =
+                        (entry.view_position - cam.position).length() < POS_TOL;
+                    let rot_match =
+                        (entry.view_rotation.dot(cam.rotation).abs() - 1.0).abs() < ROT_TOL;
+                    if !(pos_match && rot_match) {
+                        continue;
+                    }
                     let px = entry.pixel_xy[0] as f32 / ppp + rect.left();
                     let py = entry.pixel_xy[1] as f32 / ppp + rect.top();
                     let center = egui::pos2(px, py);
