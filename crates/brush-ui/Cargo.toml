@@ -6,7 +6,7 @@ readme.workspace = true
 license.workspace = true
 
 [features]
-training = ["brush-process/training", "dep:brush-dataset", "brush-serde/export", "dep:image"]
+training = ["brush-process/training", "dep:brush-dataset", "brush-serde/export"]
 debug-validation = ["brush-render/debug-validation", "brush-process/debug-validation"]
 
 [dependencies]
@@ -39,7 +39,7 @@ wasm-bindgen.workspace = true
 bytemuck = { version = "1.14", features = ["derive"] }
 
 brush-dataset = { path = "../brush-dataset", optional = true }
-image = { workspace = true, optional = true }
+image = { workspace = true }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread"] }

@@ -14,6 +14,87 @@ use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 use web_time::Instant;
 
+/// Bresenham line, with antialiasing skipped for speed (it's a small image).
+fn draw_line(
+    img: &mut image::RgbImage,
+    x0: i32, y0: i32, x1: i32, y1: i32,
+    color: image::Rgb<u8>,
+) {
+    let dx = (x1 - x0).abs();
+    let dy = -(y1 - y0).abs();
+    let sx = if x0 < x1 { 1 } else { -1 };
+    let sy = if y0 < y1 { 1 } else { -1 };
+    let mut err = dx + dy;
+    let (mut x, mut y) = (x0, y0);
+    let (w, h) = (img.width() as i32, img.height() as i32);
+    loop {
+        if x >= 0 && x < w && y >= 0 && y < h {
+            img.put_pixel(x as u32, y as u32, color);
+        }
+        if x == x1 && y == y1 { break; }
+        let e2 = 2 * err;
+        if e2 >= dy { err += dy; x += sx; }
+        if e2 <= dx { err += dx; y += sy; }
+    }
+}
+
+fn draw_thick_line(
+    img: &mut image::RgbImage,
+    x0: i32, y0: i32, x1: i32, y1: i32,
+    color: image::Rgb<u8>,
+    thickness: i32,
+) {
+    // Cheap thickness: draw thickness² translated copies of the bresenham line.
+    let half = thickness / 2;
+    for dx in -half..=half {
+        for dy in -half..=half {
+            draw_line(img, x0 + dx, y0 + dy, x1 + dx, y1 + dy, color);
+        }
+    }
+}
+
+fn draw_filled_circle(
+    img: &mut image::RgbImage,
+    cx: i32, cy: i32, r: i32,
+    color: image::Rgb<u8>,
+) {
+    let (w, h) = (img.width() as i32, img.height() as i32);
+    let r2 = r * r;
+    for dy in -r..=r {
+        for dx in -r..=r {
+            if dx * dx + dy * dy <= r2 {
+                let x = cx + dx; let y = cy + dy;
+                if x >= 0 && x < w && y >= 0 && y < h {
+                    img.put_pixel(x as u32, y as u32, color);
+                }
+            }
+        }
+    }
+}
+
+fn draw_circle(
+    img: &mut image::RgbImage,
+    cx: i32, cy: i32, r: i32,
+    color: image::Rgb<u8>,
+) {
+    // Hollow ring of width 1.
+    let (w, h) = (img.width() as i32, img.height() as i32);
+    let r2 = r * r;
+    let r2_inner = (r - 1) * (r - 1);
+    for dy in -r..=r {
+        for dx in -r..=r {
+            let d2 = dx * dx + dy * dy;
+            if d2 <= r2 && d2 > r2_inner {
+                let x = cx + dx; let y = cy + dy;
+                if x >= 0 && x < w && y >= 0 && y < h {
+                    img.put_pixel(x as u32, y as u32, color);
+                }
+            }
+        }
+    }
+}
+
+
 /// Controls how often the viewport re-renders during training.
 #[derive(Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RenderUpdateMode {
@@ -499,7 +580,108 @@ impl ScenePanel {
             process.request_reset_layout();
         }
     }
-
+    
+    /// Build a PNG of the palette with optional curve overlay and constraint markers.
+    /// Matches Python `palette2swatch` style: solid color squares, scaled up for higher resolution.
+    /// `orientation_horizontal`: true = side-by-side, false = stacked.
+    fn build_palette_png(
+        palette: &[[f32; 3]],
+        l_curves: &[f32],
+        curve_constraints: &[(usize, f32, f32)],
+        show_curves: bool,
+        orientation_horizontal: bool,
+    ) -> Vec<u8> {
+        const EDGE: u32 = 200; // 4× upscale from Python's 50px
+        const N_SAMPLES: usize = 100;
+        const CURVE_THICKNESS: i32 = 3;
+        const RING_OUTER: i32 = 14;
+        const RING_INNER: i32 = 10;
+        let k = palette.len();
+        
+        let (img_w, img_h) = if orientation_horizontal {
+            (EDGE * k as u32, EDGE)
+        } else {
+            (EDGE, EDGE * k as u32)
+        };
+        
+        let mut img = image::RgbImage::new(img_w, img_h);
+        
+        // Fill solid squares
+        for (i, c) in palette.iter().enumerate() {
+            let r = (c[0].clamp(0.0, 1.0) * 255.0) as u8;
+            let g = (c[1].clamp(0.0, 1.0) * 255.0) as u8;
+            let b = (c[2].clamp(0.0, 1.0) * 255.0) as u8;
+            let pixel = image::Rgb([r, g, b]);
+            
+            let (x0, y0) = if orientation_horizontal {
+                (i as u32 * EDGE, 0)
+            } else {
+                (0, i as u32 * EDGE)
+            };
+            for dy in 0..EDGE {
+                for dx in 0..EDGE {
+                    img.put_pixel(x0 + dx, y0 + dy, pixel);
+                }
+            }
+        }
+        
+        if show_curves && l_curves.len() == N_SAMPLES * k {
+            for i in 0..k {
+                let line_color = if i == 1 {
+                    image::Rgb([0u8, 0, 0])
+                } else {
+                    image::Rgb([255u8, 255, 255])
+                };
+                let (x0, y0) = if orientation_horizontal {
+                    (i as u32 * EDGE, 0)
+                } else {
+                    (0, i as u32 * EDGE)
+                };
+                
+                // Curve as connected segments with thickness
+                let mut prev: Option<(i32, i32)> = None;
+                for n in 0..N_SAMPLES {
+                    let t = n as f32 / (N_SAMPLES - 1) as f32;
+                    let v = l_curves[i * N_SAMPLES + n].clamp(0.0, 1.0);
+                    let cx = x0 as i32 + (t * (EDGE as f32 - 1.0)) as i32;
+                    let cy = y0 as i32 + ((1.0 - v) * (EDGE as f32 - 1.0)) as i32;
+                    if let Some((px, py)) = prev {
+                        draw_thick_line(&mut img, px, py, cx, cy, line_color, CURVE_THICKNESS);
+                    }
+                    prev = Some((cx, cy));
+                }
+                
+                // Constraint markers (double ring)
+                for (idx, lx, ly) in curve_constraints.iter() {
+                    if *idx != i { continue; }
+                    let cx = x0 as i32 + (lx * (EDGE as f32 - 1.0)) as i32;
+                    let cy = y0 as i32 + ((1.0 - ly) * (EDGE as f32 - 1.0)) as i32;
+                    
+                    // Filled inner disk in line color, then outer ring in opposite color
+                    draw_filled_circle(&mut img, cx, cy, RING_INNER, line_color);
+                    let ring_color = if i == 1 {
+                        image::Rgb([255u8, 255, 255])
+                    } else {
+                        image::Rgb([0u8, 0, 0])
+                    };
+                    draw_circle(&mut img, cx, cy, RING_OUTER, ring_color);
+                }
+            }
+        }
+        
+        let mut bytes: Vec<u8> = Vec::new();
+        let mut cursor = std::io::Cursor::new(&mut bytes);
+        image::ImageEncoder::write_image(
+            image::codecs::png::PngEncoder::new(&mut cursor),
+            &img,
+            img.width(),
+            img.height(),
+            image::ExtendedColorType::Rgb8,
+        )
+        .expect("PNG encode");
+        bytes
+    }    
+    
     /// Draw the floating "Palette" window. Only shows if a palette has been loaded.
     fn draw_palette_window(ui: &egui::Ui, rect: Rect, process: &UiProcess) {
         let palette = process.current_palette();
@@ -542,10 +724,52 @@ impl ScenePanel {
                 }
                 
                 let n_cons = process.palette_constraints().len();
+                let l_curves = process.l_curves();
+                let palette_clone = palette.clone();
+
                 ui.horizontal(|ui| {
                     ui.label(format!("{n_cons} edit(s)"));
                     if ui.button("Reset edits").clicked() {
                         process.clear_constraints();
+                    }
+                    
+                    ui.separator();
+                    
+                    // Orientation dropdown for save.
+                    let orient_id = egui::Id::new("palette_save_orient");
+                    let mut horizontal = ui
+                        .ctx()
+                        .memory(|mem| mem.data.get_temp::<bool>(orient_id).unwrap_or(true));
+                    
+                    let label = if horizontal { "Horizontal" } else { "Vertical" };
+                    egui::ComboBox::from_id_salt("palette_save_orient_combo")
+                        .selected_text(label)
+                        .width(110.0)
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(&mut horizontal, true, "Horizontal");
+                            ui.selectable_value(&mut horizontal, false, "Vertical");
+                        });
+                    ui.ctx()
+                        .memory_mut(|mem| mem.data.insert_temp(orient_id, horizontal));
+                    
+                    if ui.button("Save palette").clicked() {
+                        let png = Self::build_palette_png(
+                            &palette_clone,
+                            &l_curves,
+                            &process.curve_constraints(),
+                            edit_curves,
+                            horizontal,
+                        );
+                        let default_name = if edit_curves {
+                            "palette_with_curves.png"
+                        } else {
+                            "palette.png"
+                        };
+                        tokio_with_wasm::alias::task::spawn(async move {
+                            if let Err(e) = rrfd::save_file(default_name, png).await {
+                                log::error!("save_file failed: {:?}", e);
+                            }
+                        });
                     }
                 });
             });
