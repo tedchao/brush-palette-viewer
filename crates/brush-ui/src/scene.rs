@@ -684,6 +684,57 @@ impl ScenePanel {
         bytes
     }    
     
+    /// Build a 2-color rectangle PNG: original on top, target on bottom.
+    /// Width < height for portrait orientation.
+    fn build_constraint_png(original: [f32; 3], target: [f32; 3]) -> Vec<u8> {
+        const W: u32 = 300;
+        const H: u32 = 200;
+        let half = H / 2;
+        
+        let mut img = image::RgbImage::new(W, H);
+        
+        let orig_rgb = image::Rgb([
+            (original[0].clamp(0.0, 1.0) * 255.0) as u8,
+            (original[1].clamp(0.0, 1.0) * 255.0) as u8,
+            (original[2].clamp(0.0, 1.0) * 255.0) as u8,
+        ]);
+        let target_rgb = image::Rgb([
+            (target[0].clamp(0.0, 1.0) * 255.0) as u8,
+            (target[1].clamp(0.0, 1.0) * 255.0) as u8,
+            (target[2].clamp(0.0, 1.0) * 255.0) as u8,
+        ]);
+        
+        const SEPARATOR_THICKNESS: u32 = 4;
+        let sep_start = half - SEPARATOR_THICKNESS / 2;
+        let sep_end = half + SEPARATOR_THICKNESS / 2;
+        let black = image::Rgb([0u8, 0, 0]);
+
+        for y in 0..H {
+            for x in 0..W {
+                let pixel = if y < sep_start {
+                    orig_rgb
+                } else if y >= sep_end {
+                    target_rgb
+                } else {
+                    black
+                };
+                img.put_pixel(x, y, pixel);
+            }
+        }
+        
+        let mut bytes = Vec::<u8>::new();
+        let mut cursor = std::io::Cursor::new(&mut bytes);
+        image::ImageEncoder::write_image(
+            image::codecs::png::PngEncoder::new(&mut cursor),
+            &img,
+            W,
+            H,
+            image::ExtendedColorType::Rgb8,
+        )
+        .expect("PNG encode");
+        bytes
+    }
+    
     /// Draw the floating "Palette" window. Only shows if a palette has been loaded.
     fn draw_palette_window(ui: &egui::Ui, rect: Rect, process: &UiProcess) {
         let palette = process.current_palette();
@@ -841,6 +892,16 @@ impl ScenePanel {
                         
                         // Target color (clickable)
                         Self::draw_target_swatch(ui, i, entry.target_rgb, SWATCH_SIZE, process);
+                        
+                        if ui.button("💾").on_hover_text("Save constraint as PNG").clicked() {
+                            let png = Self::build_constraint_png(entry.original_rgb, entry.target_rgb);
+                            let default_name = format!("constraint_{i}.png");
+                            tokio_with_wasm::alias::task::spawn(async move {
+                                if let Err(e) = rrfd::save_file(&default_name, png).await {
+                                    log::error!("save constraint png failed: {:?}", e);
+                                }
+                            });
+                        }
                         
                         if ui.button("✕").on_hover_text("Remove constraint").clicked() {
                             process.remove_pixel_constraint(i);
