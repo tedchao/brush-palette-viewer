@@ -22,6 +22,7 @@ struct RenderRequest {
     state: LastRenderState,
     pending_click: Option<[u32; 2]>,
     pending_save: bool,
+    save_rings: Vec<[u32; 2]>,
 }
 
 #[derive(Clone, PartialEq)]
@@ -105,6 +106,7 @@ impl SplatBackbuffer {
         l_curves: Vec<f32>,
         request_click: Option<[u32; 2]>,
         request_save: bool,
+        save_rings: Vec<[u32; 2]>,
     ) -> Vec<ClickResult> {
         
         // Queue the click request for the next render.
@@ -180,6 +182,7 @@ impl SplatBackbuffer {
                 state: current_state,
                 pending_click: self.pending_click.take(),
                 pending_save: std::mem::take(&mut self.pending_save),
+                save_rings: save_rings.clone(),
             });
         }
 
@@ -468,7 +471,7 @@ async fn render_worker(
                 let img_clone = image.clone();
                 let img_size = request.state.img_size;
                 tokio_with_wasm::alias::task::spawn(async move {
-                    save_view_png(img_clone, img_size).await;
+                    save_view_png(img_clone, img_size, request.save_rings.clone()).await;
                 });
             }
             let _ = img_sender.send(image).await;
@@ -480,13 +483,13 @@ async fn render_worker(
 }
 
 /// Read back a packed RGBA u32 image tensor and save as PNG via file picker.
-async fn save_view_png(image: Tensor<MainBackend, 3>, img_size: UVec2) {
+/// Optionally draws double-ring markers at the given pixel positions.
+async fn save_view_png(image: Tensor<MainBackend, 3>, img_size: UVec2, rings: Vec<[u32; 2]>) {
     use burn::tensor::Transaction;
     use burn::tensor::Tensor as BurnTensor;
     
     let (w, h) = (img_size.x, img_size.y);
     
-    // Resolve to int tensor (packed u32) and read back to CPU.
     let prim = image.into_primitive().tensor();
     let int_prim = prim.client.clone().resolve_tensor_int::<MainBackendBase>(prim);
     let data = match Transaction::default()
@@ -509,20 +512,27 @@ async fn save_view_png(image: Tensor<MainBackend, 3>, img_size: UVec2) {
     };
     
     if packed.len() != (w * h) as usize {
-        log::error!(
-            "save_view_png: expected {} pixels, got {}",
-            w * h,
-            packed.len()
-        );
+        log::error!("save_view_png: expected {} pixels, got {}", w * h, packed.len());
         return;
     }
     
-    // Unpack RGBA8: R | (G<<8) | (B<<16) | (A<<24)
+    // Unpack RGBA8 → RGB8.
     let mut rgb = Vec::<u8>::with_capacity((w * h * 3) as usize);
     for &px in &packed {
         rgb.push((px & 0xFF) as u8);
         rgb.push(((px >> 8) & 0xFF) as u8);
         rgb.push(((px >> 16) & 0xFF) as u8);
+    }
+    
+    // Draw double-ring markers for each constraint pixel.
+    // Inner ring (radius 16) white, outer ring (radius 24) black.
+    const RING_INNER: i32 = 16;
+    const RING_OUTER: i32 = 24;
+    for [rx, ry] in &rings {
+        let cx = *rx as i32;
+        let cy = *ry as i32;
+        draw_ring_rgb(&mut rgb, w as i32, h as i32, cx, cy, RING_INNER, [255, 255, 255]);
+        draw_ring_rgb(&mut rgb, w as i32, h as i32, cx, cy, RING_OUTER, [0, 0, 0]);
     }
     
     let mut bytes = Vec::<u8>::new();
@@ -540,5 +550,26 @@ async fn save_view_png(image: Tensor<MainBackend, 3>, img_size: UVec2) {
     
     if let Err(e) = rrfd::save_file("view.png", bytes).await {
         log::error!("save_view_png save_file failed: {:?}", e);
+    }
+}
+
+/// Draw a 1-pixel-wide ring of given radius into a flat RGB8 buffer.
+fn draw_ring_rgb(buf: &mut [u8], w: i32, h: i32, cx: i32, cy: i32, r: i32, color: [u8; 3]) {
+    let r2 = r * r;
+    let r2_inner = (r - 2) * (r - 2);
+    for dy in -r..=r {
+        for dx in -r..=r {
+            let d2 = dx * dx + dy * dy;
+            if d2 <= r2 && d2 > r2_inner {
+                let x = cx + dx;
+                let y = cy + dy;
+                if x >= 0 && x < w && y >= 0 && y < h {
+                    let idx = ((y * w + x) * 3) as usize;
+                    buf[idx] = color[0];
+                    buf[idx + 1] = color[1];
+                    buf[idx + 2] = color[2];
+                }
+            }
+        }
     }
 }

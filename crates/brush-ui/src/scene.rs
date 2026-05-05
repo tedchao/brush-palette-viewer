@@ -1705,6 +1705,24 @@ impl AppPane for ScenePanel {
                 };
 
                 if let Some(backbuffer) = &mut self.backbuffer {
+                    // Compute ring positions to bake into the saved view.
+                    let save_rings: Vec<[u32; 2]> = if self.pending_save_view {
+                        let cam = process.current_camera();
+                        const POS_TOL: f32 = 1e-3;
+                        const ROT_TOL: f32 = 1e-3;
+                        process
+                            .pixel_constraints()
+                            .iter()
+                            .filter(|e| {
+                                (e.view_position - cam.position).length() < POS_TOL
+                                    && (e.view_rotation.dot(cam.rotation).abs() - 1.0).abs() < ROT_TOL
+                            })
+                            .map(|e| e.pixel_xy)
+                            .collect()
+                    } else {
+                        Vec::new()
+                    };
+
                     let click_results = backbuffer.paint(
                         rect,
                         ui,
@@ -1719,6 +1737,7 @@ impl AppPane for ScenePanel {
                         process.l_curves(),
                         request_click,
                         std::mem::take(&mut self.pending_save_view),
+                        save_rings,
                     );
                     self.splats_dirty = false;
                     
