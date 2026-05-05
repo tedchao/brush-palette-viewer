@@ -21,6 +21,7 @@ struct RenderRequest {
     ctx: egui::Context,
     state: LastRenderState,
     pending_click: Option<[u32; 2]>,
+    pending_save: bool,
 }
 
 #[derive(Clone, PartialEq)]
@@ -45,6 +46,7 @@ pub struct SplatBackbuffer {
     fps_ema: f32,
     fps_displayed: f32,
     last_fps_update: Option<std::time::Instant>,
+    pending_save: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -83,6 +85,7 @@ impl SplatBackbuffer {
             fps_ema: 0.0,
             fps_displayed: 0.0,
             last_fps_update: None,
+            pending_save: false,
         }
     }
 
@@ -101,11 +104,16 @@ impl SplatBackbuffer {
         delta_palette: Vec<f32>,
         l_curves: Vec<f32>,
         request_click: Option<[u32; 2]>,
+        request_save: bool,
     ) -> Vec<ClickResult> {
         
         // Queue the click request for the next render.
         if let Some(click) = request_click {
             self.pending_click = Some(click);
+        }
+        
+        if request_save {
+            self.pending_save = true;
         }
 
         // Drain any pending click results.
@@ -158,7 +166,7 @@ impl SplatBackbuffer {
             l_curves: l_curves.clone(),
         };
                 
-        let dirty = splats_dirty || self.last_state.as_ref() != Some(&current_state) || self.pending_click.is_some();
+        let dirty = splats_dirty || self.last_state.as_ref() != Some(&current_state) || self.pending_click.is_some() || self.pending_save;
         
         if dirty {
             self.last_state = Some(current_state.clone());
@@ -171,6 +179,7 @@ impl SplatBackbuffer {
                 ctx: ui.ctx().clone(),
                 state: current_state,
                 pending_click: self.pending_click.take(),
+                pending_save: std::mem::take(&mut self.pending_save),
             });
         }
 
@@ -455,10 +464,81 @@ async fn render_worker(
         };
 
         if let Some(image) = image {
+            if request.pending_save {
+                let img_clone = image.clone();
+                let img_size = request.state.img_size;
+                tokio_with_wasm::alias::task::spawn(async move {
+                    save_view_png(img_clone, img_size).await;
+                });
+            }
             let _ = img_sender.send(image).await;
         }
 
         // Trigger egui repaint so the new texture gets picked up.
         request.ctx.request_repaint();
+    }
+}
+
+/// Read back a packed RGBA u32 image tensor and save as PNG via file picker.
+async fn save_view_png(image: Tensor<MainBackend, 3>, img_size: UVec2) {
+    use burn::tensor::Transaction;
+    use burn::tensor::Tensor as BurnTensor;
+    
+    let (w, h) = (img_size.x, img_size.y);
+    
+    // Resolve to int tensor (packed u32) and read back to CPU.
+    let prim = image.into_primitive().tensor();
+    let int_prim = prim.client.clone().resolve_tensor_int::<MainBackendBase>(prim);
+    let data = match Transaction::default()
+        .register(BurnTensor::<MainBackendBase, 3, burn::tensor::Int>::from_primitive(int_prim))
+        .execute_async()
+        .await
+    {
+        Ok(d) => d,
+        Err(e) => {
+            log::error!("save_view_png readback failed: {:?}", e);
+            return;
+        }
+    };
+    let packed: Vec<u32> = match data[0].clone().into_vec::<u32>() {
+        Ok(v) => v,
+        Err(e) => {
+            log::error!("save_view_png into_vec failed: {:?}", e);
+            return;
+        }
+    };
+    
+    if packed.len() != (w * h) as usize {
+        log::error!(
+            "save_view_png: expected {} pixels, got {}",
+            w * h,
+            packed.len()
+        );
+        return;
+    }
+    
+    // Unpack RGBA8: R | (G<<8) | (B<<16) | (A<<24)
+    let mut rgb = Vec::<u8>::with_capacity((w * h * 3) as usize);
+    for &px in &packed {
+        rgb.push((px & 0xFF) as u8);
+        rgb.push(((px >> 8) & 0xFF) as u8);
+        rgb.push(((px >> 16) & 0xFF) as u8);
+    }
+    
+    let mut bytes = Vec::<u8>::new();
+    let mut cursor = std::io::Cursor::new(&mut bytes);
+    if let Err(e) = image::ImageEncoder::write_image(
+        image::codecs::png::PngEncoder::new(&mut cursor),
+        &rgb,
+        w,
+        h,
+        image::ExtendedColorType::Rgb8,
+    ) {
+        log::error!("save_view_png encode failed: {:?}", e);
+        return;
+    }
+    
+    if let Err(e) = rrfd::save_file("view.png", bytes).await {
+        log::error!("save_view_png save_file failed: {:?}", e);
     }
 }

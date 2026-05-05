@@ -202,6 +202,8 @@ pub struct ScenePanel {
     #[cfg(feature = "training")]
     #[serde(skip)]
     settings_popup: Option<Arc<Mutex<SettingsPopup>>>,
+    #[serde(skip)]
+    pending_save_view: bool,
 }
 
 impl ScenePanel {
@@ -1256,6 +1258,21 @@ impl AppPane for ScenePanel {
             });
 
         ui.add_space(6.0);
+        
+        // Save view button
+        let save_button = Button::new(RichText::new("📷").size(14.0).color(Color32::WHITE))
+            .fill(egui::Color32::from_rgb(70, 70, 75))
+            .corner_radius(6.0)
+            .min_size(egui::vec2(22.0, 18.0));
+        if ui
+            .add(save_button)
+            .on_hover_text("Save current view as PNG")
+            .clicked()
+        {
+            self.pending_save_view = true;
+        }
+
+        ui.add_space(6.0);
 
         // Settings dropdown
         let gear_button = Button::new(RichText::new("⚙").size(14.0).color(Color32::WHITE))
@@ -1684,6 +1701,7 @@ impl AppPane for ScenePanel {
                         process.delta_palette(),
                         process.l_curves(),
                         request_click,
+                        std::mem::take(&mut self.pending_save_view),
                     );
                     self.splats_dirty = false;
                     
