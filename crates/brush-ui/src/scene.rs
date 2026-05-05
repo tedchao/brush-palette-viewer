@@ -737,32 +737,49 @@ impl ScenePanel {
                     
                     ui.separator();
                     
-                    // Orientation dropdown for save.
+                    // Orientation dropdown
                     let orient_id = egui::Id::new("palette_save_orient");
                     let mut horizontal = ui
                         .ctx()
                         .memory(|mem| mem.data.get_temp::<bool>(orient_id).unwrap_or(true));
-                    
+
                     let label = if horizontal { "Horizontal" } else { "Vertical" };
                     egui::ComboBox::from_id_salt("palette_save_orient_combo")
                         .selected_text(label)
-                        .width(110.0)
+                        .width(100.0)
                         .show_ui(ui, |ui| {
                             ui.selectable_value(&mut horizontal, true, "Horizontal");
                             ui.selectable_value(&mut horizontal, false, "Vertical");
                         });
                     ui.ctx()
                         .memory_mut(|mem| mem.data.insert_temp(orient_id, horizontal));
-                    
+
+                    // Include-curves dropdown (separate from the edit checkbox)
+                    let curves_id = egui::Id::new("palette_save_with_curves");
+                    let mut with_curves = ui
+                        .ctx()
+                        .memory(|mem| mem.data.get_temp::<bool>(curves_id).unwrap_or(false));
+
+                    let curves_label = if with_curves { "With curves" } else { "Color only" };
+                    egui::ComboBox::from_id_salt("palette_save_curves_combo")
+                        .selected_text(curves_label)
+                        .width(100.0)
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(&mut with_curves, false, "Color only");
+                            ui.selectable_value(&mut with_curves, true, "With curves");
+                        });
+                    ui.ctx()
+                        .memory_mut(|mem| mem.data.insert_temp(curves_id, with_curves));
+
                     if ui.button("Save palette").clicked() {
                         let png = Self::build_palette_png(
                             &palette_clone,
                             &l_curves,
                             &process.curve_constraints(),
-                            edit_curves,
+                            with_curves,
                             horizontal,
                         );
-                        let default_name = if edit_curves {
+                        let default_name = if with_curves {
                             "palette_with_curves.png"
                         } else {
                             "palette.png"
