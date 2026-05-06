@@ -108,7 +108,8 @@ pub async fn render_palette(
     l_curves: &[f32],
     background: glam::Vec3,
     pending_click: Option<[u32; 2]>,
-) -> (Tensor<MainBackend, 3>, Option<Vec<f32>>) {
+    request_full_weights: bool,
+) -> (Tensor<MainBackend, 3>, Option<Vec<f32>>, Option<Vec<f32>>) {
     log::info!(
         "render_palette: img_size={}x{}, n_splats={}, k_full={}, p={}, q={}",
         img_size.x, img_size.y,
@@ -458,6 +459,24 @@ pub async fn render_palette(
         None
     };
     
+    // ── Step 13c: optional full weight buffer readback ───────────────────
+    let full_weights: Option<Vec<f32>> = if request_full_weights {
+        const MAX_K_FULL: usize = 8;
+        let n = (img_size.x as usize) * (img_size.y as usize) * MAX_K_FULL;
+        let weight_flat = <MainBackendBase as FloatTensorOps<MainBackendBase>>::float_reshape(
+            weight_image.clone(),
+            [n].into(),
+        );
+        Transaction::default()
+            .register(Tensor::<MainBackendBase, 1>::from_primitive(TensorPrimitive::Float(weight_flat)))
+            .execute_async()
+            .await
+            .ok()
+            .and_then(|d| d[0].clone().into_vec::<f32>().ok())
+    } else {
+        None
+    };
+
     // ── Step 14: rewrap into MainBackend (Fusion) ─────────────────────────
     #[derive(Debug)]
     struct BindOp {
@@ -483,5 +502,5 @@ pub async fn render_palette(
     let [out_fusion] = outputs;
 
     let final_tensor = Tensor::from_primitive(TensorPrimitive::Float(out_fusion));
-    (final_tensor, click_result)
+        (final_tensor, click_result, full_weights)
 }

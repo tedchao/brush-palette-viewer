@@ -17,12 +17,14 @@ struct RenderRequest {
     slot: Slot<Splats<MainBackend>>,
     palette_slot: Slot<PaletteSplats<MainBackend>>,
     delta_palette: Vec<f32>,
+    original_palette: Vec<[f32; 3]>,
     l_curves: Vec<f32>,
     ctx: egui::Context,
     state: LastRenderState,
     pending_click: Option<[u32; 2]>,
     pending_save: bool,
     save_rings: Vec<[u32; 2]>,
+    pending_save_weights: bool,
 }
 
 #[derive(Clone, PartialEq)]
@@ -48,6 +50,7 @@ pub struct SplatBackbuffer {
     fps_displayed: f32,
     last_fps_update: Option<std::time::Instant>,
     pending_save: bool,
+    pending_save_weights: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -87,6 +90,7 @@ impl SplatBackbuffer {
             fps_displayed: 0.0,
             last_fps_update: None,
             pending_save: false,
+            pending_save_weights: false,
         }
     }
 
@@ -104,9 +108,11 @@ impl SplatBackbuffer {
         splats_dirty: bool,
         delta_palette: Vec<f32>,
         l_curves: Vec<f32>,
+        original_palette: Vec<[f32; 3]>,
         request_click: Option<[u32; 2]>,
         request_save: bool,
         save_rings: Vec<[u32; 2]>,
+        request_save_weights: bool,
     ) -> Vec<ClickResult> {
         
         // Queue the click request for the next render.
@@ -117,7 +123,11 @@ impl SplatBackbuffer {
         if request_save {
             self.pending_save = true;
         }
-
+        
+        if request_save_weights {
+            self.pending_save_weights = true;
+        }
+        
         // Drain any pending click results.
         let mut click_results = Vec::new();
         while let Ok(result) = self.click_result_rec.try_recv() {
@@ -168,7 +178,7 @@ impl SplatBackbuffer {
             l_curves: l_curves.clone(),
         };
                 
-        let dirty = splats_dirty || self.last_state.as_ref() != Some(&current_state) || self.pending_click.is_some() || self.pending_save;
+        let dirty = splats_dirty || self.last_state.as_ref() != Some(&current_state) || self.pending_click.is_some() || self.pending_save || self.pending_save_weights;
         
         if dirty {
             self.last_state = Some(current_state.clone());
@@ -177,12 +187,14 @@ impl SplatBackbuffer {
                 slot: slot.clone(),
                 palette_slot: palette_slot.clone(),
                 delta_palette: delta_palette.clone(),
+                original_palette: original_palette.clone(),
                 l_curves: l_curves.clone(),
                 ctx: ui.ctx().clone(),
                 state: current_state,
                 pending_click: self.pending_click.take(),
                 pending_save: std::mem::take(&mut self.pending_save),
                 save_rings: save_rings.clone(),
+                pending_save_weights: std::mem::take(&mut self.pending_save_weights),
             });
         }
 
@@ -423,7 +435,7 @@ async fn render_worker(
             .palette_slot
             .act(request.state.frame, async |palette_splats| {
                 let pending_click = request.pending_click;
-                let (img, click_weights) = brush_palette::render::render_palette(
+                let (img, click_weights, full_weights) = brush_palette::render::render_palette(
                     &palette_splats,
                     &request.state.camera,
                     request.state.img_size,
@@ -431,6 +443,7 @@ async fn render_worker(
                     &request.l_curves,
                     request.state.background,
                     pending_click,
+                    request.pending_save_weights,
                 )
                 .await;
                 if let (Some(xy), Some(w)) = (pending_click, click_weights) {
@@ -442,6 +455,24 @@ async fn render_worker(
                         })
                         .await;
                 }
+
+                if request.pending_save_weights {
+                    if let Some(weights) = full_weights {
+                        let original_palette = request.original_palette.clone();
+                        let img_size = request.state.img_size;
+                        let delta_palette_clone = request.delta_palette.clone();
+                        tokio_with_wasm::alias::task::spawn(async move {
+                            save_weights_folder(
+                                weights,
+                                img_size,
+                                original_palette,
+                                delta_palette_clone,
+                            )
+                            .await;
+                        });
+                    }
+                }
+
                 (palette_splats, img)
             })
             .await;
@@ -572,4 +603,82 @@ fn draw_ring_rgb(buf: &mut [u8], w: i32, h: i32, cx: i32, cy: i32, r: i32, color
             }
         }
     }
+}
+
+
+async fn save_weights_folder(
+    weights: Vec<f32>,           // [H*W*8] flat, K_FULL=8
+    img_size: UVec2,
+    original_palette: Vec<[f32; 3]>,
+    delta_palette: Vec<f32>,
+) {
+    const MAX_K_FULL: usize = 8;
+    let k = original_palette.len();
+    let (w, h) = (img_size.x as usize, img_size.y as usize);
+    
+    if weights.len() != w * h * MAX_K_FULL {
+        log::error!(
+            "save_weights_folder: expected {} weights, got {}",
+            w * h * MAX_K_FULL,
+            weights.len()
+        );
+        return;
+    }
+    
+    // Pick destination folder.
+    let folder = match rrfd::pick_directory().await {
+        Ok(p) => p,
+        Err(e) => {
+            log::info!("save weights: cancelled or failed: {:?}", e);
+            return;
+        }
+    };
+    
+    // Build effective palette = original + delta, clamped to [0,1].
+    let effective_palette: Vec<[u8; 3]> = (0..k)
+        .map(|i| {
+            let dr = delta_palette.get(i * 3).copied().unwrap_or(0.0);
+            let dg = delta_palette.get(i * 3 + 1).copied().unwrap_or(0.0);
+            let db = delta_palette.get(i * 3 + 2).copied().unwrap_or(0.0);
+            [
+                ((original_palette[i][0] + dr).clamp(0.0, 1.0) * 255.0) as u8,
+                ((original_palette[i][1] + dg).clamp(0.0, 1.0) * 255.0) as u8,
+                ((original_palette[i][2] + db).clamp(0.0, 1.0) * 255.0) as u8,
+            ]
+        })
+        .collect();
+    
+    // For each palette index, build an RGBA image.
+    for ki in 0..k {
+        let mut rgba = Vec::<u8>::with_capacity(w * h * 4);
+        let pal = effective_palette[ki];
+        for pix in 0..(w * h) {
+            let weight = weights[pix * MAX_K_FULL + ki].clamp(0.0, 1.0);
+            let alpha = (weight * 255.0) as u8;
+            rgba.push(pal[0]);
+            rgba.push(pal[1]);
+            rgba.push(pal[2]);
+            rgba.push(alpha);
+        }
+        
+        let mut bytes = Vec::<u8>::new();
+        let mut cursor = std::io::Cursor::new(&mut bytes);
+        if let Err(e) = image::ImageEncoder::write_image(
+            image::codecs::png::PngEncoder::new(&mut cursor),
+            &rgba,
+            w as u32,
+            h as u32,
+            image::ExtendedColorType::Rgba8,
+        ) {
+            log::error!("encode weight {} failed: {:?}", ki, e);
+            continue;
+        }
+        
+        let path = folder.join(format!("weight_k{}.png", ki));
+        if let Err(e) = tokio::fs::write(&path, bytes).await {
+            log::error!("write weight {} failed: {:?}", ki, e);
+        }
+    }
+    
+    log::info!("Saved {} weight PNGs to {:?}", k, folder);
 }
