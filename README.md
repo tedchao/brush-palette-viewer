@@ -50,12 +50,7 @@ Each scene lives in `models/<name>/` as a `name.pply` + `name.gswp` pair. Pass t
 ./target/debug/brush --with-viewer models/statue/statue.pply
 ```
 
-For a release build (faster, recommended once everything works):
-
-```bash
-cargo build --release --bin brush
-./target/release/brush --with-viewer models/statue/statue.pply
-```
+(after lauching, click the small gear icon on the top-right of the window and select "Recenter view" button in the very end of the pop-up window.)
 
 ## Controls
 
