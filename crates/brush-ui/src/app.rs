@@ -160,6 +160,8 @@ pub struct CameraSettings {
     pub splat_scale: Option<f32>,
     pub background: Option<Vec3>,
     pub grid_enabled: Option<bool>,
+    pub auto_rotate: Option<bool>,
+    pub auto_rotate_speed: Option<f32>,
     pub clamping: CameraClamping,
 }
 

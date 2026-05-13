@@ -547,6 +547,30 @@ impl ScenePanel {
             settings.grid_enabled = Some(enabled);
             process.set_cam_settings(&settings);
         }
+        
+        // Auto-rotate toggle
+        let mut settings = process.get_cam_settings();
+        let mut auto_rotate = settings.auto_rotate.unwrap_or(false);
+        if ui.checkbox(&mut auto_rotate, "Auto-rotate (turntable)").changed() {
+            settings.auto_rotate = Some(auto_rotate);
+            process.set_cam_settings(&settings);
+        }
+
+        if auto_rotate {
+            ui.label(RichText::new("Rotation speed").size(12.0));
+            let mut settings = process.get_cam_settings();
+            let mut speed = settings.auto_rotate_speed.unwrap_or(30.0);
+            let response = ui.add(
+                Slider::new(&mut speed, 5.0..=120.0)
+                    .suffix("°/s")
+                    .show_value(true)
+                    .custom_formatter(|val, _| format!("{val:.0}°/s")),
+            );
+            if response.changed() {
+                settings.auto_rotate_speed = Some(speed);
+                process.set_cam_settings(&settings);
+            }
+        }
 
         ui.label(RichText::new("Background").size(12.0));
 

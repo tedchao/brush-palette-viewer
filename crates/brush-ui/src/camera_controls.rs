@@ -219,6 +219,24 @@ impl CameraController {
             delta_time,
             self.focus_distance,
         );
+        
+        // Auto-rotate: continuous yaw around focal point, ignoring user clamping
+        // (turntable demo).
+        if self.settings.auto_rotate.unwrap_or(false) {
+            let speed_deg = self.settings.auto_rotate_speed.unwrap_or(30.0);
+            let yaw_delta = speed_deg.to_radians() * delta_time;
+            (self.position, self.rotation) = smooth_orbit(
+                self.position,
+                self.rotation,
+                yaw_delta,
+                0.0,
+                &self.settings.clamping,
+                delta_time,
+                self.focus_distance,
+            );
+            // Keep repainting so the rotation continues even without user input.
+            ui.ctx().request_repaint();
+        }
 
         let fly_moment_lambda = 0.8;
 
