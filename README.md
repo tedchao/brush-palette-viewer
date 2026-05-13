@@ -47,21 +47,21 @@ First build takes a few minutes. Incremental rebuilds are 10-20 seconds.
 Each scene lives in `models/<name>/` as a `name.pply` + `name.gswp` pair. Pass the `.pply` path; the `.gswp` is auto-discovered alongside it.
 
 ```bash
-./target/debug/brush --with-viewer models/lego/lego.pply
+./target/debug/brush --with-viewer models/statue/statue.pply
 ```
 
 For a release build (faster, recommended once everything works):
 
 ```bash
 cargo build --release --bin brush
-./target/release/brush --with-viewer models/lego/lego.pply
+./target/release/brush --with-viewer models/statue/statue.pply
 ```
 
 ## Controls
 
 - **Left drag** orbit, **right drag** look around, **middle drag** pan, **scroll** zoom
 - **WASD** / **QE** fly, **shift** for faster movement
-- **C** toggle pixel-click constraint mode → click in the viewport to add an image-space constraint
+- **C (shift+c)** toggle pixel-click constraint mode → click in the viewport to add an image-space constraint
 - **F** fullscreen
 
 ## UI overview
