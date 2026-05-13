@@ -46,3 +46,4 @@ local.properties
 *.so
 .claude/settings.local.json
 crates/brush-palette/python/__pycache__/
+models/

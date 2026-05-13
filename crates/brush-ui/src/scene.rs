@@ -607,6 +607,10 @@ impl ScenePanel {
         if ui.button("Reset Layout").clicked() {
             process.request_reset_layout();
         }
+
+        if ui.button("Recenter view").clicked() {
+            process.recenter();
+        }
     }
     
     /// Build a PNG of the palette with optional curve overlay and constraint markers.
@@ -1624,7 +1628,12 @@ impl AppPane for ScenePanel {
     fn ui(&mut self, ui: &mut egui::Ui, process: &UiProcess) {
         // Track the scene rect for centering popups
         let scene_rect = ui.available_rect_before_wrap();
-
+    
+        // Consume any pending recenter request from the async readback task.
+        if let Some((focal, dist, rot)) = process.take_pending_recenter() {
+            process.set_focal_point(focal, dist, rot);
+        }
+    
         if let Some(err) = &self.err {
             ui.horizontal(|ui| {
                 ui.vertical(|ui| {

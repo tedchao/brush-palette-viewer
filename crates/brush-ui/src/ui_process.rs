@@ -10,6 +10,13 @@ use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
 use tokio_with_wasm::alias::task;
 
+#[derive(Clone, Debug)]
+struct PendingRecenter {
+    focal_point: glam::Vec3,
+    distance: f32,
+    rotation: glam::Quat,
+}
+
 #[derive(Debug, Clone)]
 enum ControlMessage {
     Paused(bool),
@@ -560,6 +567,94 @@ impl UiProcess {
     pub fn burn_device(&self) -> WgpuDevice {
         self.read().burn_device.clone()
     }
+    
+    pub fn take_pending_recenter(&self) -> Option<(Vec3, f32, Quat)> {
+            let arc = self.read().pending_recenter.clone();
+            let mut guard = arc.lock().expect("poisoned");
+            guard.take().map(|r| (r.focal_point, r.distance, r.rotation))
+        }
+    
+    /// Recenter the camera to frame the current scene's Gaussian bounding box.
+    /// Reads positions from GPU asynchronously, computes centroid + extent,
+    /// preserves current rotation. The result is consumed by the UI main thread.
+    pub fn recenter(&self) {
+        use burn::tensor::{Transaction, Tensor as BurnTensor, TensorPrimitive};
+        use brush_render::{MainBackend, MainBackendBase};
+        
+        let splats = self.current_splats();
+        if self.read().process_handle.is_none() {
+            return;
+        }
+        let rotation = self.current_camera().rotation;
+        let ctx = self.read().ui_ctx.clone();
+        let pending = self.read().pending_recenter.clone();
+        
+        tokio_with_wasm::alias::task::spawn(async move {
+            let snapshot = splats
+                .act(0, async |s: Splats<MainBackend>| {
+                    let means = s.means();
+                    let prim = means.into_primitive().tensor();
+                    let resolved = prim
+                        .client
+                        .clone()
+                        .resolve_tensor_float::<MainBackendBase>(prim);
+                    let result = Transaction::default()
+                        .register(BurnTensor::<MainBackendBase, 2>::from_primitive(
+                            TensorPrimitive::Float(resolved),
+                        ))
+                        .execute_async()
+                        .await
+                        .ok()
+                        .and_then(|d| d[0].clone().into_vec::<f32>().ok());
+                    (s, result)
+                })
+                .await;
+            
+            let Some(Some(data)) = snapshot else { return; };
+            if data.is_empty() {
+                return;
+            }
+            let n = data.len() / 3;
+            
+            let (mut cx, mut cy, mut cz) = (0.0f64, 0.0f64, 0.0f64);
+            for i in 0..n {
+                cx += data[i * 3] as f64;
+                cy += data[i * 3 + 1] as f64;
+                cz += data[i * 3 + 2] as f64;
+            }
+            let inv_n = 1.0 / (n as f64);
+            let centroid = glam::vec3(
+                (cx * inv_n) as f32,
+                (cy * inv_n) as f32,
+                (cz * inv_n) as f32,
+            );
+            
+            let mut max_d2 = 0.0f32;
+            for i in 0..n {
+                let dx = data[i * 3] - centroid.x;
+                let dy = data[i * 3 + 1] - centroid.y;
+                let dz = data[i * 3 + 2] - centroid.z;
+                let d2 = dx * dx + dy * dy + dz * dz;
+                if d2 > max_d2 {
+                    max_d2 = d2;
+                }
+            }
+            let extent = max_d2.sqrt();
+            let dist = (extent * 2.0).max(1.0);
+            
+            log::info!(
+                "Recenter: centroid={:?} extent={:.3} dist={:.3}",
+                centroid, extent, dist
+            );
+            
+            *pending.lock().expect("poisoned") = Some(PendingRecenter {
+                focal_point: centroid,
+                distance: dist,
+                rotation,
+            });
+            ctx.request_repaint();
+        });
+    }
 }
 
 struct UiProcessInner {
@@ -584,6 +679,7 @@ struct UiProcessInner {
     curve_constraints: Vec<(usize, f32, f32)>,
     pixel_constraints: Vec<PixelConstraintEntry>,
     click_mode: bool,
+    pending_recenter: std::sync::Arc<std::sync::Mutex<Option<PendingRecenter>>>,
 }
 
 impl UiProcessInner {
@@ -616,6 +712,7 @@ impl UiProcessInner {
             session_reset_requested: false,
             burn_device,
             ui_ctx,
+            pending_recenter: std::sync::Arc::new(std::sync::Mutex::new(None)),
         }
     }
 
