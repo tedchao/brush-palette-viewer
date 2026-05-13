@@ -314,7 +314,7 @@ def solve_P_system(palette, W_at_cons, rP_targets, palette_cons,
 
         # Project to gamut box.
         new_pal = P_chrom + delp_chrom
-        new_pal = np.clip(new_pal, 0.0, 1.0)
+        #new_pal = np.clip(new_pal, 0.0, 1.0)
         delp_chrom = new_pal - P_chrom
 
         # Update d_i.
@@ -412,7 +412,7 @@ def compute_P_targets(palette, W_at_cons, target_colors, L, tilde_W, N):
 # ─────────────────────────────────────────────────────────────────────────
 
 def alternating_optimize(palette, W_at_cons, target_colors, palette_cons,
-                          curve_cons, N=100, w_eq=10000.0, w_sp=0.001,
+                          curve_cons, N=100, w_eq=1000.0, w_sp=0.1,
                           rho=100.0, q=None, max_iter=10, tol=1e-5,
                           damping=0.7, verbose=False):
     """
@@ -466,6 +466,15 @@ def alternating_optimize(palette, W_at_cons, target_colors, palette_cons,
                                      delta_palette, N)
 
         # 2) L-system, with damped update.
+        
+        # Optional: strict IRLS (a bit slower but that's fine)
+        if q is None:
+          q = np.ones(K)
+          
+        weighted_dp = q[:, None] * delta_palette       # (K, 3)
+        lum_scale = lum_scale + w_sp * np.sum(weighted_dp ** 2, axis=1)
+        lum_scale = np.maximum(lum_scale, 1e-12)
+        
         L_new = solve_L_system(pl_cons, cl_cons, tilde_W, N, w_eq, lum_scale)
         L = (1 - damping) * L + damping * L_new
         new_lum_scale = compute_lum_scale(L, N)
