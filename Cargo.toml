@@ -140,6 +140,10 @@ debug = 1
 [profile.release]
 lto = "thin"
 
+# cargo-dist builds with --profile dist
+[profile.dist]
+inherits = "release"
+
 [workspace.lints.rust]
 future_incompatible = { level = "warn", priority = -1 }
 nonstandard_style = { level = "warn", priority = -1 }
