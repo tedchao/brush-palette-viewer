@@ -13,28 +13,7 @@ git clone https://github.com/tedchao/brush-palette-viewer.git
 cd brush-palette-viewer
 ```
 
-### 2. Conda environment
-
-The viewer calls a Python optimizer via pyo3, so the `colorfulgaussians` conda environment must exist before building.
-
-```bash
-conda env create -f environment.yml
-conda activate colorfulgaussians
-```
-
-### 3. Set environment variables
-
-The pyo3 bridge dynamically links to libpython at runtime. Add these to your `~/.zshrc`:
-
-```bash
-echo 'export DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/Caskroom/miniconda/base/envs/colorfulgaussians/lib:$DYLD_FALLBACK_LIBRARY_PATH' >> ~/.zshrc
-echo 'export PYO3_PYTHON=/opt/homebrew/Caskroom/miniconda/base/envs/colorfulgaussians/bin/python' >> ~/.zshrc
-source ~/.zshrc
-```
-
-(Adjust the path if your miniconda is installed elsewhere.)
-
-### 4. Build
+### 2. Build
 
 ```bash
 cargo build --bin brush
@@ -42,7 +21,7 @@ cargo build --bin brush
 
 First build takes a few minutes. Incremental rebuilds are 10-20 seconds.
 
-### 5. Run
+### 3. Run
 
 Each scene lives in `models/<name>/` as a `name.pply` + `name.gswp` pair. Pass the `.pply` path; the `.gswp` is auto-discovered alongside it.
 
@@ -73,6 +52,28 @@ The original Brush rendering path is untouched. Vanilla `.ply` files (without an
 ```bash
 ./target/debug/brush --with-viewer path/to/vanilla.ply
 ```
+
+## The constraint optimizer
+
+Palette and tone-curve edits are solved by a native Rust optimizer in
+`crates/brush-palette/src/optimizer.rs` — a coupled block-coordinate-descent
+solver with IRLS, using [`faer`](https://faer-rs.github.io/) for the sparse and
+dense linear solves. It runs in-process with no Python dependency, so building
+and running the viewer needs nothing beyond the Rust toolchain.
+
+The original reference implementation is kept at
+`crates/brush-palette/python/constraint_optimizer.py`. A differential test runs
+the Rust port and the Python reference on identical inputs and checks that the
+`dP` (palette deltas) and `L` (tone curves) outputs agree:
+
+```bash
+cargo test -p brush-palette --test compare_python -- --nocapture
+```
+
+The test uses [`uv`](https://docs.astral.sh/uv/) to run the reference — numpy
+and scipy are declared as PEP 723 inline dependencies in the driver script and
+fetched automatically. If `uv` is not installed the test skips rather than
+fails.
 
 ## License
 

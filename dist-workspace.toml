@@ -11,6 +11,8 @@ ci = "github"
 installers = []
 # Target platforms to build apps for (Rust target-triple syntax)
 targets = ["aarch64-apple-darwin", "x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc"]
+# Allow the CI workflow to differ from what cargo-dist would generate
+allow-dirty = ["ci"]
 
 # Pin GitHub Actions to specific versions
 [dist.github-action-commits]
