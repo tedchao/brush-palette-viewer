@@ -35,13 +35,20 @@ burn-wgpu.workspace = true
 burn-cubecl.workspace = true
 bytemuck = { workspace = true, features = ["derive"] }
 
+web-time.workspace = true
+
 # M2: native constraint optimizer (Rust port of python/constraint_optimizer.py).
 # faer gives us sparse LU (L-system) + dense LU (P-system IRLS) with no
 # system/Fortran deps.
-# default-features = false disables rayon, which uses OS futex ops unavailable on WASM.
-# The solver still works single-threaded; rayon would only help on large scenes.
+# On desktop, keep faer's default features, including rayon: faer's global
+# parallelism then defaults to all cores.
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+faer = "0.24"
+
+# On WASM, default-features = false disables rayon, which uses OS futex ops
+# unavailable there. The solver runs single-threaded.
+[target.'cfg(target_family = "wasm")'.dependencies]
 faer = { version = "0.24", default-features = false }
-web-time.workspace = true
 
 [dev-dependencies]
 # tests/compare_python.rs: JSON IPC with the reference Python optimizer.
