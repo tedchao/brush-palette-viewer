@@ -43,6 +43,21 @@ pub async fn burn_init_setup() -> WgpuDevice {
 }
 
 pub fn burn_init_device(adapter: Adapter, device: Device, queue: Queue) -> WgpuDevice {
+    // Unlike Chrome, Safari doesn't print uncaptured WebGPU errors to the
+    // console, so failures there are silent. Log them (and the device's
+    // features, which decide eg. the subgroup paths) ourselves.
+    #[cfg(target_family = "wasm")]
+    {
+        log::info!(
+            "WebGPU adapter: {:?}, features: {:?}",
+            adapter.get_info(),
+            device.features()
+        );
+        device.on_uncaptured_error(std::sync::Arc::new(|err| {
+            log::error!("WebGPU uncaptured error: {err}");
+        }));
+    }
+
     let setup = burn_wgpu::WgpuSetup {
         instance: wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle()), // unused... need to fix this in Burn.
         adapter,

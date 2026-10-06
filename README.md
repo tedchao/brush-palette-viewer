@@ -29,7 +29,7 @@ Each scene lives in `models/<name>/` as a `name.pply` + `name.gswp` pair. Pass t
 ./target/debug/brush --with-viewer models/statue/statue.pply
 ```
 
-(after lauching, click the small gear icon on the top-right of the window and select "Recenter view" button in the very end of the pop-up window.)
+The view recenters on the scene automatically once it has loaded. **Recenter view** in the settings (⚙) does the same on demand.
 
 ## Controls
 
@@ -52,6 +52,45 @@ The original Brush rendering path is untouched. Vanilla `.ply` files (without an
 ```bash
 ./target/debug/brush --with-viewer path/to/vanilla.ply
 ```
+
+## Web version
+
+The viewer also runs in the browser via WebAssembly and WebGPU. The
+`.github/workflows/pages.yml` workflow builds it and deploys it to GitHub Pages
+(`https://<owner>.github.io/<repo>/`) on every push to the default branch; set
+**Settings → Pages → Source** to **GitHub Actions** once to enable it.
+
+**Browsers:** tested in Chrome, Firefox, and Safari 27. Safari 26 loads
+scenes but renders them black.
+
+**Loading scenes:** use **File**, **Directory**, or **URL**, or pass
+`?url=<link>` in the page address. A `.pply` needs its `.gswp` to show colors:
+
+- open a folder or `.zip` containing both files, or
+- load the `.pply` from a URL; `foo.gswp` is fetched from the same location.
+  Files on another server must allow cross-origin requests (CORS).
+
+A single `.pply` picked with **File** renders as gray geometry, since the
+browser can't see the file next to it.
+
+**Differences from the desktop app:** the constraint optimizer runs
+single-threaded, and saving weight images (⚖) isn't available.
+
+**Building locally** needs the `wasm32-unknown-unknown` target from rustup (a
+Homebrew `rust` install has none), [`wasm-pack`](https://github.com/drager/wasm-pack),
+and Node.js:
+
+```bash
+rustup target add wasm32-unknown-unknown
+npm install
+cd brush_nextjs
+npm run build:wasm-release   # WASM → brush_nextjs/pkg
+npx next build --turbopack   # static site → brush_nextjs/out
+python3 -m http.server -d out 8000
+```
+
+Then open <http://localhost:8000/>. `npm run dev` instead starts a dev server
+with a debug WASM build.
 
 ## The constraint optimizer
 
