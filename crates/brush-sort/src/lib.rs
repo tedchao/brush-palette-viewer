@@ -8,7 +8,9 @@ use burn::tensor::Int;
 use burn::tensor::Tensor;
 use burn::tensor::TensorMetadata;
 use burn_cubecl::CubeBackend;
-use burn_cubecl::cubecl::server::KernelArguments;
+use burn_cubecl::cubecl::Runtime;
+use burn_cubecl::cubecl::features::Plane;
+use burn_cubecl::cubecl::server::{ComputeServer, KernelArguments};
 use burn_wgpu::CubeTensor;
 use burn_wgpu::WgpuRuntime;
 
@@ -28,6 +30,22 @@ pub struct SortScanAdd;
 #[wgsl_kernel(source = "src/shaders/sort_scatter.wgsl")]
 pub struct SortScatter;
 
+// Fallbacks for devices without the "subgroups" feature (eg. Firefox's WebGPU,
+// whose shader compiler can't parse `enable subgroups;`).
+#[wgsl_kernel(source = "src/shaders/sort_reduce_no_subgroups.wgsl")]
+pub struct SortReduceNoSubgroups;
+
+#[wgsl_kernel(source = "src/shaders/sort_scan_no_subgroups.wgsl")]
+pub struct SortScanNoSubgroups;
+
+#[wgsl_kernel(source = "src/shaders/sort_scan_add_no_subgroups.wgsl")]
+pub struct SortScanAddNoSubgroups;
+
+#[wgsl_kernel(source = "src/shaders/sort_scatter_no_subgroups.wgsl")]
+pub struct SortScatterNoSubgroups;
+
+type Kernel = <<WgpuRuntime as Runtime>::Server as ComputeServer>::Kernel;
+
 // Import types from the generated modules
 use sort_count::Uniforms;
 
@@ -42,6 +60,18 @@ pub fn radix_argsort(
     input_keys: CubeTensor<WgpuRuntime>,
     input_values: CubeTensor<WgpuRuntime>,
     sorting_bits: u32,
+) -> (CubeTensor<WgpuRuntime>, CubeTensor<WgpuRuntime>) {
+    let subgroups = input_keys.client.features().plane.contains(Plane::Ops);
+    radix_argsort_impl(input_keys, input_values, sorting_bits, subgroups)
+}
+
+/// `radix_argsort` with an explicit choice of the subgroup kernels or their
+/// subgroup-free fallbacks.
+fn radix_argsort_impl(
+    input_keys: CubeTensor<WgpuRuntime>,
+    input_values: CubeTensor<WgpuRuntime>,
+    sorting_bits: u32,
+    subgroups: bool,
 ) -> (CubeTensor<WgpuRuntime>, CubeTensor<WgpuRuntime>) {
     assert_eq!(
         input_keys.shape()[0],
@@ -118,7 +148,11 @@ pub fn radix_argsort(
             let reduced_buf = create_tensor([reduced_buf_size as usize], device, DType::I32);
 
             client.launch(
-                SortReduce::task(),
+                if subgroups {
+                    SortReduce::task() as Kernel
+                } else {
+                    SortReduceNoSubgroups::task()
+                },
                 num_reduce_wgs.clone(),
                 KernelArguments::new().with_buffers(vec![
                     num_keys_buf.handle.clone().binding(),
@@ -129,7 +163,11 @@ pub fn radix_argsort(
             // SAFETY: No OOB or loops in kernel.
             unsafe {
                 client.launch_unchecked(
-                    SortScan::task(),
+                    if subgroups {
+                        SortScan::task() as Kernel
+                    } else {
+                        SortScanNoSubgroups::task()
+                    },
                     CubeCount::Static(1, 1, 1),
                     KernelArguments::new().with_buffers(vec![
                         num_keys_buf.handle.clone().binding(),
@@ -139,7 +177,11 @@ pub fn radix_argsort(
             }
 
             client.launch(
-                SortScanAdd::task(),
+                if subgroups {
+                    SortScanAdd::task() as Kernel
+                } else {
+                    SortScanAddNoSubgroups::task()
+                },
                 num_reduce_wgs.clone(),
                 KernelArguments::new().with_buffers(vec![
                     num_keys_buf.handle.clone().binding(),
@@ -153,7 +195,11 @@ pub fn radix_argsort(
         let output_values = create_tensor([max_n as usize], device, cur_vals.dtype());
 
         client.launch(
-            SortScatter::task(),
+            if subgroups {
+                SortScatter::task() as Kernel
+            } else {
+                SortScatterNoSubgroups::task()
+            },
             num_wgs.clone(),
             KernelArguments::new().with_buffers(vec![
                 uniforms_buffer.handle.clone().binding(),
@@ -174,7 +220,7 @@ pub fn radix_argsort(
 
 #[cfg(test)]
 mod tests {
-    use crate::radix_argsort;
+    use crate::{radix_argsort, radix_argsort_impl};
     use burn::tensor::{Int, Tensor};
     use burn_wgpu::{CubeBackend, WgpuRuntime};
     use rand::RngExt;
@@ -451,6 +497,41 @@ mod tests {
                 "value at sorted index {i} is {}, expected {}",
                 ret_values_slice[i], expected_values[i]
             );
+        }
+    }
+    // Exercise the subgroup-free fallback kernels even on devices that support
+    // subgroups (where radix_argsort would pick the subgroup path).
+    #[wasm_bindgen_test(unsupported = tokio::test)]
+    async fn test_sorting_no_subgroups() {
+        let device = brush_kernel::test_helpers::test_device().await;
+        let mut rng = rand::rng();
+
+        // Small, and big enough to need several workgroups per pass.
+        for n in [15, 1_000_003] {
+            let keys_inp: Vec<i32> = (0..n).map(|_| rng.random_range(0..1 << 24)).collect();
+            let values_inp: Vec<i32> = (0..n).collect();
+
+            let keys = Tensor::<Backend, 1, Int>::from_ints(keys_inp.as_slice(), &device)
+                .into_primitive();
+            let values = Tensor::<Backend, 1, Int>::from_ints(values_inp.as_slice(), &device)
+                .into_primitive();
+            let (ret_keys, ret_values) = radix_argsort_impl(keys, values, 32, false);
+
+            let ret_keys = Tensor::<Backend, 1, Int>::from_primitive(ret_keys)
+                .into_data_async()
+                .await
+                .expect("readback");
+            let ret_values = Tensor::<Backend, 1, Int>::from_primitive(ret_values)
+                .into_data_async()
+                .await
+                .expect("readback");
+
+            // Radix sort is stable, so values must match a stable CPU argsort.
+            let inds = argsort(&keys_inp);
+            let ref_keys: Vec<i32> = inds.iter().map(|&i| keys_inp[i]).collect();
+            let ref_values: Vec<i32> = inds.iter().map(|&i| values_inp[i]).collect();
+            assert_eq!(ret_keys.as_slice::<i32>().expect("Wrong type"), ref_keys);
+            assert_eq!(ret_values.as_slice::<i32>().expect("Wrong type"), ref_values);
         }
     }
 }
