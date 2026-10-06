@@ -75,18 +75,16 @@ pub(crate) fn connect_device(device: WgpuDevice) {
 }
 
 /// Try to load and parse the .gswp sidecar associated with a .pply path.
-/// The sidecar is first looked up inside the VFS (a picked directory or zip
-/// containing both files; this is the only option on WASM). On native, it
-/// falls back to the local filesystem next to `fs_pply_path`, which covers
-/// opening a single .pply file whose VFS contains only that file.
+/// Looked up, in order:
+/// 1. inside the VFS (a picked directory or zip containing both files),
+/// 2. on native, next to a .pply opened from a filesystem path,
+/// 3. next to a .pply loaded from a URL (`foo.pply` -> `foo.gswp`).
 /// Returns Ok(None) if the sidecar file simply doesn't exist; Err for any
-/// I/O or parse failure.
+/// I/O, network or parse failure.
 async fn load_palette_sidecar(
     vfs: &brush_vfs::BrushVfs,
     vfs_pply_path: &std::path::Path,
-    #[cfg_attr(target_family = "wasm", allow(unused_variables))] fs_pply_path: Option<
-        &std::path::Path,
-    >,
+    source: &DataSource,
     expected_n_splats: u32,
 ) -> Result<Option<brush_palette::PaletteSidecar>, anyhow::Error> {
     use tokio::io::AsyncReadExt;
@@ -101,12 +99,25 @@ async fn load_palette_sidecar(
     }
 
     #[cfg(not(target_family = "wasm"))]
-    if let Some(sidecar_path) = fs_pply_path.and_then(brush_palette::sidecar_path_for)
+    if let DataSource::Path(fs_pply_path) = source
+        && let Some(sidecar_path) = brush_palette::sidecar_path_for(std::path::Path::new(fs_pply_path))
         && tokio::fs::try_exists(&sidecar_path).await.unwrap_or(false)
     {
         let bytes = tokio::fs::read(&sidecar_path).await?;
         let sc = brush_palette::PaletteSidecar::parse(&bytes, expected_n_splats)?;
         return Ok(Some(sc));
+    }
+
+    if let Some(url_file_name) = source.url_file_name()
+        && let Some(sidecar_name) =
+            brush_palette::sidecar_path_for(std::path::Path::new(url_file_name))
+        && let Some(sidecar_name) = sidecar_name.to_str()
+    {
+        log::info!("Fetching sidecar {sidecar_name} next to {url_file_name}");
+        if let Some(bytes) = source.fetch_sibling(sidecar_name).await? {
+            let sc = brush_palette::PaletteSidecar::parse(&bytes, expected_n_splats)?;
+            return Ok(Some(sc));
+        }
     }
 
     Ok(None)
@@ -235,12 +246,9 @@ pub fn create_process<
         #[cfg(feature = "training")]
         let initial_config = crate::args_file::load_config_from_vfs(&vfs).await;
         
-        // Capture original source path for sidecar resolution (Stage B), as a
-        // filesystem fallback when the sidecar isn't inside the VFS.
-        let source_path: Option<std::path::PathBuf> = match &source {
-            brush_vfs::DataSource::Path(s) => Some(std::path::PathBuf::from(s)),
-            _ => None,
-        };
+        // Keep the original source for sidecar resolution (Stage B): a .gswp
+        // that isn't inside the VFS may sit next to the source path or URL.
+        let sidecar_source = source.clone();
         
         emitter
             .emit(ProcessMessage::StartLoading {
@@ -306,7 +314,7 @@ pub fn create_process<
                         match load_palette_sidecar(
                             &vfs,
                             path,
-                            source_path.as_deref(),
+                            &sidecar_source,
                             splats.num_splats(),
                         )
                         .await

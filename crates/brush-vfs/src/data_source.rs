@@ -91,27 +91,36 @@ impl DataSource {
         }
     }
 
-    async fn fetch_url(url: String) -> Result<Arc<BrushVfs>, DataSourceError> {
-        let mut url = url.clone();
+    /// For a URL source, fetch `file_name` from the same directory as the URL
+    /// (eg. a .pply's .gswp sidecar). Returns Ok(None) for non-URL sources or
+    /// when the server responds 404.
+    pub async fn fetch_sibling(
+        &self,
+        file_name: &str,
+    ) -> Result<Option<Vec<u8>>, DataSourceError> {
+        let Self::Url(url) = self else {
+            return Ok(None);
+        };
+        let url = resolve_url(url);
+        // Drop any query/fragment, then replace the last path segment.
+        let base = url.split(['?', '#']).next().unwrap_or(&url);
+        let Some((dir, _)) = base.rsplit_once('/') else {
+            return Ok(None);
+        };
+        fetch_bytes(&format!("{dir}/{file_name}")).await
+    }
 
-        if url.starts_with("https://") || url.starts_with("http://") {
-            // fine, can use as is.
-        } else if url.starts_with('/') {
-            #[cfg(target_family = "wasm")]
-            {
-                // Assume that this instead points to a GET request for the server.
-                url = web_sys::window()
-                    .expect("No window object available")
-                    .location()
-                    .origin()
-                    .expect("Coultn't figure out origin")
-                    + &url;
-            }
-            // On non-wasm... not much we can do here, what server would we ask?
-        } else {
-            // Just try to add https:// and hope for the best. Eg. if someone specifies google.com/splat.ply.
-            url = format!("https://{url}");
-        }
+    /// The last path segment of a URL source, without query or fragment.
+    pub fn url_file_name(&self) -> Option<&str> {
+        let Self::Url(url) = self else {
+            return None;
+        };
+        let base = url.split(['?', '#']).next()?;
+        base.rsplit('/').next().filter(|s| !s.is_empty())
+    }
+
+    async fn fetch_url(url: String) -> Result<Arc<BrushVfs>, DataSourceError> {
+        let url = resolve_url(&url);
 
         #[cfg(not(target_family = "wasm"))]
         {
@@ -149,29 +158,8 @@ impl DataSource {
         {
             use tokio_util::compat::FuturesAsyncReadCompatExt;
             use wasm_streams::ReadableStream;
-            use web_sys::wasm_bindgen::JsCast;
-            use web_sys::{Request, RequestInit, RequestMode, Response};
 
-            let opts = RequestInit::new();
-            opts.set_method("GET");
-            opts.set_mode(RequestMode::Cors);
-
-            let request = Request::new_with_str_and_init(&url, &opts).map_err(|e| {
-                DataSourceError::FetchError(format!("Failed to create request: {:?}", e))
-            })?;
-
-            let window = web_sys::window().ok_or_else(|| {
-                DataSourceError::FetchError("No window object available".to_string())
-            })?;
-
-            let resp_value =
-                wasm_bindgen_futures::JsFuture::from(window.fetch_with_request(&request))
-                    .await
-                    .map_err(|e| DataSourceError::FetchError(format!("Fetch failed: {:?}", e)))?;
-
-            let resp: Response = resp_value.dyn_into().map_err(|e| {
-                DataSourceError::FetchError(format!("Failed to cast to Response: {:?}", e))
-            })?;
+            let resp = wasm_fetch(&url).await?;
 
             if !resp.ok() {
                 return Err(DataSourceError::FetchError(format!(
@@ -210,4 +198,88 @@ impl DataSource {
             Ok(Arc::new(BrushVfs::from_reader(async_read, name).await?))
         }
     }
+}
+
+/// Normalize a user-provided URL: absolute paths are resolved against the page
+/// origin on WASM, and a missing scheme defaults to https.
+fn resolve_url(url: &str) -> String {
+    if url.starts_with("https://") || url.starts_with("http://") {
+        // fine, can use as is.
+        url.to_owned()
+    } else if url.starts_with('/') {
+        #[cfg(target_family = "wasm")]
+        {
+            // Assume that this instead points to a GET request for the server.
+            web_sys::window()
+                .expect("No window object available")
+                .location()
+                .origin()
+                .expect("Coultn't figure out origin")
+                + url
+        }
+        // On non-wasm... not much we can do here, what server would we ask?
+        #[cfg(not(target_family = "wasm"))]
+        url.to_owned()
+    } else {
+        // Just try to add https:// and hope for the best. Eg. if someone specifies google.com/splat.ply.
+        format!("https://{url}")
+    }
+}
+
+/// Fetch a URL fully into memory. Returns Ok(None) on HTTP 404.
+async fn fetch_bytes(url: &str) -> Result<Option<Vec<u8>>, DataSourceError> {
+    #[cfg(not(target_family = "wasm"))]
+    {
+        let response = reqwest::get(url).await?;
+        if response.status() == reqwest::StatusCode::NOT_FOUND {
+            return Ok(None);
+        }
+        let bytes = response.error_for_status()?.bytes().await?;
+        Ok(Some(bytes.to_vec()))
+    }
+
+    #[cfg(target_family = "wasm")]
+    {
+        let resp = wasm_fetch(url).await?;
+        if resp.status() == 404 {
+            return Ok(None);
+        }
+        if !resp.ok() {
+            return Err(DataSourceError::FetchError(format!(
+                "HTTP error: {}",
+                resp.status()
+            )));
+        }
+        let read_err = |e| DataSourceError::FetchError(format!("Failed to read body: {e:?}"));
+        let buffer = resp.array_buffer().map_err(read_err)?;
+        let buffer = wasm_bindgen_futures::JsFuture::from(buffer)
+            .await
+            .map_err(read_err)?;
+        Ok(Some(js_sys::Uint8Array::new(&buffer).to_vec()))
+    }
+}
+
+#[cfg(target_family = "wasm")]
+async fn wasm_fetch(url: &str) -> Result<web_sys::Response, DataSourceError> {
+    use web_sys::wasm_bindgen::JsCast;
+    use web_sys::{Request, RequestInit, RequestMode, Response};
+
+    let opts = RequestInit::new();
+    opts.set_method("GET");
+    opts.set_mode(RequestMode::Cors);
+
+    let request = Request::new_with_str_and_init(url, &opts).map_err(|e| {
+        DataSourceError::FetchError(format!("Failed to create request: {:?}", e))
+    })?;
+
+    let window = web_sys::window()
+        .ok_or_else(|| DataSourceError::FetchError("No window object available".to_string()))?;
+
+    let resp_value = wasm_bindgen_futures::JsFuture::from(window.fetch_with_request(&request))
+        .await
+        .map_err(|e| DataSourceError::FetchError(format!("Fetch failed: {:?}", e)))?;
+
+    resp_value
+        .dyn_into::<Response>()
+        .map_err(|e| DataSourceError::FetchError(format!("Failed to cast to Response: {:?}", e)))
 }
