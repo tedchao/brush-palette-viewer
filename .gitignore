@@ -47,3 +47,6 @@ local.properties
 .claude/settings.local.json
 crates/brush-palette/python/__pycache__/
 models/
+
+# Ignore a compiled binary
+/brush
