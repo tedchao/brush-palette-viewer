@@ -45,10 +45,10 @@ pub struct SplatBackbuffer {
     pending_click: Option<[u32; 2]>,
     last_image: Option<Tensor<MainBackend, 3>>,
     last_state: Option<LastRenderState>,
-    last_frame_time: Option<std::time::Instant>,
+    last_frame_time: Option<web_time::Instant>,
     fps_ema: f32,
     fps_displayed: f32,
-    last_fps_update: Option<std::time::Instant>,
+    last_fps_update: Option<web_time::Instant>,
     pending_save: bool,
     pending_save_weights: bool,
 }
@@ -142,7 +142,7 @@ impl SplatBackbuffer {
         );
 
         // Update FPS estimate (EMA over instantaneous frame deltas).
-        let now = std::time::Instant::now();
+        let now = web_time::Instant::now();
         if let Some(last) = self.last_frame_time {
             let dt = now.duration_since(last).as_secs_f32();
             if dt > 0.0 {

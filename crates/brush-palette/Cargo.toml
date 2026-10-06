@@ -41,6 +41,7 @@ bytemuck = { workspace = true, features = ["derive"] }
 # default-features = false disables rayon, which uses OS futex ops unavailable on WASM.
 # The solver still works single-threaded; rayon would only help on large scenes.
 faer = { version = "0.24", default-features = false }
+web-time.workspace = true
 
 [dev-dependencies]
 # tests/compare_python.rs: JSON IPC with the reference Python optimizer.
