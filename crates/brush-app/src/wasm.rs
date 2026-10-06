@@ -62,6 +62,8 @@ impl CameraSettings {
             },
             background: background.map(|v| v.to_glam()),
             grid_enabled,
+            auto_rotate: None,
+            auto_rotate_speed: None,
         })
     }
 }

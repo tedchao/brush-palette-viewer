@@ -38,7 +38,9 @@ bytemuck = { workspace = true, features = ["derive"] }
 # M2: native constraint optimizer (Rust port of python/constraint_optimizer.py).
 # faer gives us sparse LU (L-system) + dense LU (P-system IRLS) with no
 # system/Fortran deps.
-faer = "0.24"
+# default-features = false disables rayon, which uses OS futex ops unavailable on WASM.
+# The solver still works single-threaded; rayon would only help on large scenes.
+faer = { version = "0.24", default-features = false }
 
 [dev-dependencies]
 # tests/compare_python.rs: JSON IPC with the reference Python optimizer.

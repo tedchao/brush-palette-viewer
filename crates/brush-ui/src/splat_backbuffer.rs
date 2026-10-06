@@ -456,6 +456,7 @@ async fn render_worker(
                         .await;
                 }
 
+                #[cfg(not(target_family = "wasm"))]
                 if request.pending_save_weights {
                     if let Some(weights) = full_weights {
                         let original_palette = request.original_palette.clone();
@@ -606,6 +607,7 @@ fn draw_ring_rgb(buf: &mut [u8], w: i32, h: i32, cx: i32, cy: i32, r: i32, color
 }
 
 
+#[cfg(not(target_family = "wasm"))]
 async fn save_weights_folder(
     weights: Vec<f32>,           // [H*W*8] flat, K_FULL=8
     img_size: UVec2,

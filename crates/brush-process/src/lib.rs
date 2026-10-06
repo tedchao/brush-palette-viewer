@@ -17,7 +17,7 @@ pub mod args_file;
 
 pub mod slot;
 
-use std::pin::{Pin, pin};
+use std::pin::Pin;
 
 use anyhow::Error;
 use async_fn_stream::try_fn_stream;
@@ -75,21 +75,72 @@ pub(crate) fn connect_device(device: WgpuDevice) {
 }
 
 /// Try to load and parse the .gswp sidecar associated with a .pply path.
+/// The sidecar is first looked up inside the VFS (a picked directory or zip
+/// containing both files; this is the only option on WASM). On native, it
+/// falls back to the local filesystem next to `fs_pply_path`, which covers
+/// opening a single .pply file whose VFS contains only that file.
 /// Returns Ok(None) if the sidecar file simply doesn't exist; Err for any
 /// I/O or parse failure.
 async fn load_palette_sidecar(
-    pply_path: &std::path::Path,
+    vfs: &brush_vfs::BrushVfs,
+    vfs_pply_path: &std::path::Path,
+    #[cfg_attr(target_family = "wasm", allow(unused_variables))] fs_pply_path: Option<
+        &std::path::Path,
+    >,
     expected_n_splats: u32,
 ) -> Result<Option<brush_palette::PaletteSidecar>, anyhow::Error> {
-    let Some(sidecar_path) = brush_palette::sidecar_path_for(pply_path) else {
-        return Ok(None);
-    };
-    if !tokio::fs::try_exists(&sidecar_path).await.unwrap_or(false) {
-        return Ok(None);
+    use tokio::io::AsyncReadExt;
+
+    if let Some(sidecar_path) = brush_palette::sidecar_path_for(vfs_pply_path)
+        && let Ok(mut reader) = vfs.reader_at_path(&sidecar_path).await
+    {
+        let mut bytes = Vec::new();
+        reader.read_to_end(&mut bytes).await?;
+        let sc = brush_palette::PaletteSidecar::parse(&bytes, expected_n_splats)?;
+        return Ok(Some(sc));
     }
-    let bytes = tokio::fs::read(&sidecar_path).await?;
-    let sc = brush_palette::PaletteSidecar::parse(&bytes, expected_n_splats)?;
-    Ok(Some(sc))
+
+    #[cfg(not(target_family = "wasm"))]
+    if let Some(sidecar_path) = fs_pply_path.and_then(brush_palette::sidecar_path_for)
+        && tokio::fs::try_exists(&sidecar_path).await.unwrap_or(false)
+    {
+        let bytes = tokio::fs::read(&sidecar_path).await?;
+        let sc = brush_palette::PaletteSidecar::parse(&bytes, expected_n_splats)?;
+        return Ok(Some(sc));
+    }
+
+    Ok(None)
+}
+
+// On WASM, DynRead is not Send (single-threaded runtime; no OS threads).
+// On native, DynRead is Send, so we require it for the stream to be Send.
+#[cfg(not(target_family = "wasm"))]
+fn pin_splat_stream(
+    s: impl tokio_stream::Stream<Item = Result<brush_serde::SplatMessage, brush_serde::DeserializeError>>
+        + Send
+        + 'static,
+) -> Pin<
+    Box<
+        dyn tokio_stream::Stream<
+                Item = Result<brush_serde::SplatMessage, brush_serde::DeserializeError>,
+            > + Send,
+    >,
+> {
+    Box::pin(s)
+}
+
+#[cfg(target_family = "wasm")]
+fn pin_splat_stream(
+    s: impl tokio_stream::Stream<Item = Result<brush_serde::SplatMessage, brush_serde::DeserializeError>>
+        + 'static,
+) -> Pin<
+    Box<
+        dyn tokio_stream::Stream<
+            Item = Result<brush_serde::SplatMessage, brush_serde::DeserializeError>,
+        >,
+    >,
+> {
+    Box::pin(s)
 }
 
 /// Replace the SH coefficients of `splats` with degree-0 only, set to the
@@ -149,6 +200,8 @@ pub fn create_process<
 
         let ply_count = vfs.files_with_extension("ply").count()
             + vfs.files_with_extension("pply").count();
+        // .gswp palette sidecars accompany .pply files; they don't make this a dataset.
+        let sidecar_count = vfs.files_with_extension("gswp").count();
 
         log::info!(
             "Mounted VFS with {} files. (plys: {})",
@@ -156,7 +209,7 @@ pub fn create_process<
             ply_count
         );
 
-        let is_training = vfs_counts != ply_count;
+        let is_training = vfs_counts != ply_count + sidecar_count;
 
         // Emit source info - just the display name
         let paths: Vec<_> = vfs.file_paths().collect();
@@ -182,7 +235,8 @@ pub fn create_process<
         #[cfg(feature = "training")]
         let initial_config = crate::args_file::load_config_from_vfs(&vfs).await;
         
-        // Capture original source path for sidecar resolution (Stage B).
+        // Capture original source path for sidecar resolution (Stage B), as a
+        // filesystem fallback when the sidecar isn't inside the VFS.
         let source_path: Option<std::path::PathBuf> = match &source {
             brush_vfs::DataSource::Path(s) => Some(std::path::PathBuf::from(s)),
             _ => None,
@@ -198,7 +252,10 @@ pub fn create_process<
             .await;
 
         if !is_training {
-            let mut paths: Vec<_> = vfs.file_paths().collect();
+            let mut paths: Vec<_> = vfs
+                .file_paths()
+                .filter(|p| !p.extension().is_some_and(|e| e.eq_ignore_ascii_case("gswp")))
+                .collect();
             alphanumeric_sort::sort_path_slice(&mut paths);
             let client = WgpuRuntime::client(&device);
             let total_frames = paths.len() as u32;
@@ -214,15 +271,14 @@ pub fn create_process<
                     }
                 }
 
-                type SplatStream = std::pin::Pin<Box<dyn tokio_stream::Stream<Item = Result<brush_serde::SplatMessage, brush_serde::DeserializeError>> + Send>>;
-                let mut splat_stream: SplatStream = if is_palette {
-                    Box::pin(brush_palette::stream_pply_as_geometry(
+                let mut splat_stream = if is_palette {
+                    pin_splat_stream(brush_palette::stream_pply_as_geometry(
                         vfs.reader_at_path(path).await?,
                         None,
                         true,
                     ))
                 } else {
-                    Box::pin(brush_serde::stream_splat_from_ply(
+                    pin_splat_stream(brush_serde::stream_splat_from_ply(
                         vfs.reader_at_path(path).await?,
                         None,
                         true,
@@ -247,8 +303,14 @@ pub fn create_process<
                     // (stub), then fall back to Stage B's bake-DC for display
                     // until C2.5c hooks render_palette into the per-frame loop.
                     if is_palette {
-                        let sidecar_lookup_path = source_path.as_deref().unwrap_or(path.as_path());
-                        match load_palette_sidecar(sidecar_lookup_path, splats.num_splats()).await {
+                        match load_palette_sidecar(
+                            &vfs,
+                            path,
+                            source_path.as_deref(),
+                            splats.num_splats(),
+                        )
+                        .await
+                        {
                             Ok(Some(sidecar)) => {
                                 log::info!(
                                     "Loaded sidecar: K_full={}, num_sh={}, palette[0]=({:.3},{:.3},{:.3})",
