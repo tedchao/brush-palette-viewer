@@ -320,6 +320,43 @@ impl ScenePanel {
         ));
     }
 
+    /// Spinner + "Loading <name>…", centered while the scene is empty and at
+    /// the bottom once splats start appearing, so it doesn't cover them.
+    fn draw_loading_indicator(&self, ui: &egui::Ui, rect: Rect) {
+        let text = match &self.source_name {
+            Some(name) => format!("Loading {name}…"),
+            None => "Loading…".to_owned(),
+        };
+        let (pos, pivot) = if self.has_splats {
+            (egui::pos2(rect.center().x, rect.max.y - 16.0), Align2::CENTER_BOTTOM)
+        } else {
+            (rect.center(), Align2::CENTER_CENTER)
+        };
+
+        egui::Area::new(ui.auto_id_with("loading_indicator"))
+            .order(egui::Order::Foreground)
+            .fixed_pos(pos)
+            .pivot(pivot)
+            .interactable(false)
+            .show(ui.ctx(), |ui| {
+                Frame::new()
+                    .fill(Color32::from_rgba_unmultiplied(40, 40, 45, 200))
+                    .corner_radius(8.0)
+                    .inner_margin(egui::Margin::symmetric(16, 10))
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.add(egui::Spinner::new().size(16.0));
+                            ui.add_space(6.0);
+                            ui.label(
+                                RichText::new(text)
+                                    .size(14.0)
+                                    .color(Color32::from_rgb(200, 200, 200)),
+                            );
+                        });
+                    });
+            });
+    }
+
     fn draw_play_pause(&mut self, ui: &egui::Ui, rect: Rect) {
         // Only show play/pause if we have a multi-frame sequence that's fully loaded
         if self.frame_count > 1 {
@@ -1660,6 +1697,7 @@ impl AppPane for ScenePanel {
 
         // Empty scene, nothing to show - show load buttons
         let show_welcome = !process.is_training()
+            && !process.is_loading()
             && !self.has_splats
             && process.ui_mode() != UiMode::EmbeddedViewer;
 
@@ -1930,6 +1968,11 @@ impl AppPane for ScenePanel {
             if interactive {
                 self.draw_play_pause(ui, rect);
             }
+        }
+
+        // Loading indicator (training shows its settings popup instead).
+        if process.is_loading() && !process.is_training() {
+            self.draw_loading_indicator(ui, scene_rect);
         }
 
         // Draw settings popup if loading (at end so it draws over everything)

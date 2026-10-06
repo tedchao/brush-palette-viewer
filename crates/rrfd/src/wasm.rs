@@ -231,7 +231,19 @@ pub async fn pick_file() -> Result<crate::PickedFile<impl AsyncRead + Unpin>, Pi
         }) as Box<dyn FnMut(_)>)
     };
 
+    // Without this, cancelling the picker never resolves and the caller
+    // waits (eg. shows "Loading…") forever.
+    let oncancel = {
+        let sender = sender.clone();
+        Closure::wrap(Box::new(move |_: Event| {
+            if let Some(sender) = sender.borrow_mut().take() {
+                let _ = sender.send(None);
+            }
+        }) as Box<dyn FnMut(_)>)
+    };
+
     input.set_onchange(Some(onchange.as_ref().unchecked_ref()));
+    let _ = input.add_event_listener_with_callback("cancel", oncancel.as_ref().unchecked_ref());
     input.click();
 
     let files = receiver

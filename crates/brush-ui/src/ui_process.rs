@@ -471,7 +471,11 @@ impl UiProcess {
             }
         });
 
-        self.write().process_handle = Some(ProcessHandle {
+        let mut inner = self.write();
+        // Loading starts now, not at StartLoading: fetching and mounting the
+        // source (eg. downloading a URL) happens before that message.
+        inner.is_loading = true;
+        inner.process_handle = Some(ProcessHandle {
             messages: receiver,
             control: train_sender,
             splat_view: process.splat_view,
