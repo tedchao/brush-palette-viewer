@@ -49,7 +49,21 @@ struct RasterWeightUniforms {
 @group(0) @binding(5) var<storage, read> uniforms : RasterWeightUniforms;
 
 var<workgroup> range_uniform: vec2u;
-var<workgroup> local_batch: array<ProjectedWeightSplat, helpers::TILE_SIZE>;
+// ProjectedWeightSplat minus the depth/pad fields the loop below never reads.
+// 256 x 64 bytes would exceed WebGPU's default 16 KiB workgroup storage limit
+// (Metal/Vulkan allow 32 KiB, so it only fails in the browser); 56 bytes fits.
+struct BatchSplat {
+    xy_x:    f32,
+    xy_y:    f32,
+    conic_x: f32,
+    conic_y: f32,
+    conic_z: f32,
+    opacity: f32,
+    w0: f32, w1: f32, w2: f32, w3: f32,
+    w4: f32, w5: f32, w6: f32, w7: f32,
+}
+
+var<workgroup> local_batch: array<BatchSplat, helpers::TILE_SIZE>;
 var<workgroup> num_done_atomic: atomic<u32>;
 
 @compute
@@ -95,7 +109,7 @@ fn main(
     workgroupBarrier();
 
     for (var batch_start = range.x; batch_start < range.y; batch_start += helpers::TILE_SIZE) {
-        if atomicLoad(&num_done_atomic) >= helpers::TILE_SIZE { break; }
+        if workgroupUniformLoad(&num_done_atomic) >= helpers::TILE_SIZE { break; }
 
         let remaining = min(helpers::TILE_SIZE, range.y - batch_start);
 
@@ -107,7 +121,11 @@ fn main(
 
         workgroupBarrier();
         if local_idx < remaining {
-            local_batch[local_idx] = projected[compact_gid];
+            let p = projected[compact_gid];
+            local_batch[local_idx] = BatchSplat(
+                p.xy_x, p.xy_y, p.conic_x, p.conic_y, p.conic_z, p.opacity,
+                p.w0, p.w1, p.w2, p.w3, p.w4, p.w5, p.w6, p.w7,
+            );
         }
         workgroupBarrier();
 
