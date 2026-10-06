@@ -183,6 +183,14 @@ impl EmbeddedApp {
         }
     }
 
+    /// Whether to recenter the view on the splats once loading finishes.
+    #[wasm_bindgen]
+    pub fn set_auto_recenter(&self, enabled: bool) {
+        if let Some(app) = self.runner.app_mut::<App>() {
+            app.context().set_auto_recenter(enabled);
+        }
+    }
+
     #[wasm_bindgen]
     pub fn set_ui_mode(&self, mode: UiMode) {
         if let Some(app) = self.runner.app_mut::<App>() {

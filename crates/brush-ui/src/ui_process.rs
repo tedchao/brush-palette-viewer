@@ -553,7 +553,9 @@ impl UiProcess {
 
     pub fn reset_session(&self) {
         let mut inner = self.write();
+        let auto_recenter = inner.auto_recenter;
         *inner = UiProcessInner::new(inner.burn_device.clone(), inner.ui_ctx.clone());
+        inner.auto_recenter = auto_recenter;
         inner.session_reset_requested = true;
     }
 
@@ -574,6 +576,17 @@ impl UiProcess {
             guard.take().map(|r| (r.focal_point, r.distance, r.rotation))
         }
     
+    /// Whether to recenter the view automatically once a (non-training) load
+    /// finishes. On by default; turned off when the camera is set explicitly,
+    /// eg. from URL parameters on the web.
+    pub fn auto_recenter(&self) -> bool {
+        self.read().auto_recenter
+    }
+
+    pub fn set_auto_recenter(&self, enabled: bool) {
+        self.write().auto_recenter = enabled;
+    }
+
     /// Recenter the camera to frame the current scene's Gaussian bounding box.
     /// Reads positions from GPU asynchronously, computes centroid + extent,
     /// preserves current rotation. The result is consumed by the UI main thread.
@@ -680,6 +693,7 @@ struct UiProcessInner {
     pixel_constraints: Vec<PixelConstraintEntry>,
     click_mode: bool,
     pending_recenter: std::sync::Arc<std::sync::Mutex<Option<PendingRecenter>>>,
+    auto_recenter: bool,
 }
 
 impl UiProcessInner {
@@ -713,6 +727,7 @@ impl UiProcessInner {
             burn_device,
             ui_ctx,
             pending_recenter: std::sync::Arc::new(std::sync::Mutex::new(None)),
+            auto_recenter: true,
         }
     }
 

@@ -1605,6 +1605,12 @@ impl AppPane for ScenePanel {
                     }
                 }
             }
+            ProcessMessage::DoneLoading => {
+                // Frame the newly loaded splats, as the "Recenter view" button does.
+                if !process.is_training() && process.auto_recenter() {
+                    process.recenter();
+                }
+            }
             ProcessMessage::Warning { error } => {
                 self.warnings.push(ErrorDisplay::new(error));
             }

@@ -73,6 +73,8 @@ export default function BrushViewer(props: BrushViewerProps) {
       const focalDistance = props.focusDistance ?? 2.5;
       const cameraRotation = props.cameraRotation ?? new Vector3(0, 0, 0);
       app.set_focal_point(focalPoint, focalDistance, cameraRotation);
+      // Recenter on the splats after loading, unless the URL framed the view explicitly.
+      app.set_auto_recenter(props.focalPoint === undefined && props.focusDistance === undefined);
     }
   }, [app, props.url, props.focalPoint, props.focusDistance, props.cameraRotation]);
 
