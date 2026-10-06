@@ -1,0 +1,72 @@
+name: Deploy web viewer to GitHub Pages
+
+# Builds the WASM app + Next.js static export and publishes it to
+# https://<owner>.github.io/<repo>/. Runs on pushes to the repository's
+# default branch (the github-pages environment only accepts deployments from
+# it by default) and on manual dispatch.
+#
+# One-time setup: Settings -> Pages -> Build and deployment -> Source:
+# "GitHub Actions".
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    if: github.event_name == 'workflow_dispatch' || github.ref_name == github.event.repository.default_branch
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Add Rust WASM target
+        run: rustup target add wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install wasm-pack
+        uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-pack
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Build WASM
+        working-directory: brush_nextjs
+        run: npm run build:wasm-release
+
+      - name: Build static site
+        working-directory: brush_nextjs
+        env:
+          # Project pages are served from /<repo>/.
+          NEXT_PUBLIC_BASE_PATH: /${{ github.event.repository.name }}
+        run: npx next build --turbopack
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: brush_nextjs/out
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
